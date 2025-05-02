@@ -691,7 +691,26 @@ filtered.forEach((p, idx) => {
   row.innerHTML = `
     <td>${idx + 1}</td>
     <td><img src="${p.image}" class="product-img" alt="${p.title}" style="cursor:pointer;" onclick="showPreview('${p.image}')"/></td>
-    <td>${p.title}</td>
+ <td>
+  ${(() => {
+    // Находим все скобки
+    const matches = p.title.match(/\(.*?\)/g);
+    // Если есть скобки
+    if (matches && matches.length) {
+      // Последнее выражение в скобках
+      const lastBracket = matches[matches.length - 1];
+      // Убираем последнее выражение в скобках из названия
+      const main = p.title.replace(lastBracket, '').trim();
+      return `
+        ${main}
+        <div style="font-size:12px;color:#888;">${lastBracket}</div>
+      `;
+    } else {
+      // Если скобок нет — просто название
+      return p.title;
+    }
+  })()}
+</td>
     <td class="price-cell">
       <span>${p.price}c</span>
      
