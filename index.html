@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+
+<html lang="ru">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  
+
+  <style>
+
+
+.search-sort-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+  width: 100%;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.search-sort-row input,
+.search-sort-row select,
+.search-sort-row .other-site-btn {
+  flex: 1 1 0;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  margin: 10px auto; /* добавьте эту строку */
+}
+.other-site-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #007bff;
+  color: #fff !important;
+  text-align: center;
+  padding: 10px 0;
+  border-radius: 5px;
+  text-decoration: none;
+  transition: background 0.2s;
+  font-weight: bold;
+  height: 100%;
+}
+.other-site-btn:hover {
+  background: #0056b3;
+}
+@media (max-width: 600px) {
+  .search-sort-row {
+    flex-direction: column;
+    gap: 0;
+    max-width: 100%;
+  }
+  .other-site-btn {
+    margin-top: 8px;
+  }
+}
+
+
+/* ...existing code... */
+th:nth-child(5), td:nth-child(5) {
+  min-width: 90px;
+  width: 80px;
+}
+/* ...existing code... */
+
+
+    /* ...existing code... */
+thead th {
+  position: sticky;
+  top: 0;
+  background: #00fff7;
+  z-index: 2;
+}
+/* ...existing code... */
+
+
+body.modal-open {
+  overflow: hidden;           /* Запретить прокрутку */
+  pointer-events: none;       /* Запретить клики по всему body */
+}
+#previewBlock {
+  pointer-events: auto !important; /* Разрешить клики по модальному окну */
+}
+
+ button.delete-item {
+  background: none; /* Убираем фон */
+  border: none; /* Убираем границу */
+  color: #dc3545; /* Красный цвет для кнопки */
+  font-size: 14px; /* Размер текста */
+  cursor: pointer; /* Указываем, что это кнопка */
+  padding: 0; /* Убираем лишние внутренние отступы */
+  width: 20px; /* Устанавливаем фиксированную ширину */
+  height: 20px; /* Устанавливаем фиксированную высоту */
+  border-radius: 20%; /* Делаем кнопку круглой */
+  line-height: 1; /* Убираем лишние отступы внутри кнопки */
+  display: flex; /* Центрируем содержимое */
+  align-items: center;
+  justify-content: center;
+}
+
+button.delete-item:hover {
+  color: #c82333; /* Более тёмный красный при наведении */
+}
+
+    body {
+
+  background-image: url('фон.avif'); /* сюда вставь ссылку или путь к картинке */
+
+  background-size: cover;
+
+  background-repeat: no-repeat;
+
+  background-position: center center;
+
+}
+
+
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body { font-family: 'Arial', sans-serif; background: #f4f4f4; color: #333; }
+
+    h1, h2 { text-align: center; margin-bottom: 20px; animation: fadeIn 1s ease forwards; }
+
+    body {
+
+  background-image: url('фон.avif'); /* сюда вставь ссылку или путь к картинке */
+
+  background-size: cover;
+
+  background-repeat: no-repeat;
+
+  background-position: center center;
+
+}
+
+h1 {
+
+  color: rgb(255, 255, 255);
+
+}
+
+
+
+
+
+    input, select, button, textarea {
+
+      font-size: 1rem;
+
+      padding: 10px;
+
+      margin: 10px auto;
+
+      width: 100%;
+
+      max-width: 400px;
+
+      display: block;
+
+      border-radius: 5px;
+
+      border: 1px solid #ccc;
+
+    }
+
+    .cart-item {
+
+  display: flex;
+
+  align-items: center;
+
+  justify-content: space-between;
+
+  margin-bottom: 10px;
+
+}
+
+
+
+    button {
+
+      background: #28a745;
+
+      color: white;
+
+      border: none;
+
+      cursor: pointer;
+
+      transition: 0.3s;
+
+    }
+
+    button:hover { background: #218838; }
+
+
+
+    table {
+
+      width: 100%;
+
+      border-collapse: collapse;
+
+      margin-bottom: 20px;
+
+      background: white;
+
+      box-shadow: 0 0 10px #ccc;
+
+    }
+
+    th, td {
+
+      padding: 10px;
+
+      border: 1px solid #ddd;
+
+      text-align: center;
+
+    }
+
+    th { background: #f8f8f8; }
+
+
+
+    .product-img { max-width: 60px; height: auto; transition: transform 0.3s ease; }
+
+    .product-img:hover { transform: scale(1.1); }
+
+
+
+    .cart-summary { text-align: center; font-weight: bold; margin: 10px 0; }
+
+    .order-form, #orderHistory { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px #ccc; margin-top: 20px; }
+
+
+
+    .delete-order {
+
+      background: #dc3545;
+
+      color: white;
+
+      border: none;
+
+      padding: 8px 12px;
+
+      margin-top: 10px;
+
+      border-radius: 5px;
+
+      cursor: pointer;
+
+      transition: background 0.3s ease;
+
+    }
+
+    .delete-order:hover {
+
+      background: #c82333;
+
+    }
+
+
+
+    @keyframes fadeIn {
+
+      from { opacity: 0; transform: translateY(20px); }
+
+      to { opacity: 1; transform: translateY(0); }
+
+    }
+
+
+
+    /* Новая анимация для добавления в корзину */
+
+    @keyframes addToCart {
+
+      0% { transform: scale(1); background-color: #28a745; }
+
+      50% { transform: scale(1.2); background-color: #218838; }
+
+      100% { transform: scale(1); background-color: #28a745; }
+
+    }
+
+    .animate-add {
+
+      animation: addToCart 0.5s ease;
+
+    }
+
+
+
+    @media (max-width: 600px) {
+
+      th, td { font-size: 12px; padding: 6px; }
+
+      input, select, button, textarea { font-size: 0.9rem; padding: 8px; }
+
+      .cart-summary { font-size: 1.2rem; }
+
+      #cartList div { font-size: 0.9rem; }
+
+      .order-form input, .order-form button { width: 90%; }
+
+    }
+    @media (max-width: 600px) {
+  button.delete-item {
+    width: 20px; /* Устанавливаем фиксированную ширину */
+    height: 20px; /* Устанавливаем фиксированную высоту */
+    font-size: 12px; /* Уменьшаем размер текста */
+    padding: 0; /* Убираем лишние отступы */
+  }
+}
+
+    @media (max-width: 600px) {
+  th, td { font-size: 12px; padding: 6px; }
+  input, select, button, textarea { font-size: 0.9rem; padding: 8px; }
+  .cart-summary { font-size: 1.2rem; }
+  #cartList div { font-size: 0.9rem; }
+  .order-form input, .order-form button { width: 90%; }
+  button.delete-item {
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    padding: 0;
+  }
+}
+
+  </style>
+      
+
+
+
+  <!-- SweetAlert2 -->
+
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+</head>
+
+<body>
+
+  <!-- Блок для просмотра фото -->
+  <div id="previewBlock" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:1000; pointer-events:auto;">
+    <div id="previewInner" style="position:absolute; top:10%; left:50%; transform:translateX(-50%); background:white; padding:20px; border-radius:10px; box-shadow:0 0 20px #0008;">
+      <span id="closePreview" style="cursor:pointer; float:right; font-size:24px;">&times;</span>
+      <img id="previewImg" src="" alt="Просмотр" style="max-width:90vw; max-height:70vh; display:block; margin:auto;">
+    </div>
+  </div>
+<!-- filepath: c:\Users\hp\Desktop\нож\index.html -->
+
+  <h1>Мелочь - Каталог товаров</h1>
+
+
+
+  <div class="search-sort-row">
+    <input type="text" id="search" placeholder="Поиск товара..." />
+    <select id="sort">
+      <option value="">Сортировка по цене</option>
+      <option value="asc">Сначала дешёвые</option>
+      <option value="desc">Сначала дорогие</option>
+    </select>
+    <a href=" https://kara-ssyy-oomat.github.io/scoch/" target="_blank" class="other-site-btn">Другой сайт для скотч</a>
+
+    <a href="https://kara-ssyy-oomat.github.io/noj/" target="_blank" class="other-site-btn">Другой сайт для нож</a>
+  </div>
+
+
+
+  <table>
+
+    <thead>
+      <tr>
+        <th>№</th>
+        <th>Фото</th>
+        <th>Название</th>
+        <th>Цена</th>
+        <th>Кол-во</th>
+        <th>Добавить</th>
+      </tr>
+    </thead>
+
+    <tbody id="productTable"></tbody>
+
+  </table>
+
+
+
+  <div class="order-form">
+
+    <h2>Оформить заказ</h2>
+
+    <div id="cartList"></div>
+
+    <div class="cart-summary">Итого: <span id="totalSum">0</span> с</div>
+
+    <button id="clearCart">Очистить корзину</button>
+
+    <input type="text" id="name" placeholder="Ваше имя" required />
+
+    <input type="tel" id="phone" placeholder="Телефон" required />
+
+    <input type="text" id="address" placeholder="Адрес доставки" required />
+
+    <button id="submitOrder">Отправить заказ</button>
+
+  </div>
+
+  <button id="logoutUser" style="margin:10px 0;">Выйти из профиля</button>
+
+  <button id="toggleHistory">История заказов</button>
+
+  <div id="orderHistory" style="display:none">
+
+    <h2>История заказов</h2>
+
+    <ul id="historyList"></ul>
+
+  </div>
+
+
+
+  <script>
+ const products = [
+      {id: 1, title: 'Щётка(3361)(120шт/кар)', price: 40,optPrice: 35, optQty: 120,minQty: 5, image: 'шотка120.jpg' },
+      {id: 2, title: 'Щётка(106)(106шт/кар)', price: 40,optPrice: 36, optQty: 106,minQty: 5,image: 'шотка106.jpg' },
+      {id: 3, title: 'Щётка авалный(3369)(120шт/кар)', price: 50,optPrice: 45, optQty: 120,minQty: 5, image: 'шотка авалный.jpg' },
+      {id: 4, title: 'Щётка(80)(80шт/кар)', price: 50,optPrice: 48, optQty: 80,minQty: 5, image: 'шотка80.jpg' },
+      {id: 5, title: 'Щётка(0058)(240шт/кар)', price: 25,optPrice: 20, optQty: 240,minQty: 5, image: 'шотка0058.jpg' },
+      {id: 6, title: 'обув шотка 0030(320шт/кар)', price: 20,optPrice: 18, optQty: 320,minQty: 5, image: 'обувшотка.jpg' },
+      {id: 7, title: 'обув шотка руч', price: 20,optPrice: 18, optQty: 50,minQty: 5, image: 'обувшоткаруч.jpg' },
+      {id: 8, title: 'Щётка для одежды 1692(128шт/кар)',price: 85, optPrice: 80, optQty: 32,minQty: 5, image: 'шоткаодежды.jpg' },
+      {id: 9, title: 'Щётка для одежды 0019(120шт/кар)', price: 45,optPrice: 40, optQty: 120,minQty: 5,  image: '0019.jpg' },
+      {id: 10, title: 'обув щётка жел авал', price: 35,optPrice: 32, optQty: 50,minQty: 5,  image: 'обувшотжел.jpg' },
+      {id: 11, title: 'обув щётка маль жел', price: 20,optPrice: 18, optQty: 50,minQty: 5,  image: 'обувшотжелмал.jpg' },
+      {id: 12, title: 'рассия терка крас(80шт/кар)', price: 180,optPrice: 170, optQty: 80,minQty: 5,  image: 'рустеркакрас.jpg' },
+      {id: 13, title: 'рассия терка жел(100шт/кар)', price: 170,optPrice: 160, optQty: 100,minQty: 5,  image: 'рустеркажел.jpg' },
+      {id: 14, title: 'терка молочный', price: 80,optPrice: 75, optQty: 50,minQty: 5,  image: 'теркамол.jpg' },
+      {id: 15, title: 'терка белый(120шт/кар)', price: 40,optPrice: 38, optQty: 120,minQty: 5,  image: 'терка120.jpg' },
+      {id: 16, title: 'массажер дракон(80шт/кар)', price: 150,optPrice: 130, optQty: 80,minQty: 5,  image: 'дракон.jpg' },
+      {id: 17, title: 'маленький массажер(120шт/кар)', price: 100,optPrice: 90, optQty: 120,minQty: 5,  image: 'малдракон.jpg' },
+      {id: 65, title: 'массажер(120шт/кар)', price: 120,optPrice: 50, optQty: 100,minQty: 5,  image: 'фото2/массажер.jpg' },
+      {id: 121, title: 'массажер для головы(500шт/кар)', price: 25,optPrice: 22, optQty: 50,minQty: 5,  image: 'фото6/бошмас.jpg' },
+
+
+      {id: 68, title: 'прес для чеснока(200шт/кар)', price: 50,optPrice: 45, optQty: 50,minQty: 5,  image: 'фото2/чесноккар.jpg' },
+
+      {id: 18, title: 'Пресс для чеснока(20шт/кар)', price: 100,optPrice: 95, optQty: 20, image: 'чеснок100.jpg' },
+      {id: 19, title: 'Пресс для чеснока большой(120шт/кар)', price: 130,optPrice: 110, optQty: 120,  image: 'чеснок130.jpg' },
+      {id: 20, title: 'орехокол большой(120шт/кар)', price: 130,optPrice: 110, optQty: 120,  image: 'орехокол.jpg' },
+      {id: 21, title: 'орехокол зайчик(48шт/кар)', price: 80,optPrice: 75, optQty: 48,  image: 'орехокол зайчик.jpg' },
+      {id: 22, title: 'орехокол крас руч(50шт/кар)', price: 30,optPrice: 25, optQty: 50,  image: 'фото/орех.jpg' },
+      {id:23, title: 'открывалка цветной(500шт/кар)', price: 35,optPrice: 30, optQty: 500,minQty: 5,  image: 'откгул.jpg' },
+      {id: 64, title: 'открывалка железный(300шт/кар)', price: 35,optPrice: 30, optQty: 300,minQty: 5,  image: 'фото2/темиротк.jpeg' },
+
+      {id: 24, title: 'открывалка пласт(500шт/кар)', price: 20,optPrice: 18, optQty: 500,minQty: 5,  image: 'откплас.jpg' },
+      {id: 25, title: 'открывалка деревяный(500шт/кар)', price: 20,optPrice: 18, optQty: 500,minQty: 5,  image: 'отк.jpg' },
+      {id: 26, title: 'изолента(20пачка/кар)', price: 140,optPrice: 130, optQty: 20,  image: 'изолента.jpg' },
+      {id: 27, title: 'нож для мясорубки(50шт/кар)', price: 30,optPrice: 25, optQty: 50,minQty: 5,  image: 'фото/мясо.jpg' },
+      {id: 28, title: 'решотка для мясорубки(50шт/кар) ', price: 40,optPrice: 35, optQty: 50,minQty: 5,  image: 'фото/мясосетка.jpg' },
+      
+      {id: 29, title: 'нож для пиццы(240шт/кар)', price: 40,optPrice: 35, optQty: 12,minQty: 5,  image: 'фото/питца.jpg' },
+      {id: 31, title: 'малень бачок(0.3)(120шт/кар)', price: 35,optPrice: 32, optQty: 120,minQty: 5,  image: 'фото/03.jpg' },
+      {id: 32, title: 'малень бачок(0.5)(100шт/кар)', price: 40,optPrice: 35, optQty: 100,minQty: 5,  image: 'фото/05.jpg' },
+      {id: 33, title: 'малень бачок(0.7)(120шт/кар)', price: 40,optPrice: 35, optQty: 120,minQty: 5,  image: 'фото/07.jpg' },
+      {id: 34, title: 'бачок(1.5л)(20шт/кар)', price: 170,optPrice: 160, optQty: 20,  image: 'фото/1л.jpg' },
+      {id: 35, title: 'бачок(2л)(20шт/кар)', price: 200,optPrice: 180, optQty: 20,  image: 'фото/2л.jpg' },
+      {id: 36, title: 'бачок(3л)(20шт/кар)', price: 220,optPrice: 200, optQty: 20,  image: 'фото/3л.jpg' },
+     
+
+      {id: 40, title: 'свит чирок(480шт/кар)', price: 45,optPrice: 40, optQty: 120,minQty: 5, image: 'фото/чирок.jpg' },
+      {id: 41, title: 'свит кошка(480шт/кар)', price: 60,optPrice: 55, optQty: 60,minQty: 5, image: 'фото/мишик.jpg' },
+      {id: 42, title: 'свит кос', price: 60,optPrice: 55, optQty: 60,minQty: 5, image: 'фото/кос.jpg' },
+        {id: 46, title: ' фри пластмасовый(100шт/кар)', price: 15,optPrice: 14, optQty: 100,minQty: 5, image: 'фото/фри.jpg' },
+      {id: 43, title: 'фри турк(72шт/кар)', price: 40,optPrice: 35, optQty: 72,minQty: 5, image: 'фото/фритурк.jpg' },
+    
+      {id: 45, title: 'эконом турк(120шт/кар)', price: 40,optPrice: 35, optQty: 120,minQty: 5, image: 'фото/экономтурк.jpg' },    
+      {id: 48, title: 'эконом уз(50шт/кар)', price: 20,optPrice: 18, optQty: 50,minQty: 5, image: 'фото2/экономузб.jpg' },
+      {id: 49, title: 'эконом пр(480шт/кар)', price: 15,optPrice: 12, optQty: 480,minQty: 5, image: 'фото2/экономпр.jpg' },
+      {id: 94, title: 'терка  светной(800шт/к)', price: 12,optPrice: 10, optQty: 800,minQty: 10, image: 'фото4/экономок.jpg' },
+      {id: 93, title: 'терка мал красный(800шт/к)', price: 10,optPrice: 8, optQty: 800,minQty: 10, image: 'фото4/экономкизил.jpg' },
+
+      {id: 50, title: 'сони большой орг(16пач/кар)', price: 420,optPrice: 396, optQty: 16, image: 'фото2/соникат.jpg' }, 
+      {id: 51, title: 'сони маленький орг(20пач/кар)', price: 320,optPrice: 317, optQty: 20, image: 'фото2/соникичик.jpg' },
+      {id: 52, title: 'победа болшой орг(16пач/кар)', price: 420,optPrice: 396, optQty: 16, image: 'фото2/победакат.jpg' },   
+      {id: 53, title: 'победа маленький орг(20пач/кар) ', price: 320,optPrice: 317, optQty: 20, image: 'фото2/победакичик.jpg' },
+      {id: 54, title: 'сони болшой прастой(20пач/кар) ', price: 220,optPrice: 210, optQty: 20, image: 'фото2/соникатпр.jpg' },  
+      {id: 55, title: 'сони маленький прастой (30пач/кар)', price: 200,optPrice: 195, optQty: 30, image: 'фото2/соникичпр.jpg' },
+      {id: 56, title: '', price: 150, image: '' },  
+      {id: 57, title: 'газ фолга(50шт/кар)', price: 30,optPrice: 25, optQty: 50, image: 'фото2/фолга.jpg' },
+      {id: 58, title: 'фолга(12шт)', price: 80, image: 'фото2/фолга12шт.jpg' },
+      
+      {id: 59, title: 'мышеловка(100шт/кар)', price: 17,optPrice: 16, optQty: 100,minQty: 5, image: 'фото2/фил.jpg' },
+      {id: 60, title: 'мышеловка оргинал(100шт/кар)', price: 35,optPrice: 32, optQty: 100,minQty: 5, image: 'фото2/филорг.jpg' },
+      {id: 82, title: 'домовой(80шт/кар)', price: 28,optPrice: 27, optQty: 80, image: 'фото4/домовой.jpg' },
+      {id: 82, title: 'ратабор(80шт/кар)', price: 28,optPrice: 27, optQty: 80, image: 'фото4/ратабор.jpg' },
+      {id: 77, title: 'зерно будай(100шт/кар)', price: 25, image: 'фото4/бугдой.jpg' },
+      
+      {id: 61, title: 'клей для мух(20пач/кар)', price: 120,optPrice: 110, optQty: 20, image: 'фото2/паша.jpg' },
+      {id: 62, title: 'крем большой(120шт/кар)', price: 35,optPrice: 32, optQty: 120, image: 'фото2/кремкат.jpg' },
+      {id: 63, title: 'крем маленький 20шт(8пач/кар)', price: 200,optPrice: 185, optQty: 8, image: 'фото2/кремкич.jpg' },
+      {id: 66, title: 'дуст(10пач/кар)', price: 350,optPrice: 300, optQty: 10, image: 'фото2/дуст.jpg' },
+      {id: 67, title: 'мел 5шт(120шт/кар)', price: 18,optPrice: 16, optQty: 120, image: 'фото2/мел.jpg' },
+      {id: 124, title: 'маленкий порошок(30шт/кар)', price: 18,optPrice: 16, optQty: 30, image: 'фото6/мелдус.jpg' },
+
+      {id: 76, title: 'антиклоп(24шт/кар)', price: 80,optPrice: 75, optQty: 24,minQty: 4, image: 'фото4/антиклоп.jpg' },
+      {id: 80, title: 'дихлофос(48шт/кар)', price: 75,optPrice: 70, optQty: 48, image: 'фото4/дехловос.jpg' },
+      {id: 69, title: '101', price: 500,optPrice: 450, optQty: 12, image: 'фото4/101.jpg' },
+      {id: 70, title: 'средний супер клей(1100шт/кар)', price: 10,optPrice: 9.5, optQty: 1100, image: 'фото4/110супер.jpg' },
+      {id: 71, title: 'супер клей 502(1000шт/кар)', price: 10,optPrice: 9, optQty: 1000, image: 'фото4/502.jpg' },
+      {id: 87, title: 'суба клей (1000шт/кар)', price: 550,optPrice: 520, optQty: 10, image: 'фото4/суба.jpg' },
+      {id: 119, title: 'клей (AB)(100шт/кар)', price: 28,optPrice: 26, optQty: 100, image: 'фото6/аб.jpg' },
+
+
+         {id: 73, title: 'стекломой болшойь134(60шт/кар)', price: 60,optPrice: 55, optQty: 60, image: 'фото4/айнеккаторг.jpg' },
+         {id: 75, title: 'стекломой маленький 133(60шт/кар)', price: 50,optPrice: 45, optQty: 60, image: 'фото4/айнеккичикорг.jpg' },
+      {id: 72, title: 'стекломой болшой 137(60шт/кар)', price: 40,optPrice: 35, optQty: 60, image: 'фото4/айнекката.jpg' },
+     {id: 74, title: 'стекломой маленький 136(60шт/кар)', price: 30,optPrice: 25, optQty: 60, image: 'фото4/айнеккич.jpg' },
+      
+      
+      {id: 78, title: 'газовая зажигалка с запаской(240шт/кар)', price: 70,optPrice: 65, optQty: 24, image: 'фото4/газзаши.jpg' },
+      
+      {id: 81, title: 'зубочистка $(30шт/кар)', price: 220,optPrice: 200, optQty: 30, image: 'фото4/доллар.jpg' },
+            {id: 85, title: 'зубочистка 36(36шт/кар)', price: 160,optPrice: 145, optQty: 36, image: 'фото4/зуба36.jpg' },
+      {id: 79, title: 'зубочистки с ментолом(50шт/кар)', price: 130,optPrice: 125, optQty: 50, image: 'фото4/ментол.jpg' },
+
+      {id: 84, title: 'зубочистка (150шт/кар)', price: 70,optPrice: 65, optQty: 150, image: 'фото4/зуба.jpg' },
+      {id: 30, title: 'ухачистка(12шт)(20шт/кар)', price: 110,optPrice: 100, optQty: 20, image: 'фото/уха.jpg' },
+      {id: 90, title: 'ухачистка(6шт)(30шт/кар)', price: 110,optPrice: 100, optQty: 30, image: 'фото4/уха6.jpg' },
+      {id: 88, title: 'вантуз(100шт/кар)', price: 100,optPrice: 90, optQty: 100, image: 'фото4/темирвантус.jpg' },
+
+      {id: 86, title: 'вантуз деревяный(100шт/кар)', price: 50,optPrice: 40, optQty: 100, image: 'фото4/йогочвантус.jpg' },
+      
+      {id: 77, title: 'тряпка для машины кенгру(20шт/пач)', price: 100,optPrice: 95, optQty: 100, image: 'фото4/кенгеру.jpg' },
+       {id: 80, title: 'тряпка для машины нисо(100шт/кар)', price: 100,optPrice: 90, optQty: 100, image: 'фото4/нисо.jpg' },
+       {id: 83, title: 'тряпка для машины(20шт/пач)', price: 75,optPrice: 70, optQty: 100, image: 'фото4/дыркапр.jpg' },
+        {id: 81, title: 'тряпка для машины белый(20шт/пач)', price: 45,optPrice: 40, optQty: 100, image: 'фото4/окпр.jpg' },
+      {id: 83, title: 'тряпка для машины(20шт/кар)', price: 45,optPrice: 40, optQty: 100, image: 'фото4/сарыпр.jpg' },
+            {id: 89, title: 'тряпки для кухни(120шт/пак)', price: 26,optPrice: 24, optQty: 120, image: 'фото4/тряпка3.jpg' },
+  {id: 84, title: 'металическая гупка(100шт/меш)', price: 50,optPrice: 46, optQty: 100, image: 'фото4/сим10.jpg' },
+        {id: 79, title: 'губки для посуды(60шт/пак)', price: 35,optPrice: 33, optQty: 60, image: 'фото4/гупка5.jpg' },
+
+      {id: 85, title: 'металическая гупка', price: 18, image: 'фото4/сим24.jpg' },
+      {id: 78, title: 'гупка корея(400шт/кар)', price: 18,optPrice: 15, optQty: 400,minQty: 10, image: 'фото4/корея.jpg' },
+
+
+     
+      
+    
+      {id: 86, title: 'сито 3в1', price: 150, image: 'фото4/сито3.jpg' },
+      
+      {id: 91, title: 'антивибрационные подставки', price: 100,optPrice: 100, optQty: 40, image: 'фото4/холодилникпостав.jpg' },
+      {id: 92, title: 'поворешка(200шт/кар)', price: 75,optPrice: 65, optQty: 200, image: 'фото4/чомичяшил.jpg' },
+      {id: 95, title: 'пюре мал дер(300шт/кар)', price: 30,optPrice: 27, optQty: 300, image: 'фото5/картошкакичик.jpg' },
+      {id: 96, title: 'пюре цве(240шт/кар)', price: 40,optPrice: 35, optQty: 240, image: 'фото5/катошкака.jpg' },
+      {id: 97, title: 'пюре бол дер(240шт/кар)', price: 40,optPrice: 35, optQty: 240, image: 'фото5/картошкат.jpg' },
+
+
+      {id: 98, title: 'сито пр 9см(500шт/кар)', price: 20,optPrice: 18, optQty: 100, image: 'фото5/сито1.jpg' },
+      {id: 99, title: 'сито пр 10см(500шт/кар)', price: 22,optPrice: 20, optQty: 100, image: 'фото5/сито2.jpg' },
+      {id: 100, title: 'сито пр 12см(500шт/кар)', price: 24,optPrice: 22, optQty: 100, image: 'фото5/сито3 (2).jpg' },
+      {id: 101, title: 'сито пр 14см(500шт/кар)', price: 28,optPrice: 24, optQty: 100, image: 'фото5/сито4.jpg' },
+      {id: 102, title: 'сито пр 16см(300шт/кар)', price: 30,optPrice: 28, optQty: 100, image: 'фото5/сито5.jpg' },
+      {id: 103, title: 'сито пр 18см(300шт/кар)', price: 32,optPrice: 30, optQty: 100, image: 'фото5/сито6.jpg' },
+      {id: 127, title: 'сито руч', price: 60,optPrice: 15, optQty: 100, image: 'фото6/ситоруч.jpg' },
+
+
+      {id: 104, title: 'сетка раковины бол(100шт/п)', price: 12,optPrice: 10, optQty: 100, image: 'фото5/раксеткат.jpg' },
+      {id: 105, title: 'сетка раковины мал(100шт/п)', price: 10,optPrice: 8, optQty: 100, image: 'фото5/раксеткич.jpg' },
+      {id: 106, title: 'перчатка кух(12шт/п)', price: 50,optPrice: 45, optQty: 24, image: 'фото5/перчатка.jpg' },
+
+      {id: 107, title: 'форм силиконовых кексов 12шт(600шт/кар)', price: 60,optPrice: 55, optQty: 150, image: 'фото5/селкал.jpg' },
+      {id: 108, title: 'шавер (12шт/п)(240шт/кар)', price: 500,optPrice: 480, optQty: 20, image: 'фото5/шавер.jpg' },
+      {id: 109, title: 'Банная перчатка (5шт/п)', price: 30,optPrice:28, optQty: 50,minQty: 5, image: 'фото5/скраб.jpg' },
+
+      {id: 110, title: 'Ершик для унитаза(60шт/кар)', price: 100,optPrice: 90, optQty: 60, image: 'фото5/ешик.jpg' },
+      {id: 111, title: 'Ершик для унитаза круглый(60шт/кар)', price: 100,optPrice: 80, optQty: 60, image: 'фото5/ешиктум.jpg' },
+      {id: 112, title: 'спирал(10шт/п)', price: 53,optPrice: 0, optQty: 20, image: 'фото5/спирал.jpg' },
+
+      {id: 113, title: 'деревяный доска 3в1 мал', price: 150, image: 'фото5/доска3в1.jpg' },
+      {id: 114, title: 'деревяный доска 3в1 бол', price: 200, image: 'фото5/доска3в1бол.jpg' },
+      {id: 115, title: 'деревяный доска круглый большой', price: 50, image: 'фото5/доскадум.jpg' },
+
+      {id: 116, title: 'доска в форме груши', price: 35, image: 'фото5/груша.jpg' },
+      {id: 117, title: 'доска (кооз) тол', price: 120, image: 'фото5/доска1шт.jpg' },
+      {id: 118, title: 'доска набор тол', price: 300, image: 'фото5/доска3болшой.jpg' },
+
+
+      {id: 122, title: 'горелка для газа(20шт/п)', price: 140,optPrice: 130, optQty: 20, image: 'фото6/гарелка.jpg' },
+      {id: 123, title: 'ручка для крышки(12шт/п)', price: 40,optPrice: 35, optQty: 12, image: 'фото6/козонруч.jpg' },
+
+      {id: 125, title: 'ручная плисос 2 без руч(120шт/кар)', price: 45,optPrice: 42, optQty: 120, image: 'фото6/плисос2без.jpg' },
+      {id: 126, title: 'ручная плисос 2 руч(120шт/кар)', price: 55,optPrice: 52, optQty: 120, image: 'фото6/плисос2руч.jpg' },
+
+      {id: 128, title: 'рогатка(350шт/м)', price: 28,optPrice: 25, optQty: 350, image: 'фото6/чозма.jpg' },
+      {id: 129, title: '', price: 75, image: 'фото6/чомич.jpg' },
+      {id: 120, title: 'точилка для нож (50шт/кар)', price: 30,optPrice: 25, optQty: 50, image: 'фото6/балык.jpg' },
+
+      {id: 130, title: 'Точилка каменная колесная(400шт/кар)', price: 35,optPrice: 33, optQty: 100, image: 'фото6/яшилтач.jpg' },
+
+      {id: 131, title: 'Тесторезка(240шт/кар)', price: 40,optPrice: 35, optQty: 12, image: 'фото6/богирсок.jpg' },
+      {id: 133, title: 'пицарез 2ной(240шт/кар)', price: 40,optPrice: 35, optQty: 12, image: 'фото6/пица2.jpg' },
+
+      {id: 132, title: 'перчатки однаразовые(200шт/кар)', price: 30,optPrice: 25, optQty: 50, image: 'фото6/однаразовый.jpg' },
+      {id: 134, title: 'фри с ручкой(360шт/кар)', price: 30,optPrice: 25, optQty: 100, image: 'фото6/фрируч.jpg' },
+      {id: 135, title: 'Щипцы кухонные большой(480шт/кар)', price: 45,optPrice: 40, optQty: 100, image: 'фото6/чипсиболшой.jpg' },
+      {id: 138, title: 'Щипцы кухонные средний(480шт/кар)', price: 40,optPrice: 35, optQty: 100, image: 'фото6/чипсисред.jpg' },
+
+      {id: 136, title: 'Щипцы кухонные маленький(480шт/кар)', price: 35,optPrice: 30, optQty: 100, image: 'фото6/чипсикич.jpg' },
+
+      {id: 137, title: 'Щипцы кухонные маленький 1(480шт/кар)', price: 35,optPrice: 30, optQty: 100, image: 'фото6/чипсикичсред.jpg' },
+      {id: 139, title: '', price: 150, image: '' },
+      {id: 140, title: '', price: 150, image: '' },
+      {id: 141, title: '', price: 150, image: '' },
+
+      {id: 142, title: '', price: 150, image: '' },
+      {id: 143, title: '', price: 150, image: '' },
+      {id: 144, title: '', price: 150, image: '' },
+      {id: 145, title: '', price: 150, image: '' },
+      {id: 146, title: '', price: 150, image: '' },
+
+      {id: 147, title: '', price: 150, image: '' },
+      {id: 148, title: '', price: 150, image: '' },
+      {id: 149, title: '', price: 150, image: '' },
+      {id: 150, title: '', price: 150, image: '' },
+      {id: 151, title: '', price: 150, image: '' },
+
+      {id: 152, title: '', price: 150, image: '' },
+      {id: 153, title: '', price: 150, image: '' },
+      {id: 154, title: '', price: 150, image: '' },
+      {id: 155, title: '', price: 150, image: '' },
+      {id: 156, title: '', price: 150, image: '' },
+
+      {id: 157, title: '', price: 150, image: '' },
+      {id: 158, title: '', price: 150, image: '' },
+      {id: 159, title: '', price: 150, image: '' },
+
+
+
+
+
+
+
+      {id: 160, title: '', price: 150, image: '' }
+];
+
+
+
+
+    const cart = JSON.parse(localStorage.getItem('cart')) || [];
+
+
+
+    const productTable = document.getElementById('productTable');
+
+    const search = document.getElementById('search');
+
+    const sort = document.getElementById('sort');
+
+    const cartList = document.getElementById('cartList');
+
+    const totalSum = document.getElementById('totalSum');
+
+
+    // Автозаполнение данных пользователя из localStorage
+const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+if (userData.name) document.getElementById('name').value = userData.name;
+if (userData.phone) document.getElementById('phone').value = userData.phone;
+if (userData.address) document.getElementById('address').value = userData.address;
+
+
+
+    function renderProducts() {
+
+      let filtered = products.filter(p => p.title?.trim() && p.image?.trim());
+
+      if (search.value) {
+
+        filtered = filtered.filter(p => p.title.toLowerCase().includes(search.value.toLowerCase()));
+
+      }
+
+      if (sort.value) {
+
+        filtered.sort((a, b) => sort.value === 'asc' ? a.price - b.price : b.price - a.price);
+
+      }
+
+      productTable.innerHTML = '';
+
+    // ...existing code...
+filtered.forEach((p, idx) => {
+  const row = document.createElement('tr');
+  row.innerHTML = `
+    <td>${idx + 1}</td>
+    <td><img src="${p.image}" class="product-img" alt="${p.title}" style="cursor:pointer;" onclick="showPreview('${p.image}')"/></td>
+<td>
+  ${(() => {
+    // Находим все скобки
+    const matches = p.title.match(/\(.*?\)/g);
+    // Если есть скобки
+    if (matches && matches.length) {
+      // Последнее выражение в скобках
+      const lastBracket = matches[matches.length - 1];
+      // Убираем последнее выражение в скобках из названия
+      const main = p.title.replace(lastBracket, '').trim();
+      return `
+        ${main}
+        <div style="font-size:12px;color:#888;">${lastBracket}</div>
+      `;
+    } else {
+      // Если скобок нет — просто название
+      return p.title;
+    }
+  })()}
+</td>
+    <td class="price-cell">
+      <span>${p.price}c</span>
+      
+    </td>
+    <td>
+      <input type="number" min="${p.minQty || 1}" value="${p.minQty || 1}" 
+        oninput="updatePriceInRow(this, ${p.price}, ${p.optPrice || p.price}, ${p.optQty || 0})" />
+    </td>
+    <td><button onclick="addToCart(${p.id}, '${p.title}', ${p.price}, '${p.image}', this)">добавить</button></td>
+  `;
+  productTable.appendChild(row);
+});
+// ...existing code...
+
+    }
+
+    function addToCart(id, title, price, image, btn) {
+  const row = btn.parentElement.parentElement;
+  const qtyInput = row.querySelector('input');
+  const qty = +qtyInput.value;
+
+  const product = products.find(p => p.id === id);
+
+  if (qty < (product.minQty || 1)) {
+    Swal.fire('Ошибка', `Минимальное количество для покупки: ${product.minQty || 1}`, 'warning');
+    qtyInput.value = product.minQty || 1;
+    return;
+  }
+
+  // Считаем итоговое количество этого товара в корзине
+  const index = cart.findIndex(item => item.id === id);
+  let totalQty = qty;
+  if (index !== -1) totalQty += cart[index].qty;
+
+  // Определяем цену: если опт, то оптовая цена
+  let finalPrice = price;
+  if (product.optQty && totalQty >= product.optQty) {
+    finalPrice = product.optPrice;
+  }
+
+  // Добавление или обновление в корзине
+  if (index !== -1) {
+    cart[index].qty += qty;
+    cart[index].price = finalPrice; // обновляем цену, если стало оптом
+  } else {
+    cart.push({ id, title, price: finalPrice, qty });
+  }
+
+  updateCart();
+
+  btn.classList.add('animate-add');
+  setTimeout(() => btn.classList.remove('animate-add'), 500);
+
+  Swal.fire({
+    title: 'Товар добавлен в корзину!',
+    text: `${title} × ${qty} был добавлен в вашу корзину.`,
+    icon: 'success',
+    confirmButtonText: 'Ок',
+    position: 'bottom',
+    showConfirmButton: true,
+    timer: 1500,
+    padding: '10px',
+    toast: true
+  });
+
+  localStorage.setItem('cart', JSON.stringify(cart));
+}
+
+
+
+
+
+    function updateCart() {
+
+  cartList.innerHTML = '';
+
+  let total = 0;
+
+  cart.forEach((item, i) => {
+
+    total += item.qty * item.price;
+
+    const div = document.createElement('div');
+
+    div.classList.add('cart-item');
+
+    div.innerHTML = `
+  <span style="flex-grow:1;">${item.title} — ${item.qty} × ${item.price}c = ${item.qty * item.price}c</span>
+  <button class="delete-item" onclick="removeFromCart(${i})">&times;</button>
+`;
+
+    cartList.appendChild(div);
+
+  });
+
+  totalSum.textContent = total;
+
+
+
+  // Проверка на пустоту корзины
+
+  const clearCartButton = document.getElementById('clearCart');
+
+  if (cart.length === 0) {
+
+    clearCartButton.style.display = 'none'; // скрыть кнопку, если корзина пуста
+
+  } else {
+
+    clearCartButton.style.display = 'block'; // показать кнопку, если корзина не пуста
+
+  }
+
+
+
+  // Сохраняем корзину в localStorage
+
+  localStorage.setItem('cart', JSON.stringify(cart));
+
+}
+
+
+
+
+
+    function removeFromCart(i) {
+
+      cart.splice(i, 1);
+
+      updateCart();
+
+    }
+
+
+
+    document.getElementById('submitOrder').onclick = () => {
+
+  const name = document.getElementById('name').value.trim();
+
+  const phone = document.getElementById('phone').value.trim();
+
+  const address = document.getElementById('address').value.trim();
+
+  if (!name || !phone || !address || cart.length === 0) {
+
+
+    Swal.fire('Ошибка', 'Заполните все поля и добавьте товары', 'warning');
+
+    return;
+
+  }
+
+  const items = cart.map(i => `${i.title} — ${i.qty}×${i.price}c=${i.qty * i.price}`).join('\n');
+
+const total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+
+const msg = `Новый заказ:
+Имя: ${name}
+Телефон: ${phone}
+Адрес: ${address}
+Товары:
+${items}
+
+Итого: ${total}c`;
+  
+
+  fetch('https://api.telegram.org/bot7960727448:AAF0B2mizrzj7sjHP68n-1IcjLoNc6kwVkE/sendMessage', {
+
+    method: 'POST',
+
+    headers: { 'Content-Type': 'application/json' },
+
+    body: JSON.stringify({ chat_id: '5567924440', text: msg })
+
+  }).then(r => {
+
+    if (r.ok) {
+
+      Swal.fire('Успех!', 'Ваш заказ отправлен!', 'success');
+
+      cart.length = 0;
+
+      updateCart();
+
+      localStorage.removeItem('cart');
+      localStorage.setItem('userData', JSON.stringify({
+    name,
+    phone,
+    address
+  }));
+      document.getElementById('name').value = '';
+      document.getElementById('phone').value = '';
+      document.getElementById('address').value = '';
+
+    } else {
+
+      Swal.fire('Ошибка', 'Не удалось отправить заказ. Попробуйте позже.', 'error');
+
+    }
+
+  }).catch(error => {
+
+    console.error(error);
+
+    Swal.fire('Ошибка', 'Не удалось отправить заказ. Проверьте подключение к интернету.', 'error');
+
+  });
+
+};
+
+document.getElementById('clearCart').onclick = () => {
+
+  cart.length = 0; // очищаем массив корзины
+
+  updateCart();    // обновляем отображение
+
+  localStorage.removeItem('cart'); // убираем данные из localStorage
+
+  Swal.fire('Корзина очищена!', '', 'success'); // показываем уведомление
+
+};
+
+
+
+
+
+      const items = cart.map(i => `${i.title} — ${i.qty}×${i.price}c`).join('\n');
+
+      const total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+
+
+
+      const msg = `Новый заказ:
+
+Имя: ${name}
+
+Телефон: ${phone}
+
+Адрес: ${address}
+
+Товары:
+
+${items}
+
+
+
+Итого: ${total}c`;
+
+
+
+      fetch('https://api.telegram.org/bot<ТВОЙ_ТОКЕН>/sendMessage', {
+
+        method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+
+        body: JSON.stringify({ chat_id: '<ТВОЙ_CHAT_ID>', text: msg })
+
+      }).then(r => {
+
+        if (r.ok) {
+
+          Swal.fire('Успех!', 'Ваш заказ отправлен!', 'success');
+
+          cart.length = 0;
+
+          updateCart();
+
+          localStorage.removeItem('cart');
+
+          document.getElementById('name').value = '';
+
+          document.getElementById('phone').value = '';
+
+          document.getElementById('address').value = '';
+
+        } else {
+
+          Swal.fire('Ошибка', 'Не удалось отправить заказ. Попробуйте позже.', 'error');
+
+        }
+
+      });
+
+    ;
+
+  
+
+    function deleteOrder(index) {
+
+      let history = JSON.parse(localStorage.getItem('orderHistory') || '[]');
+
+      history.splice(index, 1);
+
+      localStorage.setItem('orderHistory', JSON.stringify(history));
+
+      document.getElementById('toggleHistory').click();
+
+      document.getElementById('toggleHistory').click();
+
+    }
+
+
+
+    document.getElementById('toggleHistory').onclick = () => {
+
+  const hist = document.getElementById('orderHistory');
+
+  hist.style.display = hist.style.display === 'none' ? 'block' : 'none';
+
+
+
+  const history = JSON.parse(localStorage.getItem('orderHistory') || '[]');
+
+  const list = document.getElementById('historyList');
+
+  list.innerHTML = '';
+
+
+
+  if (history.length === 0) {
+
+    list.innerHTML = '<li>История заказов пуста.</li>';
+
+    document.getElementById('toggleHistory').style.display = 'none'; // Скрыть кнопку, если нет заказов
+
+    return;
+
+  }
+
+
+
+  history.forEach((o, index) => {
+
+    const li = document.createElement('li');
+
+    const itemsText = o.items.map(i => `${i.title} × ${i.qty}`).join(', ');
+
+    li.innerHTML = `
+
+      <strong>Заказ от: ${o.time}</strong>
+
+      <p>Имя: ${o.name}</p>
+
+      <p>Телефон: ${o.phone}</p>
+
+      <p>Адрес: ${o.address}</p>
+
+      <p>Товары: ${itemsText}</p>
+
+      <p><strong>Итого: ${o.total}c</strong></p>
+
+      <button class="delete-order" onclick="deleteOrder(${index})">Удалить</button>
+
+    `;
+
+    list.appendChild(li);
+
+  });
+
+
+
+  // Показать кнопку только если есть заказы
+
+  document.getElementById('toggleHistory').style.display = history.length === 0 ? 'none' : 'block';
+
+};
+
+
+
+
+
+    search.oninput = renderProducts;
+
+    sort.onchange = renderProducts;
+
+    renderProducts();
+
+    updateCart();
+    function showPreview(src) {
+  document.getElementById('previewImg').src = src;
+  document.getElementById('previewBlock').style.display = 'block';
+  document.body.classList.add('modal-open');
+}
+
+document.getElementById('closePreview').onclick = function() {
+  document.getElementById('previewBlock').style.display = 'none';
+  document.body.classList.remove('modal-open');
+};
+
+document.getElementById('previewBlock').onclick = function(e) {
+  if (e.target === this) {
+    this.style.display = 'none';
+    document.body.classList.remove('modal-open');
+  }
+};
+
+
+function updatePriceInRow(input, price, optPrice, optQty) {
+  const qty = +input.value;
+  const priceCell = input.parentElement.parentElement.querySelector('.price-cell span');
+  if (optQty && qty >= optQty) {
+    priceCell.textContent = optPrice + 'c';
+  } else {
+    priceCell.textContent = price + 'c';
+  }
+}
+
+document.getElementById('logoutUser').onclick = () => {
+  localStorage.removeItem('userData');
+  document.getElementById('name').value = '';
+  document.getElementById('phone').value = '';
+  document.getElementById('address').value = '';
+  Swal.fire('Вы вышли из профиля');
+};
+
+
+
+
+
+
+
+  </script>
+
+</body>
+
+</html>
