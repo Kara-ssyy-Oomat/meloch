@@ -103,10 +103,11 @@ button:active {
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 2px 16px #0002;
-  padding: 24px 16px;
-  max-width: 420px;
-  margin: 30px auto 0 auto;
-}
+  padding: 16px;
+  max-width: 100%;
+  margin: 20px auto;
+  box-sizing: border-box;
+    }
 .order-form input, .order-form button {
   margin-bottom: 12px;
 }
@@ -310,8 +311,13 @@ h1 {
       background: white;
 
       box-shadow: 0 0 10px #ccc;
+        display: block;
+  
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 
     }
+    
 
     th, td {
 
@@ -433,6 +439,39 @@ h1 {
   }
 }
 
+    @media (max-width: 600px) {
+  .scroll-buttons button {
+    font-size: 14px;
+    padding: 6px 8px;
+  }
+    }
+
+    @media (max-width: 600px) {
+  th, td {
+    font-size: 12px;
+    padding: 4px;
+    white-space: nowrap;
+  }
+    }
+
+    .order-form input,
+.order-form button {
+  width: 100%;
+  font-size: 14px;
+}
+    @media (max-width: 600px) {
+  .search-sort-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+    }
+
+    @media (max-width: 600px) {
+  .add-to-cart-btn {
+    font-size: 14px;
+    padding: 6px 8px;
+  }
+    }
   </style>
       
 
@@ -1013,14 +1052,14 @@ filtered.forEach((p, idx) => {
       <input type="number" min="${p.minQty || 1}" value="${p.minQty || 1}" 
         oninput="updatePriceInRow(this, ${p.price}, ${p.optPrice || p.price}, ${p.optQty || 0})" />
     </td>
-    <td><button onclick="addToCart(${p.id}, '${p.title}', ${p.price}, '${p.image}', this)">добавить</button></td>
+    <td><button  class="add-to-cart-btn", onclick="addToCart(${p.id}, '${p.title}', ${p.price}, '${p.image}', this)">добавить</button></td>
   `;
   productTable.appendChild(row);
 });
 // ...existing code...
 
     }
-
+ 
  function addToCart(id, title, price, image, btn) {
   const row = btn.parentElement.parentElement;
   const qtyInput = row.querySelector('input');
