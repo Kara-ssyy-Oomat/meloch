@@ -2671,7 +2671,7 @@ button.delete-item:hover {
 
     <!-- Кнопка открытия панели корзины перенесена вниз перед очисткой корзины -->
     <div style="display:flex;gap:8px;">
-      <button id="openCartBtn" onclick="openCartPage()">Открыть корзину</button>
+      <a href="cart.html" id="openCartBtn" style="display:inline-block; padding:14px 20px; background:linear-gradient(135deg, #4CAF50, #45a049); color:white; text-decoration:none; border-radius:10px; font-weight:600; text-align:center;">Открыть корзину</a>
       <!-- Кнопка очистки корзины будет в панели корзины -->
     </div>
 
@@ -3573,40 +3573,10 @@ async function loadSellerCategoriesCache() {
   }
 }
 
-// Инициализация Firebase
-const firebaseConfig = {
-  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
-  authDomain: "svoysayet.firebaseapp.com",
-  projectId: "svoysayet",
-  storageBucket: "svoysayet.firebasestorage.app",
-  messagingSenderId: "450143000217",
-  appId: "1:450143000217:web:7495cefaea0b94966e8a08",
-  measurementId: "G-Y8VG9E29FY"
-};
-
-// Проверка инициализации Firebase — делаем безопасно и ждём загрузки SDK
-let db, storage;
-function initFirebase() {
-  try {
-    if (typeof firebase === 'undefined') throw new Error('Firebase SDK не загружен');
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
-    }
-    db = firebase.firestore();
-    storage = firebase.storage();
-    console.log('Firebase initialized successfully');
-  } catch (error) {
-    console.error('Firebase initialization error:', error);
-    Swal.fire('Ошибка', 'Ошибка инициализации Firebase: ' + error.message, 'error');
-  }
-}
-
-if (typeof firebase !== 'undefined') {
-  initFirebase();
-} else {
-  // Если SDK ещё не загружен — инициализируем после загрузки страницы
-  window.addEventListener('load', initFirebase);
-}
+// Инициализация Firebase - MOVED TO main.js
+// const firebaseConfig = { ... };
+// Firebase initialization now handled in main.js
+// let db, storage; - now global from main.js
 
 // ==================== СИСТЕМА УНИКАЛЬНЫХ ID КЛИЕНТОВ ====================
 
@@ -7306,6 +7276,7 @@ window.startVoiceSearch = function() {
 </script>
 
 <!-- Подключение модулей JS -->
+<script src="js/main.js"></script>
  <script src="js/filters.js"></script>
 <script src="js/advanced-search.js"></script>
 <script src="js/helpers.js"></script>
