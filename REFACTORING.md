@@ -150,3 +150,16 @@ Each page loads only the necessary JavaScript modules:
 3. Add service worker for offline cart functionality
 4. Enhance SEO with proper meta tags for each page
 5. Add page transitions for smoother navigation
+6. Add Subresource Integrity (SRI) checks for CDN scripts for improved security
+
+## Security Notes
+
+### CDN Scripts
+The application loads several external libraries from CDNs without Subresource Integrity (SRI) checks:
+- Firebase SDK (9.22.2)
+- SweetAlert2
+- jsPDF
+- XLSX.js
+- EXIF.js
+
+**Recommendation**: Add SRI hashes to all CDN script tags for improved security. This was pre-existing in the original index.html and not introduced by the refactoring.
