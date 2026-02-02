@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ru" style="overflow-y: scroll !important; touch-action: pan-y !important;">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="description" content="Управление складом - Кербен B2B Market">
+  
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#4CAF50">
+  
+  <!-- Icons -->
+  <link rel="apple-touch-icon" href="icon-kerben.jpg">
+  <link rel="icon" type="image/jpeg" href="icon-kerben.jpg">
+  
+  <title>Управление складом - Кербен</title>
+  <link rel="stylesheet" href="css/styles.css">
+  
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding-bottom: 56px;
+    }
+    
+    .stock-container {
+      min-height: 100vh;
+      padding-bottom: 56px;
+    }
+    
+    .stock-header {
+      background: linear-gradient(135deg, #4CAF50, #45a049);
+      color: white;
+      padding: 20px;
+    }
+    
+    .stock-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+    
+    .stock-subtitle {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 15px;
+      padding: 20px;
+    }
+    
+    .stat-card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    
+    .stat-icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 5px;
+    }
+    
+    .stat-label {
+      font-size: 13px;
+      color: #666;
+    }
+    
+    .action-section {
+      background: white;
+      margin: 20px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .section-title {
+      padding: 15px 20px;
+      background: #f5f5f5;
+      font-weight: 600;
+      font-size: 16px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .action-btn {
+      display: flex;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      text-decoration: none;
+      color: #333;
+      background: white;
+      border: none;
+      width: 100%;
+      text-align: left;
+    }
+    
+    .action-btn:last-child {
+      border-bottom: none;
+    }
+    
+    .action-btn:active {
+      background: #f5f5f5;
+    }
+    
+    .action-icon {
+      font-size: 24px;
+      margin-right: 15px;
+      width: 30px;
+      text-align: center;
+    }
+    
+    .action-text {
+      flex: 1;
+      font-size: 15px;
+    }
+    
+    .action-arrow {
+      color: #999;
+    }
+    
+    .add-product-btn {
+      background: linear-gradient(135deg, #4CAF50, #45a049);
+      color: white;
+      border: none;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin: 20px;
+      width: calc(100% - 40px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    
+    .auth-required {
+      text-align: center;
+      padding: 60px 20px;
+      background: white;
+      margin: 20px;
+      border-radius: 12px;
+    }
+    
+    .auth-required-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+    
+    .auth-required-text {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 10px;
+    }
+    
+    .auth-required-desc {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 20px;
+    }
+    
+    .login-btn {
+      display: inline-block;
+      padding: 12px 32px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="stock-container">
+    <!-- Seller View -->
+    <div id="sellerView" style="display:none;">
+      <div class="stock-header">
+        <div class="stock-title">📦 Управление складом</div>
+        <div class="stock-subtitle">Добавляйте товары и управляйте заказами</div>
+      </div>
+      
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📦</div>
+          <div class="stat-value" id="totalProducts">0</div>
+          <div class="stat-label">Товаров</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🛒</div>
+          <div class="stat-value" id="totalOrders">0</div>
+          <div class="stat-label">Заказов</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💰</div>
+          <div class="stat-value" id="totalRevenue">0</div>
+          <div class="stat-label">Выручка (сом)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📈</div>
+          <div class="stat-value" id="totalProfit">0</div>
+          <div class="stat-label">Прибыль (сом)</div>
+        </div>
+      </div>
+      
+      <!-- Add Product Button -->
+      <button class="add-product-btn" onclick="openAddProduct()">
+        <span>➕</span>
+        <span>Добавить товар</span>
+      </button>
+      
+      <!-- Management Actions -->
+      <div class="action-section">
+        <div class="section-title">Управление</div>
+        <button class="action-btn" onclick="openOrdersManagement()">
+          <div class="action-icon">📋</div>
+          <div class="action-text">Заказы</div>
+          <div class="action-arrow">›</div>
+        </button>
+        <button class="action-btn" onclick="openProductsList()">
+          <div class="action-icon">📦</div>
+          <div class="action-text">Мои товары</div>
+          <div class="action-arrow">›</div>
+        </button>
+        <button class="action-btn" onclick="openProfitReport()">
+          <div class="action-icon">📊</div>
+          <div class="action-text">Отчет о прибыли</div>
+          <div class="action-arrow">›</div>
+        </button>
+        <button class="action-btn" onclick="openExpenses()">
+          <div class="action-icon">💳</div>
+          <div class="action-text">Расходы</div>
+          <div class="action-arrow">›</div>
+        </button>
+      </div>
+      
+      <!-- Additional Actions -->
+      <div class="action-section">
+        <div class="section-title">Дополнительно</div>
+        <button class="action-btn" onclick="openPartners()">
+          <div class="action-icon">🤝</div>
+          <div class="action-text">Партнеры</div>
+          <div class="action-arrow">›</div>
+        </button>
+        <button class="action-btn" onclick="openAgents()">
+          <div class="action-icon">👥</div>
+          <div class="action-text">Агенты</div>
+          <div class="action-arrow">›</div>
+        </button>
+        <button class="action-btn" onclick="openSettings()">
+          <div class="action-icon">⚙️</div>
+          <div class="action-text">Настройки</div>
+          <div class="action-arrow">›</div>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Auth Required View -->
+    <div id="authView">
+      <div class="auth-required">
+        <div class="auth-required-icon">🔒</div>
+        <div class="auth-required-text">Требуется авторизация</div>
+        <div class="auth-required-desc">
+          Для управления складом необходимо войти как продавец или администратор
+        </div>
+        <a href="profile.html" class="login-btn">Войти в систему</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- External Libraries -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- Main Shared JS -->
+  <script src="js/main.js"></script>
+  
+  <!-- Stock Management JS -->
+  <script src="js/seller.js?v=2"></script>
+  <script src="js/orders-management.js?v=2"></script>
+  <script src="js/profit-report.js?v=2"></script>
+  <script src="js/expenses.js?v=2"></script>
+  <script src="js/partners.js?v=2"></script>
+  <script src="js/agents.js?v=2"></script>
+  <script src="js/helpers.js"></script>
+  
+  <!-- Navigation -->
+  <script src="js/bottom-nav.js?v=2"></script>
+  
+  <script>
+    // Check if user is seller/admin
+    function checkSellerAuth() {
+      const sellerData = localStorage.getItem('sellerData');
+      const isAdmin = localStorage.getItem('isAdmin') === 'true';
+      
+      if (sellerData || isAdmin) {
+        document.getElementById('sellerView').style.display = 'block';
+        document.getElementById('authView').style.display = 'none';
+        loadStats();
+      } else {
+        document.getElementById('sellerView').style.display = 'none';
+        document.getElementById('authView').style.display = 'block';
+      }
+    }
+    
+    function loadStats() {
+      // Placeholder stats (to be loaded from Firebase)
+      document.getElementById('totalProducts').textContent = '0';
+      document.getElementById('totalOrders').textContent = '0';
+      document.getElementById('totalRevenue').textContent = '0';
+      document.getElementById('totalProfit').textContent = '0';
+    }
+    
+    function openAddProduct() {
+      Swal.fire('Добавить товар', 'Функция в разработке. Используйте основную страницу для добавления товаров.', 'info');
+    }
+    
+    function openOrdersManagement() {
+      Swal.fire('Заказы', 'Функция в разработке', 'info');
+    }
+    
+    function openProductsList() {
+      window.location.href = 'index.html';
+    }
+    
+    function openProfitReport() {
+      Swal.fire('Отчет о прибыли', 'Функция в разработке', 'info');
+    }
+    
+    function openExpenses() {
+      Swal.fire('Расходы', 'Функция в разработке', 'info');
+    }
+    
+    function openPartners() {
+      Swal.fire('Партнеры', 'Функция в разработке', 'info');
+    }
+    
+    function openAgents() {
+      Swal.fire('Агенты', 'Функция в разработке', 'info');
+    }
+    
+    function openSettings() {
+      Swal.fire('Настройки', 'Функция в разработке', 'info');
+    }
+    
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      checkSellerAuth();
+    });
+  </script>
+</body>
+</html>

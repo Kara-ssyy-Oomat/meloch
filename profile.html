@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="ru" style="overflow-y: scroll !important; touch-action: pan-y !important;">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="description" content="Профиль - Кербен B2B Market">
+  
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#4CAF50">
+  
+  <!-- Icons -->
+  <link rel="apple-touch-icon" href="icon-kerben.jpg">
+  <link rel="icon" type="image/jpeg" href="icon-kerben.jpg">
+  
+  <title>Профиль - Кербен</title>
+  <link rel="stylesheet" href="css/styles.css">
+  
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding-bottom: 56px;
+    }
+    
+    .profile-container {
+      min-height: 100vh;
+      padding-bottom: 56px;
+    }
+    
+    .profile-header {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+    }
+    
+    .profile-icon {
+      width: 80px;
+      height: 80px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      margin: 0 auto 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+    }
+    
+    .profile-name {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+    
+    .profile-phone {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    
+    .menu-section {
+      background: white;
+      margin: 20px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .menu-item {
+      display: flex;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      text-decoration: none;
+      color: #333;
+    }
+    
+    .menu-item:last-child {
+      border-bottom: none;
+    }
+    
+    .menu-item:active {
+      background: #f5f5f5;
+    }
+    
+    .menu-icon {
+      font-size: 24px;
+      margin-right: 15px;
+      width: 30px;
+      text-align: center;
+    }
+    
+    .menu-text {
+      flex: 1;
+      font-size: 15px;
+    }
+    
+    .menu-arrow {
+      color: #999;
+    }
+    
+    .logout-btn {
+      background: #f44336;
+      color: white;
+      border: none;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin: 20px;
+      width: calc(100% - 40px);
+    }
+    
+    .auth-container {
+      padding: 20px;
+      max-width: 400px;
+      margin: 40px auto;
+    }
+    
+    .auth-box {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .auth-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    
+    .auth-input {
+      width: 100%;
+      padding: 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+    
+    .auth-btn {
+      width: 100%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      border: none;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    
+    .auth-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    .auth-tab {
+      flex: 1;
+      padding: 10px;
+      background: #f5f5f5;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    
+    .auth-tab.active {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="profile-container">
+    <!-- Authenticated User View -->
+    <div id="profileView" style="display:none;">
+      <div class="profile-header">
+        <div class="profile-icon">👤</div>
+        <div class="profile-name" id="userName">Гость</div>
+        <div class="profile-phone" id="userPhone"></div>
+      </div>
+      
+      <div class="menu-section">
+        <div class="menu-item" onclick="openOrders()">
+          <div class="menu-icon">📦</div>
+          <div class="menu-text">Мои заказы</div>
+          <div class="menu-arrow">›</div>
+        </div>
+        <div class="menu-item" onclick="openChat()">
+          <div class="menu-icon">💬</div>
+          <div class="menu-text">Чат поддержки</div>
+          <div class="menu-arrow">›</div>
+        </div>
+        <a href="index.html" class="menu-item">
+          <div class="menu-icon">❤️</div>
+          <div class="menu-text">Избранное</div>
+          <div class="menu-arrow">›</div>
+        </a>
+      </div>
+      
+      <div class="menu-section">
+        <div class="menu-item" onclick="openSettings()">
+          <div class="menu-icon">⚙️</div>
+          <div class="menu-text">Настройки</div>
+          <div class="menu-arrow">›</div>
+        </div>
+        <div class="menu-item" onclick="openHelp()">
+          <div class="menu-icon">❓</div>
+          <div class="menu-text">Помощь</div>
+          <div class="menu-arrow">›</div>
+        </div>
+      </div>
+      
+      <button class="logout-btn" onclick="logout()">Выйти</button>
+    </div>
+    
+    <!-- Guest/Login View -->
+    <div id="authView">
+      <div class="auth-container">
+        <div class="auth-box">
+          <div class="auth-title">Войти в аккаунт</div>
+          
+          <div class="auth-tabs">
+            <button class="auth-tab active" onclick="showLoginTab()">Вход</button>
+            <button class="auth-tab" onclick="showRegisterTab()">Регистрация</button>
+          </div>
+          
+          <!-- Login Form -->
+          <div id="loginForm">
+            <input type="tel" class="auth-input" id="loginPhone" placeholder="Номер телефона" />
+            <input type="password" class="auth-input" id="loginPassword" placeholder="Пароль" />
+            <button class="auth-btn" onclick="login()">Войти</button>
+          </div>
+          
+          <!-- Register Form -->
+          <div id="registerForm" style="display:none;">
+            <input type="text" class="auth-input" id="registerName" placeholder="Ваше имя" />
+            <input type="tel" class="auth-input" id="registerPhone" placeholder="Номер телефона" />
+            <input type="password" class="auth-input" id="registerPassword" placeholder="Пароль" />
+            <button class="auth-btn" onclick="register()">Зарегистрироваться</button>
+          </div>
+          
+          <div style="text-align:center; margin-top:20px; color:#666; font-size:13px;">
+            Или <a href="index.html" style="color:#667eea;">продолжить как гость</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- External Libraries -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- Main Shared JS -->
+  <script src="js/main.js"></script>
+  
+  <!-- Profile Specific JS -->
+  <script src="js/customer-auth.js?v=2"></script>
+  <script src="js/chat.js?v=2"></script>
+  <script src="js/orders.js?v=2"></script>
+  <script src="js/helpers.js"></script>
+  
+  <!-- Navigation -->
+  <script src="js/bottom-nav.js?v=2"></script>
+  
+  <script>
+    // Check if user is logged in
+    function checkAuth() {
+      const customerData = localStorage.getItem('customerData');
+      if (customerData) {
+        try {
+          const customer = JSON.parse(customerData);
+          document.getElementById('profileView').style.display = 'block';
+          document.getElementById('authView').style.display = 'none';
+          document.getElementById('userName').textContent = customer.name || 'Пользователь';
+          document.getElementById('userPhone').textContent = customer.phone || '';
+        } catch (e) {
+          showAuthView();
+        }
+      } else {
+        showAuthView();
+      }
+    }
+    
+    function showAuthView() {
+      document.getElementById('profileView').style.display = 'none';
+      document.getElementById('authView').style.display = 'block';
+    }
+    
+    function showLoginTab() {
+      document.querySelector('.auth-tab:nth-child(1)').classList.add('active');
+      document.querySelector('.auth-tab:nth-child(2)').classList.remove('active');
+      document.getElementById('loginForm').style.display = 'block';
+      document.getElementById('registerForm').style.display = 'none';
+    }
+    
+    function showRegisterTab() {
+      document.querySelector('.auth-tab:nth-child(1)').classList.remove('active');
+      document.querySelector('.auth-tab:nth-child(2)').classList.add('active');
+      document.getElementById('loginForm').style.display = 'none';
+      document.getElementById('registerForm').style.display = 'block';
+    }
+    
+    function login() {
+      const phone = document.getElementById('loginPhone').value;
+      const password = document.getElementById('loginPassword').value;
+      
+      if (!phone || !password) {
+        Swal.fire('Ошибка', 'Заполните все поля', 'error');
+        return;
+      }
+      
+      // Simple login logic (to be enhanced with Firebase)
+      const customerData = {
+        phone: phone,
+        name: 'Клиент',
+        loggedIn: true
+      };
+      
+      localStorage.setItem('customerData', JSON.stringify(customerData));
+      Swal.fire('Успех', 'Вы вошли в систему', 'success');
+      checkAuth();
+    }
+    
+    function register() {
+      const name = document.getElementById('registerName').value;
+      const phone = document.getElementById('registerPhone').value;
+      const password = document.getElementById('registerPassword').value;
+      
+      if (!name || !phone || !password) {
+        Swal.fire('Ошибка', 'Заполните все поля', 'error');
+        return;
+      }
+      
+      // Simple registration logic (to be enhanced with Firebase)
+      const customerData = {
+        phone: phone,
+        name: name,
+        loggedIn: true
+      };
+      
+      localStorage.setItem('customerData', JSON.stringify(customerData));
+      Swal.fire('Успех', 'Регистрация выполнена', 'success');
+      checkAuth();
+    }
+    
+    function logout() {
+      if (confirm('Выйти из аккаунта?')) {
+        localStorage.removeItem('customerData');
+        showAuthView();
+        Swal.fire('Успех', 'Вы вышли из системы', 'success');
+      }
+    }
+    
+    function openOrders() {
+      Swal.fire('Заказы', 'Функция в разработке', 'info');
+    }
+    
+    function openChat() {
+      Swal.fire('Чат', 'Функция в разработке', 'info');
+    }
+    
+    function openSettings() {
+      Swal.fire('Настройки', 'Функция в разработке', 'info');
+    }
+    
+    function openHelp() {
+      Swal.fire('Помощь', 'Свяжитесь с нами по телефону или в чате', 'info');
+    }
+    
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      checkAuth();
+    });
+  </script>
+</body>
+</html>
