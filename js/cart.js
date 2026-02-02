@@ -365,14 +365,17 @@ function removeFromCart(i) {
 }
 
 // Открыть отдельную страницу-панель корзины
+// UPDATED: Redirect to cart.html instead of modal
 function openCartPage() {
-  renderCartPage();
-  document.getElementById('cartPage').style.display = '';
-  if (typeof lockPageScroll === 'function') lockPageScroll();
+  window.location.href = 'cart.html';
 }
 
 function closeCartPage() {
-  document.getElementById('cartPage').style.display = 'none';
+  // For backward compatibility, close modal if it exists
+  const cartPage = document.getElementById('cartPage');
+  if (cartPage) {
+    cartPage.style.display = 'none';
+  }
   if (typeof unlockPageScroll === 'function') unlockPageScroll();
 }
 

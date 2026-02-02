@@ -84,14 +84,9 @@ function checkIfAdmin(phone, password) {
 }
 
 // Открыть окно авторизации/личного кабинета
+// UPDATED: Redirect to profile.html instead of modal
 function openCustomerAccount() {
-  if (currentCustomer) {
-    // Показываем личный кабинет
-    showCustomerDashboard();
-  } else {
-    // Показываем форму входа/регистрации
-    showLoginRegisterForm();
-  }
+  window.location.href = 'profile.html';
 }
 
 // Форма входа/регистрации
