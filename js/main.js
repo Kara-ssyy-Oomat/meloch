@@ -103,7 +103,7 @@ function getActivePage() {
   const path = window.location.pathname;
   if (path.includes('cart.html')) return 'cart';
   if (path.includes('profile.html')) return 'profile';
-  if (path.includes('stock.html')) return 'stock';
+  if (path.includes('stock.html')) return 'profile'; // Stock page highlights profile
   return 'home';
 }
 
