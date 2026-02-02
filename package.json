@@ -1,0 +1,15 @@
+{
+  "name": "meloch",
+  "version": "1.0.0",
+  "description": "## Что умеет система?",
+  "main": "sw.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "sweetalert2": "^11.26.17"
+  }
+}
