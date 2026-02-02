@@ -36,10 +36,6 @@ function createBottomNavigation() {
         <span class="nav-text">Корзина</span>
         <span id="navCartBadge" class="nav-badge">0</span>
       </a>
-      <a href="profile.html" class="nav-item" data-nav="chat">
-        <svg class="nav-svg" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-        <span class="nav-text">Чат</span>
-      </a>
       <a href="profile.html" class="nav-item" data-nav="profile">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
         <span class="nav-text">Профиль</span>

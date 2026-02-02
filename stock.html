@@ -329,6 +329,12 @@
     }
     
     function loadStats() {
+      // TODO: Load stats from Firebase
+      // Collections to query:
+      // - products: count where sellerId matches current seller
+      // - orders: count and sum where sellerId matches
+      // - Calculate revenue: sum of order totals
+      // - Calculate profit: revenue - expenses (from expenses collection)
       // Placeholder stats (to be loaded from Firebase)
       document.getElementById('totalProducts').textContent = '0';
       document.getElementById('totalOrders').textContent = '0';

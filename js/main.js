@@ -103,7 +103,8 @@ function getActivePage() {
   const path = window.location.pathname;
   if (path.includes('cart.html')) return 'cart';
   if (path.includes('profile.html')) return 'profile';
-  if (path.includes('stock.html')) return 'profile'; // Stock page highlights profile
+  // Note: stock.html highlights profile tab since it's accessed from profile page
+  if (path.includes('stock.html')) return 'profile';
   return 'home';
 }
 
