@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#4CAF50">
+  
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-kerben.jpg">
+  <link rel="icon" type="image/jpeg" href="icon-kerben.jpg">
+  
+  <title>Профиль - Кербен</title>
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding-bottom: 56px;
+    }
+    
+    .profile-header {
+      background: linear-gradient(135deg, #4CAF50, #2e7d32);
+      color: white;
+      padding: 25px 20px;
+    }
+    
+    .profile-user {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .profile-avatar {
+      width: 60px;
+      height: 60px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      cursor: pointer;
+    }
+    
+    .profile-info { flex: 1; cursor: pointer; }
+    .profile-name { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .profile-phone { font-size: 14px; opacity: 0.9; margin-top: 2px; }
+    
+    .logout-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    
+    .stats-row {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .stat-item {
+      flex: 1;
+      text-align: center;
+      padding: 20px;
+      border-right: 1px solid #e0e0e0;
+    }
+    
+    .stat-item:last-child { border-right: none; }
+    .stat-value { font-size: 24px; font-weight: 600; color: #333; }
+    .stat-label { font-size: 12px; color: #888; margin-top: 4px; }
+    
+    .menu-section {
+      background: white;
+      margin-top: 10px;
+    }
+    
+    .menu-section-title {
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #28a745;
+    }
+    
+    .menu-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      text-decoration: none;
+      color: inherit;
+    }
+    
+    .menu-item:active { background: #f5f5f5; }
+    
+    .menu-item-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .menu-icon { font-size: 20px; }
+    .menu-text { font-size: 15px; color: #333; }
+    .menu-arrow { color: #ccc; font-size: 18px; }
+    .menu-badge { font-size: 13px; color: #888; margin-right: 8px; }
+    
+    .orders-section {
+      margin-top: 15px;
+      padding: 0 15px;
+    }
+    
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 12px;
+    }
+    
+    .order-card {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    
+    .order-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    
+    .order-id { font-weight: 700; font-size: 15px; color: #333; }
+    
+    .order-status {
+      padding: 5px 12px;
+      border-radius: 15px;
+      font-size: 12px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .order-date { font-size: 14px; color: #666; margin-bottom: 5px; }
+    .order-items { font-size: 14px; color: #666; margin-bottom: 8px; }
+    .order-total { font-size: 18px; font-weight: 700; color: #4CAF50; }
+    
+    .login-container {
+      padding: 40px 20px;
+      text-align: center;
+    }
+    
+    .login-icon { font-size: 64px; margin-bottom: 20px; }
+    .login-title { font-size: 20px; font-weight: 600; color: #333; margin-bottom: 10px; }
+    .login-subtitle { font-size: 14px; color: #666; margin-bottom: 30px; }
+    
+    .login-btn {
+      display: inline-block;
+      background: linear-gradient(135deg, #4CAF50, #2e7d32);
+      color: white;
+      padding: 14px 40px;
+      border-radius: 25px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 16px;
+      border: none;
+      cursor: pointer;
+    }
+    
+    .register-link {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .register-link a { color: #4CAF50; text-decoration: none; }
+    
+    .empty-orders {
+      text-align: center;
+      padding: 40px;
+      color: #999;
+    }
+    
+    .empty-orders-icon { font-size: 48px; margin-bottom: 10px; }
+    
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      background: #fff;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      z-index: 9999;
+    }
+    
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: #9e9e9e;
+      text-decoration: none;
+      position: relative;
+    }
+    
+    .nav-item.active { color: #4CAF50; }
+    .nav-item svg { width: 24px; height: 24px; fill: currentColor; }
+    .nav-item span { font-size: 11px; }
+    
+    .nav-badge {
+      position: absolute;
+      top: 6px;
+      right: calc(50% - 16px);
+      background: #e53935;
+      color: white;
+      font-size: 10px;
+      min-width: 16px;
+      height: 16px;
+      border-radius: 8px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* Модальные окна */
+    .modal-window {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 56px;
+      background: #f5f5f5;
+      z-index: 9500;
+    }
+    
+    .modal-header {
+      background: #fff;
+      padding: 15px 20px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    
+    .modal-title {
+      font-size: 17px;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 24px;
+      cursor: pointer;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    .form-label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    
+    .form-textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    
+    .submit-btn {
+      width: 100%;
+      padding: 15px;
+      background: #333;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 15px;
+    }
+    
+    .admin-menu-item {
+      background: linear-gradient(135deg, #2e7d32, #4caf50);
+      color: white !important;
+    }
+    
+    .admin-menu-item .menu-text { color: white; }
+    .admin-menu-item .menu-arrow { color: white; }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .loader-overlay {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255,255,255,0.95);
+      z-index: 10;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    
+    .loader-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid #e0e0e0;
+      border-top: 5px solid #333;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    /* Табы для продавца */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #e0e0e0;
+      background: #fff;
+    }
+    
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      background: #f5f5f5;
+      color: #333;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    
+    .tab-btn.active {
+      background: #333;
+      color: white;
+    }
+  </style>
+  
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+
+<body>
+  <div id="profileContent">
+    <!-- Контент загружается через JS -->
+  </div>
+  
+  <!-- Окно жалобы -->
+  <div id="complaintWindow" class="modal-window">
+    <div style="height:100%; display:flex; flex-direction:column;">
+      <div class="modal-header">
+        <div class="modal-title">⚠️ Жалоба</div>
+        <button class="modal-close" onclick="closeComplaintWindow()">✕</button>
+      </div>
+      <div style="flex:1; overflow-y:auto; padding:20px; background:#fff;">
+        <div class="form-group">
+          <label class="form-label">Ваше имя:</label>
+          <input type="text" id="complaintName" class="form-input" placeholder="Введите ваше имя">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Телефон:</label>
+          <input type="tel" id="complaintPhone" class="form-input" placeholder="+996 XXX XXX XXX">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Тема жалобы:</label>
+          <select id="complaintCategory" class="form-select">
+            <option value="">Выберите категорию</option>
+            <option value="quality">Качество товара</option>
+            <option value="delivery">Проблемы с доставкой</option>
+            <option value="service">Обслуживание</option>
+            <option value="price">Неверная цена</option>
+            <option value="other">Другое</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Описание проблемы:</label>
+          <textarea id="complaintText" class="form-textarea" placeholder="Подробно опишите вашу проблему..."></textarea>
+        </div>
+      </div>
+      <div style="padding:15px 20px; background:#fff; border-top:1px solid #e0e0e0;">
+        <button class="submit-btn" onclick="sendComplaint()">Отправить жалобу</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Окно предложения товара -->
+  <div id="suggestionWindow" class="modal-window">
+    <div style="height:100%; display:flex; flex-direction:column; position:relative;">
+      <div class="modal-header">
+        <div class="modal-title">💡 Предложить товар</div>
+        <button class="modal-close" onclick="closeSuggestionWindow()">✕</button>
+      </div>
+      <div style="flex:1; overflow-y:auto; padding:20px; background:#fff;">
+        <div class="form-group">
+          <label class="form-label">Ваше имя:</label>
+          <input type="text" id="suggestionName" class="form-input" placeholder="Введите ваше имя">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Телефон:</label>
+          <input type="tel" id="suggestionPhone" class="form-input" placeholder="+996 XXX XXX XXX">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Название товара:</label>
+          <input type="text" id="suggestionProductName" class="form-input" placeholder="Какой товар вы хотите видеть?">
+        </div>
+        <div class="form-group">
+          <label class="form-label">За сколько сейчас покупаете:</label>
+          <input type="number" id="suggestionCurrentPrice" class="form-input" placeholder="Текущая цена у другого продавца">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Желаемая цена:</label>
+          <input type="number" id="suggestionPrice" class="form-input" placeholder="За сколько вы готовы купить?">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Описание:</label>
+          <textarea id="suggestionDescription" class="form-textarea" placeholder="Опишите подробности..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Фото товара (необязательно):</label>
+          <input type="file" id="suggestionPhoto" accept="image/*" class="form-input" style="background:white;">
+        </div>
+      </div>
+      <div style="padding:15px 20px; background:#fff; border-top:1px solid #e0e0e0;">
+        <button id="suggestionSubmitBtn" class="submit-btn" onclick="sendSuggestion()">Отправить предложение</button>
+      </div>
+      <div id="suggestionLoader" class="loader-overlay">
+        <div class="loader-spinner"></div>
+        <p style="margin-top:20px; color:#333; font-size:16px; font-weight:600;">Отправка...</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Окно "Стать продавцом" -->
+  <div id="becomeSellerWindow" class="modal-window">
+    <div style="height:100%; display:flex; flex-direction:column; position:relative;">
+      <div class="modal-header">
+        <div class="modal-title">🏪 Стать продавцом</div>
+        <button class="modal-close" onclick="closeBecomeSellerWindow()">✕</button>
+      </div>
+      <div class="tabs">
+        <button id="sellerTabRegister" class="tab-btn active" onclick="switchSellerTab('register')">Регистрация</button>
+        <button id="sellerTabLogin" class="tab-btn" onclick="switchSellerTab('login')">Вход</button>
+      </div>
+      
+      <!-- Форма регистрации -->
+      <div id="sellerRegisterForm" style="flex:1; overflow-y:auto; padding:20px; background:#fff;">
+        <div class="form-group">
+          <label class="form-label">ФИО / Название компании:</label>
+          <input type="text" id="sellerName" class="form-input" placeholder="Введите ваше имя или название компании">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Телефон (для входа):</label>
+          <input type="tel" id="sellerPhone" class="form-input" placeholder="+996 XXX XXX XXX">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Пароль:</label>
+          <input type="password" id="sellerPassword" class="form-input" placeholder="Придумайте пароль (мин. 4 символа)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Город/Регион:</label>
+          <input type="text" id="sellerCity" class="form-input" placeholder="Например: Бишкек, Ош">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Какие товары хотите продавать:</label>
+          <input type="text" id="sellerProducts" class="form-input" placeholder="Категории товаров">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Telegram ID:</label>
+          <input type="text" id="sellerTelegramId" class="form-input" placeholder="Например: 123456789">
+          <p style="margin:5px 0 0; font-size:11px; color:#888;">Узнайте ID у @userinfobot в Telegram</p>
+        </div>
+        <button id="sellerSubmitBtn" class="submit-btn" onclick="registerSeller()">Зарегистрироваться</button>
+      </div>
+      
+      <!-- Форма входа -->
+      <div id="sellerLoginForm" style="display:none; flex:1; overflow-y:auto; padding:20px; background:#fff;">
+        <div class="form-group">
+          <label class="form-label">Телефон:</label>
+          <input type="tel" id="sellerLoginPhone" class="form-input" placeholder="+996 XXX XXX XXX">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Пароль:</label>
+          <input type="password" id="sellerLoginPassword" class="form-input" placeholder="Введите пароль">
+        </div>
+        <button class="submit-btn" onclick="loginSeller()">Войти</button>
+      </div>
+      
+      <div id="sellerLoader" class="loader-overlay">
+        <div class="loader-spinner"></div>
+        <p style="margin-top:20px; color:#333; font-size:16px; font-weight:600;">Загрузка...</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Окно заказов -->
+  <div id="ordersWindow" class="modal-window">
+    <div style="height:100%; display:flex; flex-direction:column;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:15px;">
+          <button onclick="closeOrdersWindow()" style="background:none; border:none; color:#333; font-size:20px; cursor:pointer;">←</button>
+          <div class="modal-title">📋 Мои заказы</div>
+        </div>
+        <button class="modal-close" onclick="closeOrdersWindow()">✕</button>
+      </div>
+      <div id="ordersWindowContent" style="flex:1; overflow-y:auto; background:#fff;">
+        <!-- Заказы загружаются динамически -->
+      </div>
+    </div>
+  </div>
+  
+  <nav class="bottom-nav">
+    <a href="index.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      <span>Главная</span>
+    </a>
+    <a href="index.html#categories" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6z"/></svg>
+      <span>Меню</span>
+    </a>
+    <a href="cart.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4z"/></svg>
+      <span>Корзина</span>
+      <span class="nav-badge" id="navCartBadge">0</span>
+    </a>
+    <a href="chat.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
+      <span>Чат</span>
+    </a>
+    <a href="profile.html" class="nav-item active">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
+      <span>Профиль</span>
+    </a>
+  </nav>
+
+  <script>
+    // ==================== КОНФИГУРАЦИЯ ====================
+    const firebaseConfig = {
+      apiKey: "AIzaSyB0vkHoMqC-ec3L8EQubHFEavLYAkqr0MQ",
+      authDomain: "kerben-store.firebaseapp.com",
+      projectId: "kerben-store",
+      storageBucket: "kerben-store.firebasestorage.app",
+      messagingSenderId: "799212629498",
+      appId: "1:799212629498:web:37c0576a59e38874c8eb50"
+    };
+    
+    // Telegram Bot для уведомлений
+    const TELEGRAM_BOT_TOKEN = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
+    const TELEGRAM_CHAT_ID = '5567924440';
+    
+    // Данные администратора
+    const ADMIN_CUSTOMER_DATA = {
+      phone: '0559009860',
+      password: '13082007',
+      name: 'Адахамжон'
+    };
+    
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    
+    let currentCustomer = null;
+    let isAdmin = false;
+    let _customerOrders = [];
+    
+    // ==================== ИНИЦИАЛИЗАЦИЯ ====================
+    async function init() {
+      const saved = localStorage.getItem('customerData');
+      if (saved) {
+        try {
+          currentCustomer = JSON.parse(saved);
+          
+          // Проверяем, является ли клиент админом
+          const normalizedPhone = normalizePhone(currentCustomer.phone);
+          const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+          
+          if (normalizedPhone === adminPhone || currentCustomer.isAdmin) {
+            isAdmin = true;
+            currentCustomer.isAdmin = true;
+            localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+          }
+          
+          await loadDashboard();
+        } catch(e) {
+          console.error('Ошибка загрузки данных:', e);
+          localStorage.removeItem('customerData');
+          showLoginForm();
+        }
+      } else {
+        showLoginForm();
+      }
+      updateCartBadge();
+      
+      // Автозаполнение форм жалобы/предложения
+      if (currentCustomer) {
+        const complaintName = document.getElementById('complaintName');
+        const complaintPhone = document.getElementById('complaintPhone');
+        const suggestionName = document.getElementById('suggestionName');
+        const suggestionPhone = document.getElementById('suggestionPhone');
+        
+        if (complaintName) complaintName.value = currentCustomer.name || '';
+        if (complaintPhone) complaintPhone.value = currentCustomer.phone || '';
+        if (suggestionName) suggestionName.value = currentCustomer.name || '';
+        if (suggestionPhone) suggestionPhone.value = currentCustomer.phone || '';
+      }
+    }
+    
+    // ==================== НОРМАЛИЗАЦИЯ ТЕЛЕФОНА ====================
+    function normalizePhone(phone) {
+      if (!phone) return '';
+      let normalized = phone.replace(/[^\d+]/g, '');
+      if (normalized.startsWith('0')) {
+        normalized = '+996' + normalized.substring(1);
+      }
+      if (!normalized.startsWith('+')) {
+        if (normalized.startsWith('996')) {
+          normalized = '+' + normalized;
+        } else {
+          normalized = '+996' + normalized;
+        }
+      }
+      return normalized;
+    }
+    
+    // ==================== ФОРМА ВХОДА ====================
+    function showLoginForm() {
+      document.getElementById('profileContent').innerHTML = `
+        <div class="login-container">
+          <div class="login-icon">👤</div>
+          <div class="login-title">Вход в личный кабинет</div>
+          <div class="login-subtitle">Войдите чтобы отслеживать заказы и получать скидки</div>
+          <button class="login-btn" onclick="showLoginModal()">Войти</button>
+          <div class="register-link">Нет аккаунта? <a href="#" onclick="showRegisterModal(); return false;">Регистрация</a></div>
+        </div>
+      `;
+    }
+    
+    // ==================== МОДАЛЬНЫЕ ОКНА ВХОДА/РЕГИСТРАЦИИ ====================
+    async function showLoginModal() {
+      const { value: formValues } = await Swal.fire({
+        title: '🔐 Вход',
+        html: `
+          <input type="tel" id="loginPhone" class="swal2-input" placeholder="Номер телефона">
+          <input type="password" id="loginPassword" class="swal2-input" placeholder="Пароль">
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Войти',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#4CAF50',
+        preConfirm: () => ({
+          phone: document.getElementById('loginPhone').value,
+          password: document.getElementById('loginPassword').value
+        })
+      });
+      
+      if (formValues) {
+        await login(formValues.phone, formValues.password);
+      }
+    }
+    
+    async function showRegisterModal() {
+      const { value: formValues } = await Swal.fire({
+        title: '📝 Регистрация',
+        html: `
+          <input type="text" id="regName" class="swal2-input" placeholder="Ваше имя">
+          <input type="tel" id="regPhone" class="swal2-input" placeholder="Номер телефона">
+          <input type="text" id="regAddress" class="swal2-input" placeholder="Адрес доставки">
+          <input type="password" id="regPassword" class="swal2-input" placeholder="Пароль (мин. 4 символа)">
+          <input type="password" id="regPassword2" class="swal2-input" placeholder="Повторите пароль">
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Зарегистрироваться',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#4CAF50',
+        preConfirm: () => {
+          const name = document.getElementById('regName').value;
+          const phone = document.getElementById('regPhone').value;
+          const password = document.getElementById('regPassword').value;
+          const password2 = document.getElementById('regPassword2').value;
+          
+          if (!name || !phone) {
+            Swal.showValidationMessage('Заполните имя и телефон');
+            return false;
+          }
+          if (password.length < 4) {
+            Swal.showValidationMessage('Пароль должен быть минимум 4 символа');
+            return false;
+          }
+          if (password !== password2) {
+            Swal.showValidationMessage('Пароли не совпадают');
+            return false;
+          }
+          
+          return {
+            name, phone,
+            address: document.getElementById('regAddress').value,
+            password
+          };
+        }
+      });
+      
+      if (formValues) {
+        await register(formValues);
+      }
+    }
+    
+    // ==================== ВХОД ====================
+    async function login(phone, password) {
+      try {
+        Swal.fire({ title: 'Проверка...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+        
+        const normalizedPhone = normalizePhone(phone);
+        const snapshot = await db.collection('customers').where('phone', '==', normalizedPhone).limit(1).get();
+        
+        if (snapshot.empty) {
+          Swal.fire({ icon: 'error', title: 'Клиент не найден', text: 'Проверьте номер или зарегистрируйтесь' });
+          return;
+        }
+        
+        const doc = snapshot.docs[0];
+        const data = doc.data();
+        
+        if (data.password !== password) {
+          Swal.fire({ icon: 'error', title: 'Неверный пароль' });
+          return;
+        }
+        
+        // Проверяем, является ли это админом
+        const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+        const isAdminLogin = normalizedPhone === adminPhone && password === ADMIN_CUSTOMER_DATA.password;
+        
+        currentCustomer = { id: doc.id, ...data, isAdmin: isAdminLogin };
+        isAdmin = isAdminLogin;
+        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+        
+        Swal.fire({ 
+          icon: 'success', 
+          title: 'Добро пожаловать!', 
+          text: currentCustomer.name + (isAdminLogin ? ' (Администратор)' : ''), 
+          timer: 1500, 
+          showConfirmButton: false 
+        });
+        
+        await loadDashboard();
+        
+      } catch (error) {
+        console.error(error);
+        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Попробуйте позже' });
+      }
+    }
+    
+    // ==================== РЕГИСТРАЦИЯ ====================
+    async function register(data) {
+      try {
+        Swal.fire({ title: 'Регистрация...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+        
+        const normalizedPhone = normalizePhone(data.phone);
+        
+        const existing = await db.collection('customers').where('phone', '==', normalizedPhone).limit(1).get();
+        if (!existing.empty) {
+          Swal.fire({ icon: 'warning', title: 'Телефон занят', text: 'Попробуйте войти' });
+          return;
+        }
+        
+        // Проверяем, является ли это админом
+        const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+        const isAdminRegister = normalizedPhone === adminPhone && data.password === ADMIN_CUSTOMER_DATA.password;
+        
+        const ref = await db.collection('customers').add({
+          name: data.name,
+          phone: normalizedPhone,
+          address: data.address || '',
+          password: data.password,
+          createdAt: Date.now(),
+          ordersCount: 0,
+          totalSpent: 0,
+          isAdmin: isAdminRegister
+        });
+        
+        currentCustomer = {
+          id: ref.id,
+          name: data.name,
+          phone: normalizedPhone,
+          address: data.address || '',
+          isAdmin: isAdminRegister
+        };
+        
+        isAdmin = isAdminRegister;
+        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+        
+        Swal.fire({ 
+          icon: 'success', 
+          title: '🎉 Регистрация успешна!', 
+          text: `Добро пожаловать, ${data.name}!`, 
+          timer: 2000, 
+          showConfirmButton: false 
+        });
+        
+        await loadDashboard();
+        
+      } catch (error) {
+        console.error(error);
+        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Попробуйте позже' });
+      }
+    }
+    
+    // ==================== ЗАГРУЗКА ДАШБОРДА ====================
+    async function loadDashboard() {
+      let orders = [];
+      let stats = { ordersCount: 0, totalSpent: 0 };
+      
+      try {
+        const snapshot = await db.collection('orders').where('phone', '==', currentCustomer.phone).limit(50).get();
+        snapshot.forEach(doc => orders.push({ id: doc.id, ...doc.data() }));
+        orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        
+        stats.ordersCount = orders.length;
+        stats.totalSpent = orders.reduce((sum, o) => sum + (o.total || 0), 0);
+      } catch(e) { 
+        console.error('Ошибка загрузки заказов:', e); 
+      }
+      
+      _customerOrders = orders;
+      
+      const statusColors = {
+        'Новый': '#17a2b8',
+        'В обработке': '#ffc107',
+        'Доставляется': '#007bff',
+        'Доставлен': '#28a745',
+        'Выполнен': '#28a745',
+        'Отменён': '#dc3545'
+      };
+      
+      // Генерируем HTML заказов
+      let ordersHtml = '';
+      if (orders.length === 0) {
+        ordersHtml = `
+          <div class="empty-orders">
+            <div class="empty-orders-icon">📦</div>
+            <div>У вас пока нет заказов</div>
+          </div>
+        `;
+      } else {
+        ordersHtml = orders.slice(0, 5).map(order => {
+          const date = order.time || new Date(order.timestamp).toLocaleDateString('ru-RU');
+          const color = statusColors[order.status] || '#666';
+          const itemsCount = order.items ? order.items.length : 0;
+          
+          return `
+            <div class="order-card" onclick="showOrderDetails('${order.id}')">
+              <div class="order-header">
+                <span class="order-id">#${order.id.slice(-6).toUpperCase()}</span>
+                <span class="order-status" style="background:${color}">${order.status || 'Новый'}</span>
+              </div>
+              <div class="order-date">📅 ${date}</div>
+              <div class="order-items">📦 ${itemsCount} товар(ов)</div>
+              <div class="order-total">${(order.total || 0).toLocaleString()} сом</div>
+            </div>
+          `;
+        }).join('');
+        
+        if (orders.length > 5) {
+          ordersHtml += `<div style="text-align:center; padding:10px;"><a href="#" onclick="openOrdersWindow(); return false;" style="color:#4CAF50;">Показать все ${orders.length} заказов →</a></div>`;
+        }
+      }
+      
+      // Админ-панель (только для админов)
+      let adminPanelHtml = '';
+      if (isAdmin || currentCustomer.isAdmin) {
+        adminPanelHtml = `
+          <div class="menu-section">
+            <div class="menu-section-title">🔐 Панель администратора</div>
+            
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-products.html'">
+              <div class="menu-item-left">
+                <span class="menu-icon">➕</span>
+                <span class="menu-text">Добавить товар</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-orders.html'">
+              <div class="menu-item-left">
+                <span class="menu-icon">📦</span>
+                <span class="menu-text">Заказы клиентов</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="goToPage('index.html', 'openPartnersOrdersWindow')">
+              <div class="menu-item-left">
+                <span class="menu-icon">🤝</span>
+                <span class="menu-text">Заказы от партнеров</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-chat.html'">
+              <div class="menu-item-left">
+                <span class="menu-icon">💬</span>
+                <span class="menu-text">Чат с клиентами</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-profit.html'">
+              <div class="menu-item-left">
+                <span class="menu-icon">💰</span>
+                <span class="menu-text">Отчет по прибыли</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-sellers.html'">
+              <div class="menu-item-left">
+                <span class="menu-icon">🏪</span>
+                <span class="menu-text">Управление продавцами</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-categories.html'">
+              <div class="menu-item-left">
+                <span class="menu-icon">📁</span>
+                <span class="menu-text">Управление категориями</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-agents.html'">
+              <div class="menu-item-left">
+                <span class="menu-icon">🤝</span>
+                <span class="menu-text">Управление агентами</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+          </div>
+        `;
+      }
+      
+      document.getElementById('profileContent').innerHTML = `
+        <div class="profile-header">
+          <div class="profile-user">
+            <div class="profile-avatar" onclick="editProfile()">👤</div>
+            <div class="profile-info" onclick="editProfile()">
+              <div class="profile-name">${currentCustomer.name} ${isAdmin ? '<span style="font-size:12px; background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:10px;">Админ</span>' : ''} <span style="font-size:12px; opacity:0.7;">✎</span></div>
+              <div class="profile-phone">${currentCustomer.phone}</div>
+            </div>
+            <button class="logout-btn" onclick="logout()">Выйти</button>
+          </div>
+        </div>
+        
+        <div class="stats-row">
+          <div class="stat-item">
+            <div class="stat-value">${stats.ordersCount}</div>
+            <div class="stat-label">Заказов</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">${stats.totalSpent.toLocaleString()}</div>
+            <div class="stat-label">Потрачено</div>
+          </div>
+        </div>
+        
+        <div class="menu-section">
+          <div class="menu-item" onclick="openOrdersWindow()">
+            <div class="menu-item-left">
+              <span class="menu-icon">📋</span>
+              <span class="menu-text">Мои заказы</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="menu-badge">${stats.ordersCount}</span>
+              <span class="menu-arrow">›</span>
+            </div>
+          </div>
+          
+          <a href="cart.html" class="menu-item">
+            <div class="menu-item-left">
+              <span class="menu-icon">🛒</span>
+              <span class="menu-text">Корзина</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </a>
+          
+          <a href="chat.html" class="menu-item">
+            <div class="menu-item-left">
+              <span class="menu-icon">💬</span>
+              <span class="menu-text">Чат с продавцом</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </a>
+          
+          <div class="menu-item" onclick="goToPage('index.html', 'openFavoritesPage')">
+            <div class="menu-item-left">
+              <span class="menu-icon">❤️</span>
+              <span class="menu-text">Избранное</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
+          
+          <div class="menu-item" onclick="openComplaintWindow()">
+            <div class="menu-item-left">
+              <span class="menu-icon">⚠️</span>
+              <span class="menu-text">Жалоба</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
+          
+          <div class="menu-item" onclick="openSuggestionWindow()">
+            <div class="menu-item-left">
+              <span class="menu-icon">💡</span>
+              <span class="menu-text">Предложить товар</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
+          
+          <div class="menu-item" onclick="window.location.href='agent-profit.html'">
+            <div class="menu-item-left">
+              <span class="menu-icon">💰</span>
+              <span class="menu-text">Моя прибыль (агент)</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
+          
+          <div class="menu-item" onclick="openBecomeSellerWindow()">
+            <div class="menu-item-left">
+              <span class="menu-icon">🏪</span>
+              <span class="menu-text">Стать продавцом</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
+          
+          ${!isAdmin && !currentCustomer.isAdmin ? `
+          <div class="menu-item" onclick="openAdminLogin()">
+            <div class="menu-item-left">
+              <span class="menu-icon">🔐</span>
+              <span class="menu-text">Вход для админа</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
+          ` : ''}
+        </div>
+        
+        ${adminPanelHtml}
+        
+        <div class="orders-section">
+          <div class="section-title">📋 Последние заказы</div>
+          ${ordersHtml}
+        </div>
+        
+        <div style="height:20px;"></div>
+      `;
+    }
+    
+    // ==================== ПЕРЕХОД НА СТРАНИЦУ С ФУНКЦИЕЙ ====================
+    function goToPage(page, funcName) {
+      // Сохраняем функцию для вызова после загрузки страницы
+      localStorage.setItem('callAfterLoad', funcName);
+      window.location.href = page;
+    }
+    
+    // ==================== ВХОД ДЛЯ АДМИНА ====================
+    async function openAdminLogin() {
+      const { value: password } = await Swal.fire({
+        title: '🔐 Вход для администратора',
+        input: 'password',
+        inputPlaceholder: 'Введите пароль администратора',
+        showCancelButton: true,
+        confirmButtonText: 'Войти',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#28a745'
+      });
+      
+      if (password) {
+        if (password === ADMIN_CUSTOMER_DATA.password) {
+          // Проверяем телефон
+          const userPhone = normalizePhone(currentCustomer.phone);
+          const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+          
+          if (userPhone !== adminPhone) {
+            Swal.fire({
+              icon: 'error',
+              title: '❌ Доступ запрещён',
+              text: 'Ваш номер телефона не совпадает с номером администратора'
+            });
+            return;
+          }
+          
+          // Успешный вход
+          currentCustomer.isAdmin = true;
+          isAdmin = true;
+          localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+          
+          Swal.fire({
+            icon: 'success',
+            title: '✅ Успешный вход',
+            text: 'Вы вошли как администратор!',
+            timer: 1500,
+            showConfirmButton: false
+          }).then(() => {
+            loadDashboard();
+          });
+        } else {
+          Swal.fire({ icon: 'error', title: 'Неверный пароль' });
+        }
+      }
+    }
+    
+    // ==================== РЕДАКТИРОВАНИЕ ПРОФИЛЯ ====================
+    async function editProfile() {
+      const { value: formValues } = await Swal.fire({
+        title: '✏️ Редактировать профиль',
+        html: `
+          <div style="text-align:left;">
+            <div style="margin-bottom:15px;">
+              <label style="display:block; margin-bottom:5px; font-weight:600;">👤 Имя:</label>
+              <input type="text" id="editName" value="${currentCustomer.name}" class="swal2-input" style="width:100%;">
+            </div>
+            <div style="margin-bottom:15px;">
+              <label style="display:block; margin-bottom:5px; font-weight:600;">📍 Адрес доставки:</label>
+              <input type="text" id="editAddress" value="${currentCustomer.address || ''}" class="swal2-input" style="width:100%;">
+            </div>
+            <div style="padding:10px; background:#fff3e0; border-radius:8px; font-size:13px; color:#e65100;">
+              💡 Номер телефона нельзя изменить
+            </div>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Сохранить',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#4CAF50',
+        preConfirm: () => {
+          const name = document.getElementById('editName').value.trim();
+          if (!name) {
+            Swal.showValidationMessage('Введите имя');
+            return false;
+          }
+          return {
+            name,
+            address: document.getElementById('editAddress').value.trim()
+          };
+        }
+      });
+      
+      if (formValues) {
+        try {
+          await db.collection('customers').doc(currentCustomer.id).update({
+            name: formValues.name,
+            address: formValues.address
+          });
+          
+          currentCustomer.name = formValues.name;
+          currentCustomer.address = formValues.address;
+          localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+          
+          Swal.fire({ icon: 'success', title: 'Профиль обновлён!', timer: 1500, showConfirmButton: false });
+          loadDashboard();
+        } catch (error) {
+          Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Не удалось обновить профиль' });
+        }
+      }
+    }
+    
+    // ==================== ВЫХОД ====================
+    function logout() {
+      Swal.fire({
+        title: 'Выйти?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Да, выйти',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#dc3545'
+      }).then(r => {
+        if (r.isConfirmed) {
+          localStorage.removeItem('customerData');
+          currentCustomer = null;
+          isAdmin = false;
+          showLoginForm();
+        }
+      });
+    }
+    
+    // ==================== ОКНО ЗАКАЗОВ ====================
+    function openOrdersWindow() {
+      const orders = _customerOrders || [];
+      
+      const statusColors = {
+        'Новый': '#2196F3',
+        'В обработке': '#FF9800',
+        'Доставляется': '#9C27B0',
+        'Доставлен': '#4CAF50',
+        'Выполнен': '#4CAF50',
+        'Отменён': '#f44336'
+      };
+      
+      let html = '';
+      if (orders.length === 0) {
+        html = `<div class="empty-orders"><div class="empty-orders-icon">📦</div><div>У вас пока нет заказов</div></div>`;
+      } else {
+        html = orders.map(order => {
+          const date = order.time || new Date(order.timestamp).toLocaleDateString('ru-RU');
+          const color = statusColors[order.status] || '#666';
+          const itemsCount = order.items ? order.items.length : 0;
+          
+          return `
+            <div onclick="showOrderDetails('${order.id}')" style="background:#fff; padding:15px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-size:14px; font-weight:600; color:#333;">#${order.id.slice(-6).toUpperCase()}</span>
+                <span style="font-size:11px; padding:4px 8px; background:${color}; color:white; border-radius:4px;">${order.status || 'Новый'}</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:13px; color:#888;">${date} · ${itemsCount} товар(ов)</div>
+                <div style="font-size:15px; font-weight:600; color:#333;">${(order.total || 0).toLocaleString()} сом</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+      
+      document.getElementById('ordersWindowContent').innerHTML = html;
+      document.getElementById('ordersWindow').style.display = 'flex';
+    }
+    
+    function closeOrdersWindow() {
+      document.getElementById('ordersWindow').style.display = 'none';
+    }
+    
+    // ==================== ДЕТАЛИ ЗАКАЗА ====================
+    async function showOrderDetails(orderId) {
+      try {
+        let order = _customerOrders.find(o => o.id === orderId);
+        
+        if (!order) {
+          const doc = await db.collection('orders').doc(orderId).get();
+          if (doc.exists) {
+            order = { id: doc.id, ...doc.data() };
+          }
+        }
+        
+        if (!order) {
+          Swal.fire('Ошибка', 'Заказ не найден', 'error');
+          return;
+        }
+        
+        const date = order.time || new Date(order.timestamp).toLocaleDateString('ru-RU');
+        const statusColors = {
+          'Новый': '#17a2b8',
+          'В обработке': '#ffc107',
+          'Доставляется': '#007bff',
+          'Доставлен': '#28a745',
+          'Выполнен': '#28a745',
+          'Отменён': '#dc3545'
+        };
+        const color = statusColors[order.status] || '#666';
+        
+        let itemsHtml = '';
+        if (order.items && order.items.length > 0) {
+          itemsHtml = order.items.map(item => `
+            <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0f0f0;">
+              <div style="flex:1;">
+                <div style="font-weight:500;">${item.title}${item.variant ? ` (${item.variant})` : ''}</div>
+                <div style="font-size:12px; color:#666;">${item.qty} × ${item.price} сом</div>
+              </div>
+              <div style="font-weight:600; color:#333;">${item.qty * item.price} сом</div>
+            </div>
+          `).join('');
+        }
+        
+        Swal.fire({
+          title: `Заказ #${orderId.slice(-6).toUpperCase()}`,
+          html: `
+            <div style="text-align:left;">
+              <div style="margin-bottom:15px; padding:10px; background:#f8f9fa; border-radius:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="color:#666;">Статус:</span>
+                  <span style="padding:4px 12px; background:${color}; color:white; border-radius:12px; font-size:13px;">${order.status || 'Новый'}</span>
+                </div>
+                <div style="margin-top:8px; color:#666; font-size:13px;">📅 ${date}</div>
+                <div style="margin-top:5px; color:#666; font-size:13px;">📍 ${order.address || 'Не указан'}</div>
+              </div>
+              
+              <div style="font-weight:600; margin-bottom:10px;">Товары:</div>
+              <div style="max-height:200px; overflow-y:auto;">
+                ${itemsHtml}
+              </div>
+              
+              <div style="margin-top:15px; padding-top:15px; border-top:2px solid #4CAF50; display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:16px; font-weight:600;">Итого:</span>
+                <span style="font-size:20px; font-weight:700; color:#4CAF50;">${(order.total || 0).toLocaleString()} сом</span>
+              </div>
+            </div>
+          `,
+          confirmButtonText: 'Закрыть',
+          confirmButtonColor: '#4CAF50',
+          showCancelButton: order.status === 'Новый',
+          cancelButtonText: '❌ Отменить заказ',
+          cancelButtonColor: '#dc3545'
+        }).then(async (result) => {
+          if (result.dismiss === Swal.DismissReason.cancel && order.status === 'Новый') {
+            const confirm = await Swal.fire({
+              title: 'Отменить заказ?',
+              text: 'Это действие нельзя отменить',
+              icon: 'warning',
+              showCancelButton: true,
+              confirmButtonText: 'Да, отменить',
+              cancelButtonText: 'Нет',
+              confirmButtonColor: '#dc3545'
+            });
+            
+            if (confirm.isConfirmed) {
+              try {
+                await db.collection('orders').doc(orderId).update({ status: 'Отменён' });
+                Swal.fire('Заказ отменён', '', 'success');
+                await loadDashboard();
+              } catch (e) {
+                Swal.fire('Ошибка', 'Не удалось отменить заказ', 'error');
+              }
+            }
+          }
+        });
+        
+      } catch (error) {
+        console.error('Ошибка загрузки заказа:', error);
+        Swal.fire('Ошибка', 'Не удалось загрузить детали заказа', 'error');
+      }
+    }
+    
+    // ==================== ЖАЛОБА ====================
+    function openComplaintWindow() {
+      // Автозаполнение
+      if (currentCustomer) {
+        document.getElementById('complaintName').value = currentCustomer.name || '';
+        document.getElementById('complaintPhone').value = currentCustomer.phone || '';
+      }
+      document.getElementById('complaintWindow').style.display = 'flex';
+    }
+    
+    function closeComplaintWindow() {
+      document.getElementById('complaintWindow').style.display = 'none';
+    }
+    
+    async function sendComplaint() {
+      const name = document.getElementById('complaintName').value.trim();
+      const phone = document.getElementById('complaintPhone').value.trim();
+      const category = document.getElementById('complaintCategory').value;
+      const text = document.getElementById('complaintText').value.trim();
+      
+      if (!name) { Swal.fire('Ошибка', 'Введите ваше имя', 'error'); return; }
+      if (!phone) { Swal.fire('Ошибка', 'Введите номер телефона', 'error'); return; }
+      if (!category) { Swal.fire('Ошибка', 'Выберите категорию жалобы', 'error'); return; }
+      if (!text) { Swal.fire('Ошибка', 'Опишите проблему', 'error'); return; }
+      
+      const categoryNames = {
+        'quality': '🔴 Качество товара',
+        'delivery': '🚚 Проблемы с доставкой',
+        'service': '👤 Обслуживание',
+        'price': '💰 Неверная цена',
+        'other': '📝 Другое'
+      };
+      
+      const message = `⚠️ *ЖАЛОБА ОТ КЛИЕНТА*\n\n` +
+        `👤 *Имя:* ${name}\n` +
+        `📱 *Телефон:* ${phone}\n` +
+        `📂 *Категория:* ${categoryNames[category]}\n\n` +
+        `📝 *Описание проблемы:*\n${text}\n\n` +
+        `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
+      
+      try {
+        Swal.fire({ title: 'Отправка жалобы...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+        
+        const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: TELEGRAM_CHAT_ID,
+            text: message,
+            parse_mode: 'Markdown'
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.ok) {
+          closeComplaintWindow();
+          Swal.fire({
+            icon: 'success',
+            title: 'Жалоба отправлена!',
+            text: 'Мы рассмотрим вашу жалобу и свяжемся с вами'
+          });
+        } else {
+          throw new Error('Ошибка отправки');
+        }
+      } catch (error) {
+        console.error('Ошибка:', error);
+        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Не удалось отправить жалобу. Попробуйте позже.' });
+      }
+    }
+    
+    // ==================== ПРЕДЛОЖЕНИЕ ТОВАРА ====================
+    function openSuggestionWindow() {
+      if (currentCustomer) {
+        document.getElementById('suggestionName').value = currentCustomer.name || '';
+        document.getElementById('suggestionPhone').value = currentCustomer.phone || '';
+      }
+      document.getElementById('suggestionWindow').style.display = 'flex';
+    }
+    
+    function closeSuggestionWindow() {
+      document.getElementById('suggestionWindow').style.display = 'none';
+    }
+    
+    async function sendSuggestion() {
+      const name = document.getElementById('suggestionName').value.trim();
+      const phone = document.getElementById('suggestionPhone').value.trim();
+      const productName = document.getElementById('suggestionProductName').value.trim();
+      const currentPrice = document.getElementById('suggestionCurrentPrice').value.trim();
+      const price = document.getElementById('suggestionPrice').value.trim();
+      const description = document.getElementById('suggestionDescription').value.trim();
+      const photoInput = document.getElementById('suggestionPhoto');
+      
+      if (!name) { Swal.fire('Ошибка', 'Введите ваше имя', 'error'); return; }
+      if (!phone) { Swal.fire('Ошибка', 'Введите телефон', 'error'); return; }
+      if (!productName) { Swal.fire('Ошибка', 'Укажите название товара', 'error'); return; }
+      if (!description) { Swal.fire('Ошибка', 'Опишите товар подробнее', 'error'); return; }
+      
+      try {
+        document.getElementById('suggestionLoader').style.display = 'flex';
+        document.getElementById('suggestionSubmitBtn').disabled = true;
+        
+        let message = `💡 *ПРЕДЛОЖЕНИЕ ТОВАРА*\n\n` +
+          `👤 *Имя клиента:* ${name}\n` +
+          `📱 *Телефон:* ${phone}\n` +
+          `🏷️ *Название товара:* ${productName}\n` +
+          `💵 *Текущая цена:* ${currentPrice ? currentPrice + ' сом' : 'не указана'}\n` +
+          `💰 *Желаемая цена:* ${price ? price + ' сом' : 'не указана'}\n\n` +
+          `📝 *Описание:*\n${description}\n\n` +
+          `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
+        
+        let result;
+        
+        if (photoInput.files && photoInput.files[0]) {
+          const telegramFormData = new FormData();
+          telegramFormData.append('chat_id', TELEGRAM_CHAT_ID);
+          telegramFormData.append('photo', photoInput.files[0]);
+          telegramFormData.append('caption', message);
+          
+          const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+            method: 'POST',
+            body: telegramFormData
+          });
+          
+          result = await response.json();
+        } else {
+          const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: TELEGRAM_CHAT_ID,
+              text: message,
+              parse_mode: 'Markdown'
+            })
+          });
+          
+          result = await response.json();
+        }
+        
+        document.getElementById('suggestionLoader').style.display = 'none';
+        document.getElementById('suggestionSubmitBtn').disabled = false;
+        
+        if (result.ok) {
+          closeSuggestionWindow();
+          Swal.fire({
+            icon: 'success',
+            title: 'Предложение отправлено!',
+            text: 'Спасибо! Мы рассмотрим ваше предложение.'
+          });
+        } else {
+          throw new Error('Ошибка отправки');
+        }
+      } catch (error) {
+        console.error('Ошибка:', error);
+        document.getElementById('suggestionLoader').style.display = 'none';
+        document.getElementById('suggestionSubmitBtn').disabled = false;
+        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Не удалось отправить. Попробуйте позже.' });
+      }
+    }
+    
+    // ==================== СТАТЬ ПРОДАВЦОМ ====================
+    function openBecomeSellerWindow() {
+      document.getElementById('becomeSellerWindow').style.display = 'flex';
+      switchSellerTab('register');
+      
+      // Очистка форм
+      document.getElementById('sellerName').value = '';
+      document.getElementById('sellerPhone').value = '';
+      document.getElementById('sellerPassword').value = '';
+      document.getElementById('sellerCity').value = '';
+      document.getElementById('sellerProducts').value = '';
+      document.getElementById('sellerTelegramId').value = '';
+      document.getElementById('sellerLoginPhone').value = '';
+      document.getElementById('sellerLoginPassword').value = '';
+    }
+    
+    function closeBecomeSellerWindow() {
+      document.getElementById('becomeSellerWindow').style.display = 'none';
+    }
+    
+    function switchSellerTab(tab) {
+      const registerTab = document.getElementById('sellerTabRegister');
+      const loginTab = document.getElementById('sellerTabLogin');
+      const registerForm = document.getElementById('sellerRegisterForm');
+      const loginForm = document.getElementById('sellerLoginForm');
+      
+      if (tab === 'register') {
+        registerTab.classList.add('active');
+        loginTab.classList.remove('active');
+        registerForm.style.display = 'block';
+        loginForm.style.display = 'none';
+      } else {
+        loginTab.classList.add('active');
+        registerTab.classList.remove('active');
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+      }
+    }
+    
+    async function registerSeller() {
+      const name = document.getElementById('sellerName').value.trim();
+      const phone = document.getElementById('sellerPhone').value.trim();
+      const password = document.getElementById('sellerPassword').value.trim();
+      const city = document.getElementById('sellerCity').value.trim();
+      const products = document.getElementById('sellerProducts').value.trim();
+      const telegramId = document.getElementById('sellerTelegramId').value.trim();
+      
+      if (!name) { Swal.fire('Ошибка', 'Введите имя или название компании', 'error'); return; }
+      if (!phone) { Swal.fire('Ошибка', 'Введите телефон', 'error'); return; }
+      if (!password || password.length < 4) { Swal.fire('Ошибка', 'Пароль минимум 4 символа', 'error'); return; }
+      if (!city) { Swal.fire('Ошибка', 'Укажите город', 'error'); return; }
+      
+      try {
+        document.getElementById('sellerLoader').style.display = 'flex';
+        document.getElementById('sellerSubmitBtn').disabled = true;
+        
+        // Проверяем, не занят ли телефон
+        const existing = await db.collection('sellers').where('phone', '==', phone).get();
+        if (!existing.empty) {
+          document.getElementById('sellerLoader').style.display = 'none';
+          document.getElementById('sellerSubmitBtn').disabled = false;
+          Swal.fire('Ошибка', 'Этот телефон уже зарегистрирован. Используйте вход.', 'error');
+          return;
+        }
+        
+        // Регистрация продавца
+        await db.collection('sellers').add({
+          name,
+          phone,
+          password,
+          city,
+          products,
+          telegramId: telegramId || '',
+          status: 'pending',
+          createdAt: Date.now()
+        });
+        
+        // Уведомление в Telegram
+        const message = `🏪 *НОВЫЙ ПРОДАВЕЦ*\n\n` +
+          `👤 *Имя:* ${name}\n` +
+          `📱 *Телефон:* ${phone}\n` +
+          `🏙️ *Город:* ${city}\n` +
+          `📦 *Товары:* ${products || 'не указаны'}\n` +
+          `📱 *Telegram ID:* ${telegramId || 'не указан'}\n\n` +
+          `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
+        
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: TELEGRAM_CHAT_ID,
+            text: message,
+            parse_mode: 'Markdown'
+          })
+        });
+        
+        document.getElementById('sellerLoader').style.display = 'none';
+        document.getElementById('sellerSubmitBtn').disabled = false;
+        
+        closeBecomeSellerWindow();
+        Swal.fire({
+          icon: 'success',
+          title: 'Заявка отправлена!',
+          html: `<p>Ваша заявка на регистрацию продавца отправлена.</p>
+                 <p style="color:#666;">Мы свяжемся с вами после проверки.</p>`
+        });
+        
+      } catch (error) {
+        console.error('Ошибка:', error);
+        document.getElementById('sellerLoader').style.display = 'none';
+        document.getElementById('sellerSubmitBtn').disabled = false;
+        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Не удалось отправить заявку' });
+      }
+    }
+    
+    async function loginSeller() {
+      const phone = document.getElementById('sellerLoginPhone').value.trim();
+      const password = document.getElementById('sellerLoginPassword').value.trim();
+      
+      if (!phone || !password) {
+        Swal.fire('Ошибка', 'Введите телефон и пароль', 'error');
+        return;
+      }
+      
+      try {
+        document.getElementById('sellerLoader').style.display = 'flex';
+        
+        const snapshot = await db.collection('sellers').where('phone', '==', phone).limit(1).get();
+        
+        if (snapshot.empty) {
+          document.getElementById('sellerLoader').style.display = 'none';
+          Swal.fire('Ошибка', 'Продавец не найден', 'error');
+          return;
+        }
+        
+        const doc = snapshot.docs[0];
+        const data = doc.data();
+        
+        if (data.password !== password) {
+          document.getElementById('sellerLoader').style.display = 'none';
+          Swal.fire('Ошибка', 'Неверный пароль', 'error');
+          return;
+        }
+        
+        if (data.status !== 'approved') {
+          document.getElementById('sellerLoader').style.display = 'none';
+          Swal.fire('Ожидание', 'Ваша заявка ещё не одобрена. Дождитесь проверки.', 'info');
+          return;
+        }
+        
+        // Успешный вход
+        const sellerData = { id: doc.id, ...data };
+        localStorage.setItem('sellerData', JSON.stringify(sellerData));
+        
+        document.getElementById('sellerLoader').style.display = 'none';
+        closeBecomeSellerWindow();
+        
+        Swal.fire({
+          icon: 'success',
+          title: `Добро пожаловать, ${data.name}!`,
+          text: 'Вы вошли как продавец',
+          timer: 2000,
+          showConfirmButton: false
+        }).then(() => {
+          // Переходим на главную для добавления товаров
+          window.location.href = 'index.html';
+        });
+        
+      } catch (error) {
+        console.error('Ошибка:', error);
+        document.getElementById('sellerLoader').style.display = 'none';
+        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Попробуйте позже' });
+      }
+    }
+    
+    // ==================== ОБНОВЛЕНИЕ БЕЙДЖА КОРЗИНЫ ====================
+    function updateCartBadge() {
+      const cart = JSON.parse(localStorage.getItem('cart') || '[]');
+      const badge = document.getElementById('navCartBadge');
+      if (badge) {
+        badge.textContent = cart.length;
+        badge.style.display = cart.length > 0 ? 'flex' : 'none';
+      }
+    }
+    
+    // ==================== ЗАПУСК ====================
+    document.addEventListener('DOMContentLoaded', init);
+    
+    // Обновляем бейдж при изменении корзины
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'cart') updateCartBadge();
+    });
+  </script>
+</body>
+</html>

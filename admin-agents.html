@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Управление агентами</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 15px;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .header {
+      background: white;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+    
+    .header-title h1 {
+      font-size: 24px;
+      color: #333;
+    }
+    
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      text-decoration: none;
+      border-radius: 10px;
+      font-weight: 600;
+      transition: all 0.3s;
+    }
+    
+    .back-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+    
+    .stat-card {
+      background: linear-gradient(135deg, #f8f9fa, #fff);
+      border-radius: 12px;
+      padding: 15px;
+      text-align: center;
+      border: 2px solid #e0e0e0;
+    }
+    
+    .stat-card.purple { border-color: #9c27b0; background: linear-gradient(135deg, #f3e5f5, #fff); }
+    .stat-card.green { border-color: #4caf50; background: linear-gradient(135deg, #e8f5e9, #fff); }
+    .stat-card.blue { border-color: #2196f3; background: linear-gradient(135deg, #e3f2fd, #fff); }
+    .stat-card.orange { border-color: #ff9800; background: linear-gradient(135deg, #fff3e0, #fff); }
+    
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #333;
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+    
+    .tab-btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      background: #e0e0e0;
+      color: #666;
+    }
+    
+    .tab-btn.active {
+      background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+      color: white;
+    }
+    
+    .tab-btn:hover:not(.active) {
+      background: #d0d0d0;
+    }
+    
+    .action-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    
+    .action-btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .action-btn.primary {
+      background: linear-gradient(135deg, #4caf50, #43a047);
+      color: white;
+    }
+    
+    .action-btn.secondary {
+      background: linear-gradient(135deg, #2196f3, #1976d2);
+      color: white;
+    }
+    
+    .action-btn.excel {
+      background: linear-gradient(135deg, #4caf50, #2e7d32);
+      color: white;
+    }
+    
+    .action-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .content-card {
+      background: white;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    
+    .search-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .search-input {
+      flex: 1;
+      min-width: 200px;
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    
+    .search-input:focus {
+      outline: none;
+      border-color: #9c27b0;
+    }
+    
+    .filter-select {
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 14px;
+      min-width: 150px;
+    }
+    
+    .agents-list {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    
+    .agent-card {
+      background: #f8f9fa;
+      border-radius: 12px;
+      padding: 15px;
+      border-left: 4px solid #4caf50;
+      transition: all 0.3s;
+    }
+    
+    .agent-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    .agent-card.blocked {
+      border-left-color: #dc3545;
+      opacity: 0.8;
+    }
+    
+    .agent-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    
+    .agent-info {
+      flex: 1;
+      min-width: 200px;
+    }
+    
+    .agent-name {
+      font-weight: 700;
+      font-size: 16px;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    
+    .status-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    
+    .status-badge.active {
+      background: #e8f5e9;
+      color: #388e3c;
+    }
+    
+    .status-badge.blocked {
+      background: #ffebee;
+      color: #c62828;
+    }
+    
+    .agent-phone {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .agent-date {
+      font-size: 12px;
+      color: #999;
+    }
+    
+    .agent-stats {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    
+    .agent-stat {
+      text-align: center;
+      padding: 8px 12px;
+      background: white;
+      border-radius: 8px;
+      min-width: 70px;
+    }
+    
+    .agent-stat.highlight {
+      background: #fff3e0;
+      border: 2px solid #ff9800;
+    }
+    
+    .agent-stat-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: #333;
+    }
+    
+    .agent-stat-label {
+      font-size: 10px;
+      color: #666;
+    }
+    
+    .agent-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .agent-btn {
+      padding: 8px 15px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    
+    .agent-btn.blue { background: #2196f3; color: white; }
+    .agent-btn.purple { background: #9c27b0; color: white; }
+    .agent-btn.green { background: #4caf50; color: white; }
+    .agent-btn.orange { background: #ff9800; color: white; }
+    .agent-btn.red { background: #dc3545; color: white; }
+    
+    .agent-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    
+    /* Вкладка клиентов */
+    .clients-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .client-card {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 15px;
+      border-left: 4px solid #ff9800;
+    }
+    
+    .client-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+    
+    .client-info {
+      flex: 1;
+      min-width: 200px;
+    }
+    
+    .client-name {
+      font-weight: 600;
+      font-size: 15px;
+      color: #333;
+    }
+    
+    .client-phone {
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .client-stats {
+      font-size: 12px;
+      color: #999;
+      margin-top: 5px;
+    }
+    
+    .client-agent {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    
+    .client-agent-select {
+      padding: 8px 12px;
+      border: 2px solid #9c27b0;
+      border-radius: 8px;
+      font-size: 14px;
+      min-width: 180px;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+    
+    .empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 15px;
+    }
+    
+    .hidden {
+      display: none !important;
+    }
+    
+    @media (max-width: 600px) {
+      .header-title h1 {
+        font-size: 18px;
+      }
+      
+      .stat-value {
+        font-size: 22px;
+      }
+      
+      .agent-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+      
+      .agent-btn {
+        flex: 1;
+        min-width: calc(50% - 4px);
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-title">
+        <a href="profile.html" class="back-btn">← Назад</a>
+        <h1>👥 Управление агентами</h1>
+      </div>
+      
+      <div class="stats-grid">
+        <div class="stat-card purple">
+          <div class="stat-value" id="statTotalAgents">0</div>
+          <div class="stat-label">Всего агентов</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-value" id="statActiveAgents">0</div>
+          <div class="stat-label">Активных</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-value" id="statTotalOrders">0</div>
+          <div class="stat-label">Заказов</div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-value" id="statTotalCommission">0</div>
+          <div class="stat-label">Комиссия (сом)</div>
+        </div>
+      </div>
+      
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('agents')">👥 Агенты</button>
+        <button class="tab-btn" onclick="switchTab('clients')">🛒 Клиенты</button>
+        <button class="tab-btn" onclick="switchTab('payouts')">💸 Выплаты</button>
+      </div>
+      
+      <div class="action-bar">
+        <button class="action-btn primary" onclick="addNewAgent()">➕ Добавить агента</button>
+        <button class="action-btn secondary" onclick="refreshData()">🔄 Обновить</button>
+        <button class="action-btn excel" onclick="exportToExcel()">📊 Экспорт Excel</button>
+      </div>
+    </div>
+    
+    <!-- Вкладка: Агенты -->
+    <div id="tabAgents" class="content-card">
+      <div class="search-bar">
+        <input type="text" class="search-input" id="agentSearch" placeholder="🔍 Поиск по имени или телефону..." oninput="filterAgents()">
+        <select class="filter-select" id="agentStatusFilter" onchange="filterAgents()">
+          <option value="all">Все агенты</option>
+          <option value="active">Активные</option>
+          <option value="blocked">Заблокированные</option>
+        </select>
+      </div>
+      
+      <div id="agentsList" class="agents-list">
+        <div class="loading">Загрузка агентов...</div>
+      </div>
+    </div>
+    
+    <!-- Вкладка: Клиенты -->
+    <div id="tabClients" class="content-card hidden">
+      <div class="search-bar">
+        <input type="text" class="search-input" id="clientSearch" placeholder="🔍 Поиск по имени или телефону..." oninput="filterClients()">
+        <select class="filter-select" id="clientAgentFilter" onchange="filterClients()">
+          <option value="all">Все клиенты</option>
+          <option value="no-agent">Без агента</option>
+          <option value="has-agent">С агентом</option>
+        </select>
+      </div>
+      
+      <div id="clientsList" class="clients-list">
+        <div class="loading">Загрузка клиентов...</div>
+      </div>
+    </div>
+    
+    <!-- Вкладка: Выплаты -->
+    <div id="tabPayouts" class="content-card hidden">
+      <div class="search-bar">
+        <input type="text" class="search-input" id="payoutSearch" placeholder="🔍 Поиск по агенту..." oninput="filterPayouts()">
+        <select class="filter-select" id="payoutPeriod" onchange="filterPayouts()">
+          <option value="all">Все время</option>
+          <option value="today">Сегодня</option>
+          <option value="week">Неделя</option>
+          <option value="month">Месяц</option>
+        </select>
+      </div>
+      
+      <div id="payoutsList" class="clients-list">
+        <div class="loading">Загрузка выплат...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  
+  <script>
+    // Firebase конфигурация
+    const firebaseConfig = {
+      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+      authDomain: "svoysayet.firebaseapp.com",
+      projectId: "svoysayet",
+      storageBucket: "svoysayet.appspot.com",
+      messagingSenderId: "989465106314",
+      appId: "1:989465106314:web:abc123"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    
+    // Данные
+    let allAgents = [];
+    let allClients = [];
+    let allPayouts = [];
+    let ordersByAgent = {};
+    let payoutsByAgent = {};
+    let currentTab = 'agents';
+    
+    // Проверка доступа администратора
+    function checkAdminAccess() {
+      const customerData = localStorage.getItem('customerData');
+      const sellerData = localStorage.getItem('sellerData');
+      
+      let isAdmin = false;
+      
+      if (customerData) {
+        try {
+          const customer = JSON.parse(customerData);
+          if (customer.isAdmin === true) {
+            isAdmin = true;
+          }
+        } catch (e) {}
+      }
+      
+      if (!isAdmin && sellerData) {
+        try {
+          const seller = JSON.parse(sellerData);
+          if (seller.isAdmin === true || seller.role === 'admin') {
+            isAdmin = true;
+          }
+        } catch (e) {}
+      }
+      
+      if (!isAdmin) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Доступ запрещён',
+          text: 'Эта страница только для администраторов',
+          confirmButtonText: 'На главную'
+        }).then(() => {
+          window.location.href = 'index.html';
+        });
+        return false;
+      }
+      
+      return true;
+    }
+    
+    // Инициализация
+    async function init() {
+      if (!checkAdminAccess()) return;
+      
+      await loadAllData();
+    }
+    
+    // Загрузка всех данных
+    async function loadAllData() {
+      try {
+        // Загружаем агентов
+        const agentsSnapshot = await db.collection('agents').get();
+        allAgents = [];
+        const agentIds = new Set();
+        const agentNames = new Map();
+        
+        agentsSnapshot.forEach(doc => {
+          const agent = { id: doc.id, ...doc.data() };
+          allAgents.push(agent);
+          agentIds.add(doc.id);
+          agentNames.set(agent.name, doc.id);
+          agentNames.set(doc.id, doc.id);
+        });
+        
+        // Загружаем заказы
+        const ordersSnapshot = await db.collection('orders').get();
+        ordersByAgent = {};
+        const clientsMap = {};
+        
+        ordersSnapshot.forEach(doc => {
+          const order = doc.data();
+          
+          // Статистика по агентам
+          let agentId = null;
+          if (order.partner) {
+            if (agentIds.has(order.partner)) {
+              agentId = order.partner;
+            } else {
+              agentId = agentNames.get(order.partner);
+            }
+          }
+          
+          if (agentId) {
+            if (!ordersByAgent[agentId]) {
+              ordersByAgent[agentId] = { count: 0, total: 0 };
+            }
+            ordersByAgent[agentId].count++;
+            ordersByAgent[agentId].total += order.total || 0;
+          }
+          
+          // Собираем клиентов
+          const phone = order.phone || '';
+          if (phone) {
+            if (!clientsMap[phone]) {
+              clientsMap[phone] = {
+                phone: phone,
+                name: order.name || 'Без имени',
+                ordersCount: 0,
+                totalSum: 0,
+                lastOrder: 0,
+                partner: null
+              };
+            }
+            
+            clientsMap[phone].ordersCount++;
+            clientsMap[phone].totalSum += order.total || 0;
+            
+            if (order.timestamp > clientsMap[phone].lastOrder) {
+              clientsMap[phone].lastOrder = order.timestamp;
+              clientsMap[phone].name = order.name || clientsMap[phone].name;
+            }
+            
+            if (order.partner) {
+              const foundAgent = allAgents.find(a => a.name === order.partner || a.id === order.partner);
+              if (foundAgent) {
+                clientsMap[phone].partner = foundAgent.name;
+                clientsMap[phone].agentId = foundAgent.id;
+              }
+            }
+          }
+        });
+        
+        allClients = Object.values(clientsMap);
+        allClients.sort((a, b) => b.lastOrder - a.lastOrder);
+        
+        // Загружаем выплаты
+        const payoutsSnapshot = await db.collection('agentPayouts').get();
+        allPayouts = [];
+        payoutsByAgent = {};
+        
+        payoutsSnapshot.forEach(doc => {
+          const payout = { id: doc.id, ...doc.data() };
+          allPayouts.push(payout);
+          
+          if (payout.agentId) {
+            if (!payoutsByAgent[payout.agentId]) {
+              payoutsByAgent[payout.agentId] = 0;
+            }
+            payoutsByAgent[payout.agentId] += payout.amount || 0;
+          }
+        });
+        
+        allPayouts.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        
+        // Обновляем статистику
+        updateStats();
+        
+        // Рендерим данные
+        renderAgents();
+        renderClients();
+        renderPayouts();
+        
+      } catch(e) {
+        console.error('Ошибка загрузки данных:', e);
+        Swal.fire('Ошибка', 'Не удалось загрузить данные: ' + e.message, 'error');
+      }
+    }
+    
+    // Обновление статистики
+    function updateStats() {
+      const totalAgents = allAgents.length;
+      const activeAgents = allAgents.filter(a => a.active !== false).length;
+      
+      let totalOrders = 0;
+      let totalCommission = 0;
+      
+      Object.values(ordersByAgent).forEach(stats => {
+        totalOrders += stats.count;
+        totalCommission += Math.round(stats.total * 0.02);
+      });
+      
+      document.getElementById('statTotalAgents').textContent = totalAgents;
+      document.getElementById('statActiveAgents').textContent = activeAgents;
+      document.getElementById('statTotalOrders').textContent = totalOrders;
+      document.getElementById('statTotalCommission').textContent = totalCommission.toLocaleString();
+    }
+    
+    // Переключение вкладок
+    function switchTab(tab) {
+      currentTab = tab;
+      
+      // Кнопки
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+      
+      // Контент
+      document.getElementById('tabAgents').classList.toggle('hidden', tab !== 'agents');
+      document.getElementById('tabClients').classList.toggle('hidden', tab !== 'clients');
+      document.getElementById('tabPayouts').classList.toggle('hidden', tab !== 'payouts');
+    }
+    
+    // ===== АГЕНТЫ =====
+    
+    function renderAgents() {
+      const listEl = document.getElementById('agentsList');
+      const search = (document.getElementById('agentSearch').value || '').toLowerCase().trim();
+      const statusFilter = document.getElementById('agentStatusFilter').value;
+      
+      // Сортируем по количеству заказов
+      const sorted = [...allAgents].sort((a, b) => {
+        const ordersA = ordersByAgent[a.id]?.count || 0;
+        const ordersB = ordersByAgent[b.id]?.count || 0;
+        return ordersB - ordersA;
+      });
+      
+      // Фильтруем
+      const filtered = sorted.filter(agent => {
+        if (search) {
+          const matchName = (agent.name || '').toLowerCase().includes(search);
+          const matchPhone = (agent.phone || '').includes(search);
+          if (!matchName && !matchPhone) return false;
+        }
+        
+        if (statusFilter === 'active' && agent.active === false) return false;
+        if (statusFilter === 'blocked' && agent.active !== false) return false;
+        
+        return true;
+      });
+      
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">👥</div>
+            <div>Агенты не найдены</div>
+          </div>
+        `;
+        return;
+      }
+      
+      listEl.innerHTML = filtered.map(agent => {
+        const stats = ordersByAgent[agent.id] || { count: 0, total: 0 };
+        const commission = Math.round(stats.total * 0.02);
+        const paidOut = payoutsByAgent[agent.id] || 0;
+        const balance = commission - paidOut;
+        const isActive = agent.active !== false;
+        const createdDate = agent.createdAt ? new Date(agent.createdAt).toLocaleDateString() : 'Неизвестно';
+        
+        return `
+          <div class="agent-card ${isActive ? '' : 'blocked'}">
+            <div class="agent-header">
+              <div class="agent-info">
+                <div class="agent-name">
+                  ${agent.name || 'Без имени'}
+                  <span class="status-badge ${isActive ? 'active' : 'blocked'}">
+                    ${isActive ? '✓ Активен' : '✗ Заблокирован'}
+                  </span>
+                </div>
+                <div class="agent-phone">📱 ${agent.phone || 'Нет телефона'}</div>
+                <div class="agent-date">📅 Регистрация: ${createdDate}</div>
+              </div>
+              
+              <div class="agent-stats">
+                <div class="agent-stat">
+                  <div class="agent-stat-value" style="color:#2196f3;">${stats.count}</div>
+                  <div class="agent-stat-label">Заказов</div>
+                </div>
+                <div class="agent-stat">
+                  <div class="agent-stat-value" style="color:#4caf50;">${commission.toLocaleString()}</div>
+                  <div class="agent-stat-label">Комиссия</div>
+                </div>
+                <div class="agent-stat">
+                  <div class="agent-stat-value" style="color:#ff9800;">${paidOut.toLocaleString()}</div>
+                  <div class="agent-stat-label">Выплачено</div>
+                </div>
+                <div class="agent-stat ${balance > 0 ? 'highlight' : ''}">
+                  <div class="agent-stat-value" style="color:${balance > 0 ? '#e65100' : '#388e3c'};">${balance.toLocaleString()}</div>
+                  <div class="agent-stat-label">К выплате</div>
+                </div>
+              </div>
+              
+              <div class="agent-actions">
+                ${balance > 0 ? `
+                <button class="agent-btn green" onclick="payoutAgent('${agent.id}', '${(agent.name || '').replace(/'/g, "\\'")}', ${balance})">
+                  💸 Выплатить
+                </button>
+                ` : ''}
+                <button class="agent-btn blue" onclick="viewAgentOrders('${agent.id}', '${(agent.name || '').replace(/'/g, "\\'")}')">
+                  📋 Заказы
+                </button>
+                <button class="agent-btn purple" onclick="viewAgentPayouts('${agent.id}', '${(agent.name || '').replace(/'/g, "\\'")}')">
+                  📜 Выплаты
+                </button>
+                <button class="agent-btn ${isActive ? 'orange' : 'green'}" onclick="toggleAgentStatus('${agent.id}', ${isActive})">
+                  ${isActive ? '🔒 Блок.' : '🔓 Разблок.'}
+                </button>
+                <button class="agent-btn red" onclick="deleteAgent('${agent.id}', '${(agent.name || '').replace(/'/g, "\\'")}')">
+                  🗑️ Удалить
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    function filterAgents() {
+      renderAgents();
+    }
+    
+    // Добавить агента
+    async function addNewAgent() {
+      const { value: formData } = await Swal.fire({
+        title: '➕ Добавить агента',
+        html: `
+          <div style="text-align:left;">
+            <div style="margin-bottom:15px;">
+              <label style="display:block; margin-bottom:5px; font-weight:600;">Имя агента:</label>
+              <input id="agentName" class="swal2-input" placeholder="Имя агента" style="width:100%; margin:0;">
+            </div>
+            <div style="margin-bottom:15px;">
+              <label style="display:block; margin-bottom:5px; font-weight:600;">Телефон:</label>
+              <input id="agentPhone" class="swal2-input" placeholder="+996 XXX XXXXXX" style="width:100%; margin:0;">
+            </div>
+            <div>
+              <label style="display:block; margin-bottom:5px; font-weight:600;">Пароль:</label>
+              <input id="agentPassword" type="password" class="swal2-input" placeholder="Пароль для входа" style="width:100%; margin:0;">
+            </div>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Добавить',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#4caf50',
+        preConfirm: () => {
+          const name = document.getElementById('agentName').value.trim();
+          const phone = document.getElementById('agentPhone').value.trim();
+          const password = document.getElementById('agentPassword').value.trim();
+          
+          if (!name) {
+            Swal.showValidationMessage('Введите имя агента');
+            return false;
+          }
+          if (!phone) {
+            Swal.showValidationMessage('Введите телефон');
+            return false;
+          }
+          if (!password || password.length < 4) {
+            Swal.showValidationMessage('Пароль должен быть минимум 4 символа');
+            return false;
+          }
+          
+          return { name, phone, password };
+        }
+      });
+      
+      if (!formData) return;
+      
+      try {
+        Swal.fire({
+          title: 'Сохранение...',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading()
+        });
+        
+        // Проверяем уникальность телефона
+        const existing = await db.collection('agents').where('phone', '==', formData.phone).get();
+        if (!existing.empty) {
+          Swal.fire('Ошибка', 'Агент с таким телефоном уже существует', 'error');
+          return;
+        }
+        
+        await db.collection('agents').add({
+          name: formData.name,
+          phone: formData.phone,
+          password: formData.password,
+          active: true,
+          createdAt: Date.now()
+        });
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Агент добавлен!',
+          timer: 1500,
+          showConfirmButton: false
+        });
+        
+        await loadAllData();
+        
+      } catch(e) {
+        console.error('Ошибка добавления агента:', e);
+        Swal.fire('Ошибка', 'Не удалось добавить агента', 'error');
+      }
+    }
+    
+    // Блокировка/разблокировка
+    async function toggleAgentStatus(agentId, currentlyActive) {
+      const action = currentlyActive ? 'заблокировать' : 'разблокировать';
+      
+      const result = await Swal.fire({
+        title: `${currentlyActive ? '🔒' : '🔓'} ${action.charAt(0).toUpperCase() + action.slice(1)} агента?`,
+        text: currentlyActive 
+          ? 'Агент не сможет войти в систему' 
+          : 'Агент снова сможет работать',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: currentlyActive ? 'Заблокировать' : 'Разблокировать',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: currentlyActive ? '#ff9800' : '#4caf50'
+      });
+      
+      if (!result.isConfirmed) return;
+      
+      try {
+        await db.collection('agents').doc(agentId).update({
+          active: !currentlyActive
+        });
+        
+        Swal.fire({
+          icon: 'success',
+          title: currentlyActive ? 'Агент заблокирован' : 'Агент разблокирован',
+          timer: 1500,
+          showConfirmButton: false
+        });
+        
+        await loadAllData();
+        
+      } catch(e) {
+        console.error('Ошибка:', e);
+        Swal.fire('Ошибка', 'Не удалось изменить статус агента', 'error');
+      }
+    }
+    
+    // Удаление агента
+    async function deleteAgent(agentId, agentName) {
+      const result = await Swal.fire({
+        title: '🗑️ Удалить агента?',
+        html: `Удалить агента <strong>"${agentName}"</strong>?<br><span style="color:#dc3545;">Это действие нельзя отменить!</span>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Удалить',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#dc3545'
+      });
+      
+      if (!result.isConfirmed) return;
+      
+      try {
+        await db.collection('agents').doc(agentId).delete();
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Агент удалён',
+          timer: 1500,
+          showConfirmButton: false
+        });
+        
+        await loadAllData();
+        
+      } catch(e) {
+        console.error('Ошибка:', e);
+        Swal.fire('Ошибка', 'Не удалось удалить агента', 'error');
+      }
+    }
+    
+    // Просмотр заказов агента
+    async function viewAgentOrders(agentId, agentName) {
+      try {
+        Swal.fire({
+          title: 'Загрузка...',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading()
+        });
+        
+        // Ищем по ID
+        const snapshot1 = await db.collection('orders').where('partner', '==', agentId).get();
+        // Ищем по имени
+        const snapshot2 = await db.collection('orders').where('partner', '==', agentName).get();
+        
+        const ordersMap = new Map();
+        snapshot1.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
+        snapshot2.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
+        
+        const orders = Array.from(ordersMap.values());
+        orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        
+        if (orders.length === 0) {
+          Swal.fire('📋 Заказы', `У агента "${agentName}" пока нет заказов`, 'info');
+          return;
+        }
+        
+        let totalSum = 0;
+        let html = '<div style="max-height:400px; overflow-y:auto;">';
+        
+        orders.forEach(order => {
+          totalSum += order.total || 0;
+          const date = order.time || new Date(order.timestamp).toLocaleString();
+          const commission = Math.round((order.total || 0) * 0.02);
+          
+          html += `
+            <div style="background:#f8f9fa; padding:12px; border-radius:8px; margin-bottom:10px; border-left:3px solid #9c27b0;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <div style="font-weight:600;">${order.name || 'Клиент'}</div>
+                  <div style="font-size:13px; color:#666;">${order.phone || ''}</div>
+                  <div style="font-size:12px; color:#999;">${date}</div>
+                </div>
+                <div style="text-align:right;">
+                  <div style="font-weight:600;">${(order.total || 0).toLocaleString()} сом</div>
+                  <div style="color:#4caf50; font-size:13px;">+${commission} сом</div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        
+        html += '</div>';
+        
+        const totalCommission = Math.round(totalSum * 0.02);
+        
+        Swal.fire({
+          title: `📋 Заказы: ${agentName}`,
+          html: `
+            <div style="margin-bottom:15px; padding:10px; background:#e8f5e9; border-radius:8px;">
+              <strong>Заказов:</strong> ${orders.length} | 
+              <strong>Сумма:</strong> ${totalSum.toLocaleString()} сом | 
+              <strong>Комиссия:</strong> ${totalCommission.toLocaleString()} сом
+            </div>
+            ${html}
+          `,
+          width: 600,
+          confirmButtonText: 'Закрыть'
+        });
+        
+      } catch(e) {
+        console.error('Ошибка:', e);
+        Swal.fire('Ошибка', 'Не удалось загрузить заказы', 'error');
+      }
+    }
+    
+    // ===== ВЫПЛАТЫ =====
+    
+    // Выплатить агенту
+    async function payoutAgent(agentId, agentName, maxAmount) {
+      const { value: amount } = await Swal.fire({
+        title: '💸 Выплата агенту',
+        html: `
+          <div style="text-align:left; margin-bottom:15px;">
+            <div style="font-size:16px; margin-bottom:10px;"><strong>Агент:</strong> ${agentName}</div>
+            <div style="font-size:14px; color:#666;">К выплате: <strong style="color:#4caf50;">${maxAmount.toLocaleString()} сом</strong></div>
+          </div>
+        `,
+        input: 'number',
+        inputLabel: 'Сумма выплаты (сом)',
+        inputValue: maxAmount,
+        inputAttributes: { min: 1, max: maxAmount, step: 1 },
+        showCancelButton: true,
+        confirmButtonText: '💸 Выплатить',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#4caf50',
+        inputValidator: (value) => {
+          if (!value || value <= 0) return 'Введите сумму больше 0';
+          if (value > maxAmount) return `Максимум: ${maxAmount} сом`;
+        }
+      });
+      
+      if (!amount) return;
+      
+      try {
+        Swal.fire({
+          title: 'Сохранение...',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading()
+        });
+        
+        await db.collection('agentPayouts').add({
+          agentId: agentId,
+          agentName: agentName,
+          amount: Number(amount),
+          timestamp: Date.now(),
+          date: new Date().toLocaleString()
+        });
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Выплата сохранена!',
+          html: `Агент: <strong>${agentName}</strong><br>Сумма: <strong>${Number(amount).toLocaleString()} сом</strong>`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+        
+        await loadAllData();
+        
+      } catch(e) {
+        console.error('Ошибка:', e);
+        Swal.fire('Ошибка', 'Не удалось сохранить выплату', 'error');
+      }
+    }
+    
+    // История выплат агента
+    async function viewAgentPayouts(agentId, agentName) {
+      const agentPayouts = allPayouts.filter(p => p.agentId === agentId);
+      const totalPaid = agentPayouts.reduce((sum, p) => sum + (p.amount || 0), 0);
+      
+      if (agentPayouts.length === 0) {
+        Swal.fire({
+          title: `📜 Выплаты: ${agentName}`,
+          html: '<div style="padding:20px; color:#999;">Выплат пока не было</div>',
+          confirmButtonText: 'Закрыть'
+        });
+        return;
+      }
+      
+      let html = `
+        <div style="text-align:left; max-height:400px; overflow-y:auto;">
+          <div style="background:#e8f5e9; padding:10px 15px; border-radius:8px; margin-bottom:15px;">
+            <strong>Всего выплачено:</strong> ${totalPaid.toLocaleString()} сом
+          </div>
+      `;
+      
+      agentPayouts.forEach(payout => {
+        html += `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #eee;">
+            <div>
+              <div style="font-weight:600; color:#4caf50;">${payout.amount.toLocaleString()} сом</div>
+              <div style="font-size:12px; color:#999;">${payout.date || new Date(payout.timestamp).toLocaleString()}</div>
+            </div>
+            <button onclick="deletePayout('${payout.id}', '${agentId}', '${agentName.replace(/'/g, "\\'")}')" style="background:#dc3545; color:white; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:12px;">🗑️</button>
+          </div>
+        `;
+      });
+      
+      html += '</div>';
+      
+      Swal.fire({
+        title: `📜 Выплаты: ${agentName}`,
+        html: html,
+        width: 500,
+        confirmButtonText: 'Закрыть'
+      });
+    }
+    
+    // Удалить выплату
+    async function deletePayout(payoutId, agentId, agentName) {
+      const result = await Swal.fire({
+        title: 'Удалить выплату?',
+        text: 'Сумма вернётся в баланс агента',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Удалить',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#dc3545'
+      });
+      
+      if (!result.isConfirmed) return;
+      
+      try {
+        await db.collection('agentPayouts').doc(payoutId).delete();
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Выплата удалена',
+          timer: 1500,
+          showConfirmButton: false
+        });
+        
+        await loadAllData();
+        
+      } catch(e) {
+        console.error('Ошибка:', e);
+        Swal.fire('Ошибка', 'Не удалось удалить выплату', 'error');
+      }
+    }
+    
+    // Рендер списка выплат
+    function renderPayouts() {
+      const listEl = document.getElementById('payoutsList');
+      const search = (document.getElementById('payoutSearch').value || '').toLowerCase().trim();
+      const period = document.getElementById('payoutPeriod').value;
+      
+      const now = Date.now();
+      const dayMs = 24 * 60 * 60 * 1000;
+      
+      let filtered = allPayouts.filter(payout => {
+        if (search) {
+          const matchName = (payout.agentName || '').toLowerCase().includes(search);
+          if (!matchName) return false;
+        }
+        
+        if (period !== 'all') {
+          const ts = payout.timestamp || 0;
+          if (period === 'today' && now - ts > dayMs) return false;
+          if (period === 'week' && now - ts > 7 * dayMs) return false;
+          if (period === 'month' && now - ts > 30 * dayMs) return false;
+        }
+        
+        return true;
+      });
+      
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">💸</div>
+            <div>Выплаты не найдены</div>
+          </div>
+        `;
+        return;
+      }
+      
+      const totalFiltered = filtered.reduce((sum, p) => sum + (p.amount || 0), 0);
+      
+      let html = `
+        <div style="background:#e8f5e9; padding:12px 15px; border-radius:10px; margin-bottom:15px;">
+          <strong>Итого за период:</strong> ${totalFiltered.toLocaleString()} сом (${filtered.length} выплат)
+        </div>
+      `;
+      
+      filtered.forEach(payout => {
+        html += `
+          <div class="client-card" style="border-left-color:#4caf50;">
+            <div class="client-header">
+              <div class="client-info">
+                <div class="client-name">👤 ${payout.agentName || 'Неизвестный агент'}</div>
+                <div class="client-stats">📅 ${payout.date || new Date(payout.timestamp).toLocaleString()}</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:15px;">
+                <div style="font-size:18px; font-weight:700; color:#4caf50;">${(payout.amount || 0).toLocaleString()} сом</div>
+                <button class="agent-btn red" onclick="deletePayout('${payout.id}', '${payout.agentId}', '${(payout.agentName || '').replace(/'/g, "\\'")}')">🗑️</button>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      
+      listEl.innerHTML = html;
+    }
+    
+    function filterPayouts() {
+      renderPayouts();
+    }
+    
+    // ===== КЛИЕНТЫ =====
+    
+    function renderClients() {
+      const listEl = document.getElementById('clientsList');
+      const search = (document.getElementById('clientSearch').value || '').toLowerCase().trim();
+      const filter = document.getElementById('clientAgentFilter').value;
+      
+      const filtered = allClients.filter(client => {
+        if (search) {
+          const matchName = (client.name || '').toLowerCase().includes(search);
+          const matchPhone = (client.phone || '').includes(search);
+          if (!matchName && !matchPhone) return false;
+        }
+        
+        if (filter === 'no-agent' && client.partner) return false;
+        if (filter === 'has-agent' && !client.partner) return false;
+        
+        return true;
+      });
+      
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">🛒</div>
+            <div>Клиенты не найдены</div>
+          </div>
+        `;
+        return;
+      }
+      
+      // Формируем опции агентов
+      let agentOptions = '<option value="">-- Без агента --</option>';
+      allAgents.forEach(agent => {
+        agentOptions += `<option value="${agent.id}">${agent.name}</option>`;
+      });
+      
+      listEl.innerHTML = filtered.map(client => {
+        const lastOrderDate = client.lastOrder ? new Date(client.lastOrder).toLocaleDateString() : 'Неизвестно';
+        const currentAgent = allAgents.find(a => a.name === client.partner || a.id === client.agentId);
+        const agentName = currentAgent ? currentAgent.name : (client.partner || 'Не назначен');
+        const agentColor = currentAgent ? '#4caf50' : (client.partner ? '#2196f3' : '#999');
+        
+        // Выбираем текущего агента в select
+        let selectOptions = agentOptions;
+        if (currentAgent) {
+          selectOptions = agentOptions.replace(`value="${currentAgent.id}"`, `value="${currentAgent.id}" selected`);
+        }
+        
+        return `
+          <div class="client-card" style="border-left-color:${currentAgent || client.partner ? '#4caf50' : '#ff9800'};">
+            <div class="client-header">
+              <div class="client-info">
+                <div class="client-name">👤 ${client.name}</div>
+                <div class="client-phone">📱 ${client.phone}</div>
+                <div class="client-stats">📦 ${client.ordersCount} заказов | 💰 ${client.totalSum.toLocaleString()} сом | 📅 ${lastOrderDate}</div>
+              </div>
+              
+              <div class="client-agent">
+                <div style="font-size:13px;">
+                  <span style="color:#666;">Агент:</span>
+                  <span style="color:${agentColor}; font-weight:600;">${agentName}</span>
+                </div>
+                <select class="client-agent-select" onchange="assignAgentToClient('${client.phone}', this.value)">
+                  ${selectOptions}
+                </select>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    function filterClients() {
+      renderClients();
+    }
+    
+    // Назначить агента клиенту
+    async function assignAgentToClient(phone, agentId) {
+      const client = allClients.find(c => c.phone === phone);
+      if (!client) return;
+      
+      const agent = agentId ? allAgents.find(a => a.id === agentId) : null;
+      
+      try {
+        Swal.fire({
+          title: 'Обновление...',
+          text: 'Назначение агента для всех заказов клиента',
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading()
+        });
+        
+        // Получаем все заказы клиента
+        const ordersSnapshot = await db.collection('orders').where('phone', '==', phone).get();
+        
+        if (ordersSnapshot.empty) {
+          Swal.fire('Ошибка', 'Заказы клиента не найдены', 'warning');
+          return;
+        }
+        
+        // Обновляем все заказы
+        const batch = db.batch();
+        let updatedCount = 0;
+        
+        ordersSnapshot.forEach(doc => {
+          const orderRef = db.collection('orders').doc(doc.id);
+          if (agent) {
+            batch.update(orderRef, { partner: agent.name });
+          } else {
+            batch.update(orderRef, { partner: firebase.firestore.FieldValue.delete() });
+          }
+          updatedCount++;
+        });
+        
+        await batch.commit();
+        
+        // Сохраняем связь клиент-агент
+        const clientAgentRef = db.collection('clientAgents').doc(phone);
+        if (agent) {
+          await clientAgentRef.set({
+            phone: phone,
+            clientName: client.name,
+            agentName: agent.name,
+            agentId: agent.id,
+            updatedAt: Date.now()
+          });
+        } else {
+          await clientAgentRef.delete().catch(() => {});
+        }
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Готово!',
+          text: `Клиент назначен ${agent ? 'агенту: ' + agent.name : 'без агента'}. Обновлено ${updatedCount} заказов.`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+        
+        await loadAllData();
+        
+      } catch(e) {
+        console.error('Ошибка:', e);
+        Swal.fire('Ошибка', 'Не удалось назначить агента', 'error');
+      }
+    }
+    
+    // ===== ОБЩИЕ ФУНКЦИИ =====
+    
+    async function refreshData() {
+      await loadAllData();
+      Swal.fire({
+        icon: 'success',
+        title: 'Данные обновлены',
+        timer: 1000,
+        showConfirmButton: false
+      });
+    }
+    
+    // Экспорт в Excel
+    function exportToExcel() {
+      try {
+        const data = allAgents.map(agent => {
+          const stats = ordersByAgent[agent.id] || { count: 0, total: 0 };
+          const commission = Math.round(stats.total * 0.02);
+          const paidOut = payoutsByAgent[agent.id] || 0;
+          
+          return {
+            'Имя': agent.name || '',
+            'Телефон': agent.phone || '',
+            'Статус': agent.active !== false ? 'Активен' : 'Заблокирован',
+            'Заказов': stats.count,
+            'Сумма продаж': stats.total,
+            'Комиссия (2%)': commission,
+            'Выплачено': paidOut,
+            'К выплате': commission - paidOut,
+            'Дата регистрации': agent.createdAt ? new Date(agent.createdAt).toLocaleDateString() : ''
+          };
+        });
+        
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Агенты');
+        
+        XLSX.writeFile(wb, `Агенты_${new Date().toLocaleDateString()}.xlsx`);
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Файл скачан!',
+          timer: 1500,
+          showConfirmButton: false
+        });
+        
+      } catch(e) {
+        console.error('Ошибка экспорта:', e);
+        Swal.fire('Ошибка', 'Не удалось экспортировать данные', 'error');
+      }
+    }
+    
+    // Запуск
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

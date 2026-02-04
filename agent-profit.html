@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Моя прибыль - Агент</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+      color: white;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+    
+    .header-subtitle {
+      font-size: 13px;
+      opacity: 0.9;
+    }
+    
+    .back-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.3s;
+    }
+    
+    .back-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+    
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    /* Авторизация */
+    .auth-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: calc(100vh - 60px);
+      padding: 20px;
+    }
+    
+    .auth-card {
+      background: white;
+      border-radius: 16px;
+      overflow: hidden;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+    }
+    
+    .auth-header {
+      background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+      color: white;
+      padding: 25px;
+      text-align: center;
+    }
+    
+    .auth-header h2 {
+      margin: 0;
+      font-size: 22px;
+    }
+    
+    .auth-header p {
+      margin: 8px 0 0;
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    
+    .auth-tabs {
+      display: flex;
+      gap: 10px;
+      padding: 20px 20px 0;
+    }
+    
+    .auth-tab {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.3s;
+    }
+    
+    .auth-tab.active-login {
+      background: #9c27b0;
+      color: white;
+    }
+    
+    .auth-tab.active-register {
+      background: #4caf50;
+      color: white;
+    }
+    
+    .auth-tab.inactive {
+      background: #e0e0e0;
+      color: #333;
+    }
+    
+    .auth-form {
+      padding: 20px;
+    }
+    
+    .auth-input {
+      width: 100%;
+      padding: 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      font-size: 16px;
+      transition: border-color 0.3s;
+    }
+    
+    .auth-input:focus {
+      outline: none;
+      border-color: #9c27b0;
+    }
+    
+    .auth-btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 16px;
+      color: white;
+      transition: all 0.3s;
+    }
+    
+    .auth-btn.login {
+      background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+    }
+    
+    .auth-btn.register {
+      background: linear-gradient(135deg, #4caf50, #388e3c);
+    }
+    
+    .auth-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    /* Панель управления */
+    .dashboard {
+      display: none;
+    }
+    
+    .dashboard.active {
+      display: block;
+    }
+    
+    .filters-bar {
+      background: white;
+      padding: 15px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .filters-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: #f5f5f5;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid #e0e0e0;
+    }
+    
+    .filter-select {
+      padding: 6px 8px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      cursor: pointer;
+      color: #333;
+      outline: none;
+    }
+    
+    .filter-divider {
+      color: #ccc;
+      font-size: 16px;
+    }
+    
+    .action-btn {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.3s;
+    }
+    
+    .action-btn.orange { background: #ff9800; color: white; }
+    .action-btn.blue { background: #2196f3; color: white; }
+    
+    .action-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    
+    /* Статистика */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    
+    .stat-card {
+      padding: 12px;
+      border-radius: 12px;
+      color: white;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.2);
+    }
+    
+    .stat-card.purple { background: linear-gradient(135deg, #9c27b0, #7b1fa2); }
+    .stat-card.blue { background: linear-gradient(135deg, #2196f3, #1976d2); }
+    .stat-card.orange { background: linear-gradient(135deg, #ff9800, #f57c00); cursor: pointer; }
+    .stat-card.green { background: linear-gradient(135deg, #4caf50, #388e3c); }
+    .stat-card.pink { background: linear-gradient(135deg, #e91e63, #c2185b); }
+    .stat-card.cyan { background: linear-gradient(135deg, #00bcd4, #0097a7); }
+    
+    .stat-card.orange:hover {
+      transform: scale(1.02);
+    }
+    
+    .stat-label {
+      font-size: 11px;
+      opacity: 0.9;
+      margin-bottom: 4px;
+    }
+    
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+    }
+    
+    /* График */
+    .chart-container {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .chart-title {
+      margin: 0 0 15px;
+      color: #333;
+      font-size: 16px;
+    }
+    
+    .chart-wrapper {
+      height: 200px;
+      position: relative;
+    }
+    
+    /* Список заказов */
+    .orders-container {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .orders-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    
+    .orders-title {
+      margin: 0;
+      color: #333;
+      font-size: 18px;
+    }
+    
+    .orders-count {
+      font-size: 14px;
+      color: #666;
+    }
+    
+    .orders-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    
+    .order-card {
+      background: #f8f9fa;
+      border-radius: 12px;
+      padding: 15px;
+      border-left: 4px solid #17a2b8;
+      transition: all 0.3s;
+    }
+    
+    .order-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    .order-card.recent {
+      background: #fff8e1;
+      box-shadow: 0 0 10px rgba(255,87,34,0.3);
+    }
+    
+    .order-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    
+    .order-client {
+      flex: 1;
+      min-width: 200px;
+    }
+    
+    .order-client-name {
+      font-weight: 600;
+      color: #333;
+      font-size: 15px;
+    }
+    
+    .order-client-phone {
+      font-size: 13px;
+      color: #666;
+      margin-top: 2px;
+    }
+    
+    .order-client-address {
+      font-size: 12px;
+      color: #888;
+      margin-top: 2px;
+    }
+    
+    .order-meta {
+      text-align: right;
+    }
+    
+    .order-date {
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 4px;
+    }
+    
+    .order-status {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      display: inline-block;
+      font-weight: 500;
+      color: white;
+    }
+    
+    .order-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 12px;
+      margin-top: 12px;
+      border-top: 1px solid #e0e0e0;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    
+    .order-total {
+      color: #666;
+    }
+    
+    .order-total strong {
+      color: #333;
+      font-size: 15px;
+    }
+    
+    .order-profit {
+      background: #e8f5e9;
+      padding: 6px 14px;
+      border-radius: 8px;
+      color: #388e3c;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    
+    .order-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    
+    .order-btn {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.3s;
+    }
+    
+    .order-btn.purple { background: #9c27b0; color: white; }
+    .order-btn.red { background: #dc3545; color: white; }
+    
+    .order-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    
+    .order-items {
+      display: none;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed #ccc;
+    }
+    
+    .order-items-title {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .order-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      padding: 3px 0;
+      color: #555;
+    }
+    
+    /* Нижняя панель */
+    .bottom-bar {
+      background: white;
+      padding: 15px 20px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      bottom: 0;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+    }
+    
+    .logout-btn {
+      padding: 12px 24px;
+      background: #f44336;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .close-btn {
+      padding: 12px 32px;
+      background: #9c27b0;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    /* Пустые состояния */
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+    }
+    
+    .hidden {
+      display: none !important;
+    }
+    
+    /* Модальное окно клиентов */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .modal-content {
+      background: white;
+      width: 95%;
+      max-width: 500px;
+      max-height: 85vh;
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .modal-header {
+      background: linear-gradient(135deg, #ff9800, #f57c00);
+      color: white;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .modal-close {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      font-size: 24px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 15px;
+    }
+    
+    .client-card {
+      background: #f9f9f9;
+      padding: 12px 15px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      border-left: 4px solid #ff9800;
+    }
+    
+    .client-name {
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .client-phone {
+      font-size: 13px;
+      color: #666;
+      margin-top: 3px;
+    }
+    
+    .client-stats {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      padding-top: 8px;
+      margin-top: 8px;
+      border-top: 1px dashed #ddd;
+    }
+    
+    @media (max-width: 600px) {
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      
+      .stat-value {
+        font-size: 18px;
+      }
+      
+      .header h1 {
+        font-size: 16px;
+      }
+      
+      .order-footer {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .order-actions {
+        justify-content: flex-end;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <a href="index.html" class="back-btn">🏠 На главную</a>
+      <div>
+        <h1>💰 Моя прибыль</h1>
+        <div class="header-subtitle" id="agentName">Агент: ---</div>
+      </div>
+    </div>
+    <button class="back-btn" id="headerLogoutBtn" style="display:none;" onclick="logoutAgent()">🚪 Выйти</button>
+  </div>
+
+  <!-- Форма авторизации -->
+  <div id="authSection" class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h2>🤝 Агентская программа</h2>
+        <p>Получайте 2% от заказов ваших клиентов</p>
+      </div>
+      
+      <div class="auth-tabs">
+        <button class="auth-tab active-login" id="tabLogin" onclick="switchTab('login')">Вход</button>
+        <button class="auth-tab inactive" id="tabRegister" onclick="switchTab('register')">Регистрация</button>
+      </div>
+      
+      <div class="auth-form">
+        <!-- Форма входа -->
+        <div id="loginForm">
+          <input type="tel" id="loginPhone" class="auth-input" placeholder="📱 Ваш телефон">
+          <input type="password" id="loginPassword" class="auth-input" placeholder="🔒 Пароль">
+          <button class="auth-btn login" onclick="loginAgent()">Войти</button>
+        </div>
+        
+        <!-- Форма регистрации -->
+        <div id="registerForm" style="display:none;">
+          <input type="text" id="regName" class="auth-input" placeholder="👤 Ваше имя">
+          <input type="tel" id="regPhone" class="auth-input" placeholder="📱 Ваш телефон">
+          <input type="password" id="regPassword" class="auth-input" placeholder="🔒 Придумайте пароль">
+          <input type="password" id="regPassword2" class="auth-input" placeholder="🔒 Повторите пароль">
+          <button class="auth-btn register" onclick="registerAgent()">Зарегистрироваться</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Панель управления (после входа) -->
+  <div id="dashboard" class="dashboard">
+    <div class="container">
+      <!-- Фильтры -->
+      <div class="filters-bar">
+        <div class="filters-group">
+          <select id="periodFilter" class="filter-select" onchange="filterOrders()">
+            <option value="all">📅 Все время</option>
+            <option value="today">📅 Сегодня</option>
+            <option value="week">📅 Неделя</option>
+            <option value="month" selected>📅 Месяц</option>
+            <option value="year">📅 Год</option>
+          </select>
+          <span class="filter-divider">|</span>
+          <select id="statusFilter" class="filter-select" onchange="filterOrders()">
+            <option value="all">🏷️ Все</option>
+            <option value="Новый">🆕 Новый</option>
+            <option value="В обработке">⏳ В обработке</option>
+            <option value="Доставляется">🚚 Доставляется</option>
+            <option value="Доставлен">✅ Доставлен</option>
+            <option value="Отменён">❌ Отменён</option>
+          </select>
+        </div>
+        
+        <div style="display:flex; gap:8px;">
+          <button class="action-btn orange" onclick="exportReport()">📊 Экспорт</button>
+          <button class="action-btn blue" onclick="loadOrders()">🔄</button>
+        </div>
+      </div>
+      
+      <!-- Статистика -->
+      <div class="stats-grid">
+        <div class="stat-card purple">
+          <div class="stat-label">📦 Заказов</div>
+          <div class="stat-value" id="statOrders">0</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-label">💵 Сумма</div>
+          <div class="stat-value" id="statSum">0</div>
+        </div>
+        <div class="stat-card orange" onclick="showClients()">
+          <div class="stat-label">👥 Клиентов</div>
+          <div class="stat-value" id="statClients">0</div>
+        </div>
+      </div>
+      
+      <div class="stats-grid" style="margin-bottom:20px;">
+        <div class="stat-card green">
+          <div class="stat-label">💰 Прибыль (2%)</div>
+          <div class="stat-value" id="statProfit">0</div>
+        </div>
+        <div class="stat-card pink">
+          <div class="stat-label">💸 Выплачено</div>
+          <div class="stat-value" id="statPaid">0</div>
+        </div>
+        <div class="stat-card cyan">
+          <div class="stat-label">💎 К получению</div>
+          <div class="stat-value" id="statBalance">0</div>
+        </div>
+      </div>
+      
+      <!-- График -->
+      <div class="chart-container">
+        <h3 class="chart-title">📈 Динамика прибыли</h3>
+        <div class="chart-wrapper">
+          <canvas id="profitChart"></canvas>
+        </div>
+      </div>
+      
+      <!-- Список заказов -->
+      <div class="orders-container">
+        <div class="orders-header">
+          <h3 class="orders-title">📋 Заказы моих клиентов</h3>
+          <span class="orders-count" id="ordersCount">0 заказов</span>
+        </div>
+        <div class="orders-list" id="ordersList">
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <div>Загрузка заказов...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Нижняя панель -->
+    <div class="bottom-bar">
+      <button class="logout-btn" onclick="logoutAgent()">🚪 Выйти из аккаунта</button>
+      <a href="index.html" class="close-btn">✖ На главную</a>
+    </div>
+  </div>
+
+  <!-- Модальное окно клиентов -->
+  <div class="modal-overlay" id="clientsModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 style="margin:0; font-size:18px;">👥 Мои клиенты</h3>
+        <button class="modal-close" onclick="closeClientsModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="clientsList">
+        <div class="empty-state">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  
+  <script>
+    // Firebase конфигурация
+    const firebaseConfig = {
+      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+      authDomain: "svoysayet.firebaseapp.com",
+      projectId: "svoysayet",
+      storageBucket: "svoysayet.appspot.com",
+      messagingSenderId: "989465106314",
+      appId: "1:989465106314:web:abc123"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    
+    // Данные
+    let currentAgent = null;
+    let allOrders = [];
+    let filteredOrders = [];
+    let profitChart = null;
+    let ordersListener = null;
+    
+    // Инициализация
+    function init() {
+      loadAgentFromStorage();
+    }
+    
+    // Загрузка агента из localStorage
+    function loadAgentFromStorage() {
+      try {
+        const saved = localStorage.getItem('currentAgent');
+        if (saved) {
+          currentAgent = JSON.parse(saved);
+          showDashboard();
+          startOrdersListener();
+        }
+      } catch(e) {
+        console.error('Ошибка загрузки агента:', e);
+      }
+    }
+    
+    // Показать панель управления
+    function showDashboard() {
+      document.getElementById('authSection').style.display = 'none';
+      document.getElementById('dashboard').classList.add('active');
+      document.getElementById('agentName').textContent = 'Агент: ' + currentAgent.name;
+      document.getElementById('headerLogoutBtn').style.display = 'block';
+    }
+    
+    // Показать авторизацию
+    function showAuth() {
+      document.getElementById('authSection').style.display = 'flex';
+      document.getElementById('dashboard').classList.remove('active');
+      document.getElementById('headerLogoutBtn').style.display = 'none';
+    }
+    
+    // Переключение вкладок
+    function switchTab(tab) {
+      const tabLogin = document.getElementById('tabLogin');
+      const tabRegister = document.getElementById('tabRegister');
+      const loginForm = document.getElementById('loginForm');
+      const registerForm = document.getElementById('registerForm');
+      
+      if (tab === 'login') {
+        tabLogin.className = 'auth-tab active-login';
+        tabRegister.className = 'auth-tab inactive';
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+      } else {
+        tabLogin.className = 'auth-tab inactive';
+        tabRegister.className = 'auth-tab active-register';
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'block';
+      }
+    }
+    
+    // Регистрация агента
+    async function registerAgent() {
+      const name = document.getElementById('regName').value.trim();
+      const phone = document.getElementById('regPhone').value.trim();
+      const password = document.getElementById('regPassword').value;
+      const password2 = document.getElementById('regPassword2').value;
+      
+      if (!name || !phone || !password) {
+        Swal.fire('Ошибка', 'Заполните все поля', 'warning');
+        return;
+      }
+      
+      if (password !== password2) {
+        Swal.fire('Ошибка', 'Пароли не совпадают', 'warning');
+        return;
+      }
+      
+      if (password.length < 4) {
+        Swal.fire('Ошибка', 'Пароль должен быть минимум 4 символа', 'warning');
+        return;
+      }
+      
+      try {
+        Swal.fire({ title: 'Регистрация...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        
+        // Проверяем уникальность телефона
+        const existing = await db.collection('agents').where('phone', '==', phone).get();
+        if (!existing.empty) {
+          Swal.fire('Ошибка', 'Агент с таким телефоном уже зарегистрирован', 'warning');
+          return;
+        }
+        
+        // Создаём агента
+        const agentRef = await db.collection('agents').add({
+          name: name,
+          phone: phone,
+          password: password,
+          createdAt: Date.now(),
+          active: true
+        });
+        
+        currentAgent = {
+          id: agentRef.id,
+          name: name,
+          phone: phone
+        };
+        
+        localStorage.setItem('currentAgent', JSON.stringify(currentAgent));
+        
+        // Очищаем форму
+        document.getElementById('regName').value = '';
+        document.getElementById('regPhone').value = '';
+        document.getElementById('regPassword').value = '';
+        document.getElementById('regPassword2').value = '';
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Успех!',
+          text: 'Вы зарегистрированы как агент!',
+          timer: 2000,
+          showConfirmButton: false
+        });
+        
+        showDashboard();
+        startOrdersListener();
+        
+      } catch(e) {
+        console.error('Ошибка регистрации:', e);
+        Swal.fire('Ошибка', 'Не удалось зарегистрироваться', 'error');
+      }
+    }
+    
+    // Вход агента
+    async function loginAgent() {
+      const phone = document.getElementById('loginPhone').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      
+      if (!phone || !password) {
+        Swal.fire('Ошибка', 'Введите телефон и пароль', 'warning');
+        return;
+      }
+      
+      try {
+        Swal.fire({ title: 'Вход...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        
+        const snapshot = await db.collection('agents').where('phone', '==', phone).get();
+        
+        if (snapshot.empty) {
+          Swal.fire('Ошибка', 'Агент не найден', 'warning');
+          return;
+        }
+        
+        const agentDoc = snapshot.docs[0];
+        const agentData = agentDoc.data();
+        
+        if (agentData.password !== password) {
+          Swal.fire('Ошибка', 'Неверный пароль', 'warning');
+          return;
+        }
+        
+        if (agentData.active === false) {
+          Swal.fire('Ошибка', 'Ваш аккаунт заблокирован', 'warning');
+          return;
+        }
+        
+        currentAgent = {
+          id: agentDoc.id,
+          name: agentData.name,
+          phone: agentData.phone
+        };
+        
+        localStorage.setItem('currentAgent', JSON.stringify(currentAgent));
+        
+        // Очищаем форму
+        document.getElementById('loginPhone').value = '';
+        document.getElementById('loginPassword').value = '';
+        
+        Swal.fire({
+          icon: 'success',
+          title: 'Добро пожаловать!',
+          text: 'Вы вошли как агент: ' + agentData.name,
+          timer: 2000,
+          showConfirmButton: false
+        });
+        
+        showDashboard();
+        startOrdersListener();
+        
+      } catch(e) {
+        console.error('Ошибка входа:', e);
+        Swal.fire('Ошибка', 'Не удалось войти', 'error');
+      }
+    }
+    
+    // Выход агента
+    function logoutAgent() {
+      if (ordersListener) {
+        ordersListener();
+        ordersListener = null;
+      }
+      
+      currentAgent = null;
+      allOrders = [];
+      filteredOrders = [];
+      localStorage.removeItem('currentAgent');
+      
+      showAuth();
+      
+      Swal.fire({
+        icon: 'info',
+        title: 'Выход',
+        text: 'Вы вышли из аккаунта агента',
+        timer: 1500,
+        showConfirmButton: false
+      });
+    }
+    
+    // Запуск real-time слушателя заказов
+    function startOrdersListener() {
+      if (!currentAgent) return;
+      
+      if (ordersListener) {
+        ordersListener();
+      }
+      
+      const searchValues = [currentAgent.name];
+      if (currentAgent.id && currentAgent.id !== currentAgent.name) {
+        searchValues.push(currentAgent.id);
+      }
+      
+      ordersListener = db.collection('orders')
+        .where('partner', 'in', searchValues)
+        .limit(500)
+        .onSnapshot(snapshot => {
+          // Проверяем новые заказы
+          const changes = snapshot.docChanges();
+          const newOrders = changes.filter(change => change.type === 'added');
+          
+          if (newOrders.length > 0 && allOrders.length > 0) {
+            newOrders.forEach(change => {
+              const newOrder = change.doc.data();
+              Swal.fire({
+                icon: 'success',
+                title: '🎉 Новый заказ!',
+                html: `
+                  <div style="text-align:left;">
+                    <div><strong>Клиент:</strong> ${newOrder.name || 'Клиент'}</div>
+                    <div><strong>Сумма:</strong> ${(newOrder.total || 0).toLocaleString()} сом</div>
+                    <div style="color:#4caf50; font-weight:bold; margin-top:10px;">
+                      💰 Ваша прибыль: +${Math.round((newOrder.total || 0) * 0.02).toLocaleString()} сом
+                    </div>
+                  </div>
+                `,
+                timer: 5000,
+                timerProgressBar: true
+              });
+            });
+          }
+          
+          allOrders = [];
+          snapshot.forEach(doc => allOrders.push({ id: doc.id, ...doc.data() }));
+          allOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          
+          filterOrders();
+          
+        }, error => {
+          console.error('Ошибка слушателя:', error);
+        });
+    }
+    
+    // Загрузка заказов (перезапуск слушателя)
+    function loadOrders() {
+      startOrdersListener();
+      Swal.fire({ icon: 'success', title: 'Обновлено', timer: 1000, showConfirmButton: false });
+    }
+    
+    // Фильтрация заказов
+    function filterOrders() {
+      const periodFilter = document.getElementById('periodFilter').value;
+      const statusFilter = document.getElementById('statusFilter').value;
+      
+      const now = Date.now();
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      filteredOrders = allOrders.filter(order => {
+        const orderTime = order.timestamp || 0;
+        let periodMatch = true;
+        
+        switch(periodFilter) {
+          case 'today':
+            periodMatch = orderTime >= today.getTime();
+            break;
+          case 'week':
+            const weekStart = new Date(today);
+            weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+            periodMatch = orderTime >= weekStart.getTime();
+            break;
+          case 'month':
+            const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+            periodMatch = orderTime >= monthStart.getTime();
+            break;
+          case 'year':
+            const yearStart = new Date(today.getFullYear(), 0, 1);
+            periodMatch = orderTime >= yearStart.getTime();
+            break;
+        }
+        
+        const statusMatch = statusFilter === 'all' || order.status === statusFilter;
+        
+        return periodMatch && statusMatch;
+      });
+      
+      filteredOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      
+      renderOrders();
+      updateStats();
+      drawChart();
+    }
+    
+    // Отрисовка заказов
+    function renderOrders() {
+      const listEl = document.getElementById('ordersList');
+      
+      if (allOrders.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <div>Пока нет заказов от ваших клиентов</div>
+            <div style="font-size:14px; color:#999; margin-top:10px;">Поделитесь своей ссылкой, чтобы привлечь клиентов!</div>
+          </div>
+        `;
+        document.getElementById('ordersCount').textContent = '0 заказов';
+        return;
+      }
+      
+      if (filteredOrders.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🔍</div>
+            <div>Заказов по фильтрам не найдено</div>
+          </div>
+        `;
+        document.getElementById('ordersCount').textContent = '0 заказов';
+        return;
+      }
+      
+      const count = filteredOrders.length;
+      document.getElementById('ordersCount').textContent = `${count} ${count === 1 ? 'заказ' : count < 5 ? 'заказа' : 'заказов'}`;
+      
+      const now = Date.now();
+      const oneDayAgo = now - 24 * 60 * 60 * 1000;
+      
+      const statusColors = {
+        'Новый': '#17a2b8',
+        'В обработке': '#ffc107',
+        'Доставляется': '#007bff',
+        'Доставлен': '#28a745',
+        'Отменён': '#dc3545'
+      };
+      
+      listEl.innerHTML = filteredOrders.map(order => {
+        const profit = Math.round((order.total || 0) * 0.02);
+        const date = order.time || new Date(order.timestamp).toLocaleString();
+        const statusColor = statusColors[order.status] || '#666';
+        const isRecent = (order.timestamp || 0) > oneDayAgo;
+        
+        let itemsHtml = '';
+        const itemsCount = order.items ? order.items.length : 0;
+        if (order.items && order.items.length > 0) {
+          itemsHtml = `<div class="order-items" id="items_${order.id}">
+            <div class="order-items-title">📦 Товары:</div>
+            ${order.items.map(item => `
+              <div class="order-item">
+                <span>${item.title || 'Товар'}</span>
+                <span>${item.qty} × ${item.price} = <strong>${((item.price || 0) * (item.qty || 0)).toLocaleString()}</strong> сом</span>
+              </div>
+            `).join('')}
+          </div>`;
+        }
+        
+        return `
+          <div class="order-card ${isRecent ? 'recent' : ''}" style="border-left-color:${statusColor};">
+            <div class="order-header">
+              <div class="order-client">
+                <div class="order-client-name">
+                  ${order.name || 'Клиент'}
+                  ${isRecent ? '<span style="background:#ff5722; color:white; padding:2px 6px; border-radius:4px; font-size:10px; margin-left:8px;">🆕 НОВЫЙ</span>' : ''}
+                </div>
+                <div class="order-client-phone">📱 ${order.phone || ''}</div>
+                <div class="order-client-address">📍 ${order.address || ''}</div>
+              </div>
+              <div class="order-meta">
+                <div class="order-date">${date}</div>
+                <div class="order-status" style="background:${statusColor};">${order.status || 'Новый'}</div>
+              </div>
+            </div>
+            ${itemsHtml}
+            <div class="order-footer">
+              <div class="order-total">
+                Сумма: <strong>${(order.total || 0).toLocaleString()} сом</strong>
+              </div>
+              <div class="order-actions">
+                ${itemsCount > 0 ? `<button class="order-btn purple" onclick="toggleItems('${order.id}')">👁️ Товары (${itemsCount})</button>` : ''}
+                <div class="order-profit">+${profit.toLocaleString()} сом</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    // Показать/скрыть товары
+    function toggleItems(orderId) {
+      const el = document.getElementById('items_' + orderId);
+      if (el) {
+        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+    
+    // Обновление статистики
+    async function updateStats() {
+      let totalSum = 0;
+      let totalOrders = filteredOrders.length;
+      const uniqueClients = new Set();
+      
+      filteredOrders.forEach(order => {
+        totalSum += order.total || 0;
+        if (order.phone) uniqueClients.add(order.phone);
+      });
+      
+      const totalProfit = Math.round(totalSum * 0.02);
+      
+      // Загружаем выплаты
+      let totalPaid = 0;
+      if (currentAgent && currentAgent.id) {
+        try {
+          const payoutsSnapshot = await db.collection('agentPayouts')
+            .where('agentId', '==', currentAgent.id)
+            .get();
+          
+          payoutsSnapshot.forEach(doc => {
+            totalPaid += doc.data().amount || 0;
+          });
+        } catch(e) {
+          console.log('Не удалось загрузить выплаты:', e);
+        }
+      }
+      
+      const balance = totalProfit - totalPaid;
+      
+      document.getElementById('statOrders').textContent = totalOrders;
+      document.getElementById('statSum').textContent = totalSum.toLocaleString();
+      document.getElementById('statClients').textContent = uniqueClients.size;
+      document.getElementById('statProfit').textContent = totalProfit.toLocaleString();
+      document.getElementById('statPaid').textContent = totalPaid.toLocaleString();
+      document.getElementById('statBalance').textContent = balance.toLocaleString();
+    }
+    
+    // Рисование графика
+    function drawChart() {
+      const canvas = document.getElementById('profitChart');
+      if (!canvas) return;
+      
+      const ctx = canvas.getContext('2d');
+      
+      // Группируем по дням
+      const dailyData = {};
+      filteredOrders.forEach(order => {
+        const timestamp = order.timestamp || order.createdAt || order.date;
+        if (!timestamp) return;
+        
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) return;
+        
+        const dateKey = date.toISOString().split('T')[0];
+        if (!dailyData[dateKey]) {
+          dailyData[dateKey] = 0;
+        }
+        dailyData[dateKey] += Math.round((order.total || 0) * 0.02);
+      });
+      
+      const sortedDates = Object.keys(dailyData).sort();
+      
+      if (sortedDates.length === 0) {
+        if (profitChart) {
+          profitChart.destroy();
+          profitChart = null;
+        }
+        document.getElementById('profitChart').parentElement.innerHTML = `
+          <h3 class="chart-title">📈 Динамика прибыли</h3>
+          <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:150px; color:#999;">
+            <div style="font-size:40px; margin-bottom:10px;">📊</div>
+            <div style="font-size:14px;">Нет данных для отображения</div>
+          </div>
+        `;
+        return;
+      }
+      
+      const labels = sortedDates.map(d => {
+        const date = new Date(d);
+        return date.getDate() + '.' + (date.getMonth() + 1);
+      });
+      const data = sortedDates.map(d => dailyData[d]);
+      
+      if (profitChart) {
+        profitChart.destroy();
+      }
+      
+      profitChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Прибыль (сом)',
+            data: data,
+            borderColor: '#9c27b0',
+            backgroundColor: 'rgba(156, 39, 176, 0.1)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 4,
+            pointBackgroundColor: '#9c27b0'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: function(value) {
+                  return value + ' сом';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+    
+    // Показать клиентов
+    function showClients() {
+      const modal = document.getElementById('clientsModal');
+      const listEl = document.getElementById('clientsList');
+      
+      modal.style.display = 'flex';
+      
+      // Собираем уникальных клиентов
+      const clientsMap = new Map();
+      
+      filteredOrders.forEach(order => {
+        const phone = order.phone;
+        if (phone) {
+          if (!clientsMap.has(phone)) {
+            clientsMap.set(phone, {
+              name: order.name || 'Без имени',
+              phone: phone,
+              ordersCount: 1,
+              totalSum: order.total || 0
+            });
+          } else {
+            const client = clientsMap.get(phone);
+            client.ordersCount++;
+            client.totalSum += order.total || 0;
+          }
+        }
+      });
+      
+      const clients = Array.from(clientsMap.values()).sort((a, b) => b.ordersCount - a.ordersCount);
+      
+      if (clients.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">Нет клиентов</div>';
+        return;
+      }
+      
+      listEl.innerHTML = clients.map(client => {
+        const profit = Math.round(client.totalSum * 0.02);
+        return `
+          <div class="client-card">
+            <div class="client-name">👤 ${client.name}</div>
+            <div class="client-phone">📞 <a href="tel:${client.phone}" style="color:#2196f3; text-decoration:none;">${client.phone}</a></div>
+            <div class="client-stats">
+              <span>📦 ${client.ordersCount} ${client.ordersCount === 1 ? 'заказ' : client.ordersCount < 5 ? 'заказа' : 'заказов'}</span>
+              <span>💵 ${client.totalSum.toLocaleString()} сом</span>
+              <span style="color:#4caf50; font-weight:600;">💰 ${profit.toLocaleString()} сом</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    // Закрыть модальное окно клиентов
+    function closeClientsModal() {
+      document.getElementById('clientsModal').style.display = 'none';
+    }
+    
+    // Экспорт отчёта
+    function exportReport() {
+      if (!currentAgent || filteredOrders.length === 0) {
+        Swal.fire('Нет данных', 'Нет заказов для экспорта', 'info');
+        return;
+      }
+      
+      let csv = 'Дата,Клиент,Телефон,Адрес,Статус,Сумма,Прибыль\n';
+      
+      filteredOrders.forEach(order => {
+        const date = order.time || new Date(order.timestamp).toLocaleString();
+        const name = (order.name || 'Клиент').replace(/,/g, ' ');
+        const phone = order.phone || '';
+        const address = (order.address || '').replace(/,/g, ' ');
+        const status = order.status || 'Новый';
+        const total = order.total || 0;
+        const profit = Math.round(total * 0.02);
+        
+        csv += `"${date}","${name}","${phone}","${address}","${status}",${total},${profit}\n`;
+      });
+      
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `agent_report_${currentAgent.name}_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'Экспортировано!',
+        text: `Отчёт сохранён: ${filteredOrders.length} заказов`,
+        timer: 2000,
+        showConfirmButton: false
+      });
+    }
+    
+    // Закрытие модалки по клику вне её
+    document.getElementById('clientsModal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeClientsModal();
+      }
+    });
+    
+    // Запуск
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
