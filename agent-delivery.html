@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#4CAF50">
+  <title>Список доставки - Кербен</title>
+  
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding-bottom: 70px;
+    }
+    
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: linear-gradient(135deg, #4CAF50, #2e7d32);
+      color: white;
+      padding: 15px 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .header h1 {
+      flex: 1;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .back-btn {
+      font-size: 24px;
+      text-decoration: none;
+      color: white;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+    
+    .print-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    
+    .filters {
+      background: white;
+      padding: 15px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .date-picker {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    
+    .date-picker label {
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .date-picker input {
+      padding: 10px 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+    }
+    
+    .load-btn {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    
+    .agent-select {
+      padding: 10px 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+      min-width: 160px;
+      background: white;
+    }
+    
+    .stats-bar {
+      background: #e8f5e9;
+      padding: 12px 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #c8e6c9;
+    }
+    
+    .stats-bar span {
+      font-size: 14px;
+      color: #2e7d32;
+      font-weight: 600;
+    }
+    
+    .client-list {
+      padding: 15px;
+    }
+    
+    .client-card {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      border-left: 4px solid #4CAF50;
+    }
+    
+    .client-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    
+    .client-number {
+      background: #4CAF50;
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    
+    .client-total {
+      font-size: 18px;
+      font-weight: 700;
+      color: #4CAF50;
+    }
+    
+    .client-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    
+    .client-info {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .client-info-icon {
+      width: 20px;
+      text-align: center;
+    }
+    
+    .order-items {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed #e0e0e0;
+      font-size: 13px;
+      color: #888;
+    }
+    
+    .order-item {
+      padding: 3px 0;
+    }
+    
+    .checkbox-collected {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #e0e0e0;
+    }
+    
+    .checkbox-collected input {
+      width: 22px;
+      height: 22px;
+      cursor: pointer;
+    }
+    
+    .checkbox-collected label {
+      font-size: 14px;
+      color: #666;
+      cursor: pointer;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    
+    .empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 15px;
+    }
+    
+    .total-summary {
+      position: fixed;
+      bottom: 56px;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #4CAF50, #2e7d32);
+      color: white;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 90;
+    }
+    
+    .total-summary-label {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    
+    .total-summary-value {
+      font-size: 22px;
+      font-weight: 700;
+    }
+    
+    /* Стили для печати */
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+        font-size: 12px;
+      }
+      
+      .header, .filters, .total-summary, .bottom-nav, .print-btn, .checkbox-collected {
+        display: none !important;
+      }
+      
+      .client-list {
+        padding: 0;
+      }
+      
+      .client-card {
+        box-shadow: none;
+        border: 1px solid #333;
+        border-left: 3px solid #333;
+        margin-bottom: 8px;
+        padding: 10px;
+        page-break-inside: avoid;
+      }
+      
+      .stats-bar {
+        background: none;
+        border: 1px solid #333;
+        margin-bottom: 10px;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+      
+      .client-number {
+        background: #333 !important;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+      
+      .client-total {
+        color: #333;
+      }
+      
+      .print-header {
+        display: block !important;
+        text-align: center;
+        padding: 15px 0;
+        border-bottom: 2px solid #333;
+        margin-bottom: 15px;
+      }
+      
+      .print-header h1 {
+        font-size: 18px;
+        margin-bottom: 5px;
+      }
+      
+      .print-header p {
+        font-size: 12px;
+        color: #666;
+      }
+    }
+    
+    .print-header {
+      display: none;
+    }
+    
+    /* Нижнее меню */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: white;
+      display: flex;
+      justify-content: space-around;
+      padding: 8px 0;
+      border-top: 1px solid #e0e0e0;
+      z-index: 100;
+    }
+    
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-decoration: none;
+      color: #888;
+      font-size: 10px;
+      padding: 5px 15px;
+    }
+    
+    .nav-item.active { color: #4CAF50; }
+    .nav-item svg { width: 24px; height: 24px; fill: currentColor; margin-bottom: 2px; }
+  </style>
+</head>
+
+<body>
+  <div class="print-header">
+    <h1>📋 Список доставки</h1>
+    <p id="printDate"></p>
+  </div>
+  
+  <header class="header">
+    <a href="profile.html" class="back-btn">←</a>
+    <h1>📋 Список доставки</h1>
+    <button class="print-btn" onclick="sendPdfToTelegram()">📤 Отправить PDF</button>
+  </header>
+  
+  <div class="filters">
+    <div class="date-picker">
+      <label>📅 Дата:</label>
+      <input type="date" id="dateFilter" />
+      <select class="agent-select" id="agentFilter">
+        <option value="all">Все клиенты</option>
+        <option value="own">Наши клиенты</option>
+      </select>
+      <button class="load-btn" onclick="loadDeliveryList()">Загрузить</button>
+    </div>
+  </div>
+  
+  <div class="stats-bar" id="statsBar" style="display:none;">
+    <span id="clientsCount">0 клиентов</span>
+    <span id="ordersCount">0 заказов</span>
+    <span id="totalSum">0 сом</span>
+  </div>
+  
+  <div class="client-list" id="clientList">
+    <div class="empty-state">
+      <div class="empty-state-icon">📦</div>
+      <div>Выберите дату и нажмите "Загрузить"</div>
+    </div>
+  </div>
+  
+  <div class="total-summary" id="totalSummary" style="display:none;">
+    <div>
+      <div class="total-summary-label">Всего к сбору:</div>
+    </div>
+    <div class="total-summary-value" id="grandTotal">0 сом</div>
+  </div>
+  
+  <nav class="bottom-nav">
+    <a href="index.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      <span>Главная</span>
+    </a>
+    <a href="index.html#categories" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6z"/></svg>
+      <span>Меню</span>
+    </a>
+    <a href="cart.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4z"/></svg>
+      <span>Корзина</span>
+    </a>
+    <a href="chat.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
+      <span>Чат</span>
+    </a>
+    <a href="profile.html" class="nav-item active">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
+      <span>Профиль</span>
+    </a>
+  </nav>
+  
+  <script>
+    // Firebase конфиг
+    const firebaseConfig = {
+      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+      authDomain: "svoysayet.firebaseapp.com",
+      projectId: "svoysayet",
+      storageBucket: "svoysayet.firebasestorage.app",
+      messagingSenderId: "785840370498",
+      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
+    };
+    
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    
+    // Глобальные переменные для агентов
+    let allAgentsList = [];
+    let clientAgentsMap = {}; // телефон -> agentId
+    
+    // Текущий пользователь
+    let currentUserIsAdmin = false;
+    let currentAgentId = null; // ID агента, если это агент
+    
+    // Загрузка агентов при старте
+    async function loadAgentsForFilter() {
+      try {
+        const [agentsSnap, clientAgentsSnap] = await Promise.all([
+          db.collection('agents').get(),
+          db.collection('clientAgents').get()
+        ]);
+        
+        allAgentsList = [];
+        agentsSnap.forEach(doc => {
+          allAgentsList.push({ id: doc.id, ...doc.data() });
+        });
+        
+        clientAgentsMap = {};
+        clientAgentsSnap.forEach(doc => {
+          const data = doc.data();
+          clientAgentsMap[doc.id] = data.agentId || data.agent;
+        });
+        
+        // Заполняем select агентов
+        const select = document.getElementById('agentFilter');
+        allAgentsList.forEach(agent => {
+          const option = document.createElement('option');
+          option.value = agent.id;
+          option.textContent = agent.name || agent.phone || agent.id;
+          select.appendChild(option);
+        });
+        
+      } catch (e) {
+        console.error('Ошибка загрузки агентов:', e);
+      }
+    }
+    
+    // Нормализация телефона
+    function normalizePhone(phone) {
+      if (!phone) return '';
+      return phone.replace(/\D/g, '').replace(/^996/, '');
+    }
+    
+    // Проверка доступа к странице
+    async function checkAccess() {
+      const saved = localStorage.getItem('customerData');
+      if (!saved) {
+        window.location.href = 'profile.html';
+        return false;
+      }
+      
+      try {
+        const customer = JSON.parse(saved);
+        const customerPhone = normalizePhone(customer.phone);
+        
+        // Админ имеет доступ
+        const ADMIN_PHONE = '707622800';
+        if (customerPhone === ADMIN_PHONE || customer.isAdmin) {
+          currentUserIsAdmin = true;
+          return true;
+        }
+        
+        // Проверяем, является ли агентом
+        const agentsSnap = await db.collection('agents').get();
+        let isAgent = false;
+        
+        agentsSnap.forEach(doc => {
+          const agentData = doc.data();
+          const agentPhone = normalizePhone(agentData.phone || doc.id);
+          if (agentPhone === customerPhone) {
+            isAgent = true;
+            currentAgentId = doc.id; // Сохраняем ID агента
+          }
+        });
+        
+        if (!isAgent) {
+          Swal.fire({
+            icon: 'error',
+            title: 'Доступ запрещён',
+            text: 'Эта страница доступна только для агентов и администратора',
+            confirmButtonText: 'Вернуться'
+          }).then(() => {
+            window.location.href = 'profile.html';
+          });
+          return false;
+        }
+        
+        return true;
+      } catch (e) {
+        console.error('Ошибка проверки доступа:', e);
+        window.location.href = 'profile.html';
+        return false;
+      }
+    }
+    
+    // Устанавливаем сегодняшнюю дату по умолчанию
+    document.addEventListener('DOMContentLoaded', async function() {
+      // Проверяем доступ
+      const hasAccess = await checkAccess();
+      if (!hasAccess) return;
+      
+      const today = new Date();
+      const dateStr = today.toISOString().split('T')[0];
+      document.getElementById('dateFilter').value = dateStr;
+      
+      // Загружаем агентов
+      await loadAgentsForFilter();
+      
+      // Если это агент (не админ) - скрываем фильтр по агентам
+      if (!currentUserIsAdmin && currentAgentId) {
+        const agentSelect = document.getElementById('agentFilter');
+        if (agentSelect) {
+          agentSelect.style.display = 'none';
+        }
+      }
+      
+      // Автозагрузка при открытии
+      loadDeliveryList();
+    });
+    
+    async function loadDeliveryList() {
+      const dateInput = document.getElementById('dateFilter').value;
+      let agentFilter = document.getElementById('agentFilter').value;
+      
+      // Если это агент (не админ) - показываем только его клиентов
+      if (!currentUserIsAdmin && currentAgentId) {
+        agentFilter = currentAgentId;
+      }
+      
+      if (!dateInput) {
+        Swal.fire('Ошибка', 'Выберите дату', 'error');
+        return;
+      }
+      
+      const selectedDate = new Date(dateInput);
+      const startOfDay = new Date(selectedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(selectedDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      const startTimestamp = startOfDay.getTime();
+      const endTimestamp = endOfDay.getTime();
+      
+      document.getElementById('clientList').innerHTML = `
+        <div style="text-align:center; padding:40px;">
+          <div style="font-size:32px; margin-bottom:10px;">⏳</div>
+          <div>Загрузка...</div>
+        </div>
+      `;
+      
+      try {
+        // Загружаем заказы за выбранный день
+        const snapshot = await db.collection('orders')
+          .where('timestamp', '>=', startTimestamp)
+          .where('timestamp', '<=', endTimestamp)
+          .get();
+        
+        const orders = [];
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          // Только активные заказы (не отменённые)
+          if (data.status !== 'Отменён') {
+            const phone = data.phone || '';
+            const normalizedPhone = normalizePhone(phone);
+            const clientAgentId = clientAgentsMap[phone] || clientAgentsMap[normalizedPhone] || clientAgentsMap[phone.replace('+996', '')] || null;
+            
+            // Фильтрация по агенту
+            if (agentFilter === 'all') {
+              // Все клиенты (только для админа)
+              orders.push({ id: doc.id, ...data });
+            } else if (agentFilter === 'own') {
+              // Только наши клиенты (без агента)
+              if (!clientAgentId) {
+                orders.push({ id: doc.id, ...data });
+              }
+            } else {
+              // Конкретный агент
+              if (clientAgentId === agentFilter) {
+                orders.push({ id: doc.id, ...data });
+              }
+            }
+          }
+        });
+        
+        // Сортируем по времени
+        orders.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        
+        // Группируем по клиентам (по телефону)
+        const clientsMap = {};
+        orders.forEach(order => {
+          const phone = order.phone || 'unknown';
+          if (!clientsMap[phone]) {
+            clientsMap[phone] = {
+              name: order.clientName || order.name || 'Без имени',
+              phone: phone,
+              address: order.address || 'Адрес не указан',
+              orders: [],
+              total: 0
+            };
+          }
+          clientsMap[phone].orders.push(order);
+          clientsMap[phone].total += order.total || 0;
+          // Обновляем адрес на самый свежий
+          if (order.address) {
+            clientsMap[phone].address = order.address;
+          }
+        });
+        
+        const clients = Object.values(clientsMap);
+        
+        // Обновляем статистику
+        const totalClients = clients.length;
+        const totalOrders = orders.length;
+        const grandTotal = clients.reduce((sum, c) => sum + c.total, 0);
+        
+        // Определяем название агента для PDF
+        let agentNameForPdf = '';
+        if (agentFilter === 'all') {
+          agentNameForPdf = 'Все клиенты';
+        } else if (agentFilter === 'own') {
+          agentNameForPdf = 'Наши клиенты';
+        } else {
+          const selectedAgent = allAgentsList.find(a => a.id === agentFilter);
+          agentNameForPdf = selectedAgent ? (selectedAgent.name || selectedAgent.phone) : '';
+        }
+        
+        // Сохраняем в глобальные переменные для PDF
+        _deliveryClients = clients;
+        _deliveryGrandTotal = grandTotal;
+        _deliveryAgentName = agentNameForPdf;
+        
+        document.getElementById('clientsCount').textContent = `${totalClients} клиент(ов)`;
+        document.getElementById('ordersCount').textContent = `${totalOrders} заказ(ов)`;
+        document.getElementById('totalSum').textContent = `${grandTotal.toLocaleString()} сом`;
+        document.getElementById('grandTotal').textContent = `${grandTotal.toLocaleString()} сом`;
+        document.getElementById('statsBar').style.display = clients.length > 0 ? 'flex' : 'none';
+        document.getElementById('totalSummary').style.display = clients.length > 0 ? 'flex' : 'none';
+        
+        // Дата для печати
+        const dateForPrint = selectedDate.toLocaleDateString('ru-RU', { 
+          weekday: 'long', 
+          day: 'numeric', 
+          month: 'long', 
+          year: 'numeric' 
+        });
+        document.getElementById('printDate').textContent = dateForPrint;
+        _deliveryDate = dateForPrint;
+        
+        // Рендерим список
+        if (clients.length === 0) {
+          document.getElementById('clientList').innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">📭</div>
+              <div>Нет заказов за ${dateForPrint}</div>
+            </div>
+          `;
+          return;
+        }
+        
+        let html = '';
+        clients.forEach((client, index) => {
+          const itemsList = client.orders.flatMap(o => o.items || [])
+            .map(item => `${item.title} x${item.qty}`)
+            .slice(0, 5)
+            .join(', ');
+          
+          const moreItems = client.orders.flatMap(o => o.items || []).length > 5 ? '...' : '';
+          
+          // Проверяем, собраны ли деньги (если хотя бы один заказ отмечен)
+          const isCollected = client.orders.some(o => o.moneyCollected === true);
+          const cardStyle = isCollected ? 'opacity:0.5; border-left-color:#28a745;' : '';
+          
+          html += `
+            <div class="client-card" id="client-${index}" style="${cardStyle}">
+              <div class="client-header">
+                <div class="client-number">${index + 1}</div>
+                <div class="client-total">${client.total.toLocaleString()} сом</div>
+              </div>
+              
+              <div class="client-name">${client.name}</div>
+              
+              <div class="client-info">
+                <span class="client-info-icon">📞</span>
+                <a href="tel:${client.phone}" style="color:#4CAF50; text-decoration:none;">${client.phone}</a>
+              </div>
+              
+              <div class="client-info">
+                <span class="client-info-icon">📍</span>
+                <span>${client.address}</span>
+              </div>
+              
+              <div class="order-items">
+                <strong>Товары:</strong> ${itemsList}${moreItems}
+              </div>
+              
+              <div class="checkbox-collected">
+                <input type="checkbox" id="collected-${index}" ${isCollected ? 'checked' : ''} onchange="markCollected(${index}, this.checked)">
+                <label for="collected-${index}">✅ Деньги собраны</label>
+              </div>
+            </div>
+          `;
+        });
+        
+        document.getElementById('clientList').innerHTML = html;
+        
+      } catch (error) {
+        console.error('Ошибка загрузки:', error);
+        document.getElementById('clientList').innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">❌</div>
+            <div>Ошибка загрузки данных</div>
+          </div>
+        `;
+      }
+    }
+    
+    async function markCollected(index, collected) {
+      const card = document.getElementById(`client-${index}`);
+      const client = _deliveryClients[index];
+      
+      if (!client) return;
+      
+      // Обновляем визуально
+      if (card) {
+        if (collected) {
+          card.style.opacity = '0.5';
+          card.style.borderLeftColor = '#28a745';
+        } else {
+          card.style.opacity = '1';
+          card.style.borderLeftColor = '#4CAF50';
+        }
+      }
+      
+      // Сохраняем в Firebase для каждого заказа этого клиента
+      try {
+        const batch = db.batch();
+        
+        for (const order of client.orders) {
+          const orderRef = db.collection('orders').doc(order.id);
+          batch.update(orderRef, {
+            moneyCollected: collected,
+            moneyCollectedAt: collected ? Date.now() : null,
+            moneyCollectedBy: collected ? (currentAgentId || 'admin') : null
+          });
+        }
+        
+        await batch.commit();
+        
+        // Обновляем локальные данные
+        client.orders.forEach(o => o.moneyCollected = collected);
+        
+      } catch (e) {
+        console.error('Ошибка сохранения:', e);
+        Swal.fire('Ошибка', 'Не удалось сохранить статус', 'error');
+        
+        // Возвращаем чекбокс в исходное состояние
+        const checkbox = document.getElementById(`collected-${index}`);
+        if (checkbox) checkbox.checked = !collected;
+        if (card) {
+          card.style.opacity = collected ? '1' : '0.5';
+          card.style.borderLeftColor = collected ? '#4CAF50' : '#28a745';
+        }
+      }
+    }
+    
+    // Глобальная переменная для хранения клиентов
+    let _deliveryClients = [];
+    let _deliveryDate = '';
+    let _deliveryGrandTotal = 0;
+    let _deliveryAgentName = ''; // Название выбранного агента
+    
+    // ==================== ГЕНЕРАЦИЯ PDF И ОТПРАВКА В TELEGRAM ====================
+    async function sendPdfToTelegram() {
+      if (_deliveryClients.length === 0) {
+        Swal.fire('Ошибка', 'Нет данных для отправки. Сначала загрузите список.', 'warning');
+        return;
+      }
+      
+      Swal.fire({
+        title: 'Создание PDF...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+      });
+      
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const scale = 1.5;
+        let yPosition = 5;
+        
+        // Заголовок
+        const headerCanvas = document.createElement('canvas');
+        const headerCtx = headerCanvas.getContext('2d');
+        headerCanvas.width = 600 * scale;
+        headerCanvas.height = 80 * scale;
+        headerCtx.scale(scale, scale);
+        
+        headerCtx.fillStyle = '#4CAF50';
+        headerCtx.fillRect(0, 0, 600, 80);
+        headerCtx.fillStyle = 'white';
+        headerCtx.font = 'bold 28px Arial';
+        headerCtx.textAlign = 'center';
+        headerCtx.fillText('СПИСОК ДОСТАВКИ', 300, 28);
+        headerCtx.font = '14px Arial';
+        headerCtx.fillText(_deliveryAgentName ? ('[ ' + _deliveryAgentName + ' ]') : '', 300, 48);
+        headerCtx.font = '14px Arial';
+        headerCtx.fillText(_deliveryDate, 300, 68);
+        
+        const headerImage = headerCanvas.toDataURL('image/png');
+        doc.addImage(headerImage, 'PNG', 10, yPosition, 190, 22);
+        yPosition += 25;
+        
+        // Статистика
+        const statsCanvas = document.createElement('canvas');
+        const statsCtx = statsCanvas.getContext('2d');
+        statsCanvas.width = 600 * scale;
+        statsCanvas.height = 40 * scale;
+        statsCtx.scale(scale, scale);
+        
+        statsCtx.fillStyle = '#e8f5e9';
+        statsCtx.fillRect(0, 0, 600, 40);
+        statsCtx.strokeStyle = '#4CAF50';
+        statsCtx.lineWidth = 2;
+        statsCtx.strokeRect(0, 0, 600, 40);
+        
+        statsCtx.fillStyle = '#2e7d32';
+        statsCtx.font = 'bold 14px Arial';
+        statsCtx.textAlign = 'center';
+        statsCtx.fillText('Клиентов: ' + _deliveryClients.length + '  |  Итого: ' + _deliveryGrandTotal.toLocaleString() + ' сом', 300, 26);
+        
+        const statsImage = statsCanvas.toDataURL('image/png');
+        doc.addImage(statsImage, 'PNG', 10, yPosition, 190, 11);
+        yPosition += 14;
+        
+        // Клиенты
+        for (let i = 0; i < _deliveryClients.length; i++) {
+          const client = _deliveryClients[i];
+          
+          // Проверяем, не выходим ли за страницу
+          if (yPosition > 260) {
+            doc.addPage();
+            yPosition = 10;
+          }
+          
+          const cardCanvas = document.createElement('canvas');
+          const cardCtx = cardCanvas.getContext('2d');
+          cardCanvas.width = 600 * scale;
+          cardCanvas.height = 90 * scale;
+          cardCtx.scale(scale, scale);
+          
+          // Фон карточки
+          cardCtx.fillStyle = 'white';
+          cardCtx.fillRect(0, 0, 600, 90);
+          cardCtx.strokeStyle = '#e0e0e0';
+          cardCtx.lineWidth = 1;
+          cardCtx.strokeRect(0, 0, 600, 90);
+          
+          // Зелёная полоска слева
+          cardCtx.fillStyle = '#4CAF50';
+          cardCtx.fillRect(0, 0, 6, 90);
+          
+          // Номер
+          cardCtx.beginPath();
+          cardCtx.arc(30, 20, 14, 0, Math.PI * 2);
+          cardCtx.fillStyle = '#4CAF50';
+          cardCtx.fill();
+          cardCtx.fillStyle = 'white';
+          cardCtx.font = 'bold 14px Arial';
+          cardCtx.textAlign = 'center';
+          cardCtx.fillText(String(i + 1), 30, 25);
+          
+          // Сумма
+          cardCtx.fillStyle = '#4CAF50';
+          cardCtx.font = 'bold 18px Arial';
+          cardCtx.textAlign = 'right';
+          cardCtx.fillText(client.total.toLocaleString() + ' сом', 590, 25);
+          
+          // Имя
+          cardCtx.fillStyle = '#333';
+          cardCtx.font = 'bold 15px Arial';
+          cardCtx.textAlign = 'left';
+          cardCtx.fillText((client.name || 'Без имени').substring(0, 35), 55, 25);
+          
+          // Телефон
+          cardCtx.font = '13px Arial';
+          cardCtx.fillStyle = '#4CAF50';
+          cardCtx.fillText('Тел: ' + (client.phone || '-'), 20, 48);
+          
+          // Адрес
+          cardCtx.fillStyle = '#666';
+          cardCtx.fillText('Адрес: ' + (client.address || '-').substring(0, 45), 20, 68);
+          
+          // Пустой чекбокс
+          cardCtx.strokeStyle = '#999';
+          cardCtx.lineWidth = 2;
+          cardCtx.strokeRect(560, 55, 20, 20);
+          cardCtx.font = '10px Arial';
+          cardCtx.fillStyle = '#999';
+          cardCtx.textAlign = 'right';
+          cardCtx.fillText('собрано', 555, 68);
+          
+          const cardImage = cardCanvas.toDataURL('image/png');
+          doc.addImage(cardImage, 'PNG', 10, yPosition, 190, 25);
+          yPosition += 27;
+        }
+        
+        // Итого внизу
+        if (yPosition > 260) {
+          doc.addPage();
+          yPosition = 10;
+        }
+        
+        const totalCanvas = document.createElement('canvas');
+        const totalCtx = totalCanvas.getContext('2d');
+        totalCanvas.width = 600 * scale;
+        totalCanvas.height = 50 * scale;
+        totalCtx.scale(scale, scale);
+        
+        totalCtx.fillStyle = '#ffeb3b';
+        totalCtx.fillRect(0, 0, 600, 50);
+        totalCtx.strokeStyle = '#333';
+        totalCtx.lineWidth = 3;
+        totalCtx.strokeRect(0, 0, 600, 50);
+        
+        totalCtx.fillStyle = '#333';
+        totalCtx.font = 'bold 22px Arial';
+        totalCtx.textAlign = 'center';
+        totalCtx.fillText('ВСЕГО К СБОРУ: ' + _deliveryGrandTotal.toLocaleString() + ' сом', 300, 33);
+        
+        const totalImage = totalCanvas.toDataURL('image/png');
+        doc.addImage(totalImage, 'PNG', 10, yPosition, 190, 14);
+        
+        // Генерируем PDF blob
+        const pdfBlob = doc.output('blob');
+        
+        // Отправляем в Telegram
+        const botToken = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
+        const chatId = '5567924440';
+        const dateForFile = document.getElementById('dateFilter').value.replace(/-/g, '_');
+        const agentSuffix = _deliveryAgentName ? ('_' + _deliveryAgentName.replace(/\s+/g, '_')) : '';
+        
+        const formData = new FormData();
+        formData.append('chat_id', chatId);
+        formData.append('document', pdfBlob, 'Dostavka_' + dateForFile + agentSuffix + '.pdf');
+        formData.append('caption', 'Список доставки' + (_deliveryAgentName ? ' [' + _deliveryAgentName + ']' : '') + '\nДата: ' + _deliveryDate + '\nКлиентов: ' + _deliveryClients.length + '\nИтого: ' + _deliveryGrandTotal.toLocaleString() + ' сом');
+        
+        const response = await fetch('https://api.telegram.org/bot' + botToken + '/sendDocument', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.ok) {
+          Swal.fire({
+            icon: 'success',
+            title: 'PDF отправлен!',
+            text: 'Список доставки отправлен в Telegram',
+            timer: 2000,
+            showConfirmButton: false
+          });
+        } else {
+          throw new Error(result.description || 'Ошибка отправки');
+        }
+        
+      } catch (error) {
+        console.error('Ошибка:', error);
+        Swal.fire('Ошибка', 'Не удалось отправить PDF: ' + error.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>

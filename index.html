@@ -3,7 +3,13 @@
 <html lang="ru" style="overflow-y: scroll !important; touch-action: pan-y !important;">
 
 <head>
-
+  <script>
+    // Если index.html загружен внутри iframe - выйти из iframe
+    if (window.parent !== window) {
+      window.parent.postMessage('closeIframe', '*');
+      window.stop(); // Остановить загрузку
+    }
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
@@ -113,7 +119,7 @@
      * 9700  - Вторичные модалки (agentAuthModal)
      * 9650  - Админ-окна (partnersOrdersWindow, agentProfitModal, agentsManagementModal)
      * 9550  - ordersFullscreenModal
-     * 9500  - Основные окна (chatWindow, cartPage, favoritesPage, complaintWindow, suggestionWindow, becomeSellerWindow)
+     * 9500  - Основные окна (cartPage, favoritesPage, complaintWindow, suggestionWindow, becomeSellerWindow)
      * 9200  - adminChatWindow
      * 9000  - editProductModal
      * 
@@ -137,7 +143,6 @@
     #agentProfitModal,
     #agentAuthModal,
     #agentClientsListModal,
-    #chatWindow,
     #complaintWindow,
     #suggestionWindow,
     #becomeSellerWindow,
@@ -1567,11 +1572,6 @@ document.addEventListener('DOMContentLoaded', function() {
 </head>
 
 <body style="overflow-y: scroll !important; position: static !important; height: auto !important; touch-action: pan-y !important;">
-  <!-- Кнопка корзины -->
-  <button id="cartFloatBtn" style="position:fixed;left:20px;bottom:20px;z-index:9500;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);color:#fff;border:none;border-radius:16px;width:auto;min-width:60px;height:56px;padding:0 16px;box-shadow:0 4px 20px rgba(102,126,234,0.4);display:flex;align-items:center;justify-content:center;gap:8px;font-size:22px;cursor:pointer;transition:all 0.3s;">
-    <span style="font-size:24px;">🛒</span>
-    <span id="cartFloatCount" style="background:#fff;color:#764ba2;border-radius:12px;padding:4px 10px;font-size:15px;font-weight:bold;min-width:24px;text-align:center;">0</span>
-  </button>
 
   <!-- Блок для просмотра фото -->
   <div id="previewBlock" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:9800; pointer-events:auto; background: rgba(0,0,0,0.85);">
@@ -1594,39 +1594,6 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
       <!-- Содержимое -->
       <div id="editProductContent" style="padding:20px;"></div>
-    </div>
-  </div>
-
-  <!-- Окно чата (открывается из меню) -->
-  <div id="chatWindow" style="display:none; position:fixed; top:0; left:0; right:0; bottom:56px; background:#f5f5f5; z-index:9500; flex-direction:column; overflow:hidden;">
-    
-    <!-- Заголовок чата -->
-    <div style="background:#fff; padding:15px 20px; border-bottom:1px solid #e0e0e0; display:flex; align-items:center; gap:12px; flex-shrink:0;">
-      <button onclick="toggleChat()" style="background:none; border:none; font-size:24px; cursor:pointer; padding:0;">←</button>
-      <div style="flex:1;">
-        <div style="font-size:17px; font-weight:600; color:#333;">💬 Чат с продавцом</div>
-        <div id="clientNameDisplay" style="font-size:12px; color:#666;"></div>
-      </div>
-      <button onclick="changeClientName()" style="background:#f0f0f0; border:none; padding:8px 12px; border-radius:8px; font-size:12px; cursor:pointer;">✏️ Имя</button>
-    </div>
-    
-    <!-- Сообщения -->
-    <div id="chatMessages" style="flex:1; overflow-y:auto; padding:16px; background:#f5f5f5; display:flex; flex-direction:column; gap:12px;">
-      <div style="background:white; padding:12px; border-radius:12px 12px 12px 4px; max-width:80%; align-self:flex-start; box-shadow:0 2px 4px rgba(0,0,0,0.1);">
-        <div style=" color:#333;">Здравствуйте! Чем могу помочь?</div>
-        <div style="font-size:11px; color:#999; margin-top:4px;">Продавец • только что</div>
-      </div>
-    </div>
-    
-    <!-- Поле ввода -->
-    <div style="padding:16px; background:white; border-top:1px solid #e0e0e0; display:flex; gap:12px; box-shadow:0 -2px 8px rgba(0,0,0,0.05);">
-      <input id="chatInput" type="text" placeholder="Введите сообщение..." style="flex:1; padding:14px 18px; border:1px solid #ddd; border-radius:24px; outline:none; font-size:16px;" onkeypress="if(event.key==='Enter') sendChatMessage()">
-      <button onclick="sendChatMessage()" style="background:#333; color:white; border:none; border-radius:50%; width:50px; height:50px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
     </div>
   </div>
 
@@ -2271,10 +2238,47 @@ function initFirebase() {
     db = firebase.firestore();
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
+    
+    // Подписка на новые сообщения в чате
+    subscribeToNewChatMessages();
+    
   } catch (error) {
     console.error('Firebase initialization error:', error);
     Swal.fire('Ошибка', 'Ошибка инициализации Firebase: ' + error.message, 'error');
   }
+}
+
+// Подписка на новые сообщения от админа для badge на иконке чата
+function subscribeToNewChatMessages() {
+  const clientId = localStorage.getItem('chatClientId');
+  if (!clientId) {
+    console.log('💬 Нет chatClientId - не подписываемся на сообщения');
+    return;
+  }
+  
+  // Используем простой запрос без составного индекса
+  db.collection('chatMessages')
+    .where('clientId', '==', clientId)
+    .orderBy('timestamp', 'asc')
+    .onSnapshot(snapshot => {
+      // Считаем непрочитанные от админа локально
+      let unreadCount = 0;
+      snapshot.forEach(doc => {
+        const msg = doc.data();
+        if (msg.sender === 'admin' && msg.read === false) {
+          unreadCount++;
+        }
+      });
+      
+      const badge = document.getElementById('navChatBadge');
+      if (badge) {
+        badge.textContent = unreadCount > 0 ? unreadCount : '!';
+        badge.style.display = unreadCount > 0 ? 'flex' : 'none';
+      }
+      console.log('💬 Непрочитанных сообщений:', unreadCount);
+    }, error => {
+      console.log('Ошибка подписки на чат:', error.message);
+    });
 }
 
 if (typeof firebase !== 'undefined') {
@@ -4675,54 +4679,6 @@ function toggleAdminPanel() {
     document.getElementById('hideAdminPanelBtn').textContent = 'Показать панель';
   }
 }
-// Смена фото товара админом
-// Кнопка корзины: прокрутка к корзине и обновление количества
-const cartFloatBtn = document.getElementById('cartFloatBtn');
-const cartFloatCount = document.getElementById('cartFloatCount');
-const orderForm = document.querySelector('.order-form');
-
-if (cartFloatBtn) {
-  cartFloatBtn.onclick = function() {
-    openCartPage();
-  };
-}
-
-function updateCartFloatCount() {
-  if (cartFloatCount) {
-    // Показываем количество видов товаров (позиций)
-    const totalPositions = cart.length;
-    cartFloatCount.textContent = totalPositions;
-    
-    // Анимация при изменении
-    cartFloatCount.style.transform = 'scale(1.2)';
-    setTimeout(() => {
-      cartFloatCount.style.transform = 'scale(1)';
-    }, 200);
-    
-    // Скрываем счётчик если корзина пуста
-    const btn = document.getElementById('cartFloatBtn');
-    if (btn) {
-      if (totalPositions === 0) {
-        btn.style.opacity = '0.7';
-      } else {
-        btn.style.opacity = '1';
-      }
-    }
-  }
-}
-// Вызовем при инициализации корзины
-document.addEventListener('DOMContentLoaded', function() {
-  updateCartFloatCount();
-  
-  // Переопределяем updateCart после загрузки всех модулей
-  if (typeof updateCart === 'function') {
-    const origUpdateCart = updateCart;
-    window.updateCart = function() {
-      origUpdateCart.apply(this, arguments);
-      updateCartFloatCount();
-    };
-  }
-});
 
    
 
@@ -5208,14 +5164,13 @@ window.startVoiceSearch = function() {
 <script src="js/quantity.js?v=2"></script>
 <script src="js/orders.js?v=2"></script>
 <script src="js/customer-auth.js?v=2"></script>
-<script src="js/chat.js?v=2"></script>
 <script src="js/seller.js?v=2"></script>
 <!-- admin-chat.js перенесён в admin-chat.html -->
 <script src="js/order-tracking.js?v=2"></script>
 <script src="js/partners.js?v=2"></script>
 <!-- profit-report.js и expenses.js перенесены в admin-profit.html -->
 <script src="js/agents.js?v=2"></script>
-<script src="js/bottom-nav.js?v=2"></script>
+<script src="js/bottom-nav.js?v=10"></script>
 
 <!-- PWA установка приложения -->
 <script>

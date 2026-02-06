@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4CAF50">
@@ -18,7 +19,6 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #f5f5f5;
       min-height: 100vh;
-      padding-bottom: 56px;
     }
     
     .profile-header {
@@ -191,51 +191,7 @@
     }
     
     .empty-orders-icon { font-size: 48px; margin-bottom: 10px; }
-    
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 56px;
-      background: #fff;
-      border-top: 1px solid #eee;
-      display: flex;
-      justify-content: space-around;
-      z-index: 9999;
-    }
-    
-    .nav-item {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      color: #9e9e9e;
-      text-decoration: none;
-      position: relative;
-    }
-    
-    .nav-item.active { color: #4CAF50; }
-    .nav-item svg { width: 24px; height: 24px; fill: currentColor; }
-    .nav-item span { font-size: 11px; }
-    
-    .nav-badge {
-      position: absolute;
-      top: 6px;
-      right: calc(50% - 16px);
-      background: #e53935;
-      color: white;
-      font-size: 10px;
-      min-width: 16px;
-      height: 16px;
-      border-radius: 8px;
-      display: none;
-      align-items: center;
-      justify-content: center;
-    }
-    
+
     /* Модальные окна */
     .modal-window {
       display: none;
@@ -246,6 +202,11 @@
       bottom: 56px;
       background: #f5f5f5;
       z-index: 9500;
+    }
+    
+    /* SweetAlert поверх модальных окон */
+    .swal2-container {
+      z-index: 99999 !important;
     }
     
     .modal-header {
@@ -371,12 +332,17 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 
 <body>
-  <div id="profileContent">
-    <!-- Контент загружается через JS -->
-  </div>
+  <header style="position:sticky; top:0; z-index:100; background:#fff; padding:15px 20px; border-bottom:1px solid #e0e0e0; display:flex; align-items:center; gap:15px;">
+    <a href="#" onclick="goBack(); return false;" style="font-size:24px; text-decoration:none; color:#333;">←</a>
+    <h1 style="flex:1; font-size:18px; font-weight:600; margin:0;">Профиль</h1>
+  </header>
+  
+  <div id="profileContent"><script>try{var c=sessionStorage.getItem('profileHtmlCache');if(c)document.write(c);}catch(e){}</script></div>
   
   <!-- Окно жалобы -->
   <div id="complaintWindow" class="modal-window">
@@ -541,39 +507,48 @@
     </div>
   </div>
   
-  <nav class="bottom-nav">
-    <a href="index.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-      <span>Главная</span>
-    </a>
-    <a href="index.html#categories" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6z"/></svg>
-      <span>Меню</span>
-    </a>
-    <a href="cart.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4z"/></svg>
-      <span>Корзина</span>
-      <span class="nav-badge" id="navCartBadge">0</span>
-    </a>
-    <a href="chat.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-      <span>Чат</span>
-    </a>
-    <a href="profile.html" class="nav-item active">
-      <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
-      <span>Профиль</span>
-    </a>
-  </nav>
-
+  <!-- Окно редактирования заказа -->
+  <div id="editOrderWindow" class="modal-window" style="z-index:9600; bottom:0;">
+    <!-- Контент загружается динамически -->
+  </div>
+  
+  <script>
+    // Запоминаем изначальный URL при загрузке
+    const initialUrl = window.location.href;
+    
+    // Закрытие iframe или возврат назад
+    function goBack() {
+      // Если мы в iframe и это начальная страница - закрываем iframe
+      if (window.parent !== window && window.location.href === initialUrl) {
+        window.parent.postMessage('closeIframe', '*');
+      } else if (window.parent !== window) {
+        // Внутри iframe но навигация была - возвращаемся на начальную
+        window.location.href = initialUrl;
+      } else {
+        window.location.href = 'index.html';
+      }
+    }
+    
+    // Быстрое открытие страницы через iframe родителя (без перезагрузки)
+    function openInFrame(url) {
+      if (window.parent !== window && typeof window.parent.openPageInFrame === 'function') {
+        // Используем функцию родителя для моментального открытия
+        window.parent.openPageInFrame(url);
+      } else {
+        // Fallback - обычный переход
+        window.location.href = url;
+      }
+    }
+  </script>
   <script>
     // ==================== КОНФИГУРАЦИЯ ====================
     const firebaseConfig = {
-      apiKey: "AIzaSyB0vkHoMqC-ec3L8EQubHFEavLYAkqr0MQ",
-      authDomain: "kerben-store.firebaseapp.com",
-      projectId: "kerben-store",
-      storageBucket: "kerben-store.firebasestorage.app",
-      messagingSenderId: "799212629498",
-      appId: "1:799212629498:web:37c0576a59e38874c8eb50"
+      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+      authDomain: "svoysayet.firebaseapp.com",
+      projectId: "svoysayet",
+      storageBucket: "svoysayet.firebasestorage.app",
+      messagingSenderId: "785840370498",
+      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
     };
     
     // Telegram Bot для уведомлений
@@ -592,7 +567,30 @@
     
     let currentCustomer = null;
     let isAdmin = false;
+    let isAgent = false;
     let _customerOrders = [];
+    let _dashboardCache = null; // Кэш данных dashboard
+    
+    // Подписка на непрочитанные сообщения для badge
+    function subscribeToUnreadChatMessages() {
+      console.log('🔔 Запускаем подписку на непрочитанные сообщения...');
+      
+      db.collection('chatClients')
+        .where('hasUnread', '==', true)
+        .onSnapshot(snapshot => {
+          const unreadCount = snapshot.size;
+          console.log('📬 Клиентов с непрочитанными:', unreadCount);
+          
+          const badge = document.getElementById('chatUnreadBadge');
+          console.log('Badge элемент найден:', !!badge);
+          if (badge) {
+            badge.textContent = unreadCount;
+            badge.style.display = unreadCount > 0 ? 'inline' : 'none';
+          }
+        }, error => {
+          console.log('Ошибка подписки на чат:', error.message);
+        });
+    }
     
     // ==================== ИНИЦИАЛИЗАЦИЯ ====================
     async function init() {
@@ -611,7 +609,32 @@
             localStorage.setItem('customerData', JSON.stringify(currentCustomer));
           }
           
-          await loadDashboard();
+          // Быстро восстанавливаем isAgent из кэша
+          const cachedAgent = sessionStorage.getItem('isAgent_' + normalizedPhone);
+          if (cachedAgent === 'true') {
+            isAgent = true;
+          }
+          
+          // Сначала показываем кэшированный dashboard мгновенно
+          const cachedDashboard = sessionStorage.getItem('dashboardCache_' + normalizedPhone);
+          if (cachedDashboard) {
+            try {
+              _dashboardCache = JSON.parse(cachedDashboard);
+              _customerOrders = _dashboardCache.orders || [];
+              renderDashboard(_dashboardCache.stats || { ordersCount: 0, totalSpent: 0 }, _dashboardCache.orders || []);
+            } catch (e) {
+              console.log('Ошибка чтения кэша dashboard');
+            }
+          }
+          
+          // Параллельно обновляем данные в фоне
+          checkAgentStatus(normalizedPhone);
+          loadDashboard();
+          
+          // Подписка на непрочитанные сообщения для админа (после загрузки dashboard)
+          if (isAdmin) {
+            subscribeToUnreadChatMessages();
+          }
         } catch(e) {
           console.error('Ошибка загрузки данных:', e);
           localStorage.removeItem('customerData');
@@ -633,6 +656,34 @@
         if (complaintPhone) complaintPhone.value = currentCustomer.phone || '';
         if (suggestionName) suggestionName.value = currentCustomer.name || '';
         if (suggestionPhone) suggestionPhone.value = currentCustomer.phone || '';
+      }
+    }
+    
+    // Проверка статуса агента в фоне
+    async function checkAgentStatus(normalizedPhone) {
+      try {
+        const agentsSnap = await db.collection('agents').get();
+        let foundAgent = false;
+        agentsSnap.forEach(doc => {
+          const agentData = doc.data();
+          const agentPhone = normalizePhone(agentData.phone || doc.id);
+          if (agentPhone === normalizedPhone) {
+            foundAgent = true;
+          }
+        });
+        
+        if (foundAgent !== isAgent) {
+          isAgent = foundAgent;
+          // Обновить UI если статус изменился
+          if (_dashboardCache) {
+            renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
+          }
+        }
+        
+        // Сохраняем в кэш
+        sessionStorage.setItem('isAgent_' + normalizedPhone, foundAgent ? 'true' : 'false');
+      } catch (e) {
+        console.log('Ошибка проверки агента:', e);
       }
     }
     
@@ -843,18 +894,54 @@
       let stats = { ordersCount: 0, totalSpent: 0 };
       
       try {
-        const snapshot = await db.collection('orders').where('phone', '==', currentCustomer.phone).limit(50).get();
-        snapshot.forEach(doc => orders.push({ id: doc.id, ...doc.data() }));
+        // Нормализуем телефон для поиска
+        const userPhone = currentCustomer.phone || '';
+        const normalizedPhone = normalizePhone(userPhone);
+        
+        // Ищем заказы по разным форматам телефона
+        const phoneVariants = [userPhone, normalizedPhone];
+        if (userPhone.startsWith('0')) {
+          phoneVariants.push('+996' + userPhone.substring(1));
+        }
+        if (normalizedPhone.startsWith('+996')) {
+          phoneVariants.push('0' + normalizedPhone.substring(4));
+        }
+        
+        // Убираем дубликаты
+        const uniquePhones = [...new Set(phoneVariants.filter(p => p))];
+        
+        // Запрашиваем заказы по всем вариантам телефона
+        for (const phone of uniquePhones) {
+          const snapshot = await db.collection('orders').where('phone', '==', phone).limit(50).get();
+          snapshot.forEach(doc => {
+            // Проверяем, не добавлен ли уже этот заказ
+            if (!orders.find(o => o.id === doc.id)) {
+              orders.push({ id: doc.id, ...doc.data() });
+            }
+          });
+        }
+        
         orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         
         stats.ordersCount = orders.length;
         stats.totalSpent = orders.reduce((sum, o) => sum + (o.total || 0), 0);
+        
+        // Кэшируем данные
+        _dashboardCache = { stats, orders };
+        sessionStorage.setItem('dashboardCache_' + normalizedPhone, JSON.stringify(_dashboardCache));
+        
       } catch(e) { 
         console.error('Ошибка загрузки заказов:', e); 
       }
       
       _customerOrders = orders;
       
+      // Рендерим dashboard
+      renderDashboard(stats, orders);
+    }
+    
+    // ==================== РЕНДЕР ДАШБОРДА ====================
+    function renderDashboard(stats, orders) {
       const statusColors = {
         'Новый': '#17a2b8',
         'В обработке': '#ffc107',
@@ -932,6 +1019,7 @@
               <div class="menu-item-left">
                 <span class="menu-icon">💬</span>
                 <span class="menu-text">Чат с клиентами</span>
+                <span id="chatUnreadBadge" style="display:none; background:red; color:white; font-size:11px; padding:2px 6px; border-radius:10px; margin-left:8px; font-weight:bold;">0</span>
               </div>
               <span class="menu-arrow">›</span>
             </div>
@@ -1046,6 +1134,7 @@
             <span class="menu-arrow">›</span>
           </div>
           
+          ${(isAdmin || isAgent) ? `
           <div class="menu-item" onclick="window.location.href='agent-profit.html'">
             <div class="menu-item-left">
               <span class="menu-icon">💰</span>
@@ -1053,6 +1142,15 @@
             </div>
             <span class="menu-arrow">›</span>
           </div>
+          
+          <div class="menu-item" onclick="window.location.href='agent-delivery.html'">
+            <div class="menu-item-left">
+              <span class="menu-icon">📋</span>
+              <span class="menu-text">Список доставки</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
+          ` : ''}
           
           <div class="menu-item" onclick="openBecomeSellerWindow()">
             <div class="menu-item-left">
@@ -1082,6 +1180,11 @@
         
         <div style="height:20px;"></div>
       `;
+      
+      // Сохраняем HTML в кэш для мгновенной загрузки
+      try {
+        sessionStorage.setItem('profileHtmlCache', document.getElementById('profileContent').innerHTML);
+      } catch(e) {}
     }
     
     // ==================== ПЕРЕХОД НА СТРАНИЦУ С ФУНКЦИЕЙ ====================
@@ -1205,6 +1308,8 @@
       }).then(r => {
         if (r.isConfirmed) {
           localStorage.removeItem('customerData');
+          sessionStorage.removeItem('profileHtmlCache');
+          sessionStorage.clear(); // Очищаем все кэши сессии
           currentCustomer = null;
           isAdmin = false;
           showLoginForm();
@@ -1298,6 +1403,9 @@
           `).join('');
         }
         
+        // Кнопки для заказа со статусом "Новый"
+        const canEdit = order.status === 'Новый';
+        
         Swal.fire({
           title: `Заказ #${orderId.slice(-6).toUpperCase()}`,
           html: `
@@ -1320,11 +1428,17 @@
                 <span style="font-size:16px; font-weight:600;">Итого:</span>
                 <span style="font-size:20px; font-weight:700; color:#4CAF50;">${(order.total || 0).toLocaleString()} сом</span>
               </div>
+              
+              ${canEdit ? `
+              <div style="margin-top:15px; display:flex; gap:10px;">
+                <button onclick="editOrder('${orderId}')" style="flex:1; padding:12px; background:#007bff; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600;">✏️ Редактировать</button>
+              </div>
+              ` : ''}
             </div>
           `,
           confirmButtonText: 'Закрыть',
           confirmButtonColor: '#4CAF50',
-          showCancelButton: order.status === 'Новый',
+          showCancelButton: canEdit,
           cancelButtonText: '❌ Отменить заказ',
           cancelButtonColor: '#dc3545'
         }).then(async (result) => {
@@ -1336,7 +1450,8 @@
               showCancelButton: true,
               confirmButtonText: 'Да, отменить',
               cancelButtonText: 'Нет',
-              confirmButtonColor: '#dc3545'
+              confirmButtonColor: '#dc3545',
+              position: 'top'
             });
             
             if (confirm.isConfirmed) {
@@ -1355,6 +1470,575 @@
         console.error('Ошибка загрузки заказа:', error);
         Swal.fire('Ошибка', 'Не удалось загрузить детали заказа', 'error');
       }
+    }
+    
+    // ==================== РЕДАКТИРОВАНИЕ ЗАКАЗА ====================
+    let _editingOrder = null;
+    
+    async function editOrder(orderId) {
+      Swal.close();
+      
+      let order = _customerOrders.find(o => o.id === orderId);
+      if (!order) {
+        const doc = await db.collection('orders').doc(orderId).get();
+        if (doc.exists) {
+          order = { id: doc.id, ...doc.data() };
+        }
+      }
+      
+      if (!order || order.status !== 'Новый') {
+        Swal.fire('Ошибка', 'Заказ нельзя редактировать', 'error');
+        return;
+      }
+      
+      _editingOrder = JSON.parse(JSON.stringify(order));
+      
+      showEditOrderWindow();
+    }
+    
+    function showEditOrderWindow() {
+      if (!_editingOrder) return;
+      
+      let itemsHtml = _editingOrder.items.map((item, index) => `
+        <div style="display:flex; align-items:center; gap:10px; padding:12px; background:#fff; border-radius:8px; margin-bottom:10px; border:1px solid #e0e0e0;">
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:14px;">${item.title}${item.variant ? ` (${item.variant})` : ''}</div>
+            <div style="font-size:13px; color:#666;">${item.price} сом/шт</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button onclick="changeEditQty(${index}, -1)" style="width:32px; height:32px; background:#f0f0f0; border:none; border-radius:6px; cursor:pointer; font-size:18px;">−</button>
+            <span id="editQty${index}" style="min-width:30px; text-align:center; font-weight:600;">${item.qty}</span>
+            <button onclick="changeEditQty(${index}, 1)" style="width:32px; height:32px; background:#4CAF50; color:white; border:none; border-radius:6px; cursor:pointer; font-size:18px;">+</button>
+          </div>
+          <button onclick="removeEditItem(${index})" style="width:32px; height:32px; background:#dc3545; color:white; border:none; border-radius:6px; cursor:pointer;">✕</button>
+        </div>
+      `).join('');
+      
+      const total = _editingOrder.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+      
+      const html = `
+        <div style="height:100%; display:flex; flex-direction:column;">
+          <div class="modal-header">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <button onclick="closeEditOrderWindow()" style="background:none; border:none; color:#333; font-size:20px; cursor:pointer;">←</button>
+              <div class="modal-title">✏️ Редактирование заказа #${_editingOrder.id.slice(-6).toUpperCase()}</div>
+            </div>
+          </div>
+          
+          <div style="flex:1; overflow-y:auto; padding:15px; background:#f5f5f5;">
+            <div style="margin-bottom:15px;">
+              <label style="display:block; font-weight:600; margin-bottom:8px; color:#333;">📍 Адрес доставки:</label>
+              <input type="text" id="editOrderAddress" value="${_editingOrder.address || ''}" placeholder="Введите адрес" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; font-size:15px;">
+            </div>
+            
+            <div style="font-weight:600; margin-bottom:10px; color:#333;">🛒 Товары:</div>
+            <div id="editOrderItems">
+              ${itemsHtml}
+            </div>
+            
+            ${_editingOrder.items.length === 0 ? '<div style="text-align:center; padding:20px; color:#999;">Добавьте товары в заказ</div>' : ''}
+          </div>
+          
+          <div style="padding:15px; background:#fff; border-top:1px solid #e0e0e0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+              <span style="font-size:16px; font-weight:600;">Итого:</span>
+              <span id="editOrderTotal" style="font-size:20px; font-weight:700; color:#4CAF50;">${total.toLocaleString()} сом</span>
+            </div>
+            <button onclick="saveEditedOrder()" style="width:100%; padding:14px; background:linear-gradient(90deg, #4CAF50, #2e7d32); color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600; font-size:16px;">💾 Сохранить изменения</button>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('editOrderWindow').innerHTML = html;
+      document.getElementById('editOrderWindow').style.display = 'flex';
+    }
+    
+    function changeEditQty(index, delta) {
+      if (!_editingOrder || !_editingOrder.items[index]) return;
+      
+      const newQty = _editingOrder.items[index].qty + delta;
+      if (newQty < 1) {
+        removeEditItem(index);
+        return;
+      }
+      
+      _editingOrder.items[index].qty = newQty;
+      document.getElementById(`editQty${index}`).textContent = newQty;
+      updateEditTotal();
+    }
+    
+    function removeEditItem(index) {
+      if (!_editingOrder) return;
+      
+      _editingOrder.items.splice(index, 1);
+      showEditOrderWindow();
+    }
+    
+    function updateEditTotal() {
+      if (!_editingOrder) return;
+      const total = _editingOrder.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+      const totalEl = document.getElementById('editOrderTotal');
+      if (totalEl) totalEl.textContent = total.toLocaleString() + ' сом';
+    }
+    
+    function closeEditOrderWindow() {
+      document.getElementById('editOrderWindow').style.display = 'none';
+      _editingOrder = null;
+    }
+    
+    async function saveEditedOrder() {
+      if (!_editingOrder) return;
+      
+      if (_editingOrder.items.length === 0) {
+        Swal.fire('Ошибка', 'Добавьте хотя бы один товар', 'error');
+        return;
+      }
+      
+      const newAddress = document.getElementById('editOrderAddress').value.trim();
+      if (!newAddress) {
+        Swal.fire('Ошибка', 'Укажите адрес доставки', 'error');
+        return;
+      }
+      
+      const newTotal = _editingOrder.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+      
+      // Сохраняем данные для отправки в фоне
+      const orderData = {
+        id: _editingOrder.id,
+        items: JSON.parse(JSON.stringify(_editingOrder.items)),
+        address: newAddress,
+        total: newTotal
+      };
+      
+      try {
+        await db.collection('orders').doc(_editingOrder.id).update({
+          items: _editingOrder.items,
+          address: newAddress,
+          total: newTotal,
+          editedAt: Date.now(),
+          editedBy: 'customer'
+        });
+        
+        closeEditOrderWindow();
+        await loadDashboard();
+        openOrdersWindow();
+        
+        // Показываем успех сразу
+        Swal.fire({
+          icon: 'success',
+          title: 'Заказ обновлён!',
+          text: 'Изменения сохранены',
+          timer: 2000,
+          showConfirmButton: false
+        });
+        
+        // Отправка файлов в фоне (без await)
+        sendEditedOrderFiles(orderData.id, currentCustomer.name, currentCustomer.phone, orderData.address, orderData.items, orderData.total)
+          .catch(err => console.log('Ошибка отправки файлов:', err));
+        
+      } catch (error) {
+        console.error('Ошибка сохранения:', error);
+        Swal.fire('Ошибка', 'Не удалось сохранить изменения', 'error');
+      }
+    }
+    
+    // ==================== ГЕНЕРАЦИЯ И ОТПРАВКА 3 ФАЙЛОВ ====================
+    async function sendEditedOrderFiles(orderId, clientName, clientPhone, address, items, totalAmount) {
+      const dateStr = new Date().toLocaleDateString('ru-RU') + ' ' + new Date().toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+      
+      // Загрузка данных товаров для фото
+      const productsSnapshot = await db.collection('products').get();
+      const productsMap = {};
+      productsSnapshot.forEach(doc => {
+        productsMap[doc.id] = { id: doc.id, ...doc.data() };
+      });
+      
+      // ===== 1. Создаем Excel файл =====
+      
+      const excelData = [
+        ['ЗАКАЗ ИЗМЕНЁН КЛИЕНТОМ'],
+        [''],
+        ['Клиент:', clientName],
+        ['Телефон:', clientPhone],
+        ['Адрес:', address],
+        ['Дата изменения:', dateStr],
+        [''],
+        ['Название товара', 'Кол-во', 'Цена', 'Сумма']
+      ];
+      
+      items.forEach(item => {
+        const titleWithVariant = item.variant ? `${item.title} [${item.variant}]` : (item.title || 'Товар');
+        excelData.push([
+          titleWithVariant,
+          `${item.qty} шт`,
+          `${item.price} сом`,
+          `${item.qty * item.price} сом`
+        ]);
+      });
+      
+      excelData.push(['']);
+      excelData.push(['ИТОГО:', '', '', `${totalAmount} сом`]);
+      
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(excelData);
+      ws['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(wb, ws, 'Заказ');
+      
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const excelBlob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      
+      // ===== 2. Создаем PDF #1 (без фото) с Canvas =====
+      
+      const { jsPDF } = window.jspdf;
+      const doc1 = new jsPDF();
+      const scale = 1.5;
+      let yPosition = 2;
+      
+      // Заголовок
+      const headerCanvas = document.createElement('canvas');
+      const headerCtx = headerCanvas.getContext('2d');
+      headerCanvas.width = 600 * scale;
+      headerCanvas.height = 50 * scale;
+      headerCtx.scale(scale, scale);
+      
+      headerCtx.fillStyle = 'white';
+      headerCtx.fillRect(0, 0, 600, 50);
+      headerCtx.fillStyle = 'black';
+      headerCtx.font = 'bold 24px Arial';
+      headerCtx.textAlign = 'center';
+      headerCtx.fillText('ЗАКАЗ ИЗМЕНЁН', 300, 35);
+      
+      const headerImage = headerCanvas.toDataURL('image/png');
+      doc1.addImage(headerImage, 'PNG', 20, yPosition, 170, 10);
+      yPosition += 11;
+      
+      // Информация о заказе в рамке
+      const infoCanvas = document.createElement('canvas');
+      const infoCtx = infoCanvas.getContext('2d');
+      infoCanvas.width = 700 * scale;
+      infoCanvas.height = 140 * scale;
+      infoCtx.scale(scale, scale);
+      
+      infoCtx.fillStyle = 'white';
+      infoCtx.fillRect(0, 0, 700, 140);
+      infoCtx.strokeStyle = 'black';
+      infoCtx.lineWidth = 2;
+      infoCtx.strokeRect(0, 0, 700, 140);
+      
+      infoCtx.fillStyle = 'black';
+      infoCtx.font = '16px Arial';
+      infoCtx.fillText(`Заказ: #${orderId.slice(-6).toUpperCase()}`, 15, 30);
+      infoCtx.fillText(`Дата/Время: ${dateStr}`, 15, 55);
+      infoCtx.fillText(`Имя клиента: ${clientName}`, 15, 80);
+      infoCtx.fillText(`Телефон: ${clientPhone}`, 15, 105);
+      infoCtx.fillText(`Адрес: ${address}`, 15, 130);
+      
+      const infoImage = infoCanvas.toDataURL('image/png');
+      doc1.addImage(infoImage, 'PNG', 20, yPosition, 170, 32);
+      yPosition += 33;
+      
+      // Заголовок таблицы
+      const tableHeaderCanvas = document.createElement('canvas');
+      const thCtx = tableHeaderCanvas.getContext('2d');
+      tableHeaderCanvas.width = 600 * scale;
+      tableHeaderCanvas.height = 40 * scale;
+      thCtx.scale(scale, scale);
+      
+      thCtx.fillStyle = '#e0e0e0';
+      thCtx.fillRect(0, 0, 600, 40);
+      thCtx.strokeStyle = 'black';
+      thCtx.lineWidth = 2;
+      thCtx.strokeRect(0, 0, 600, 40);
+      
+      thCtx.beginPath();
+      thCtx.moveTo(300, 0); thCtx.lineTo(300, 40);
+      thCtx.moveTo(400, 0); thCtx.lineTo(400, 40);
+      thCtx.moveTo(500, 0); thCtx.lineTo(500, 40);
+      thCtx.stroke();
+      
+      thCtx.fillStyle = 'black';
+      thCtx.font = 'bold 12px Arial';
+      thCtx.textAlign = 'center';
+      thCtx.fillText('НАЗВАНИЕ', 150, 25);
+      thCtx.fillText('КОЛ-ВО', 350, 25);
+      thCtx.fillText('ЦЕНА', 450, 25);
+      thCtx.fillText('СУММА', 550, 25);
+      
+      const tableHeaderImage = tableHeaderCanvas.toDataURL('image/png');
+      doc1.addImage(tableHeaderImage, 'PNG', 20, yPosition, 170, 10);
+      yPosition += 10;
+      
+      // Товары
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        
+        if (yPosition > 265) {
+          doc1.addPage();
+          yPosition = 15;
+        }
+        
+        const titleWithVariant = item.variant ? `${item.title} [${item.variant}]` : (item.title || 'Товар');
+        
+        const rowCanvas = document.createElement('canvas');
+        const rowCtx = rowCanvas.getContext('2d');
+        rowCanvas.width = 600 * scale;
+        rowCanvas.height = 35 * scale;
+        rowCtx.scale(scale, scale);
+        
+        rowCtx.fillStyle = i % 2 === 0 ? 'white' : '#f9f9f9';
+        rowCtx.fillRect(0, 0, 600, 35);
+        rowCtx.strokeStyle = 'black';
+        rowCtx.lineWidth = 1;
+        rowCtx.strokeRect(0, 0, 600, 35);
+        
+        rowCtx.beginPath();
+        rowCtx.moveTo(300, 0); rowCtx.lineTo(300, 35);
+        rowCtx.moveTo(400, 0); rowCtx.lineTo(400, 35);
+        rowCtx.moveTo(500, 0); rowCtx.lineTo(500, 35);
+        rowCtx.stroke();
+        
+        rowCtx.fillStyle = 'black';
+        rowCtx.font = '11px Arial';
+        rowCtx.textAlign = 'left';
+        
+        if (titleWithVariant.length > 40) {
+          rowCtx.fillText(titleWithVariant.substring(0, 40), 5, 15);
+          rowCtx.fillText(titleWithVariant.substring(40, 80), 5, 28);
+        } else {
+          rowCtx.fillText(titleWithVariant, 5, 22);
+        }
+        
+        rowCtx.textAlign = 'center';
+        rowCtx.fillText(`${item.qty} шт`, 350, 22);
+        rowCtx.fillText(`${item.price} сом`, 450, 22);
+        rowCtx.font = 'bold 11px Arial';
+        rowCtx.fillText(`${item.qty * item.price} сом`, 550, 22);
+        
+        const rowImage = rowCanvas.toDataURL('image/png');
+        doc1.addImage(rowImage, 'PNG', 20, yPosition, 170, 9);
+        yPosition += 9;
+      }
+      
+      // ИТОГО
+      const totalCanvas = document.createElement('canvas');
+      const totalCtx = totalCanvas.getContext('2d');
+      totalCanvas.width = 800 * scale;
+      totalCanvas.height = 60 * scale;
+      totalCtx.scale(scale, scale);
+      
+      totalCtx.fillStyle = '#ffeb3b';
+      totalCtx.fillRect(0, 0, 800, 60);
+      totalCtx.strokeStyle = 'black';
+      totalCtx.lineWidth = 4;
+      totalCtx.strokeRect(0, 0, 800, 60);
+      
+      totalCtx.fillStyle = 'black';
+      totalCtx.font = 'bold 24px Arial';
+      totalCtx.textAlign = 'right';
+      totalCtx.fillText(`ИТОГО:  ${totalAmount} сом`, 780, 40);
+      
+      const totalImage = totalCanvas.toDataURL('image/png');
+      doc1.addImage(totalImage, 'PNG', 20, yPosition, 170, 14);
+      
+      const pdf1Blob = doc1.output('blob');
+      
+      // ===== 3. Создаем PDF #2 (с фото) =====
+      
+      const doc2 = new jsPDF();
+      let yPos2 = 5;
+      
+      // Заголовок
+      const header2Canvas = document.createElement('canvas');
+      const header2Ctx = header2Canvas.getContext('2d');
+      header2Canvas.width = 600 * scale;
+      header2Canvas.height = 50 * scale;
+      header2Ctx.scale(scale, scale);
+      
+      header2Ctx.fillStyle = 'white';
+      header2Ctx.fillRect(0, 0, 600, 50);
+      header2Ctx.fillStyle = 'black';
+      header2Ctx.font = 'bold 22px Arial';
+      header2Ctx.textAlign = 'center';
+      header2Ctx.fillText('ЗАКАЗ ИЗМЕНЁН (С ФОТО)', 300, 35);
+      
+      const header2Image = header2Canvas.toDataURL('image/png');
+      doc2.addImage(header2Image, 'PNG', 20, yPos2, 170, 12);
+      yPos2 += 14;
+      
+      // Информация
+      const info2Canvas = document.createElement('canvas');
+      const info2Ctx = info2Canvas.getContext('2d');
+      info2Canvas.width = 700 * scale;
+      info2Canvas.height = 80 * scale;
+      info2Ctx.scale(scale, scale);
+      
+      info2Ctx.fillStyle = '#fff9c4';
+      info2Ctx.fillRect(0, 0, 700, 80);
+      info2Ctx.strokeStyle = 'black';
+      info2Ctx.lineWidth = 2;
+      info2Ctx.strokeRect(0, 0, 700, 80);
+      
+      info2Ctx.fillStyle = 'black';
+      info2Ctx.font = '14px Arial';
+      info2Ctx.fillText(`#${orderId.slice(-6).toUpperCase()} | ${dateStr}`, 15, 25);
+      info2Ctx.fillText(`${clientName} | ${clientPhone}`, 15, 50);
+      info2Ctx.fillText(`${address}`, 15, 75);
+      
+      const info2Image = info2Canvas.toDataURL('image/png');
+      doc2.addImage(info2Image, 'PNG', 20, yPos2, 170, 20);
+      yPos2 += 22;
+      
+      // Товары с фото
+      for (const item of items) {
+        if (yPos2 > 240) {
+          doc2.addPage();
+          yPos2 = 15;
+        }
+        
+        const product = productsMap[item.id] || productsMap[item.productId] || {};
+        const imageUrl = item.image || product.image || '';
+        
+        const rowCanvas = document.createElement('canvas');
+        const rowCtx = rowCanvas.getContext('2d');
+        rowCanvas.width = 550;
+        rowCanvas.height = 100;
+        
+        rowCtx.fillStyle = 'white';
+        rowCtx.fillRect(0, 0, 550, 100);
+        rowCtx.strokeStyle = 'black';
+        rowCtx.lineWidth = 2;
+        rowCtx.strokeRect(0, 0, 550, 100);
+        
+        // Загружаем фото
+        if (imageUrl) {
+          try {
+            const imgData = await loadImageForPdf(imageUrl);
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = reject;
+              img.src = imgData;
+            });
+            rowCtx.drawImage(img, 5, 5, 90, 90);
+          } catch(e) {
+            rowCtx.fillStyle = '#eee';
+            rowCtx.fillRect(5, 5, 90, 90);
+            rowCtx.fillStyle = '#999';
+            rowCtx.font = '12px Arial';
+            rowCtx.textAlign = 'center';
+            rowCtx.fillText('Нет фото', 50, 55);
+          }
+        } else {
+          rowCtx.fillStyle = '#eee';
+          rowCtx.fillRect(5, 5, 90, 90);
+          rowCtx.fillStyle = '#999';
+          rowCtx.font = '12px Arial';
+          rowCtx.textAlign = 'center';
+          rowCtx.fillText('Нет фото', 50, 55);
+        }
+        
+        const titleWithVariant = item.variant ? `${item.title} (${item.variant})` : (item.title || 'Товар');
+        
+        rowCtx.fillStyle = 'black';
+        rowCtx.font = 'bold 14px Arial';
+        rowCtx.textAlign = 'left';
+        rowCtx.fillText(titleWithVariant.substring(0, 35), 105, 30);
+        if (titleWithVariant.length > 35) {
+          rowCtx.font = '12px Arial';
+          rowCtx.fillText(titleWithVariant.substring(35), 105, 48);
+        }
+        
+        rowCtx.font = '13px Arial';
+        rowCtx.fillText(`${item.qty} шт × ${item.price} сом`, 105, 65);
+        
+        rowCtx.font = 'bold 16px Arial';
+        rowCtx.fillStyle = '#28a745';
+        rowCtx.fillText(`= ${item.qty * item.price} сом`, 105, 88);
+        
+        const rowImage = rowCanvas.toDataURL('image/png');
+        doc2.addImage(rowImage, 'PNG', 20, yPos2, 170, 28);
+        yPos2 += 30;
+      }
+      
+      // ИТОГО
+      const total2Canvas = document.createElement('canvas');
+      const total2Ctx = total2Canvas.getContext('2d');
+      total2Canvas.width = 550;
+      total2Canvas.height = 60;
+      
+      total2Ctx.fillStyle = '#fff9c4';
+      total2Ctx.fillRect(0, 0, 550, 60);
+      total2Ctx.strokeStyle = 'black';
+      total2Ctx.lineWidth = 3;
+      total2Ctx.strokeRect(0, 0, 550, 60);
+      
+      total2Ctx.beginPath();
+      total2Ctx.moveTo(470, 0);
+      total2Ctx.lineTo(470, 60);
+      total2Ctx.stroke();
+      
+      total2Ctx.fillStyle = 'black';
+      total2Ctx.font = 'bold 18px Arial';
+      total2Ctx.textAlign = 'right';
+      total2Ctx.fillText('ИТОГО:', 450, 38);
+      
+      total2Ctx.textAlign = 'center';
+      total2Ctx.fillText(`${totalAmount}`, 510, 32);
+      total2Ctx.font = '14px Arial';
+      total2Ctx.fillText('сом', 510, 48);
+      
+      const total2Image = total2Canvas.toDataURL('image/png');
+      doc2.addImage(total2Image, 'PNG', 20, yPos2, 170, 15);
+      
+      const pdf2Blob = doc2.output('blob');
+      
+      // ===== Отправка в Telegram (3 файла в 2 чата) =====
+      
+      const botToken = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
+      const chatIds = ['5567924440', '246421345'];
+      const apiUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
+      const baseFileName = `Заказ_изменен_${clientName.replace(/\s+/g, '_')}_${Date.now()}`;
+      
+      for (const chatId of chatIds) {
+        // Отправляем Excel
+        const form1 = new FormData();
+        form1.append('document', excelBlob, `${baseFileName}.xlsx`);
+        form1.append('chat_id', chatId);
+        form1.append('caption', `✏️ ЗАКАЗ ИЗМЕНЁН\n📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`);
+        await fetch(apiUrl, { method: 'POST', body: form1 });
+        
+        // Отправляем PDF #1
+        const form2 = new FormData();
+        form2.append('document', pdf1Blob, `${baseFileName}_печать.pdf`);
+        form2.append('chat_id', chatId);
+        form2.append('caption', `📄 Заказ для печати: ${clientName}`);
+        await fetch(apiUrl, { method: 'POST', body: form2 });
+        
+        // Отправляем PDF #2 (с фото)
+        const form3 = new FormData();
+        form3.append('document', pdf2Blob, `${baseFileName}_с_фото.pdf`);
+        form3.append('chat_id', chatId);
+        form3.append('caption', `📷 Заказ с фото: ${clientName}`);
+        await fetch(apiUrl, { method: 'POST', body: form3 });
+      }
+    }
+    
+    // Загрузка изображения для PDF
+    function loadImageForPdf(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
     }
     
     // ==================== ЖАЛОБА ====================

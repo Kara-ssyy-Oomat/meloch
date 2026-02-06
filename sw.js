@@ -1,12 +1,31 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v2.1.0-crop-editor'; // Добавлен редактор обрезки фото
+const CACHE_VERSION = 'kerben-v2.2.0-optimized'; // Оптимизация загрузки
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
+const FIREBASE_CACHE = 'firebase-sdk-cache';
+
+// Firebase SDK для кэширования
+const FIREBASE_URLS = [
+  'https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js',
+  'https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js',
+  'https://cdn.jsdelivr.net/npm/sweetalert2@11'
+];
 
 // Файлы для кэширования
 const STATIC_CACHE_URLS = [
   './index.html',
+  './profile.html',
+  './cart.html',
+  './chat.html',
+  './admin-chat.html',
+  './admin-orders.html',
+  './admin-products.html',
+  './admin-profit.html',
+  './admin-sellers.html',
+  './admin-categories.html',
+  './admin-agents.html',
   './manifest.json',
   './css/styles.css',
   './js/filters.js',
@@ -37,25 +56,39 @@ self.addEventListener('install', (event) => {
   console.log('[SW] Установка Service Worker...');
   
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
+    Promise.all([
+      // Кэшируем локальные файлы
+      caches.open(CACHE_NAME).then((cache) => {
         console.log('[SW] Кэширование файлов приложения');
-        // Кэшируем только критичные файлы для быстрой работы
-        // Остальное загружается по требованию (не тормозит сайт)
         return cache.addAll([
           './index.html',
           './manifest.json',
           './css/styles.css',
+          './js/bottom-nav.js',
           './js/advanced-search.js'
         ]);
+      }),
+      // Кэшируем Firebase SDK отдельно
+      caches.open(FIREBASE_CACHE).then((cache) => {
+        console.log('[SW] Кэширование Firebase SDK');
+        return Promise.all(
+          FIREBASE_URLS.map(url => 
+            fetch(url).then(response => {
+              if (response.ok) {
+                return cache.put(url, response);
+              }
+            }).catch(err => console.log('[SW] Не удалось кэшировать:', url))
+          )
+        );
       })
-      .then(() => {
-        console.log('[SW] Service Worker установлен (легкий режим)');
-        return self.skipWaiting(); // Активируем новый SW сразу
-      })
-      .catch((error) => {
-        console.error('[SW] Ошибка при кэшировании:', error);
-      })
+    ])
+    .then(() => {
+      console.log('[SW] Service Worker установлен');
+      return self.skipWaiting();
+    })
+    .catch((error) => {
+      console.error('[SW] Ошибка при кэшировании:', error);
+    })
   );
 });
 
@@ -66,10 +99,10 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((cacheNames) => {
-        // Удаляем старые кэши
+        // Удаляем старые кэши (кроме Firebase)
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME) {
+            if (cacheName !== CACHE_NAME && cacheName !== FIREBASE_CACHE) {
               console.log('[SW] Удаление старого кэша:', cacheName);
               return caches.delete(cacheName);
             }
@@ -83,16 +116,37 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Обработка запросов - Network First стратегия (сначала сеть, потом кэш)
+// Обработка запросов
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
-  // Пропускаем запросы к Firebase и внешним API (не кэшируем, не замедляем)
+  // Firebase SDK и CDN - Cache First (из кэша, потом сеть)
+  if (url.origin.includes('gstatic.com') || url.origin.includes('jsdelivr.net')) {
+    event.respondWith(
+      caches.match(event.request).then(cachedResponse => {
+        if (cachedResponse) {
+          return cachedResponse; // Моментально из кэша!
+        }
+        return fetch(event.request).then(response => {
+          if (response.ok) {
+            const responseClone = response.clone();
+            caches.open(FIREBASE_CACHE).then(cache => {
+              cache.put(event.request, responseClone);
+            });
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+  
+  // Firestore/Storage API - пропускаем без кэширования
   if (url.origin.includes('firebase') || 
       url.origin.includes('googleapis') ||
       url.origin.includes('telegram') ||
       url.origin.includes('cloudinary')) {
-    return; // Пропускаем без обработки - максимальная скорость
+    return;
   }
   
   // Только для HTML, CSS, JS - остальное грузим напрямую

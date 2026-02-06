@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}#ordersManagementWindow{bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Заказы клиентов - Кербен</title>
@@ -15,7 +16,6 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #f5f5f5;
       min-height: 100vh;
-      padding-bottom: 56px;
     }
     input, textarea, select {
       font-family: inherit;
@@ -446,7 +446,7 @@ async function loadOrdersManagement(forceRefresh = false) {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка заказов...</div>';
 
   try {
-    const ordersSnapshot = await db.collection('orders').get();
+    const ordersSnapshot = await db.collection('orders').orderBy('timestamp', 'desc').limit(200).get();
 
     if (ordersSnapshot.empty) {
       ordersManagementAllOrders = [];
@@ -511,8 +511,11 @@ function createOrderCard(order, index) {
             </div>
           </div>
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-            <div style="background:${st.bg}; color:${st.color}; padding:4px 10px; border-radius:12px; font-size:12px; font-weight:600; display:flex; align-items:center; gap:4px;">
-              ${st.icon} ${st.text}
+            <div style="display:flex; gap:4px; align-items:center;">
+              ${order.moneyCollected ? '<div style="background:#e8f5e9; color:#28a745; padding:4px 8px; border-radius:12px; font-size:11px; font-weight:600;">💰 Оплачено</div>' : ''}
+              <div style="background:${st.bg}; color:${st.color}; padding:4px 10px; border-radius:12px; font-size:12px; font-weight:600; display:flex; align-items:center; gap:4px;">
+                ${st.icon} ${st.text}
+              </div>
             </div>
             <div style="font-size:11px; color:#999;">${dateStr}</div>
           </div>
@@ -744,37 +747,28 @@ function buildOrderItemsDetailTableHTML(orderId, items) {
 
   items.forEach((item, idx) => {
     const itemTotal = (item.price || 0) * (item.qty || 0);
+    const itemPhoto = item.image || item.photo || '';
+    
     html += `
-      <div class="order-item-card">
-        <div class="order-item-card-title">${item.title || 'Товар'}</div>
-        ${item.variantName ? `<div style="font-size:12px; color:#7b1fa2; background:#f3e5f5; padding:3px 8px; border-radius:4px; margin:4px 10px;">🎨 ${item.variantName}</div>` : ''}
-        <div class="order-item-card-body">
-          <div class="order-item-field">
-            <div class="label">Количество</div>
-            <div class="value">
-              <div style="display:flex; align-items:center; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
-                <input type="number"
-                  id="itemQty_${orderId}_${idx}"
-                  value="${item.qty}"
-                  min="0"
-                  onchange="updateOrderItemQtyManagement('${orderId}', ${idx}, this.value)"
-                  style="width:80px; padding:8px; border:1px solid #ddd; border-radius:6px; text-align:center;">
-                <span style="color:#666; font-size:13px;">шт</span>
-              </div>
-            </div>
-          </div>
-          <div class="order-item-field">
-            <div class="label">Цена</div>
-            <div class="value">${item.price} сом</div>
-          </div>
-          <div class="order-item-field">
-            <div class="label">Сумма</div>
-            <div class="value" style="font-weight:800; color:#007bff;">${itemTotal.toFixed(2)} сом</div>
-          </div>
-          <div class="order-item-actions">
-            <button onclick="deleteOrderItemFromModal('${orderId}', ${idx})" style="padding:8px 14px; background:#dc3545; color:white; border:none; border-radius:8px; cursor:pointer; font-size:13px; font-weight:700;">
-              🗑️ Удалить
+      <div class="order-item-card" style="padding:10px; display:flex; gap:10px; align-items:flex-start;">
+        ${itemPhoto ? `<img src="${itemPhoto}" style="width:50px; height:50px; object-fit:cover; border-radius:6px; flex-shrink:0;">` : '<div style="width:50px; height:50px; background:#f0f0f0; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;">📦</div>'}
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:8px;">
+            <div style="font-weight:600; font-size:14px; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.title || 'Товар'}</div>
+            <button onclick="deleteOrderItemFromModal('${orderId}', ${idx})" style="padding:4px 8px; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer; font-size:11px; flex-shrink:0;">
+              🗑️
             </button>
+          </div>
+          ${item.variantName ? `<div style="font-size:11px; color:#7b1fa2; background:#f3e5f5; padding:2px 6px; border-radius:4px; margin-bottom:6px; display:inline-block;">🎨 ${item.variantName}</div>` : ''}
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <input type="number"
+              id="itemQty_${orderId}_${idx}"
+              value="${item.qty}"
+              min="0"
+              oninput="updateOrderItemQtyManagement('${orderId}', ${idx}, this.value)"
+              style="width:50px; padding:4px; border:1px solid #ddd; border-radius:4px; text-align:center; font-size:13px;">
+            <span style="color:#666; font-size:12px;" data-price="${item.price}">× ${item.price}</span>
+            <div style="margin-left:auto; font-weight:700; color:#007bff; font-size:15px;" id="itemSum_${orderId}_${idx}">${itemTotal.toFixed(0)} сом</div>
           </div>
         </div>
       </div>
@@ -805,11 +799,37 @@ async function openOrderItemsDetailModal(orderId, clientName, clientPhone, dateS
     }
     
     const orderData = orderDoc.data();
-    const items = orderData.items || [];
+    let items = orderData.items || [];
     
     if (items.length === 0) {
       contentDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">📭 В заказе нет товаров</div>';
       return;
+    }
+    
+    // Подгрузить фото для товаров без image
+    const itemsWithoutPhoto = items.filter(i => !i.image && !i.photo && i.id);
+    if (itemsWithoutPhoto.length > 0) {
+      const productIds = [...new Set(itemsWithoutPhoto.map(i => i.id))];
+      const photoMap = {};
+      
+      // Загружаем фото параллельно
+      const productPromises = productIds.map(pid => 
+        db.collection('products').doc(pid).get().then(doc => {
+          if (doc.exists) {
+            const data = doc.data();
+            photoMap[pid] = data.image || data.photo || '';
+          }
+        }).catch(() => {})
+      );
+      await Promise.all(productPromises);
+      
+      // Проставляем фото в items
+      items = items.map(item => {
+        if (!item.image && !item.photo && item.id && photoMap[item.id]) {
+          return { ...item, image: photoMap[item.id] };
+        }
+        return item;
+      });
     }
     
     const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -849,45 +869,73 @@ function closeOrderItemsDetailModal() {
 }
 
 // Обновить количество товара в заказе
+// Дебаунс для предотвращения частых запросов
+let updateQtyTimeout = null;
+
 async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
-  try {
-    const orderDoc = await db.collection('orders').doc(orderId).get();
-    if (!orderDoc.exists) throw new Error('Заказ не найден');
+  const qty = parseInt(newQty) || 0;
+  
+  // Моментально обновляем UI
+  const cardEl = document.getElementById(`itemQty_${orderId}_${itemIndex}`)?.closest('.order-item-card');
+  if (cardEl) {
+    const priceEl = cardEl.querySelector('[data-price]');
+    const sumEl = document.getElementById(`itemSum_${orderId}_${itemIndex}`);
     
-    const orderData = orderDoc.data();
-    const items = orderData.items || [];
-    
-    if (items[itemIndex]) {
-      items[itemIndex].qty = parseInt(newQty) || 0;
+    if (priceEl && sumEl) {
+      const price = parseInt(priceEl.dataset.price) || 0;
+      const itemTotal = price * qty;
+      sumEl.textContent = itemTotal + ' сом';
     }
     
-    const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    // Моментально пересчитываем общий итог
+    let grandTotal = 0;
+    const allSumEls = document.querySelectorAll('[id^="itemSum_"]');
+    allSumEls.forEach(el => {
+      const match = el.textContent.match(/(\d+)/);
+      if (match) grandTotal += parseInt(match[1]);
+    });
     
-    await db.collection('orders').doc(orderId).update({ items, total });
-    
-    if (Array.isArray(ordersManagementAllOrders)) {
-      const order = ordersManagementAllOrders.find(o => o.id === orderId);
-      if (order) {
-        order.items = items;
-        order.total = total;
-      }
-    }
-    
-    renderOrdersManagementFromCache();
-    
-    // Обновляем итого в модальном окне
     const totalDiv = document.getElementById('orderItemsDetailTotal');
     if (totalDiv) {
       totalDiv.innerHTML = `
         <div style="font-weight:700; color:#333;">Итого</div>
-        <div style="font-size:18px; font-weight:800; color:#28a745; white-space:nowrap;">${total.toFixed(2)} сом</div>
+        <div style="font-size:18px; font-weight:800; color:#28a745; white-space:nowrap;">${grandTotal} сом</div>
       `;
     }
-    
-  } catch (error) {
-    console.error('Ошибка обновления количества:', error);
-    Swal.fire('Ошибка', 'Не удалось обновить количество', 'error');
   }
+  
+  // Дебаунс: сохраняем в Firebase только после паузы в вводе
+  clearTimeout(updateQtyTimeout);
+  updateQtyTimeout = setTimeout(async () => {
+    try {
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      if (!orderDoc.exists) return;
+      
+      const orderData = orderDoc.data();
+      const items = orderData.items || [];
+      
+      if (items[itemIndex]) {
+        items[itemIndex].qty = qty;
+      }
+      
+      const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      
+      await db.collection('orders').doc(orderId).update({ items, total });
+      
+      if (Array.isArray(ordersManagementAllOrders)) {
+        const order = ordersManagementAllOrders.find(o => o.id === orderId);
+        if (order) {
+          order.items = items;
+          order.total = total;
+        }
+      }
+      
+      renderOrdersManagementFromCache();
+      
+    } catch (error) {
+      console.error('Ошибка обновления количества:', error);
+    }
+  }, 500);
 }
 
 // Удалить товар из заказа через модальное окно
@@ -1268,7 +1316,7 @@ async function loadProductsToAdd() {
             <div style="font-size:13px; color:#666;">💰 ${productPrice} сом</div>
             ${product.category ? `<div style="font-size:12px; color:#888; margin-top:2px;">📁 ${product.category}</div>` : ''}
           </div>
-          <button onclick="addProductToOrder('${doc.id}', '${productName.replace(/'/g, "\\'")}', ${productPrice}, ${productCostPrice}); event.stopPropagation();" style="padding:8px 16px; background:#17a2b8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; white-space:nowrap;">
+          <button onclick="askQtyAndAddProduct('${doc.id}', '${productName.replace(/'/g, "\\'")}', ${productPrice}, ${productCostPrice}, '${(productPhoto || '').replace(/'/g, "\\'")}'); event.stopPropagation();" style="padding:8px 16px; background:#17a2b8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; white-space:nowrap;">
             ➕ Добавить
           </button>
         </div>
@@ -1310,17 +1358,32 @@ function filterProductsToAdd() {
   });
 }
 
-async function addProductToOrder(productId, productName, productPrice, productCostPrice) {
+async function addProductToOrder(productId, productName, productPrice, productCostPrice, qty = 1, productPhoto = '') {
   if (!currentOrderIdForAddItem) {
     Swal.fire('Ошибка', 'Не выбран заказ', 'error');
     return;
   }
   
+  const orderId = currentOrderIdForAddItem;
+  
+  // Сразу закрываем окно и показываем уведомление (оптимистичный UI)
+  closeAddItemToOrderModal();
+  
+  Swal.fire({
+    icon: 'success',
+    title: 'Товар добавлен!',
+    text: `${productName} x${qty} добавлен в заказ`,
+    timer: 1200,
+    showConfirmButton: false
+  });
+  
+  // Выполняем обновление в фоне
   try {
-    const orderDoc = await db.collection('orders').doc(currentOrderIdForAddItem).get();
+    const orderDoc = await db.collection('orders').doc(orderId).get();
     
     if (!orderDoc.exists) {
-      throw new Error('Заказ не найден');
+      console.error('Заказ не найден');
+      return;
     }
     
     const orderData = orderDoc.data();
@@ -1329,46 +1392,68 @@ async function addProductToOrder(productId, productName, productPrice, productCo
     const existingItemIndex = items.findIndex(item => item.id === productId);
     
     if (existingItemIndex !== -1) {
-      items[existingItemIndex].qty += 1;
+      items[existingItemIndex].qty += qty;
     } else {
-      items.push({
+      const newItem = {
         id: productId,
         title: productName,
         price: productPrice,
         costPrice: productCostPrice,
-        qty: 1
-      });
+        qty: qty
+      };
+      if (productPhoto) {
+        newItem.image = productPhoto;
+      }
+      items.push(newItem);
     }
     
     const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
     
-    await db.collection('orders').doc(currentOrderIdForAddItem).update({
+    await db.collection('orders').doc(orderId).update({
       items,
       total
     });
     
     if (Array.isArray(ordersManagementAllOrders)) {
-      const order = ordersManagementAllOrders.find(o => o.id === currentOrderIdForAddItem);
+      const order = ordersManagementAllOrders.find(o => o.id === orderId);
       if (order) {
         order.items = items;
         order.total = total;
       }
     }
     
-    Swal.fire({
-      icon: 'success',
-      title: 'Товар добавлен!',
-      text: `${productName} добавлен в заказ`,
-      timer: 1500,
-      showConfirmButton: false
-    });
-    
-    closeAddItemToOrderModal();
     renderOrdersManagementFromCache();
     
   } catch (error) {
     console.error('Ошибка добавления товара:', error);
-    Swal.fire('Ошибка', 'Не удалось добавить товар в заказ', 'error');
+  }
+}
+
+// Спросить количество перед добавлением
+async function askQtyAndAddProduct(productId, productName, productPrice, productCostPrice, productPhoto) {
+  const { value: qty } = await Swal.fire({
+    title: 'Количество',
+    text: productName,
+    input: 'number',
+    inputValue: 1,
+    inputAttributes: {
+      min: 1,
+      max: 1000,
+      step: 1
+    },
+    showCancelButton: true,
+    confirmButtonText: 'Добавить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#17a2b8',
+    inputValidator: (value) => {
+      if (!value || value < 1) {
+        return 'Введите количество';
+      }
+    }
+  });
+  
+  if (qty) {
+    addProductToOrder(productId, productName, productPrice, productCostPrice, parseInt(qty), productPhoto);
   }
 }
 

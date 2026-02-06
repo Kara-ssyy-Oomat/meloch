@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#667eea">
@@ -103,19 +104,22 @@
     
     /* Основной контейнер чата */
     .chat-container {
-      display: flex;
       height: calc(100vh - 80px);
-      background: #f8f9fa;
+      background: white;
+      position: relative;
     }
     
-    /* Список клиентов слева */
+    /* Список клиентов */
     .clients-panel {
-      width: 280px;
+      width: 100%;
+      height: 100%;
       background: white;
-      border-right: 1px solid #e0e0e0;
       display: flex;
       flex-direction: column;
-      flex-shrink: 0;
+    }
+    
+    .clients-panel.hidden {
+      display: none;
     }
     
     .clients-header {
@@ -221,12 +225,21 @@
       font-size: 14px;
     }
     
-    /* Панель сообщений справа */
+    /* Панель сообщений */
     .messages-panel {
-      flex: 1;
-      display: flex;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
       flex-direction: column;
       background: white;
+      z-index: 10;
+    }
+    
+    .messages-panel.visible {
+      display: flex;
     }
     
     .messages-header {
@@ -234,10 +247,15 @@
       background: linear-gradient(135deg, #667eea, #764ba2);
       color: white;
       display: none;
+      align-items: center;
     }
     
     .messages-header.visible {
-      display: block;
+      display: flex;
+    }
+    
+    .messages-header-info {
+      flex: 1;
     }
     
     .messages-header h3 {
@@ -391,33 +409,12 @@
     /* Мобильная адаптация */
     @media (max-width: 768px) {
       .chat-container {
-        flex-direction: column;
-        height: auto;
-        min-height: calc(100vh - 70px);
+        height: calc(100vh - 70px);
       }
       
       .clients-panel {
         width: 100%;
-        max-height: 40vh;
-        border-right: none;
-        border-bottom: 1px solid #e0e0e0;
-      }
-      
-      .clients-panel.hidden-mobile {
-        display: none;
-      }
-      
-      .messages-panel {
-        min-height: 60vh;
-      }
-      
-      .messages-panel.hidden-mobile {
-        display: none;
-      }
-      
-      .mobile-back-btn {
-        display: inline-flex !important;
-        margin-right: 10px;
+        height: 100%;
       }
       
       .header-actions {
@@ -425,10 +422,21 @@
       }
     }
     
-    @media (min-width: 769px) {
-      .mobile-back-btn {
-        display: none !important;
-      }
+    /* Кнопка назад всегда видна */
+    .mobile-back-btn {
+      display: inline-flex;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      font-size: 20px;
+      padding: 5px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-right: 12px;
+    }
+    
+    .mobile-back-btn:hover {
+      background: rgba(255,255,255,0.3);
     }
   </style>
 
@@ -446,7 +454,7 @@
     <div class="header-top">
       <a href="profile.html" class="back-btn" title="Назад">←</a>
       <div class="header-title">
-        <h1>💬 Чат с клиентами</h1>
+        <h1>💬 Чат с клиентами <span id="unreadBadge" style="display:none; background:red; color:white; font-size:14px; padding:2px 8px; border-radius:10px; margin-left:8px;">0</span></h1>
         <p>Панель администратора</p>
       </div>
       <div class="header-actions">
@@ -477,9 +485,11 @@
     <!-- Панель сообщений -->
     <div class="messages-panel" id="messagesPanel">
       <div class="messages-header" id="messagesHeader">
-        <button class="back-btn mobile-back-btn" onclick="showClientsList()" style="display:none;">←</button>
-        <h3 id="chatClientName">Выберите клиента</h3>
-        <p id="chatClientId"></p>
+        <button class="mobile-back-btn" onclick="showClientsList()">←</button>
+        <div class="messages-header-info">
+          <h3 id="chatClientName">Выберите клиента</h3>
+          <p id="chatClientId"></p>
+        </div>
       </div>
       <div class="messages-area" id="messagesArea">
         <div class="messages-placeholder">
@@ -603,6 +613,9 @@
         // Подписка на новых клиентов
         subscribeToNewClients();
         
+        // Подписка на непрочитанные сообщения для badge
+        subscribeToUnreadMessages();
+        
       } catch (error) {
         console.error('Ошибка загрузки клиентов:', error);
         clientsList.innerHTML = `
@@ -667,6 +680,13 @@
           if (change.type === 'added' || change.type === 'modified') {
             const clientData = { id: change.doc.id, ...change.doc.data() };
             
+            // Проверяем новое сообщение
+            const existingClient = allClients.find(c => c.id === clientData.id);
+            if (clientData.hasUnread && (!existingClient || !existingClient.hasUnread)) {
+              // Новое сообщение от клиента
+              showNewMessageNotification('Новое сообщение от: ' + (clientData.name || 'Клиент'));
+            }
+            
             // Обновляем или добавляем в список
             const existingIndex = allClients.findIndex(c => c.id === clientData.id);
             if (existingIndex >= 0) {
@@ -693,6 +713,23 @@
       });
     }
     
+    // Подписка на непрочитанные сообщения для badge
+    function subscribeToUnreadMessages() {
+      db.collection('chatClients')
+        .where('hasUnread', '==', true)
+        .onSnapshot(snapshot => {
+          const unreadCount = snapshot.size;
+          const badge = document.getElementById('unreadBadge');
+          if (badge) {
+            badge.textContent = unreadCount;
+            badge.style.display = unreadCount > 0 ? 'inline' : 'none';
+          }
+          console.log('📬 Клиентов с непрочитанными:', unreadCount);
+        }, error => {
+          console.log('Ошибка подписки на непрочитанные:', error.message);
+        });
+    }
+    
     // ==================== ВЫБОР КЛИЕНТА ====================
     async function selectClient(client) {
       selectedClientId = client.id;
@@ -710,12 +747,9 @@
       document.getElementById('chatClientId').textContent = 'ID: ' + client.id;
       document.getElementById('messageInput').placeholder = 'Ответить ' + selectedClientName + '...';
       
-      // Мобильная версия
-      if (window.innerWidth <= 768) {
-        document.getElementById('clientsPanel').classList.add('hidden-mobile');
-        document.getElementById('messagesPanel').classList.remove('hidden-mobile');
-        document.querySelector('.mobile-back-btn').style.display = 'inline-flex';
-      }
+      // Показываем панель сообщений, скрываем список клиентов
+      document.getElementById('clientsPanel').classList.add('hidden');
+      document.getElementById('messagesPanel').classList.add('visible');
       
       // Убираем метку непрочитанного
       try {
@@ -728,10 +762,12 @@
       loadMessages(client.id);
     }
     
-    // Показать список клиентов (мобильная версия)
+    // Показать список клиентов
     function showClientsList() {
-      document.getElementById('clientsPanel').classList.remove('hidden-mobile');
-      document.getElementById('messagesPanel').classList.add('hidden-mobile');
+      document.getElementById('clientsPanel').classList.remove('hidden');
+      document.getElementById('messagesPanel').classList.remove('visible');
+      selectedClientId = null;
+      selectedClientName = null;
     }
     
     // ==================== ЗАГРУЗКА СООБЩЕНИЙ ====================
@@ -822,6 +858,7 @@
               if (!isDuplicate && msg.sender === 'client' && selectedClientId === clientId) {
                 addMessageToUI(msg.text, msg.sender, msg.timestamp ? msg.timestamp.toDate() : new Date());
                 messagesArea.scrollTop = messagesArea.scrollHeight;
+                showNewMessageNotification('Новое сообщение от клиента: ' + (msg.clientName || 'Клиент'));
               }
             }
           });
@@ -983,6 +1020,60 @@
           confirmButtonColor: '#667eea'
         });
       }
+    }
+    
+    // ==================== УВЕДОМЛЕНИЯ ====================
+    let originalTitle = document.title;
+    let titleBlinkInterval = null;
+    
+    let audioCtx = null;
+    
+    function showNewMessageNotification(text) {
+      console.log('🔔 Уведомление:', text);
+      
+      // Звук уведомления
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.frequency.value = 600;
+        oscillator.type = 'sine';
+        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.3);
+      } catch(e) { console.log('Ошибка звука:', e); }
+      
+      // Мигание заголовка (всегда)
+      let isOriginal = true;
+      if (titleBlinkInterval) clearInterval(titleBlinkInterval);
+      titleBlinkInterval = setInterval(() => {
+        document.title = isOriginal ? '💬 ' + text : originalTitle;
+        isOriginal = !isOriginal;
+      }, 1000);
+      
+      window.addEventListener('focus', function stopBlink() {
+        clearInterval(titleBlinkInterval);
+        document.title = originalTitle;
+        window.removeEventListener('focus', stopBlink);
+      }, { once: true });
+      
+      // Браузерное уведомление
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Кербен - Админ Чат', { body: text, icon: 'icon-kerben.jpg' });
+      }
+    }
+    
+    // Запрос разрешения на уведомления
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
     }
     
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================

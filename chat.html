@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}.chat-input-area{bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#667eea">
@@ -128,49 +129,7 @@
       justify-content: center;
     }
     
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 56px;
-      background: #fff;
-      border-top: 1px solid #eee;
-      display: flex;
-      justify-content: space-around;
-      z-index: 9999;
-    }
-    
-    .nav-item {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      color: #9e9e9e;
-      text-decoration: none;
-      position: relative;
-    }
-    
-    .nav-item.active { color: #667eea; }
-    .nav-item svg { width: 24px; height: 24px; fill: currentColor; }
-    .nav-item span { font-size: 11px; }
-    
-    .nav-badge {
-      position: absolute;
-      top: 6px;
-      right: calc(50% - 16px);
-      background: #e53935;
-      color: white;
-      font-size: 10px;
-      min-width: 16px;
-      height: 16px;
-      border-radius: 8px;
-      display: none;
-      align-items: center;
-      justify-content: center;
-    }
+
     
     @keyframes blink {
       0%, 60%, 100% { opacity: 0; }
@@ -191,7 +150,7 @@
 
 <body>
   <header class="chat-header">
-    <a href="index.html" class="back-btn">←</a>
+    <a href="#" onclick="goBack(); return false;" class="back-btn">←</a>
     <div class="chat-header-info">
       <div class="chat-header-title">💬 Чат с продавцом</div>
       <div class="chat-header-status" id="clientNameDisplay">Загрузка...</div>
@@ -211,38 +170,29 @@
     <button class="send-btn" onclick="sendMessage()">➤</button>
   </div>
   
-  <nav class="bottom-nav">
-    <a href="index.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-      <span>Главная</span>
-    </a>
-    <a href="index.html#categories" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6z"/></svg>
-      <span>Меню</span>
-    </a>
-    <a href="cart.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4z"/></svg>
-      <span>Корзина</span>
-      <span class="nav-badge" id="navCartBadge">0</span>
-    </a>
-    <a href="chat.html" class="nav-item active">
-      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-      <span>Чат</span>
-    </a>
-    <a href="profile.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
-      <span>Профиль</span>
-    </a>
-  </nav>
-
+  <script>
+    // Запоминаем изначальный URL при загрузке
+    const initialUrl = window.location.href;
+    
+    // Закрытие iframe или возврат назад
+    function goBack() {
+      if (window.parent !== window && window.location.href === initialUrl) {
+        window.parent.postMessage('closeIframe', '*');
+      } else if (window.parent !== window) {
+        window.location.href = initialUrl;
+      } else {
+        window.location.href = 'index.html';
+      }
+    }
+  </script>
   <script>
     const firebaseConfig = {
-      apiKey: "AIzaSyB0vkHoMqC-ec3L8EQubHFEavLYAkqr0MQ",
-      authDomain: "kerben-store.firebaseapp.com",
-      projectId: "kerben-store",
-      storageBucket: "kerben-store.firebasestorage.app",
-      messagingSenderId: "799212629498",
-      appId: "1:799212629498:web:37c0576a59e38874c8eb50"
+      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+      authDomain: "svoysayet.firebaseapp.com",
+      projectId: "svoysayet",
+      storageBucket: "svoysayet.firebasestorage.app",
+      messagingSenderId: "785840370498",
+      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
     };
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
@@ -328,6 +278,9 @@
       }
     }
     
+    // Отслеживание показанных сообщений
+    const shownMessageIds = new Set();
+    
     async function loadMessages() {
       try {
         const messagesDiv = document.getElementById('chatMessages');
@@ -337,14 +290,24 @@
           .limit(100)
           .get();
         
-        if (snapshot.empty) return;
+        if (snapshot.empty) {
+          // Запускаем подписку даже если нет сообщений
+          subscribeToNewMessages();
+          return;
+        }
         
         messagesDiv.innerHTML = '';
         
         snapshot.forEach(doc => {
+          shownMessageIds.add(doc.id); // Запоминаем ID показанного сообщения
           const msg = doc.data();
           const time = msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
           const isSent = msg.sender === 'client';
+          
+          // Помечаем непрочитанные сообщения от админа как прочитанные
+          if (msg.sender === 'admin' && !msg.read) {
+            doc.ref.update({ read: true });
+          }
           
           const div = document.createElement('div');
           div.className = `message ${isSent ? 'sent' : 'received'}`;
@@ -357,27 +320,93 @@
         
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
         
-        // Подписка на новые сообщения
-        db.collection('chatMessages')
-          .where('clientId', '==', clientId)
-          .where('sender', '==', 'admin')
-          .orderBy('timestamp', 'desc')
-          .limit(1)
-          .onSnapshot(snapshot => {
-            snapshot.docChanges().forEach(change => {
-              if (change.type === 'added') {
-                const msg = change.doc.data();
-                if (!msg.read) {
-                  addMessageToUI(msg.text, 'received', new Date(msg.timestamp?.seconds * 1000 || Date.now()));
-                  change.doc.ref.update({ read: true });
-                }
-              }
-            });
-          });
+        // Запускаем подписку на новые сообщения
+        subscribeToNewMessages();
           
       } catch (error) {
         console.error('Ошибка загрузки сообщений:', error);
       }
+    }
+    
+    function subscribeToNewMessages() {
+      db.collection('chatMessages')
+        .where('clientId', '==', clientId)
+        .orderBy('timestamp', 'asc')
+        .onSnapshot(snapshot => {
+          snapshot.docChanges().forEach(change => {
+            if (change.type === 'added') {
+              const docId = change.doc.id;
+              // Пропускаем уже показанные сообщения
+              if (shownMessageIds.has(docId)) return;
+              
+              shownMessageIds.add(docId);
+              const msg = change.doc.data();
+              
+              // Показываем только сообщения от админа
+              if (msg.sender === 'admin') {
+                addMessageToUI(msg.text, 'received', new Date(msg.timestamp?.seconds * 1000 || Date.now()));
+                showNewMessageNotification('Новое сообщение от продавца');
+                if (!msg.read) {
+                  change.doc.ref.update({ read: true });
+                }
+              }
+            }
+          });
+        });
+    }
+    
+    // Уведомление о новом сообщении
+    let originalTitle = document.title;
+    let titleBlinkInterval = null;
+    let audioCtx = null;
+    
+    function showNewMessageNotification(text) {
+      console.log('🔔 Уведомление:', text);
+      
+      // Звук уведомления 
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.3);
+      } catch(e) { console.log('Ошибка звука:', e); }
+      
+      // Мигание заголовка (всегда показываем)
+      let isOriginal = true;
+      if (titleBlinkInterval) clearInterval(titleBlinkInterval);
+      titleBlinkInterval = setInterval(() => {
+        document.title = isOriginal ? '💬 ' + text : originalTitle;
+        isOriginal = !isOriginal;
+      }, 1000);
+        
+      // Остановка при фокусе
+      window.addEventListener('focus', function stopBlink() {
+        clearInterval(titleBlinkInterval);
+        document.title = originalTitle;
+        window.removeEventListener('focus', stopBlink);
+      }, { once: true });
+      
+      // Браузерное уведомление
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Кербен - Чат', { body: text, icon: 'icon-kerben.jpg' });
+      }
+    }
+    
+    // Запрос разрешения на уведомления
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
     }
     
     function addMessageToUI(text, type, timestamp) {
@@ -404,7 +433,9 @@
       input.value = '';
       
       try {
-        await db.collection('chatMessages').add({
+        console.log('Отправка сообщения в Firebase...', { clientId, text });
+        
+        const msgRef = await db.collection('chatMessages').add({
           text: text,
           sender: 'client',
           clientId: clientId,
@@ -413,15 +444,20 @@
           read: false
         });
         
+        console.log('Сообщение сохранено, ID:', msgRef.id);
+        
         await db.collection('chatClients').doc(clientId).set({
           name: clientName || 'Клиент',
           lastActive: firebase.firestore.FieldValue.serverTimestamp(),
-          lastMessage: text
+          lastMessage: text,
+          hasUnread: true
         }, { merge: true });
+        
+        console.log('Клиент обновлён в chatClients');
         
       } catch (error) {
         console.error('Ошибка отправки:', error);
-        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Не удалось отправить сообщение', toast: true, timer: 3000 });
+        Swal.fire({ icon: 'error', title: 'Ошибка', text: error.message || 'Не удалось отправить сообщение', toast: true, timer: 5000 });
       }
     }
     
