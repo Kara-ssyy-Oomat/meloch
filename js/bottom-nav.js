@@ -1,19 +1,32 @@
 // ===========================================
 // Модуль нижней навигации (Bottom Navigation Bar)
-// Простая версия без блокировки прокрутки
+// Простая версия с iframe - стабильная работа
 // ===========================================
 
-document.addEventListener('DOMContentLoaded', function() {
-  createBottomNavigation();
-  updateNavCounts();
-  // ОПТИМИЗАЦИЯ: Обновляем счётчики каждые 5 секунд вместо 1 секунды
-  // Основное обновление происходит через событие cartUpdated
-  setInterval(updateNavCounts, 5000);
-});
+// Не создаём меню если страница загружена внутри iframe
+if (window.parent !== window) {
+  // Это iframe - не создаём навигацию
+  console.log('Страница в iframe - навигация не создаётся');
+} else {
+  document.addEventListener('DOMContentLoaded', function() {
+    createBottomNavigation();
+    updateNavCounts();
+    setInterval(updateNavCounts, 5000);
+  });
+}
 
-// ОПТИМИЗАЦИЯ: Обновляем счётчик при изменении корзины через кастомное событие
 window.addEventListener('cartUpdated', function() {
   updateNavCounts();
+});
+
+// Слушаем сообщения от iframe (для обновления корзины)
+window.addEventListener('message', function(e) {
+  if (e.data === 'cartUpdated') {
+    updateNavCounts();
+  }
+  if (e.data === 'closeIframe') {
+    closePageFrame();
+  }
 });
 
 function createBottomNavigation() {
@@ -39,19 +52,18 @@ function createBottomNavigation() {
       <button onclick="navGoChat()" class="nav-item" data-nav="chat">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
         <span class="nav-text">Чат</span>
+        <span id="navChatBadge" class="nav-badge" style="display:none">!</span>
       </button>
-      <a href="profile.html" class="nav-item" data-nav="profile">
+      <button onclick="navGoProfile()" class="nav-item" data-nav="profile">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
         <span class="nav-text">Профиль</span>
-      </a>
-
+      </button>
     </div>
   `;
   
   addBottomNavStyles();
   document.body.appendChild(navBar);
-  document.body.style.paddingBottom = '56px';
-  hideOldFloatingButtons();
+  // padding-bottom уже задан в CSS index.html
 }
 
 function addBottomNavStyles() {
@@ -63,7 +75,7 @@ function addBottomNavStyles() {
     #bottomNavBar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      z-index: 9999;
+      z-index: 99999;
       background: #fff;
       display: flex;
       align-items: center;
@@ -94,7 +106,7 @@ function addBottomNavStyles() {
       transition: color 0.2s;
     }
     .nav-item:active { background: #f5f5f5; }
-    .nav-item.active { color: #333; }
+    .nav-item.active { color: #4CAF50; }
     .nav-svg {
       width: 24px;
       height: 24px;
@@ -120,143 +132,92 @@ function addBottomNavStyles() {
       justify-content: center;
       padding: 0 4px;
     }
-    @media (min-width: 769px) {
-      #bottomNavBar { display: none; }
-      body { padding-bottom: 0 !important; }
+    
+    /* Контейнер iframe для страниц */
+    #pageFrame {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: calc(100% - 56px);
+      z-index: 99998;
+      border: none;
+      background: #fff;
+      display: none;
     }
   `;
   document.head.appendChild(styles);
 }
 
-function hideOldFloatingButtons() {
-  const style = document.createElement('style');
-  style.textContent = `
-    @media (max-width: 768px) {
-      #cartFloatBtn, #customerAccountBtn { display: none !important; }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-// Закрыть все модальные окна
-function closeAllModals() {
-  // Профиль
-  const profileModal = document.getElementById('profileFullscreenModal');
-  const ordersModal = document.getElementById('ordersFullscreenModal');
-  if (profileModal) profileModal.remove();
-  if (ordersModal) ordersModal.remove();
-  
-  // Корзина
-  const cartPage = document.getElementById('cartPage');
-  if (cartPage) cartPage.style.display = 'none';
-  
-  // Избранное
-  const favoritesPage = document.getElementById('favoritesPage');
-  if (favoritesPage) favoritesPage.style.display = 'none';
-  
-  // Чат
-  const chatWindow = document.getElementById('chatWindow');
-  if (chatWindow) chatWindow.style.display = 'none';
-  
-  // Жалоба, Предложить товар, Стать продавцом
-  const complaintWindow = document.getElementById('complaintWindow');
-  if (complaintWindow) complaintWindow.style.display = 'none';
-  
-  const suggestionWindow = document.getElementById('suggestionWindow');
-  if (suggestionWindow) suggestionWindow.style.display = 'none';
-  
-  const becomeSellerWindow = document.getElementById('becomeSellerWindow');
-  if (becomeSellerWindow) becomeSellerWindow.style.display = 'none';
-  
-  // Модальные окна агентов
-  const agentProfitModal = document.getElementById('agentProfitModal');
-  if (agentProfitModal) agentProfitModal.style.display = 'none';
-  
-  const agentsManagementModal = document.getElementById('agentsManagementModal');
-  if (agentsManagementModal) agentsManagementModal.style.display = 'none';
-  
-  const agentClientsListModal = document.getElementById('agentClientsListModal');
-  if (agentClientsListModal) agentClientsListModal.style.display = 'none';
-  
-  const clientsForAgentsModal = document.getElementById('clientsForAgentsModal');
-  if (clientsForAgentsModal) clientsForAgentsModal.style.display = 'none';
-  
-  const agentAuthModal = document.getElementById('agentAuthModal');
-  if (agentAuthModal) agentAuthModal.style.display = 'none';
-  
-  // Админ-окна
-  const ordersManagementWindow = document.getElementById('ordersManagementWindow');
-  if (ordersManagementWindow) ordersManagementWindow.style.display = 'none';
-  
-  const addProductWindow = document.getElementById('addProductWindow');
-  if (addProductWindow) addProductWindow.style.display = 'none';
-  
-  const profitReportWindow = document.getElementById('profitReportWindow');
-  if (profitReportWindow) profitReportWindow.style.display = 'none';
-  
-  const partnersOrdersWindow = document.getElementById('partnersOrdersWindow');
-  if (partnersOrdersWindow) partnersOrdersWindow.style.display = 'none';
-  
-  const adminChatWindow = document.getElementById('adminChatWindow');
-  if (adminChatWindow) adminChatWindow.style.display = 'none';
-  
-  const editProductModal = document.getElementById('editProductModal');
-  if (editProductModal) editProductModal.style.display = 'none';
-  
-  const previewBlock = document.getElementById('previewBlock');
-  if (previewBlock) previewBlock.style.display = 'none';
-  
-  // Закрываем Swal если открыт
-  if (typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible()) {
-    Swal.close();
-  }
-  
-  // Разблокируем прокрутку
-  if (typeof forceUnlockScroll === 'function') {
-    forceUnlockScroll();
-  }
-  
-  console.log('✅ closeAllModals() выполнен');
-}
-
 // Навигация
 function navGoHome() {
-  console.log('🏠 navGoHome() вызван');
   setActiveNavItem('home');
+  closePageFrame();
   closeCategoriesPanel();
-  closeAllModals();
-  
-  // Закрываем модалки агентов
-  if (typeof window.closeAllAgentModals === 'function') {
-    window.closeAllAgentModals();
-  }
-  
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function navGoCategories() {
   setActiveNavItem('categories');
-  closeAllModals();
+  closePageFrame();
   openCategoriesPanel();
 }
 
 function navGoCart() {
-  // Переход на отдельную страницу корзины
-  window.location.href = 'cart.html';
+  setActiveNavItem('cart');
+  closeCategoriesPanel();
+  openPageInFrame('cart.html');
 }
 
 function navGoChat() {
-  // Переход на отдельную страницу чата
-  window.location.href = 'chat.html';
+  setActiveNavItem('chat');
+  closeCategoriesPanel();
+  // Скрываем badge при открытии чата
+  const badge = document.getElementById('navChatBadge');
+  if (badge) badge.style.display = 'none';
+  openPageInFrame('chat.html');
 }
 
-
-// ...existing code...
 function navGoProfile() {
-  // Переход на отдельную страницу профиля
-  window.location.href = 'profile.html';
+  setActiveNavItem('profile');
+  closeCategoriesPanel();
+  openPageInFrame('profile.html');
 }
-// ...existing code...
+
+// Сохранённая позиция скролла для навигации
+let navSavedScrollPos = 0;
+
+// Открытие страницы в iframe
+function openPageInFrame(url) {
+  // Сохраняем текущую позицию скролла
+  navSavedScrollPos = window.scrollY || window.pageYOffset;
+  
+  let frame = document.getElementById('pageFrame');
+  
+  if (!frame) {
+    frame = document.createElement('iframe');
+    frame.id = 'pageFrame';
+    document.body.appendChild(frame);
+  }
+  
+  frame.src = url;
+  frame.style.display = 'block';
+}
+
+// Закрытие iframe
+function closePageFrame() {
+  const frame = document.getElementById('pageFrame');
+  if (frame) {
+    frame.style.display = 'none';
+    frame.src = 'about:blank';
+  }
+  
+  // Восстанавливаем позицию скролла
+  setActiveNavItem('home');
+  setTimeout(() => {
+    window.scrollTo(0, navSavedScrollPos);
+  }, 0);
+}
 
 function setActiveNavItem(navName) {
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -267,27 +228,23 @@ function setActiveNavItem(navName) {
 // Счётчики
 function updateNavCounts() {
   const cartBadge = document.getElementById('navCartBadge');
-  if (cartBadge && typeof cart !== 'undefined') {
-    const count = Array.isArray(cart) ? cart.length : 0;
+  const cartData = JSON.parse(localStorage.getItem('cart') || '[]');
+  const count = Array.isArray(cartData) ? cartData.length : 0;
+  
+  if (cartBadge) {
     cartBadge.textContent = count;
     cartBadge.style.display = count > 0 ? 'flex' : 'none';
   }
 }
 
 // Панель категорий
-let _savedScrollPos = 0;
-
 function openCategoriesPanel() {
-  _savedScrollPos = window.pageYOffset || 0;
-  
-  // Удаляем старую панель чтобы обновить категории
   const oldPanel = document.getElementById('categoriesPanel');
   if (oldPanel) oldPanel.remove();
   
   const panel = document.createElement('div');
   panel.id = 'categoriesPanel';
   
-  // Получаем категории динамически со страницы
   const categories = getCategoriesFromPage();
   
   panel.innerHTML = `
@@ -323,53 +280,29 @@ function openCategoriesPanel() {
   });
 }
 
-// Получить категории со страницы
 function getCategoriesFromPage() {
   const categories = [];
   const defaultIcons = {
-    'все': '🏪',
-    'ножницы': '✂️',
-    'скотч': '📦',
-    'нож': '🔪',
-    'корейские': '🇰🇷',
-    'часы': '⌚',
-    'электроника': '🔌',
-    'бытовые': '🏠'
+    'все': '🏪', 'ножницы': '✂️', 'скотч': '📦', 'нож': '🔪',
+    'корейские': '🇰🇷', 'часы': '⌚', 'электроника': '🔌', 'бытовые': '🏠'
   };
   
-  // Получаем категории из кнопок на странице
   const buttons = document.querySelectorAll('.category-btn[data-category]');
-  
   buttons.forEach(btn => {
     const value = btn.dataset.category;
-    if (!value) return;
-    
-    // Проверяем, не добавлена ли уже
-    if (categories.find(c => c.value === value)) return;
-    
-    let name = btn.textContent.trim();
-    // Убираем эмодзи из начала названия если есть
-    name = name.replace(/^[^\w\sа-яёА-ЯЁ]+\s*/, '').trim() || value;
-    
-    const icon = defaultIcons[value.toLowerCase()] || '📁';
-    
-    categories.push({ value, name, icon });
+    if (!value || categories.find(c => c.value === value)) return;
+    let name = btn.textContent.trim().replace(/^[^\w\sа-яёА-ЯЁ]+\s*/, '').trim() || value;
+    categories.push({ value, name, icon: defaultIcons[value.toLowerCase()] || '📁' });
   });
   
-  // Если кнопок нет - используем стандартные
   if (categories.length === 0) {
     return [
       { value: 'все', name: 'Все товары', icon: '🏪' },
       { value: 'ножницы', name: 'Ножницы', icon: '✂️' },
       { value: 'скотч', name: 'Скотч', icon: '📦' },
-      { value: 'нож', name: 'Ножи', icon: '🔪' },
-      { value: 'корейские', name: 'Корейские товары', icon: '🇰🇷' },
-      { value: 'часы', name: 'Часы', icon: '⌚' },
-      { value: 'электроника', name: 'Электроника', icon: '🔌' },
-      { value: 'бытовые', name: 'Бытовые техники', icon: '🏠' }
+      { value: 'нож', name: 'Ножи', icon: '🔪' }
     ];
   }
-  
   return categories;
 }
 
@@ -379,25 +312,16 @@ function closeCategoriesPanel() {
   panel.style.opacity = '0';
   const content = panel.querySelector('.categories-panel-content');
   if (content) content.style.transform = 'translateY(100%)';
-  setTimeout(() => { panel.style.display = 'none'; }, 300);
+  setTimeout(() => panel.remove(), 300);
   setActiveNavItem('home');
 }
 
 function selectCategory(value) {
-  const panel = document.getElementById('categoriesPanel');
-  if (panel) panel.remove();
-  setActiveNavItem('home');
-  
+  closeCategoriesPanel();
   if (typeof filterByCategory === 'function') {
     filterByCategory(value);
   }
-  
-  // Прокручиваем на самый верх при выборе новой категории
-  setTimeout(() => {
-    window.scrollTo(0, 0);
-    document.body.scrollTop = 0;
-    document.documentElement.scrollTop = 0;
-  }, 100);
+  setTimeout(() => window.scrollTo(0, 0), 100);
 }
 
 function addCategoriesPanelStyles() {
@@ -408,7 +332,7 @@ function addCategoriesPanelStyles() {
     #categoriesPanel {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      z-index: 9700;
+      z-index: 99997;
       opacity: 0;
       transition: opacity 0.3s;
     }
@@ -419,7 +343,7 @@ function addCategoriesPanelStyles() {
     }
     .categories-panel-content {
       position: absolute;
-      bottom: 44px; left: 0; right: 0;
+      bottom: 56px; left: 0; right: 0;
       background: white;
       border-radius: 20px 20px 0 0;
       max-height: 70vh;
@@ -467,7 +391,7 @@ function addCategoriesPanelStyles() {
     }
     .cat-btn:active { background: #667eea; color: white; }
     .cat-icon { font-size: 24px; }
-    .cat-name { font-size: 11px; text-align: center; color: #333; }
+    .cat-name { font-size: 11px; text-align: center; }
   `;
   document.head.appendChild(s);
 }
