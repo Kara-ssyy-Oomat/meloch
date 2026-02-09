@@ -5447,27 +5447,29 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
           }
         });
         
-        // Обработка обновлений
+        // Обработка обновлений - БЕЗ автоматической перезагрузки (чтобы избежать циклов)
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // Новая версия доступна - обновляем автоматически!
-              console.log('🔄 Найдена новая версия - автоматическое обновление...');
+              console.log('🔄 Найдена новая версия Service Worker');
               
-              // Активируем новый Service Worker (отправляем сразу строку, как ожидает sw.js)
+              // Активируем новый Service Worker
               newWorker.postMessage('skipWaiting');
               
-              // Также слушаем событие controllerchange для надёжного обновления
-              navigator.serviceWorker.addEventListener('controllerchange', () => {
-                window.location.reload();
-              });
-              
-              // Резервная перезагрузка через 2 секунды если controllerchange не сработал
-              setTimeout(() => {
-                window.location.reload();
-              }, 2000);
+              // Показываем уведомление вместо автоматической перезагрузки
+              if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                  title: '🔄 Доступно обновление',
+                  text: 'Нажмите OK чтобы обновить приложение',
+                  icon: 'info',
+                  confirmButtonText: 'Обновить',
+                  allowOutsideClick: false
+                }).then(() => {
+                  window.location.reload();
+                });
+              }
             }
           });
         });
@@ -5477,14 +5479,13 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       });
   });
   
-  // Автоматическое обновление при активации нового SW (плавно и незаметно)
+  // Флаг для предотвращения множественных перезагрузок
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!refreshing) {
       refreshing = true;
-      console.log('✨ Приложение обновлено - перезагрузка...');
-      // Обновление происходит плавно
-      window.location.reload();
+      console.log('✨ Service Worker обновлён');
+      // НЕ перезагружаем автоматически - ждём действия пользователя
     }
   });
 }
