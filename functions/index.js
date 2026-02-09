@@ -67,11 +67,17 @@ exports.sendChatNotification = functions
         tokens: tokens,
         notification: notification,
         webpush: {
+          headers: {
+            'Urgency': 'high'  // Высокий приоритет
+          },
           notification: {
             icon: 'https://svoysayet.web.app/icon-kerben.jpg',
             badge: 'https://svoysayet.web.app/icon-kerben.jpg',
-            vibrate: [200, 100, 200],
+            vibrate: [300, 100, 300, 100, 300],  // Длинная вибрация
             requireInteraction: true,
+            silent: false,  // Включить звук!
+            tag: 'kerben-chat-' + Date.now(),  // Уникальный тег
+            renotify: true,  // Уведомлять даже если есть похожее
             actions: [
               { action: 'open', title: '📖 Открыть' },
               { action: 'close', title: '✖️ Закрыть' }
@@ -79,6 +85,15 @@ exports.sendChatNotification = functions
           },
           fcmOptions: {
             link: 'https://svoysayet.web.app/chat.html'
+          }
+        },
+        // Для Android
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            priority: 'high',
+            channelId: 'chat_messages'
           }
         },
         data: {
