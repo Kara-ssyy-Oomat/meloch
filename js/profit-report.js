@@ -1,5 +1,40 @@
 // ==================== ОТЧЕТ ПО ПРИБЫЛИ ====================
 
+// Парсинг периода месяца для profit-report (month_2026_01 -> {year: 2026, month: 0})
+function parseMonthPeriodPR(period) {
+  if (!period || !period.startsWith('month_')) return null;
+  const parts = period.split('_');
+  if (parts.length !== 3) return null;
+  return { year: parseInt(parts[1]), month: parseInt(parts[2]) - 1 };
+}
+
+// Фильтр по дате с поддержкой календарных месяцев
+function filterByDatePR(orderTime, dateFilter) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStart = today.getTime();
+  const yesterdayStart = todayStart - 86400000;
+  const weekStart = todayStart - 7 * 86400000;
+  const last30daysStart = todayStart - 30 * 86400000;
+  
+  // Проверяем, выбран ли конкретный месяц
+  const monthPeriod = parseMonthPeriodPR(dateFilter);
+  if (monthPeriod) {
+    const monthStart = new Date(monthPeriod.year, monthPeriod.month, 1).getTime();
+    const monthEnd = new Date(monthPeriod.year, monthPeriod.month + 1, 1).getTime();
+    return orderTime >= monthStart && orderTime < monthEnd;
+  }
+  
+  switch(dateFilter) {
+    case 'today': return orderTime >= todayStart;
+    case 'yesterday': return orderTime >= yesterdayStart && orderTime < todayStart;
+    case 'week': return orderTime >= weekStart;
+    case 'last30days': return orderTime >= last30daysStart;
+    case 'all': return true;
+    default: return true;
+  }
+}
+
 function normalizeEpochMs(value, fallbackMs = Date.now()) {
   if (value === undefined || value === null || value === '') return fallbackMs;
 
@@ -445,25 +480,9 @@ async function filterOrderProfitReport(ordersData = null) {
     console.error('❌ Ошибка загрузки товаров:', error);
   }
   
-  // Фильтр по дате
-  const now = Date.now();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStart = today.getTime();
-  const yesterdayStart = todayStart - 86400000;
-  const weekStart = todayStart - 7 * 86400000;
-  const monthStart = todayStart - 30 * 86400000;
-  
+  // Фильтр по дате с поддержкой календарных месяцев
   let filtered = ordersData.filter(order => {
-    const orderTime = order.timestamp;
-    switch(dateFilter) {
-      case 'today': return orderTime >= todayStart;
-      case 'yesterday': return orderTime >= yesterdayStart && orderTime < todayStart;
-      case 'week': return orderTime >= weekStart;
-      case 'month': return orderTime >= monthStart;
-      case 'all': return true;
-      default: return true;
-    }
+    return filterByDatePR(order.timestamp, dateFilter);
   });
   
   // Рассчитываем прибыль для каждого заказа
@@ -979,25 +998,9 @@ async function exportOrderProfitToExcel() {
       });
     });
     
-    // Применяем фильтры
-    const now = Date.now();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStart = today.getTime();
-    const yesterdayStart = todayStart - 86400000;
-    const weekStart = todayStart - 7 * 86400000;
-    const monthStart = todayStart - 30 * 86400000;
-    
+    // Применяем фильтры с поддержкой календарных месяцев
     let filtered = orders.filter(order => {
-      const orderTime = order.timestamp;
-      switch(dateFilter) {
-        case 'today': return orderTime >= todayStart;
-        case 'yesterday': return orderTime >= yesterdayStart && orderTime < todayStart;
-        case 'week': return orderTime >= weekStart;
-        case 'month': return orderTime >= monthStart;
-        case 'all': return true;
-        default: return true;
-      }
+      return filterByDatePR(order.timestamp, dateFilter);
     });
     
     const wb = XLSX.utils.book_new();
@@ -1066,31 +1069,15 @@ async function deleteSelectedOrders() {
     const dateFilter = document.getElementById('orderDateFilter').value;
     const ordersSnapshot = await db.collection('orders').get();
     
-    const now = Date.now();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStart = today.getTime();
-    const yesterdayStart = todayStart - 86400000;
-    const weekStart = todayStart - 7 * 86400000;
-    const monthStart = todayStart - 30 * 86400000;
-    
     let deleteCount = 0;
     const batch = db.batch();
     
     ordersSnapshot.forEach(doc => {
       const data = doc.data();
       const orderTime = data.timestamp || Date.now();
-      let shouldDelete = false;
       
-      switch(dateFilter) {
-        case 'today': shouldDelete = orderTime >= todayStart; break;
-        case 'yesterday': shouldDelete = orderTime >= yesterdayStart && orderTime < todayStart; break;
-        case 'week': shouldDelete = orderTime >= weekStart; break;
-        case 'month': shouldDelete = orderTime >= monthStart; break;
-        case 'all': shouldDelete = true; break;
-      }
-      
-      if (shouldDelete) {
+      // Используем общую функцию фильтрации
+      if (filterByDatePR(orderTime, dateFilter)) {
         batch.delete(doc.ref);
         deleteCount++;
       }
@@ -1151,14 +1138,7 @@ async function loadAgentsProfitReport() {
     const ordersSnapshot = await db.collection('orders').get();
     
     // Фильтруем по периоду
-    const dateFilter = document.getElementById('agentsDateFilter')?.value || 'month';
-    const now = Date.now();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStart = today.getTime();
-    const yesterdayStart = todayStart - 86400000;
-    const weekStart = todayStart - 7 * 86400000;
-    const monthStart = todayStart - 30 * 86400000;
+    const dateFilter = document.getElementById('agentsDateFilter')?.value || 'week';
     
     let totalOrdersCount = 0;
     let totalSum = 0;
@@ -1172,17 +1152,8 @@ async function loadAgentsProfitReport() {
       
       const orderTime = normalizeEpochMs(data.timestamp, Date.now());
       
-      // Фильтр по периоду
-      let inPeriod = false;
-      switch(dateFilter) {
-        case 'today': inPeriod = orderTime >= todayStart; break;
-        case 'yesterday': inPeriod = orderTime >= yesterdayStart && orderTime < todayStart; break;
-        case 'week': inPeriod = orderTime >= weekStart; break;
-        case 'month': inPeriod = orderTime >= monthStart; break;
-        case 'all': inPeriod = true; break;
-      }
-      
-      if (!inPeriod) return;
+      // Фильтр по периоду с поддержкой календарных месяцев
+      if (!filterByDatePR(orderTime, dateFilter)) return;
       
       // Вычисляем прибыль по заказу (продажа - закупка)
       let orderProfit = 0;
