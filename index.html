@@ -2240,8 +2240,7 @@ function initFirebase() {
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
     
-    // Инициализация Push-уведомлений (FCM)
-    initPushNotifications();
+    // Push-уведомления инициализируются ПОСЛЕ регистрации Service Worker (см. код ниже)
     
     // Подписка на новые сообщения в чате
     subscribeToNewChatMessages();
@@ -5429,6 +5428,18 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
             });
           }
         });
+        
+        // Инициализируем Push-уведомления ПОСЛЕ регистрации SW
+        if (typeof initPushNotifications === 'function') {
+          // Ждём пока SW станет активным
+          if (registration.active) {
+            initPushNotifications();
+          } else {
+            navigator.serviceWorker.ready.then(() => {
+              initPushNotifications();
+            });
+          }
+        }
         
         // Проверяем обновления СРАЗУ при запуске!
         registration.update().then(() => {

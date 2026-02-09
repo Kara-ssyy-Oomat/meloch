@@ -1,44 +1,54 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование, автоматическое обновление и Push-уведомления
 
-const CACHE_VERSION = 'kerben-v2.4.0-fcm'; // Добавлена поддержка FCM
+const CACHE_VERSION = 'kerben-v2.4.1-fcm-fix'; // Исправлена загрузка FCM
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 
 // ==================== PUSH-УВЕДОМЛЕНИЯ (FCM) ====================
-// Импортируем Firebase для обработки push
-importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js');
+// Импортируем Firebase для обработки push (с проверкой ошибок)
+let messaging = null;
 
-// Инициализация Firebase в Service Worker
-firebase.initializeApp({
-  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
-  authDomain: "svoysayet.firebaseapp.com",
-  projectId: "svoysayet",
-  storageBucket: "svoysayet.firebasestorage.app",
-  messagingSenderId: "450143000217",
-  appId: "1:450143000217:web:7495cefaea0b94966e8a08"
-});
+try {
+  importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js');
 
-const messaging = firebase.messaging();
+  // Инициализация Firebase в Service Worker
+  if (typeof firebase !== 'undefined') {
+    firebase.initializeApp({
+      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+      authDomain: "svoysayet.firebaseapp.com",
+      projectId: "svoysayet",
+      storageBucket: "svoysayet.firebasestorage.app",
+      messagingSenderId: "450143000217",
+      appId: "1:450143000217:web:7495cefaea0b94966e8a08"
+    });
 
-// Обработка push-уведомлений в фоне (когда сайт закрыт)
-messaging.onBackgroundMessage((payload) => {
-  console.log('[SW] Получено фоновое сообщение:', payload);
-  
-  const title = payload.notification?.title || 'Кербен';
-  const options = {
-    body: payload.notification?.body || 'Новое сообщение',
-    icon: './icon-kerben.jpg',
-    badge: './icon-kerben.jpg',
-    tag: 'kerben-notification',
-    vibrate: [200, 100, 200],
-    data: payload.data || {},
-    requireInteraction: true
-  };
+    messaging = firebase.messaging();
 
-  self.registration.showNotification(title, options);
-});
+    // Обработка push-уведомлений в фоне (когда сайт закрыт)
+    messaging.onBackgroundMessage((payload) => {
+      console.log('[SW] Получено фоновое сообщение:', payload);
+      
+      const title = payload.notification?.title || 'Кербен';
+      const options = {
+        body: payload.notification?.body || 'Новое сообщение',
+        icon: './icon-kerben.jpg',
+        badge: './icon-kerben.jpg',
+        tag: 'kerben-notification',
+        vibrate: [200, 100, 200],
+        data: payload.data || {},
+        requireInteraction: true
+      };
+
+      self.registration.showNotification(title, options);
+    });
+    
+    console.log('[SW] Firebase Messaging инициализирован');
+  }
+} catch (err) {
+  console.log('[SW] FCM недоступен:', err.message);
+}
 
 // Обработка клика по уведомлению
 self.addEventListener('notificationclick', (event) => {
@@ -55,6 +65,31 @@ self.addEventListener('notificationclick', (event) => {
         }
         return clients.openWindow('./chat.html');
       })
+  );
+});
+
+// Обработка push-событий напрямую (резервный способ)
+self.addEventListener('push', (event) => {
+  console.log('[SW] Push событие:', event);
+  
+  let data = {};
+  try {
+    data = event.data?.json() || {};
+  } catch (e) {
+    data = { title: 'Кербен', body: event.data?.text() || 'Новое уведомление' };
+  }
+  
+  const title = data.notification?.title || data.title || 'Кербен';
+  const options = {
+    body: data.notification?.body || data.body || 'Новое сообщение',
+    icon: './icon-kerben.jpg',
+    badge: './icon-kerben.jpg',
+    tag: 'kerben-push',
+    vibrate: [200, 100, 200]
+  };
+  
+  event.waitUntil(
+    self.registration.showNotification(title, options)
   );
 });
 
