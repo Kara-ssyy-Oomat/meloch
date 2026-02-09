@@ -306,6 +306,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
 
   <!-- jsPDF для генерации PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -1797,7 +1798,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Название сайта -->
-  <div style="text-align:center; margin:20px 0 10px;">
+  <div style="text-align:center; margin:20px 0 10px; padding-top: env(safe-area-inset-top, 0px);">
     <h1 style="font-size:2.5rem; color:#007bff; margin:0; font-weight:900; text-shadow:2px 2px 4px rgba(0,0,0,0.1);">B2B Market</h1>
     <p style="font-size:0.9rem; color:#666; margin:5px 0 0;">Оптовые товары по выгодным ценам</p>
   </div>
@@ -2228,7 +2229,7 @@ const firebaseConfig = {
 };
 
 // Проверка инициализации Firebase — делаем безопасно и ждём загрузки SDK
-let db, storage;
+let db, storage, fcmMessaging;
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') throw new Error('Firebase SDK не загружен');
@@ -2238,6 +2239,9 @@ function initFirebase() {
     db = firebase.firestore();
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
+    
+    // Инициализация Push-уведомлений (FCM)
+    initPushNotifications();
     
     // Подписка на новые сообщения в чате
     subscribeToNewChatMessages();
@@ -2279,6 +2283,144 @@ function subscribeToNewChatMessages() {
     }, error => {
       console.log('Ошибка подписки на чат:', error.message);
     });
+}
+
+// ==================== PUSH-УВЕДОМЛЕНИЯ (FCM) ====================
+async function initPushNotifications() {
+  try {
+    // Проверяем поддержку
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.log('🔔 Push-уведомления не поддерживаются');
+      return;
+    }
+    
+    if (!firebase.messaging) {
+      console.log('🔔 Firebase Messaging SDK не загружен');
+      return;
+    }
+    
+    fcmMessaging = firebase.messaging();
+    
+    // Регистрируем отдельный Service Worker для FCM
+    const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
+    console.log('🔔 FCM Service Worker зарегистрирован');
+    
+    // Если уже есть разрешение - получаем токен
+    if (Notification.permission === 'granted') {
+      await getFCMToken(registration);
+    }
+    
+    // Обработка уведомлений когда приложение открыто
+    fcmMessaging.onMessage((payload) => {
+      console.log('🔔 Получено сообщение (foreground):', payload);
+      
+      // Показываем уведомление через SweetAlert
+      const title = payload.notification?.title || 'Кербен';
+      const body = payload.notification?.body || 'Новое сообщение';
+      
+      Swal.fire({
+        title: title,
+        text: body,
+        icon: 'info',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 5000
+      });
+      
+      // Также показываем системное уведомление
+      if (Notification.permission === 'granted') {
+        new Notification(title, {
+          body: body,
+          icon: './icon-kerben.jpg'
+        });
+      }
+    });
+    
+    console.log('🔔 FCM инициализирован');
+    
+  } catch (error) {
+    console.error('🔔 Ошибка инициализации FCM:', error);
+  }
+}
+
+// Получение FCM токена
+async function getFCMToken(registration) {
+  try {
+    // VAPID ключ из Firebase Console -> Project Settings -> Cloud Messaging
+    const vapidKey = 'BCdA8I-AhgwdmbQmyCcvh_oAJ4KyMTMG5niUHMlJzZPhv3VWeDKfexWDpfL5LNpRy-CBUuL4k9YMPY9CVSGrlds'; 
+    
+    const token = await fcmMessaging.getToken({ 
+      vapidKey: vapidKey,
+      serviceWorkerRegistration: registration 
+    });
+    
+    if (token) {
+      console.log('🔔 FCM Token:', token);
+      await saveFCMToken(token);
+    }
+  } catch (error) {
+    console.error('🔔 Ошибка получения токена:', error);
+  }
+}
+
+// Сохранение токена в Firestore
+async function saveFCMToken(token) {
+  try {
+    const clientId = localStorage.getItem('chatClientId');
+    const customerPhone = localStorage.getItem('customerPhone');
+    
+    // Сохраняем токен в коллекцию fcmTokens
+    await db.collection('fcmTokens').doc(token).set({
+      token: token,
+      clientId: clientId || null,
+      customerPhone: customerPhone || null,
+      platform: IS_IOS ? 'ios' : (IS_ANDROID ? 'android' : 'web'),
+      userAgent: navigator.userAgent,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    
+    console.log('🔔 FCM токен сохранён в Firestore');
+  } catch (error) {
+    console.error('🔔 Ошибка сохранения токена:', error);
+  }
+}
+
+// Запрос разрешения на уведомления (вызывается по кнопке)
+async function requestNotificationPermission() {
+  try {
+    const permission = await Notification.requestPermission();
+    
+    if (permission === 'granted') {
+      console.log('🔔 Разрешение на уведомления получено');
+      
+      const registration = await navigator.serviceWorker.getRegistration('./firebase-messaging-sw.js');
+      if (registration && fcmMessaging) {
+        await getFCMToken(registration);
+      }
+      
+      Swal.fire({
+        icon: 'success',
+        title: 'Уведомления включены!',
+        text: 'Вы будете получать уведомления о заказах и сообщениях',
+        timer: 3000
+      });
+      
+      return true;
+    } else {
+      console.log('🔔 Разрешение отклонено:', permission);
+      Swal.fire({
+        icon: 'warning',
+        title: 'Уведомления отключены',
+        text: 'Включите уведомления в настройках браузера для получения важных сообщений'
+      });
+      return false;
+    }
+  } catch (error) {
+    console.error('🔔 Ошибка запроса разрешения:', error);
+    return false;
+  }
 }
 
 if (typeof firebase !== 'undefined') {
@@ -5271,10 +5413,15 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       .then((registration) => {
         console.log('✅ Service Worker зарегистрирован:', registration.scope);
         
-        // Проверка обновлений каждые 30 минут (не влияет на производительность)
+        // Проверяем обновления СРАЗУ при запуске!
+        registration.update().then(() => {
+          console.log('🔍 Проверка обновлений выполнена');
+        }).catch(err => console.log('Ошибка проверки обновлений:', err));
+        
+        // Проверка обновлений каждые 5 минут (чаще для быстрого обновления)
         setInterval(() => {
           registration.update();
-        }, 30 * 60 * 1000);
+        }, 5 * 60 * 1000);
         
         // Дополнительная проверка при возвращении на вкладку (без нагрузки)
         document.addEventListener('visibilitychange', () => {
@@ -5292,13 +5439,18 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
               // Новая версия доступна - обновляем автоматически!
               console.log('🔄 Найдена новая версия - автоматическое обновление...');
               
-              // Активируем новый Service Worker и перезагружаем
-              newWorker.postMessage({ action: 'skipWaiting' });
+              // Активируем новый Service Worker (отправляем сразу строку, как ожидает sw.js)
+              newWorker.postMessage('skipWaiting');
               
-              // Небольшая задержка для плавности
+              // Также слушаем событие controllerchange для надёжного обновления
+              navigator.serviceWorker.addEventListener('controllerchange', () => {
+                window.location.reload();
+              });
+              
+              // Резервная перезагрузка через 2 секунды если controllerchange не сработал
               setTimeout(() => {
                 window.location.reload();
-              }, 1000);
+              }, 2000);
             }
           });
         });

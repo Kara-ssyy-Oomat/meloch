@@ -1,7 +1,7 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v2.2.0-optimized'; // Оптимизация загрузки
+const CACHE_VERSION = 'kerben-v2.3.0-autoupdate'; // Улучшено автообновление
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 
@@ -231,7 +231,8 @@ self.addEventListener('fetch', (event) => {
 
 // Обработка сообщений от клиента
 self.addEventListener('message', (event) => {
-  if (event.data === 'skipWaiting') {
+  if (event.data === 'skipWaiting' || (event.data && event.data.action === 'skipWaiting')) {
+    console.log('[SW] Получена команда skipWaiting, активируем новую версию...');
     self.skipWaiting();
   }
 });
