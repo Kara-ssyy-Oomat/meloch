@@ -2,6 +2,11 @@
    B2B Market - Основные стили
    =========================================== */
 
+/* ========== iOS Safe Area (чёлка/Dynamic Island) ========== */
+/* Отступы для iPhone с выемкой применяются к конкретным элементам */
+/* padding-top: env(safe-area-inset-top) - добавляется к шапке в index.html */
+/* padding-bottom: env(safe-area-inset-bottom) - добавляется к нижней навигации */
+
 /* КРИТИЧНО: Гарантируем прокрутку по умолчанию */
 html, body {
   overflow-y: auto !important;
