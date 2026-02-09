@@ -27,7 +27,6 @@
       background: linear-gradient(135deg, #667eea, #764ba2);
       color: white;
       padding: 15px 20px;
-      padding-top: calc(15px + env(safe-area-inset-top, 0px));
       display: flex;
       align-items: center;
       gap: 15px;
@@ -142,30 +141,10 @@
     }
     .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
     .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-    
-    .notify-btn {
-      background: none;
-      border: none;
-      font-size: 20px;
-      cursor: pointer;
-      padding: 8px;
-      opacity: 0.6;
-      transition: opacity 0.3s;
-    }
-    .notify-btn.active {
-      opacity: 1;
-      animation: bellRing 0.5s ease-in-out;
-    }
-    @keyframes bellRing {
-      0%, 100% { transform: rotate(0); }
-      25% { transform: rotate(15deg); }
-      75% { transform: rotate(-15deg); }
-    }
   </style>
   
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 
@@ -176,7 +155,6 @@
       <div class="chat-header-title">💬 Чат с продавцом</div>
       <div class="chat-header-status" id="clientNameDisplay">Загрузка...</div>
     </div>
-    <button class="notify-btn" id="notifyBtn" onclick="toggleNotifications()" title="Уведомления">🔔</button>
     <button class="change-name-btn" onclick="changeClientName()">✏️ Имя</button>
   </header>
   
@@ -490,206 +468,6 @@
         badge.textContent = cart.length;
         badge.style.display = cart.length > 0 ? 'flex' : 'none';
       }
-    }
-    
-    // ==================== PUSH-УВЕДОМЛЕНИЯ ====================
-    let fcmMessaging = null;
-    const VAPID_KEY = 'BCdA8I-AhgwdmbQmyCcvh_oAJ4KyMTMG5niUHMlJzZPhv3VWeDKfexWDpfL5LNpRy-CBUuL4k9YMPY9CVSGrlds';
-    
-    // Проверка и обновление статуса кнопки уведомлений
-    function updateNotifyButton() {
-      const btn = document.getElementById('notifyBtn');
-      if (!btn) return;
-      
-      if (!('Notification' in window) || !('PushManager' in window)) {
-        btn.style.display = 'none';
-        return;
-      }
-      
-      if (Notification.permission === 'granted') {
-        btn.classList.add('active');
-        btn.title = 'Уведомления включены';
-      } else if (Notification.permission === 'denied') {
-        btn.style.opacity = '0.3';
-        btn.title = 'Уведомления заблокированы';
-      } else {
-        btn.classList.remove('active');
-        btn.title = 'Включить уведомления';
-      }
-    }
-    
-    // Переключение уведомлений
-    async function toggleNotifications() {
-      if (!('Notification' in window) || !('PushManager' in window)) {
-        await Swal.fire({
-          icon: 'warning',
-          title: 'Не поддерживается',
-          text: 'Push-уведомления не поддерживаются в этом браузере'
-        });
-        return;
-      }
-      
-      if (Notification.permission === 'granted') {
-        await Swal.fire({
-          icon: 'info',
-          title: 'Уведомления уже включены',
-          text: 'Вы будете получать уведомления о новых сообщениях'
-        });
-        return;
-      }
-      
-      if (Notification.permission === 'denied') {
-        await Swal.fire({
-          icon: 'warning',
-          title: 'Уведомления заблокированы',
-          html: 'Чтобы включить уведомления:<br>1. Откройте настройки браузера<br>2. Найдите этот сайт<br>3. Разрешите уведомления'
-        });
-        return;
-      }
-      
-      // Запрашиваем разрешение
-      try {
-        const permission = await Notification.requestPermission();
-        
-        if (permission === 'granted') {
-          await initFCM();
-          updateNotifyButton();
-          
-          await Swal.fire({
-            icon: 'success',
-            title: 'Уведомления включены!',
-            text: 'Вы будете получать уведомления о новых сообщениях',
-            timer: 3000
-          });
-        } else {
-          await Swal.fire({
-            icon: 'info',
-            title: 'Может потом?',
-            text: 'Вы всегда можете включить уведомления позже'
-          });
-        }
-      } catch (error) {
-        console.error('Ошибка запроса уведомлений:', error);
-      }
-    }
-    
-    // Инициализация FCM
-    async function initFCM() {
-      try {
-        if (!firebase.messaging) {
-          console.log('🔔 Firebase Messaging SDK не загружен');
-          return;
-        }
-        
-        fcmMessaging = firebase.messaging();
-        
-        // Ждём готовности Service Worker
-        let registration = await navigator.serviceWorker.ready;
-        console.log('🔔 SW готов, scope:', registration.scope);
-        
-        // Получаем токен
-        try {
-          const token = await fcmMessaging.getToken({
-            vapidKey: VAPID_KEY,
-            serviceWorkerRegistration: registration
-          });
-          
-          if (token) {
-            console.log('🔔 FCM Token получен:', token.substring(0, 20) + '...');
-            await saveFCMToken(token);
-          } else {
-            console.log('🔔 Токен пустой - возможно нет разрешения');
-          }
-        } catch (tokenErr) {
-          console.error('🔔 Ошибка получения токена:', tokenErr);
-        }
-        
-        // Обработка сообщений когда страница открыта
-        fcmMessaging.onMessage((payload) => {
-          console.log('🔔 Foreground message:', payload);
-          
-          // Показываем уведомление (toast)
-          Swal.fire({
-            title: payload.notification?.title || 'Новое сообщение',
-            text: payload.notification?.body || '',
-            icon: 'info',
-            toast: true,
-            position: 'top',
-            showConfirmButton: false,
-            timer: 5000
-          });
-        });
-        
-      } catch (error) {
-        console.error('🔔 Ошибка FCM:', error);
-      }
-    }
-    
-    // Сохранение токена в Firestore
-    async function saveFCMToken(token) {
-      try {
-        const clientId = localStorage.getItem('chatClientId');
-        if (!clientId) return;
-        
-        await db.collection('fcmTokens').doc(token).set({
-          token: token,
-          clientId: clientId,
-          platform: /iPhone|iPad|iPod/.test(navigator.userAgent) ? 'ios' : 
-                    /Android/.test(navigator.userAgent) ? 'android' : 'web',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-        
-        // Также сохраняем токен в chatClients
-        await db.collection('chatClients').doc(clientId).set({
-          fcmToken: token
-        }, { merge: true });
-        
-        console.log('🔔 Токен сохранён');
-      } catch (error) {
-        console.error('🔔 Ошибка сохранения токена:', error);
-      }
-    }
-    
-    // Инициализация при загрузке
-    const originalInit = init;
-    init = async function() {
-      await originalInit?.();
-      updateNotifyButton();
-      
-      // Если уведомления уже разрешены - инициализируем FCM
-      if (Notification.permission === 'granted') {
-        await initFCM();
-      } else if (Notification.permission === 'default') {
-        // Первый визит - предлагаем включить уведомления через 2 секунды
-        const askedBefore = localStorage.getItem('notificationAsked');
-        if (!askedBefore) {
-          setTimeout(async () => {
-            const result = await Swal.fire({
-              title: '🔔 Включить уведомления?',
-              html: 'Получайте уведомления о новых сообщениях<br>даже когда браузер закрыт',
-              icon: 'question',
-              showCancelButton: true,
-              confirmButtonText: 'Да, включить',
-              cancelButtonText: 'Позже',
-              confirmButtonColor: '#4CAF50'
-            });
-            
-            localStorage.setItem('notificationAsked', 'true');
-            
-            if (result.isConfirmed) {
-              await toggleNotifications();
-            }
-          }, 2000);
-        }
-      }
-    };
-    
-    // Регистрация Service Worker для push-уведомлений
-    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('✅ SW зарегистрирован:', reg.scope))
-        .catch(err => console.error('❌ SW ошибка:', err));
     }
     
     document.addEventListener('DOMContentLoaded', init);

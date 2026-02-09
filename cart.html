@@ -32,7 +32,6 @@
       z-index: 100;
       background: #fff;
       padding: 15px 20px;
-      padding-top: calc(15px + env(safe-area-inset-top, 0px));
       border-bottom: 1px solid #e0e0e0;
       display: flex;
       align-items: center;
@@ -128,23 +127,18 @@
     
     .cart-item-qty-controls { display: flex; align-items: center; gap: 6px; }
     
-    .qty-input {
-      width: 60px;
-      height: 36px;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      font-size: 16px;
+    .qty-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: #e0e0e0;
+      font-size: 18px;
+      cursor: pointer;
+      border-radius: 6px;
       font-weight: 700;
-      text-align: center;
-      padding: 0 8px;
-      box-sizing: border-box;
     }
     
-    .qty-input:focus {
-      border-color: #4CAF50;
-      outline: none;
-    }
-    
+    .qty-value { padding: 0 12px; font-weight: 700; font-size: 16px; min-width: 40px; text-align: center; }
     .qty-unit { color: #888; font-size: 12px; }
     
     .cart-item-right { text-align: right; }
@@ -209,17 +203,6 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  
-  <!-- jsPDF для генерации PDF -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <!-- SheetJS (XLSX) для экспорта в Excel -->
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-  <!-- EXIF для ориентации фото -->
-  <script src="https://cdn.jsdelivr.net/npm/exif-js@2.3.0/exif.min.js"></script>
-  <!-- Функции загрузки и обработки изображений -->
-  <script src="js/upload.js"></script>
-  <!-- Функции отправки заказов -->
-  <script src="js/orders.js"></script>
 </head>
 
 <body>
@@ -237,7 +220,7 @@
       <span class="cart-summary-total" id="cartTotal">0 сом</span>
     </div>
     <div class="cart-summary-info" id="cartSummary"></div>
-    <a href="index.html#order-form" class="checkout-btn" onclick="checkoutFromCart(event)">📦 Оформить заказ</a>
+    <a href="index.html#order-form" class="checkout-btn">📦 Оформить заказ</a>
   </div>
   
   <script>
@@ -257,13 +240,12 @@
   </script>
   <script>
     const firebaseConfig = {
-      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
-      authDomain: "svoysayet.firebaseapp.com",
-      projectId: "svoysayet",
-      storageBucket: "svoysayet.firebasestorage.app",
-      messagingSenderId: "450143000217",
-      appId: "1:450143000217:web:7495cefaea0b94966e8a08",
-      measurementId: "G-Y8VG9E29FY"
+      apiKey: "AIzaSyB0vkHoMqC-ec3L8EQubHFEavLYAkqr0MQ",
+      authDomain: "kerben-store.firebaseapp.com",
+      projectId: "kerben-store",
+      storageBucket: "kerben-store.firebasestorage.app",
+      messagingSenderId: "799212629498",
+      appId: "1:799212629498:web:37c0576a59e38874c8eb50"
     };
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
@@ -354,7 +336,9 @@
               ${item.variantName ? `<div class="cart-item-variant">🎨 ${item.variantName}</div>` : ''}
               <div class="cart-item-price-unit">${item.price} сом / ${unitLabel}</div>
               <div class="cart-item-qty-controls">
-                <input type="number" class="qty-input" value="${item.qty}" min="1" onchange="updateQtyFromInput(${i}, this.value)" onkeyup="if(event.key==='Enter') this.blur()">
+                <button class="qty-btn" onclick="changeQty(${i}, -1)">−</button>
+                <span class="qty-value">${item.qty}</span>
+                <button class="qty-btn" onclick="changeQty(${i}, 1)">+</button>
                 <span class="qty-unit">${unitLabel}</span>
               </div>
             </div>
@@ -389,30 +373,6 @@
       } else if (product) {
         item.price = product.price;
       }
-      saveCart();
-      renderCart();
-    }
-    
-    // Обновление количества из поля ввода
-    function updateQtyFromInput(index, value) {
-      const newQty = parseInt(value) || 1;
-      const item = cart[index];
-      const product = products.find(p => p.id === item.id);
-      
-      if (newQty <= 0) {
-        removeItem(index);
-        return;
-      }
-      
-      item.qty = newQty;
-      
-      // Обновляем цену (опт/розница)
-      if (product && product.optQty && newQty >= product.optQty && product.optPrice) {
-        item.price = product.optPrice;
-      } else if (product) {
-        item.price = product.price;
-      }
-      
       saveCart();
       renderCart();
     }
@@ -464,186 +424,6 @@
     window.addEventListener('storage', e => {
       if (e.key === 'cart') { cart = JSON.parse(e.newValue || '[]'); renderCart(); }
     });
-    
-    // Функция оформления заказа прямо из корзины
-    async function checkoutFromCart(event) {
-      event.preventDefault();
-      
-      if (cart.length === 0) {
-        Swal.fire('Корзина пуста', 'Добавьте товары для оформления заказа', 'warning');
-        return;
-      }
-      
-      // Получаем данные из профиля пользователя (customerData)
-      const customerData = JSON.parse(localStorage.getItem('customerData') || '{}');
-      // Дополнительные данные (водитель) из userData
-      const userData = JSON.parse(localStorage.getItem('userData') || '{}');
-      
-      // Показываем форму заказа через SweetAlert
-      const { value: formData } = await Swal.fire({
-        title: '📦 Оформление заказа',
-        html: `
-          <div style="text-align:left;">
-            <div style="margin-bottom:12px;">
-              <label style="display:block; margin-bottom:5px; font-weight:600; color:#333;">👤 Ваше имя:</label>
-              <input type="text" id="swal-name" value="${customerData.name || ''}" placeholder="Введите имя" style="width:100%; padding:12px; border:2px solid #ddd; border-radius:8px; font-size:16px; box-sizing:border-box;">
-            </div>
-            <div style="margin-bottom:12px;">
-              <label style="display:block; margin-bottom:5px; font-weight:600; color:#333;">📱 Телефон:</label>
-              <input type="tel" id="swal-phone" value="${customerData.phone || ''}" placeholder="Номер телефона" style="width:100%; padding:12px; border:2px solid #ddd; border-radius:8px; font-size:16px; box-sizing:border-box;">
-            </div>
-            <div style="margin-bottom:12px;">
-              <label style="display:block; margin-bottom:5px; font-weight:600; color:#333;">📍 Адрес доставки:</label>
-              <input type="text" id="swal-address" value="${customerData.address || ''}" placeholder="Адрес" style="width:100%; padding:12px; border:2px solid #ddd; border-radius:8px; font-size:16px; box-sizing:border-box;">
-            </div>
-            <div style="margin-bottom:12px;">
-              <label style="display:block; margin-bottom:5px; font-weight:600; color:#666;">🚗 Водитель (необязательно):</label>
-              <input type="text" id="swal-driver" value="${userData.driverName || ''}" placeholder="Имя водителя" style="width:100%; padding:10px; border:1px solid #e0e0e0; border-radius:8px; font-size:14px; box-sizing:border-box; background:#f8f9fa;">
-            </div>
-            <div style="margin-bottom:12px;">
-              <input type="tel" id="swal-driver-phone" value="${userData.driverPhone || ''}" placeholder="Телефон водителя" style="width:100%; padding:10px; border:1px solid #e0e0e0; border-radius:8px; font-size:14px; box-sizing:border-box; background:#f8f9fa;">
-            </div>
-          </div>
-        `,
-        showCancelButton: true,
-        confirmButtonText: '✅ Отправить заказ',
-        cancelButtonText: '❌ Отмена',
-        confirmButtonColor: '#28a745',
-        cancelButtonColor: '#6c757d',
-        preConfirm: () => {
-          const name = document.getElementById('swal-name').value.trim();
-          const phone = document.getElementById('swal-phone').value.trim();
-          const address = document.getElementById('swal-address').value.trim();
-          
-          if (!name || !phone || !address) {
-            Swal.showValidationMessage('Заполните имя, телефон и адрес');
-            return false;
-          }
-          
-          return {
-            name: name,
-            phone: phone,
-            address: address,
-            driverName: document.getElementById('swal-driver').value.trim(),
-            driverPhone: document.getElementById('swal-driver-phone').value.trim()
-          };
-        }
-      });
-      
-      if (!formData) return; // Отмена
-      
-      // Сохраняем данные водителя в userData (для следующих заказов)
-      localStorage.setItem('userData', JSON.stringify({
-        ...userData,
-        driverName: formData.driverName,
-        driverPhone: formData.driverPhone
-      }));
-      
-      try {
-        // Подготовка данных заказа
-        const now = new Date();
-        const currentTime = now.toLocaleString('ru-RU');
-        let total = 0;
-        
-        const orderItems = cart.map(item => {
-          const product = products.find(p => p.id === item.id);
-          total += item.qty * item.price;
-          return {
-            id: item.id,
-            title: item.title,
-            price: item.price,
-            costPrice: product?.costPrice || item.costPrice || 0,
-            qty: item.qty,
-            image: item.image,
-            variantName: item.variantName || null,
-            sellerId: product?.sellerId || item.sellerId || null,
-            sellerName: product?.sellerName || item.sellerName || null
-          };
-        });
-        
-        // Создаём заказ в Firebase
-        const orderData = {
-          name: formData.name,
-          phone: formData.phone,
-          address: formData.address,
-          driverName: formData.driverName || '',
-          driverPhone: formData.driverPhone || '',
-          items: orderItems,
-          total: total,
-          status: 'pending',
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          createdAtMs: Date.now()
-        };
-        
-        const docRef = await db.collection('orders').add(orderData);
-        console.log('Заказ создан:', docRef.id);
-        
-        // Обновляем остатки товаров
-        for (const item of orderItems) {
-          const product = products.find(p => p.id === item.id);
-          if (product && typeof product.stock === 'number' && isFinite(product.stock)) {
-            const newStock = Math.max(0, product.stock - item.qty);
-            await db.collection('products').doc(item.id).update({ stock: newStock });
-          }
-        }
-        
-        // Отправляем заказ в файлах (PDF/Excel)
-        const orderDataForFiles = {
-          name: formData.name,
-          phone: formData.phone,
-          address: formData.address,
-          driverName: formData.driverName || '',
-          driverPhone: formData.driverPhone || '',
-          cart: orderItems,
-          total: total,
-          currentTime: currentTime
-        };
-        
-        // 1. Excel файл
-        if (typeof sendOrderAsExcelFile === 'function') {
-          sendOrderAsExcelFile(orderDataForFiles.name, orderDataForFiles.phone, orderDataForFiles.address, orderDataForFiles.driverName, orderDataForFiles.driverPhone, orderDataForFiles.cart, orderDataForFiles.total, orderDataForFiles.currentTime)
-            .then(() => console.log('Excel файл отправлен успешно'))
-            .catch(err => console.error('Ошибка отправки Excel:', err));
-        }
-        
-        // 2. PDF для печати (без фото)
-        if (typeof sendOrderAsExcel === 'function') {
-          sendOrderAsExcel(orderDataForFiles.name, orderDataForFiles.phone, orderDataForFiles.address, orderDataForFiles.driverName, orderDataForFiles.driverPhone, orderDataForFiles.cart, orderDataForFiles.total, orderDataForFiles.currentTime)
-            .then(() => console.log('PDF для печати отправлен успешно'))
-            .catch(err => console.error('Ошибка отправки PDF для печати:', err));
-        }
-        
-        // 3. PDF с фото
-        if (typeof sendOrderAsPDF === 'function') {
-          sendOrderAsPDF(orderDataForFiles.name, orderDataForFiles.phone, orderDataForFiles.address, orderDataForFiles.driverName, orderDataForFiles.driverPhone, orderDataForFiles.cart, orderDataForFiles.total, orderDataForFiles.currentTime)
-            .then(() => console.log('PDF с фото отправлен успешно'))
-            .catch(err => console.error('Ошибка отправки PDF с фото:', err));
-        }
-        
-        // Очищаем корзину
-        cart = [];
-        saveCart();
-        renderCart();
-        
-        // Показываем успех
-        Swal.fire({
-          icon: 'success',
-          title: '✅ Заказ оформлен!',
-          html: `
-            <div style="text-align:center;">
-              <p style="font-size:18px; margin-bottom:15px;">Номер заказа: <strong>#${docRef.id.slice(-6).toUpperCase()}</strong></p>
-              <p style="color:#666;">Мы свяжемся с вами для подтверждения</p>
-            </div>
-          `,
-          confirmButtonText: 'Отлично!',
-          confirmButtonColor: '#28a745'
-        });
-        
-      } catch (error) {
-        console.error('Ошибка оформления заказа:', error);
-        Swal.fire('Ошибка', 'Не удалось оформить заказ: ' + error.message, 'error');
-      }
-    }
     
     document.addEventListener('DOMContentLoaded', loadProducts);
   </script>

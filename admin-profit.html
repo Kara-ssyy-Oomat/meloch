@@ -358,119 +358,10 @@
   
   <!-- Вкладки -->
   <div class="profit-tabs">
-    <button id="tabDashboard" onclick="switchTab('dashboard')">📊 Аналитика</button>
     <button id="tabProducts" class="active" onclick="switchTab('products')">📦 По товарам</button>
     <button id="tabOrders" onclick="switchTab('orders')">📋 По заказам</button>
     <button id="tabAgents" onclick="switchTab('agents')">🤝 Агенты</button>
     <button id="tabExpenses" onclick="switchTab('expenses')">💸 Расходы</button>
-  </div>
-  
-  <!-- ============ ПАНЕЛЬ АНАЛИТИКА (DASHBOARD) ============ -->
-  <div id="dashboardPanel" class="panel">
-    <div class="filters-panel">
-      <div class="controls-row" style="margin-bottom:15px;">
-        <select id="dashboardDateFilter" onchange="loadDashboard()">
-          <option value="today">Сегодня</option>
-          <option value="yesterday">Вчера</option>
-          <option value="week" selected>За неделю</option>
-          <option value="last30days">Последние 30 дней</option>
-          <optgroup label="📅 По месяцам" id="monthOptionsGroup"></optgroup>
-          <option value="all">Все время</option>
-        </select>
-        <button class="btn-blue" onclick="loadDashboard()">🔄 Обновить</button>
-        <button class="btn-green" onclick="exportDashboardToExcel()">📥 Скачать отчёт</button>
-      </div>
-      
-      <!-- Главные показатели -->
-      <div style="background:linear-gradient(135deg,#28a745,#20c997);color:white;padding:20px;border-radius:12px;margin-bottom:15px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div style="font-size:14px;opacity:0.9;">💰 ЧИСТАЯ ПРИБЫЛЬ ЗА ПЕРИОД</div>
-          <div style="font-size:12px;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;" id="dashPeriodDates">📅 За неделю</div>
-        </div>
-        <div style="font-size:36px;font-weight:800;margin:8px 0;" id="dashNetProfit">0 сом</div>
-        <div style="font-size:13px;opacity:0.8;" id="dashNetProfitInfo">Выручка - Расходы - Комиссии агентам</div>
-      </div>
-      
-      <!-- Основная сводка -->
-      <div class="stats-row">
-        <div class="stat-card" style="border-left:4px solid #28a745;">
-          <div class="label">💵 Общая выручка</div>
-          <div class="value green" id="dashTotalRevenue">0 сом</div>
-        </div>
-        <div class="stat-card" style="border-left:4px solid #007bff;">
-          <div class="label">💰 Валовая прибыль</div>
-          <div class="value blue" id="dashGrossProfit">0 сом</div>
-        </div>
-        <div class="stat-card" style="border-left:4px solid #dc3545;">
-          <div class="label">💸 Расходы</div>
-          <div class="value red" id="dashTotalExpenses">0 сом</div>
-        </div>
-        <div class="stat-card" style="border-left:4px solid #9c27b0;">
-          <div class="label">🤝 Комиссии агентам</div>
-          <div class="value purple" id="dashAgentCommission">0 сом</div>
-        </div>
-      </div>
-      
-      <!-- Статистика по заказам -->
-      <h3 style="margin:20px 0 10px;color:#333;">📋 Заказы и клиенты</h3>
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="label">📦 Всего заказов</div>
-          <div class="value blue" id="dashOrdersCount">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">👥 Уникальных клиентов</div>
-          <div class="value gray" id="dashClientsCount">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">🛒 Товаров продано</div>
-          <div class="value" id="dashProductsSold">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">💳 Средний чек</div>
-          <div class="value green" id="dashAvgCheck">0 сом</div>
-        </div>
-      </div>
-      
-      <!-- Статистика по агентам -->
-      <h3 style="margin:20px 0 10px;color:#333;">🤝 Статистика агентов</h3>
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="label">👤 Активных агентов</div>
-          <div class="value purple" id="dashActiveAgents">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">📦 Заказов от агентов</div>
-          <div class="value blue" id="dashAgentOrders">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">💰 Прибыль от агентов</div>
-          <div class="value green" id="dashAgentProfit">0 сом</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">📊 Доля агентов</div>
-          <div class="value" id="dashAgentShare">0%</div>
-        </div>
-      </div>
-      
-      <!-- Детализация расходов -->
-      <h3 style="margin:20px 0 10px;color:#333;">💸 Детализация расходов</h3>
-      <div id="dashExpensesList" style="background:white;border-radius:12px;padding:15px;box-shadow:0 2px 6px rgba(0,0,0,0.1);">
-        Загрузка...
-      </div>
-      
-      <!-- ТОП товары -->
-      <h3 style="margin:20px 0 10px;color:#333;">🔥 ТОП-5 товаров по прибыли</h3>
-      <div id="dashTopProducts" style="background:white;border-radius:12px;padding:15px;box-shadow:0 2px 6px rgba(0,0,0,0.1);">
-        Загрузка...
-      </div>
-      
-      <!-- ТОП агенты -->
-      <h3 style="margin:20px 0 10px;color:#333;">⭐ ТОП-5 агентов</h3>
-      <div id="dashTopAgents" style="background:white;border-radius:12px;padding:15px;box-shadow:0 2px 6px rgba(0,0,0,0.1);">
-        Загрузка...
-      </div>
-    </div>
   </div>
   
   <!-- ============ ПАНЕЛЬ ПО ТОВАРАМ ============ -->
@@ -544,8 +435,7 @@
           <option value="today">Сегодня</option>
           <option value="yesterday">Вчера</option>
           <option value="week">За неделю</option>
-          <option value="last30days">Последние 30 дней</option>
-          <optgroup label="📅 По месяцам" id="orderMonthOptionsGroup"></optgroup>
+          <option value="month">За месяц</option>
           <option value="all">Все время</option>
         </select>
         <select id="orderSortFilter" onchange="loadOrderProfitReport()">
@@ -577,58 +467,30 @@
   <!-- ============ ПАНЕЛЬ АГЕНТОВ ============ -->
   <div id="agentsPanel" class="panel">
     <div class="filters-panel">
-      <!-- Главный показатель -->
-      <div style="background:linear-gradient(135deg,#9c27b0,#673ab7);color:white;padding:20px;border-radius:12px;margin-bottom:15px;">
-        <div style="font-size:14px;opacity:0.9;">💰 ЧИСТАЯ ПРИБЫЛЬ ОТ АГЕНТОВ</div>
-        <div style="font-size:32px;font-weight:800;margin:8px 0;" id="agentsNetProfit">0 сом</div>
-        <div style="font-size:13px;opacity:0.8;">Прибыль от заказов агентов минус их комиссия (2%)</div>
-      </div>
-      
       <div class="stats-row">
-        <div class="stat-card" style="border-left:4px solid #9c27b0;">
+        <div class="stat-card">
           <div class="label">🤝 Всего агентов</div>
           <div class="value purple" id="agentsTotalCount">0</div>
         </div>
-        <div class="stat-card" style="border-left:4px solid #007bff;">
+        <div class="stat-card">
           <div class="label">📦 Заказов от агентов</div>
           <div class="value blue" id="agentsOrdersCount">0</div>
         </div>
-        <div class="stat-card" style="border-left:4px solid #28a745;">
-          <div class="label">💰 Валовая прибыль</div>
+        <div class="stat-card">
+          <div class="label">💰 Чистая прибыль</div>
           <div class="value green" id="agentsTotalProfit">0 сом</div>
         </div>
-        <div class="stat-card" style="border-left:4px solid #dc3545;">
+        <div class="stat-card">
           <div class="label">💸 Комиссия агентам (2%)</div>
           <div class="value red" id="agentsTotalCommission">0 сом</div>
-        </div>
-      </div>
-      
-      <!-- Дополнительная статистика -->
-      <div class="stats-row" style="margin-top:10px;">
-        <div class="stat-card">
-          <div class="label">💵 Общие продажи</div>
-          <div class="value" id="agentsTotalSales">0 сом</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">📊 Средний чек</div>
-          <div class="value blue" id="agentsAvgCheck">0 сом</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">💰 Ср. прибыль/заказ</div>
-          <div class="value green" id="agentsAvgProfit">0 сом</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">⭐ Лучший агент</div>
-          <div class="value purple" id="agentsBestAgent" style="font-size:16px;">-</div>
         </div>
       </div>
       <div class="controls-row">
         <select id="agentsDateFilter" onchange="loadAgentsProfitReport()">
           <option value="today">Сегодня</option>
           <option value="yesterday">Вчера</option>
-          <option value="week" selected>За неделю</option>
-          <option value="last30days">Последние 30 дней</option>
-          <optgroup label="📅 По месяцам" id="agentsMonthOptionsGroup"></optgroup>
+          <option value="week">За неделю</option>
+          <option value="month" selected>За месяц</option>
           <option value="all">Все время</option>
         </select>
         <select id="agentsSortFilter" onchange="loadAgentsProfitReport()">
@@ -649,65 +511,30 @@
   <!-- ============ ПАНЕЛЬ РАСХОДОВ ============ -->
   <div id="expensesPanel" class="panel">
     <div class="filters-panel">
-      <!-- Главный показатель -->
-      <div style="background:linear-gradient(135deg,#dc3545,#c82333);color:white;padding:20px;border-radius:12px;margin-bottom:15px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div style="font-size:14px;opacity:0.9;">📊 ЧИСТАЯ ПРИБЫЛЬ ЗА ПЕРИОД</div>
-          <div style="font-size:12px;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;" id="expensesPeriodDates">📅 Все время</div>
-        </div>
-        <div style="font-size:36px;font-weight:800;margin:8px 0;" id="expensesNetProfit">0 сом</div>
-        <div style="font-size:13px;opacity:0.8;" id="expensesNetInfo">Прибыль от продаж минус все расходы</div>
-      </div>
-      
       <div class="stats-row">
-        <div class="stat-card" style="border-left:4px solid #dc3545;">
-          <div class="label">💸 Всего расходов</div>
+        <div class="stat-card">
+          <div class="label">💸 Расходы за период</div>
           <div class="value red" id="totalExpenses">0 сом</div>
         </div>
-        <div class="stat-card" style="border-left:4px solid #28a745;">
-          <div class="label">💰 Валовая прибыль</div>
+        <div class="stat-card">
+          <div class="label">💰 Прибыль за период</div>
           <div class="value green" id="expensesPeriodProfit">0 сом</div>
         </div>
-        <div class="stat-card" style="border-left:4px solid #9c27b0;">
-          <div class="label">🤝 Комиссии агентам</div>
-          <div class="value purple" id="expensesAgentCommission">0 сом</div>
-        </div>
-        <div class="stat-card" style="border-left:4px solid #007bff;">
-          <div class="label">📋 Кол-во расходов</div>
-          <div class="value blue" id="expensesCount">0</div>
+        <div class="stat-card">
+          <div class="label">📊 Чистая прибыль</div>
+          <div class="value blue" id="netProfit">0 сом</div>
         </div>
       </div>
-      
-      <!-- Диаграмма расходов по категориям -->
-      <h3 style="margin:15px 0 10px;color:#333;">📊 Расходы по категориям</h3>
-      <div id="expensesCategoryChart" style="background:white;border-radius:12px;padding:15px;box-shadow:0 2px 6px rgba(0,0,0,0.1);margin-bottom:15px;">
-        Загрузка...
-      </div>
-      
       <div class="controls-row">
         <select id="expenseDateFilter" onchange="loadExpensesReport()">
           <option value="all">Все время</option>
           <option value="today">Сегодня</option>
           <option value="yesterday">Вчера</option>
           <option value="week">За неделю</option>
-          <option value="last30days">Последние 30 дней</option>
-          <optgroup label="📅 По месяцам" id="expenseMonthOptionsGroup"></optgroup>
-        </select>
-        <select id="expenseCategoryFilter" onchange="loadExpensesReport()">
-          <option value="">Все категории</option>
-          <option value="аренда">🏠 Аренда</option>
-          <option value="зарплата">💵 Зарплата</option>
-          <option value="транспорт">🚗 Транспорт</option>
-          <option value="реклама">📢 Реклама</option>
-          <option value="коммунальные">💡 Коммунальные</option>
-          <option value="прочее">📦 Прочее</option>
+          <option value="month">За месяц</option>
         </select>
         <button class="btn-blue" onclick="loadExpensesReport()">🔄 Обновить</button>
         <button class="btn-primary" onclick="openAddExpenseModal()">➕ Добавить расход</button>
-        <button class="btn-green" onclick="exportExpensesToExcel()">📥 Excel</button>
-        <button class="btn-blue" onclick="showRecurringExpenses()" style="background:#17a2b8;">🔄 Регулярные</button>
-        <button class="btn-red" onclick="deleteAllExpensesForPeriod()" style="background:#dc3545;">🗑️ Удалить все</button>
-        <button class="btn-red" onclick="stopAllRecurringExpenses()" style="background:#e83e8c;">⏹️ Стоп регулярные</button>
       </div>
     </div>
     <div class="table-container">
@@ -716,7 +543,6 @@
           <tr>
             <th>#</th>
             <th>Дата</th>
-            <th>📁 Категория</th>
             <th>💸 Описание</th>
             <th class="right">💰 Сумма</th>
             <th class="center">Действия</th>
@@ -737,71 +563,18 @@
     </div>
     <div class="modal-body">
       <div class="form-group">
-        <label>Категория:</label>
-        <select id="expenseCategory">
-          <option value="прочее">📦 Прочее</option>
-          <option value="аренда">🏠 Аренда</option>
-          <option value="зарплата">💵 Зарплата</option>
-          <option value="транспорт">🚗 Транспорт / Бензин</option>
-          <option value="реклама">📢 Реклама</option>
-          <option value="коммунальные">💡 Коммунальные услуги</option>
-          <option value="закупка">📦 Закупка товара</option>
-          <option value="ремонт">🔧 Ремонт</option>
-          <option value="связь">📱 Связь / Интернет</option>
-          <option value="налоги">📋 Налоги</option>
-        </select>
-      </div>
-      <div class="form-group">
         <label>Описание расхода:</label>
-        <input type="text" id="expenseDescription" placeholder="Например: Аренда склада за февраль">
+        <input type="text" id="expenseDescription" placeholder="Например: Аренда, зарплата, бензин">
       </div>
       <div class="form-group">
         <label>Сумма (сом):</label>
         <input type="number" id="expenseAmount" placeholder="0" min="0" step="0.01">
       </div>
       <div class="form-group">
-        <label>Дата начала:</label>
+        <label>Дата:</label>
         <input type="date" id="expenseDate">
       </div>
-      
-      <!-- Регулярный расход -->
-      <div class="form-group" style="background:#f8f9fa;padding:15px;border-radius:8px;margin-top:10px;">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:0;">
-          <input type="checkbox" id="expenseIsRecurring" onchange="toggleRecurringOptions()" style="width:20px;height:20px;">
-          <span>🔄 Регулярный расход (каждый выбранный день)</span>
-        </label>
-        
-        <div id="recurringOptions" style="display:none;margin-top:15px;">
-          <p style="font-size:13px;color:#666;margin-bottom:10px;">Выберите дни недели:</p>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            <label style="display:flex;align-items:center;gap:5px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #ddd;cursor:pointer;">
-              <input type="checkbox" class="recurringDay" value="1"> Пн
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #ddd;cursor:pointer;">
-              <input type="checkbox" class="recurringDay" value="2"> Вт
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #ddd;cursor:pointer;">
-              <input type="checkbox" class="recurringDay" value="3"> Ср
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #ddd;cursor:pointer;">
-              <input type="checkbox" class="recurringDay" value="4"> Чт
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #ddd;cursor:pointer;">
-              <input type="checkbox" class="recurringDay" value="5"> Пт
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #ddd;cursor:pointer;">
-              <input type="checkbox" class="recurringDay" value="6"> Сб
-            </label>
-            <label style="display:flex;align-items:center;gap:5px;background:#fff;padding:8px 12px;border-radius:6px;border:1px solid #ddd;cursor:pointer;">
-              <input type="checkbox" class="recurringDay" value="0"> Вс
-            </label>
-          </div>
-          <button type="button" onclick="selectAllDays()" style="margin-top:10px;padding:8px 16px;background:#17a2b8;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;">✅ Выбрать все дни</button>
-          <p style="font-size:12px;color:#28a745;margin-top:10px;background:#e8f5e9;padding:8px;border-radius:4px;">💡 Расход будет автоматически добавляться в выбранные дни недели</p>
-        </div>
-      </div>
-      
-      <button class="btn-red" onclick="saveExpense()" style="width:100%; padding:14px; font-size:16px; font-weight:600; margin-top:15px;">💾 Сохранить расход</button>
+      <button class="btn-red" onclick="saveExpense()" style="width:100%; padding:14px; font-size:16px; font-weight:600;">💾 Сохранить расход</button>
     </div>
   </div>
 </div>
@@ -843,46 +616,6 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-
-// Нормализация timestamp
-function normalizeEpochMs(value, fallbackMs = Date.now()) {
-  if (value === undefined || value === null || value === '') return fallbackMs;
-
-  let ms = null;
-
-  if (typeof value === 'number') {
-    ms = value;
-  } else if (typeof value === 'string') {
-    const asNum = Number(value);
-    if (Number.isFinite(asNum)) {
-      ms = asNum;
-    } else {
-      const parsed = Date.parse(value);
-      if (Number.isFinite(parsed)) ms = parsed;
-    }
-  } else if (typeof value === 'object') {
-    try {
-      if (typeof value.toMillis === 'function') {
-        ms = value.toMillis();
-      } else if (typeof value.toDate === 'function') {
-        ms = value.toDate().getTime();
-      } else if (typeof value.seconds === 'number') {
-        ms = value.seconds * 1000;
-      }
-    } catch (e) {
-      ms = null;
-    }
-  }
-
-  if (!Number.isFinite(ms)) return fallbackMs;
-
-  // Если пришли секунды, конвертируем в миллисекунды
-  if (ms > 0 && ms < 100_000_000_000) {
-    ms = ms * 1000;
-  }
-
-  return ms;
-}
 
 // Глобальные переменные
 let products = [];
@@ -952,497 +685,10 @@ function switchTab(tab) {
   document.getElementById(tab + 'Panel').classList.add('active');
   
   // Загружаем данные для вкладки
-  if (tab === 'dashboard') loadDashboard();
-  else if (tab === 'products') loadProfitReport();
+  if (tab === 'products') loadProfitReport();
   else if (tab === 'orders') loadOrderProfitReport();
   else if (tab === 'agents') loadAgentsProfitReport();
   else if (tab === 'expenses') loadExpensesReport();
-}
-
-// ============ АНАЛИТИКА (DASHBOARD) ============
-
-// Названия месяцев на русском
-const MONTH_NAMES_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
-
-// Инициализация опций месяцев в фильтре (универсальная)
-function initMonthOptionsFor(optgroupId) {
-  const optgroup = document.getElementById(optgroupId);
-  if (!optgroup || optgroup.children.length > 0) return;
-  
-  const now = new Date();
-  // Добавляем опции для последних 12 месяцев
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const value = `month_${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = `${MONTH_NAMES_RU[d.getMonth()]} ${d.getFullYear()}`;
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = label;
-    optgroup.appendChild(option);
-  }
-}
-
-// Для обратной совместимости
-function initMonthOptions() {
-  initMonthOptionsFor('monthOptionsGroup');
-}
-
-// Парсинг периода месяца (month_2026_01 -> {year: 2026, month: 0})
-function parseMonthPeriod(period) {
-  if (!period.startsWith('month_')) return null;
-  const parts = period.split('_');
-  if (parts.length !== 3) return null;
-  return { year: parseInt(parts[1]), month: parseInt(parts[2]) - 1 };
-}
-
-async function loadDashboard() {
-  console.log('📊 Загрузка дашборда...');
-  
-  // Инициализируем опции месяцев
-  initMonthOptions();
-  
-  const period = document.getElementById('dashboardDateFilter').value;
-  
-  // Временные границы
-  const now = Date.now();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStart = today.getTime();
-  const yesterdayStart = todayStart - 86400000;
-  const weekStart = todayStart - 7 * 86400000;
-  const last30daysStart = todayStart - 30 * 86400000;
-  
-  // Границы конкретного месяца (если выбран)
-  let selectedMonthStart = 0;
-  let selectedMonthEnd = 0;
-  const monthPeriod = parseMonthPeriod(period);
-  if (monthPeriod) {
-    const monthDate = new Date(monthPeriod.year, monthPeriod.month, 1);
-    monthDate.setHours(0, 0, 0, 0);
-    selectedMonthStart = monthDate.getTime();
-    const nextMonth = new Date(monthPeriod.year, monthPeriod.month + 1, 1);
-    nextMonth.setHours(0, 0, 0, 0);
-    selectedMonthEnd = nextMonth.getTime();
-  }
-  
-  // Фильтр по периоду
-  function filterByPeriod(timestamp) {
-    if (monthPeriod) {
-      return timestamp >= selectedMonthStart && timestamp < selectedMonthEnd;
-    }
-    switch(period) {
-      case 'today': return timestamp >= todayStart;
-      case 'yesterday': return timestamp >= yesterdayStart && timestamp < todayStart;
-      case 'week': return timestamp >= weekStart;
-      case 'last30days': return timestamp >= last30daysStart;
-      case 'all': return true;
-      default: return true;
-    }
-  }
-  
-  try {
-    // Загружаем заказы
-    const ordersSnapshot = await db.collection('orders').get();
-    let allOrders = [];
-    ordersSnapshot.forEach(doc => {
-      const data = doc.data();
-      allOrders.push({
-        id: doc.id,
-        ...data,
-        timestamp: normalizeEpochMs(data.timestamp, Date.now())
-      });
-    });
-    
-    // Фильтруем по периоду
-    const orders = allOrders.filter(o => filterByPeriod(o.timestamp));
-    
-    // Загружаем расходы (включая регулярные)
-    const expensesSnapshot = await db.collection('expenses').get();
-    let expensesForPeriod = [];
-    
-    // Определяем границы периода в Date
-    let periodStartDate;
-    if (monthPeriod) {
-      periodStartDate = new Date(selectedMonthStart);
-    } else {
-      periodStartDate = new Date(period === 'today' ? todayStart : 
-                                       period === 'yesterday' ? yesterdayStart :
-                                       period === 'week' ? weekStart :
-                                       period === 'last30days' ? last30daysStart : 0);
-    }
-    let periodEndDate = new Date(Date.now() + 86400000);
-    if (period === 'yesterday') {
-      periodEndDate.setTime(todayStart);
-    }
-    if (monthPeriod) {
-      periodEndDate = new Date(selectedMonthEnd);
-    }
-    
-    expensesSnapshot.forEach(doc => {
-      const data = doc.data();
-      
-      if (data.isRecurring === true && data.recurringDays && data.recurringDays.length > 0 && data.isActive !== false) {
-        // Регулярный расход - генерируем записи для каждого дня в периоде
-        const recurringStartDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
-        recurringStartDate.setHours(0, 0, 0, 0); // Сбрасываем время для корректного сравнения
-        
-        // Для "все время" начинаем с даты создания регулярного расхода, а не с 1970
-        let loopStart = new Date(Math.max(periodStartDate.getTime(), recurringStartDate.getTime()));
-        loopStart.setHours(0, 0, 0, 0);
-        
-        // ВАЖНО: Не генерируем регулярные расходы на будущие дни!
-        // Ограничиваем конечную дату сегодняшним днём
-        const todayEndLimit = new Date();
-        todayEndLimit.setHours(23, 59, 59, 999);
-        const effectiveEndDate = new Date(Math.min(periodEndDate.getTime(), todayEndLimit.getTime()));
-        
-        while (loopStart <= effectiveEndDate) {
-          const dayOfWeek = loopStart.getDay();
-          if (data.recurringDays.includes(dayOfWeek)) {
-            expensesForPeriod.push({
-              id: doc.id + '_' + loopStart.getTime(),
-              ...data,
-              timestamp: loopStart.getTime()
-            });
-          }
-          loopStart.setDate(loopStart.getDate() + 1);
-        }
-      } else if (!data.isRecurring) {
-        // Обычный расход
-        const ts = normalizeEpochMs(data.timestamp, normalizeEpochMs(data.createdAt, Date.now()));
-        if (filterByPeriod(ts)) {
-          expensesForPeriod.push({ id: doc.id, ...data, timestamp: ts });
-        }
-      }
-    });
-    const expenses = expensesForPeriod;
-    
-    // Отладка расходов
-    console.log('📊 [DASHBOARD] Расходов найдено:', expenses.length);
-    console.log('📊 [DASHBOARD] Период:', periodStartDate, '-', periodEndDate);
-    const dashTotalExp = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-    console.log('📊 [DASHBOARD] Сумма расходов:', dashTotalExp);
-    
-    // Загружаем товары в карту
-    const productsMap = new Map();
-    products.forEach(p => {
-      productsMap.set(p.id, {
-        name: p.name || p.title || 'Товар',
-        costPrice: parseFloat(p.costPrice) || 0,
-        salePrice: parseFloat(p.price) || 0,
-        category: p.category || 'все'
-      });
-    });
-    
-    // === РАСЧЁТ ГЛАВНЫХ ПОКАЗАТЕЛЕЙ ===
-    let totalRevenue = 0;
-    let grossProfit = 0;
-    let productsSold = 0;
-    let productProfits = new Map(); // Для ТОП товаров
-    let itemsWithCostPrice = 0; // Для отладки
-    let itemsWithoutCostPrice = 0; // Для отладки
-    
-    // Статистика агентов
-    const agentStats = new Map();
-    let agentOrders = 0;
-    let agentProfit = 0;
-    let agentCommission = 0;
-    
-    // Уникальные клиенты
-    const uniqueClients = new Set();
-    
-    orders.forEach(order => {
-      const items = order.items || order.cart || order.products || [];
-      let orderRevenue = 0;
-      let orderProfitFromItems = 0; // Прибыль только от товаров с известной себестоимостью
-      
-      // Общая сумма заказа (если указана в заказе)
-      const orderTotal = parseFloat(order.total) || parseFloat(order.totalAmount) || parseFloat(order.amount) || parseFloat(order.sum) || 0;
-      
-      if (items.length > 0) {
-        items.forEach(item => {
-          const qty = parseInt(item.qty) || parseInt(item.quantity) || 1;
-          const price = parseFloat(item.price) || parseFloat(item.salePrice) || parseFloat(item.cost) || 0;
-          const productData = productsMap.get(item.id);
-          
-          // Сначала проверяем costPrice в самом item (в данных заказа), потом в productsMap
-          const itemCostPrice = parseFloat(item.costPrice) || 0;
-          const productCostPrice = productData ? productData.costPrice : 0;
-          const costPrice = itemCostPrice > 0 ? itemCostPrice : productCostPrice;
-          
-          const productName = productData ? productData.name : (item.name || item.title || 'Товар');
-          
-          orderRevenue += price * qty;
-          productsSold += qty;
-          
-          // Прибыль: ТОЛЬКО если есть закупочная цена - считаем, иначе 0
-          const hasCostPrice = costPrice > 0;
-          const itemProfit = hasCostPrice ? (price - costPrice) * qty : 0;
-          
-          // Для отладки
-          if (hasCostPrice) {
-            itemsWithCostPrice++;
-          } else {
-            itemsWithoutCostPrice++;
-          }
-          
-          // Добавляем прибыль только от товаров с известной себестоимостью
-          orderProfitFromItems += itemProfit;
-          
-          // Для ТОП товаров - добавляем всех, но прибыль 0 если нет закупочной цены
-          if (productProfits.has(item.id)) {
-            const existing = productProfits.get(item.id);
-            productProfits.set(item.id, {
-              name: productName,
-              profit: existing.profit + itemProfit,
-              qty: existing.qty + qty,
-              hasCostPrice: existing.hasCostPrice || hasCostPrice
-            });
-          } else {
-            productProfits.set(item.id, { name: productName, profit: itemProfit, qty: qty, hasCostPrice: hasCostPrice });
-          }
-        });
-        
-        // Если есть orderTotal и он больше посчитанного - используем orderTotal как выручку
-        // (значит в items что-то не так с ценами)
-        if (orderTotal > 0 && orderTotal > orderRevenue) {
-          orderRevenue = orderTotal;
-        }
-      } else if (orderTotal > 0) {
-        // Если нет items, но есть общая сумма заказа - используем для выручки
-        orderRevenue = orderTotal;
-      }
-      
-      // Валовая прибыль = сумма прибыли ТОЛЬКО от товаров с известной ценой прихода
-      totalRevenue += orderRevenue;
-      grossProfit += orderProfitFromItems;
-      
-      // Клиент
-      if (order.phone || order.clientId) {
-        uniqueClients.add(order.phone || order.clientId);
-      }
-      
-      // Агент
-      if (order.agentId || order.referrer || order.partner || order.referredBy) {
-        agentOrders++;
-        const agentId = order.agentId || order.referrer || order.partner || order.referredBy;
-        const commission = orderRevenue * 0.02; // 2%
-        
-        agentProfit += orderProfitFromItems;
-        agentCommission += commission;
-        
-        if (agentStats.has(agentId)) {
-          const stat = agentStats.get(agentId);
-          stat.orders++;
-          stat.revenue += orderRevenue;
-          stat.profit += orderProfitFromItems;
-          stat.commission += commission;
-        } else {
-          agentStats.set(agentId, {
-            id: agentId,
-            name: order.agentName || order.partnerName || agentId,
-            orders: 1,
-            revenue: orderRevenue,
-            profit: orderProfitFromItems,
-            commission: commission
-          });
-        }
-      }
-    });
-    
-    // Расходы
-    let totalExpenses = 0;
-    const expenseGroups = new Map();
-    expenses.forEach(exp => {
-      totalExpenses += parseFloat(exp.amount) || 0;
-      
-      // Группировка по описанию
-      const desc = exp.description || 'Прочее';
-      if (expenseGroups.has(desc)) {
-        expenseGroups.set(desc, expenseGroups.get(desc) + (parseFloat(exp.amount) || 0));
-      } else {
-        expenseGroups.set(desc, parseFloat(exp.amount) || 0);
-      }
-    });
-    
-    // Чистая прибыль
-    const netProfit = grossProfit - totalExpenses - agentCommission;
-    
-    // Форматируем даты периода
-    const formatDate = (d) => new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    let periodText = '📅 Все время';
-    if (monthPeriod) {
-      periodText = `📅 ${MONTH_NAMES_RU[monthPeriod.month]} ${monthPeriod.year}`;
-    } else if (period === 'today') {
-      periodText = `📅 Сегодня: ${formatDate(todayStart)}`;
-    } else if (period === 'yesterday') {
-      periodText = `📅 Вчера: ${formatDate(yesterdayStart)}`;
-    } else if (period === 'week') {
-      periodText = `📅 ${formatDate(weekStart)} — ${formatDate(Date.now())}`;
-    } else if (period === 'last30days') {
-      periodText = `📅 ${formatDate(last30daysStart)} — ${formatDate(Date.now())}`;
-    } else if (period === 'all' && orders.length > 0) {
-      // Находим самую раннюю дату заказа
-      const earliestOrder = orders.reduce((min, o) => o.timestamp < min ? o.timestamp : min, orders[0].timestamp);
-      periodText = `📅 С ${formatDate(earliestOrder)} — ${formatDate(Date.now())}`;
-    }
-    
-    // === ОБНОВЛЯЕМ UI ===
-    document.getElementById('dashPeriodDates').textContent = periodText;
-    document.getElementById('dashNetProfit').textContent = netProfit.toFixed(2) + ' сом';
-    document.getElementById('dashNetProfitInfo').textContent = 
-      `${grossProfit.toFixed(0)} (прибыль) - ${totalExpenses.toFixed(0)} (расходы) - ${agentCommission.toFixed(0)} (комиссии)`;
-    
-    document.getElementById('dashTotalRevenue').textContent = totalRevenue.toFixed(2) + ' сом';
-    document.getElementById('dashGrossProfit').textContent = grossProfit.toFixed(2) + ' сом';
-    document.getElementById('dashTotalExpenses').textContent = totalExpenses.toFixed(2) + ' сом';
-    document.getElementById('dashAgentCommission').textContent = agentCommission.toFixed(2) + ' сом';
-    
-    document.getElementById('dashOrdersCount').textContent = orders.length;
-    document.getElementById('dashClientsCount').textContent = uniqueClients.size;
-    document.getElementById('dashProductsSold').textContent = productsSold;
-    document.getElementById('dashAvgCheck').textContent = orders.length > 0 ? 
-      (totalRevenue / orders.length).toFixed(2) + ' сом' : '0 сом';
-    
-    document.getElementById('dashActiveAgents').textContent = agentStats.size;
-    document.getElementById('dashAgentOrders').textContent = agentOrders;
-    document.getElementById('dashAgentProfit').textContent = agentProfit.toFixed(2) + ' сом';
-    document.getElementById('dashAgentShare').textContent = orders.length > 0 ? 
-      ((agentOrders / orders.length) * 100).toFixed(1) + '%' : '0%';
-    
-    // Детализация расходов
-    let expensesHtml = '';
-    if (expenseGroups.size > 0) {
-      const sortedExpenses = [...expenseGroups.entries()].sort((a, b) => b[1] - a[1]);
-      expensesHtml = sortedExpenses.map(([desc, amount]) => `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;">
-          <span>${desc}</span>
-          <span style="color:#dc3545;font-weight:600;">-${amount.toFixed(2)} сом</span>
-        </div>
-      `).join('');
-    } else {
-      expensesHtml = '<div style="color:#999;text-align:center;padding:20px;">Нет расходов за период</div>';
-    }
-    document.getElementById('dashExpensesList').innerHTML = expensesHtml;
-    
-    // ТОП-5 товаров (товары без закупочной цены показываются с прибылью 0)
-    const topProducts = [...productProfits.values()]
-      .sort((a, b) => b.profit - a.profit)
-      .slice(0, 5);
-    
-    let topProductsHtml = '';
-    if (topProducts.length > 0) {
-      topProductsHtml = topProducts.map((p, i) => {
-        const profitColor = p.hasCostPrice ? '#28a745' : '#999';
-        const profitText = p.hasCostPrice ? `+${p.profit.toFixed(2)} сом` : '0 (нет прихода)';
-        return `
-          <div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid #eee;align-items:center;">
-            <div>
-              <span style="display:inline-block;width:24px;height:24px;background:#${['28a745','20c997','17a2b8','6c757d','adb5bd'][i]};color:white;border-radius:50%;text-align:center;line-height:24px;font-size:12px;margin-right:10px;">${i + 1}</span>
-              <span style="font-weight:600;">${p.name}</span>
-              <span style="color:#666;font-size:12px;margin-left:8px;">(${p.qty} шт)</span>
-            </div>
-            <span style="color:${profitColor};font-weight:700;">${profitText}</span>
-          </div>
-        `;
-      }).join('');
-    } else {
-      topProductsHtml = '<div style="color:#999;text-align:center;padding:20px;">Нет данных</div>';
-    }
-    document.getElementById('dashTopProducts').innerHTML = topProductsHtml;
-    
-    // ТОП-5 агентов
-    const topAgents = [...agentStats.values()]
-      .sort((a, b) => b.profit - a.profit)
-      .slice(0, 5);
-    
-    let topAgentsHtml = '';
-    if (topAgents.length > 0) {
-      topAgentsHtml = topAgents.map((a, i) => `
-        <div style="display:flex;justify-content:space-between;padding:10px;border-bottom:1px solid #eee;align-items:center;flex-wrap:wrap;gap:8px;">
-          <div>
-            <span style="display:inline-block;width:24px;height:24px;background:#${['9c27b0','7b1fa2','6a1b9a','4a148c','311b92'][i]};color:white;border-radius:50%;text-align:center;line-height:24px;font-size:12px;margin-right:10px;">${i + 1}</span>
-            <span style="font-weight:600;">${a.name}</span>
-            <span style="color:#666;font-size:12px;margin-left:8px;">(${a.orders} заказов)</span>
-          </div>
-          <div style="text-align:right;">
-            <div style="color:#28a745;font-weight:700;">+${a.profit.toFixed(2)} сом</div>
-            <div style="color:#dc3545;font-size:12px;">Комиссия: ${a.commission.toFixed(2)}</div>
-          </div>
-        </div>
-      `).join('');
-    } else {
-      topAgentsHtml = '<div style="color:#999;text-align:center;padding:20px;">Нет агентов за период</div>';
-    }
-    document.getElementById('dashTopAgents').innerHTML = topAgentsHtml;
-    
-    console.log('📊 ОТЛАДКА АНАЛИТИКИ:');
-    console.log('  Всего заказов:', orders.length);
-    console.log('  Товаров с ценой прихода:', itemsWithCostPrice);
-    console.log('  Товаров БЕЗ цены прихода:', itemsWithoutCostPrice);
-    console.log('  Общая выручка (оборот):', totalRevenue);
-    console.log('  Валовая прибыль:', grossProfit);
-    console.log('  Товаров в productsMap:', productsMap.size);
-    
-    // Показать первые 3 заказа для отладки
-    orders.slice(0, 3).forEach((order, i) => {
-      console.log(`  Заказ ${i+1}: total=${order.total}, amount=${order.amount}, items=${(order.items||order.cart||[]).length}`);
-    });
-    
-    console.log('✅ Дашборд загружен');
-    
-  } catch (error) {
-    console.error('❌ Ошибка загрузки дашборда:', error);
-    Swal.fire('Ошибка', 'Не удалось загрузить данные', 'error');
-  }
-}
-
-// Экспорт дашборда в Excel
-async function exportDashboardToExcel() {
-  const period = document.getElementById('dashboardDateFilter').value;
-  const periodNames = {
-    'today': 'Сегодня',
-    'yesterday': 'Вчера',
-    'week': 'За_неделю',
-    'month': 'За_месяц',
-    'all': 'Всё_время'
-  };
-  
-  const wb = XLSX.utils.book_new();
-  
-  // Сводка
-  const summaryData = [
-    ['АНАЛИТИЧЕСКИЙ ОТЧЁТ'],
-    ['Период:', periodNames[period]],
-    ['Дата формирования:', new Date().toLocaleString('ru-RU')],
-    [''],
-    ['ОСНОВНЫЕ ПОКАЗАТЕЛИ'],
-    ['Чистая прибыль:', document.getElementById('dashNetProfit').textContent],
-    ['Общая выручка:', document.getElementById('dashTotalRevenue').textContent],
-    ['Валовая прибыль:', document.getElementById('dashGrossProfit').textContent],
-    ['Расходы:', document.getElementById('dashTotalExpenses').textContent],
-    ['Комиссии агентам:', document.getElementById('dashAgentCommission').textContent],
-    [''],
-    ['ЗАКАЗЫ И КЛИЕНТЫ'],
-    ['Всего заказов:', document.getElementById('dashOrdersCount').textContent],
-    ['Уникальных клиентов:', document.getElementById('dashClientsCount').textContent],
-    ['Товаров продано:', document.getElementById('dashProductsSold').textContent],
-    ['Средний чек:', document.getElementById('dashAvgCheck').textContent],
-    [''],
-    ['АГЕНТЫ'],
-    ['Активных агентов:', document.getElementById('dashActiveAgents').textContent],
-    ['Заказов от агентов:', document.getElementById('dashAgentOrders').textContent],
-    ['Прибыль от агентов:', document.getElementById('dashAgentProfit').textContent],
-    ['Доля агентов:', document.getElementById('dashAgentShare').textContent]
-  ];
-  
-  const ws = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(wb, ws, 'Аналитика');
-  
-  const filename = `Аналитика_${periodNames[period]}_${new Date().toISOString().slice(0,10)}.xlsx`;
-  XLSX.writeFile(wb, filename);
-  
-  Swal.fire('Успех', 'Отчёт скачан!', 'success');
 }
 
 // ============ ОТЧЁТ ПО ТОВАРАМ ============
@@ -1526,37 +772,25 @@ function filterProfitReport() {
 
 // ============ ОТЧЁТ ПО ЗАКАЗАМ ============
 async function loadOrderProfitReport() {
-  // Инициализируем опции месяцев
-  initMonthOptionsFor('orderMonthOptionsGroup');
-  
   const dateFilter = document.getElementById('orderDateFilter').value;
   const sortBy = document.getElementById('orderSortFilter').value;
   
   const now = new Date();
   let startDate = new Date(0);
-  let endDate = null; // Для календарных месяцев
   
-  // Проверяем, выбран ли конкретный месяц
-  const monthPeriod = parseMonthPeriod(dateFilter);
-  if (monthPeriod) {
-    startDate = new Date(monthPeriod.year, monthPeriod.month, 1);
-    endDate = new Date(monthPeriod.year, monthPeriod.month + 1, 1);
-  } else {
-    switch(dateFilter) {
-      case 'today':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'yesterday':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'last30days':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-    }
+  switch(dateFilter) {
+    case 'today':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'yesterday':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      break;
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
   }
   
   try {
@@ -1566,8 +800,7 @@ async function loadOrderProfitReport() {
     snapshot.forEach(doc => {
       const data = doc.data();
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
-      const inRange = orderDate >= startDate && (endDate === null || orderDate < endDate);
-      if (inRange) {
+      if (orderDate >= startDate) {
         orders.push({ id: doc.id, ...data, orderDate });
       }
     });
@@ -1655,37 +888,25 @@ async function loadOrderProfitReport() {
 
 // ============ ОТЧЁТ ПО АГЕНТАМ ============
 async function loadAgentsProfitReport() {
-  // Инициализируем опции месяцев
-  initMonthOptionsFor('agentsMonthOptionsGroup');
-  
   const dateFilter = document.getElementById('agentsDateFilter').value;
   const sortBy = document.getElementById('agentsSortFilter').value;
   
   const now = new Date();
   let startDate = new Date(0);
-  let endDate = null; // Для календарных месяцев
   
-  // Проверяем, выбран ли конкретный месяц
-  const monthPeriod = parseMonthPeriod(dateFilter);
-  if (monthPeriod) {
-    startDate = new Date(monthPeriod.year, monthPeriod.month, 1);
-    endDate = new Date(monthPeriod.year, monthPeriod.month + 1, 1);
-  } else {
-    switch(dateFilter) {
-      case 'today':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'yesterday':
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        break;
-      case 'week':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'last30days':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-    }
+  switch(dateFilter) {
+    case 'today':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'yesterday':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      break;
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
   }
   
   try {
@@ -1724,8 +945,7 @@ async function loadAgentsProfitReport() {
       
       totalOrdersChecked++;
       
-      const outOfRange = orderDate < startDate || (endDate !== null && orderDate >= endDate);
-      if (outOfRange) {
+      if (orderDate < startDate) {
         ordersSkippedByDate++;
         return;
       }
@@ -1809,17 +1029,11 @@ async function loadAgentsProfitReport() {
     const totalOrders = agentsList.reduce((sum, a) => sum + a.orders, 0);
     const totalSales = agentsList.reduce((sum, a) => sum + a.totalSale, 0);
     const totalCommission = totalSales * 0.02; // 2% от суммы продаж
-    const netProfit = totalProfit - totalCommission;
     
     document.getElementById('agentsTotalCount').textContent = agentsList.length;
     document.getElementById('agentsOrdersCount').textContent = totalOrders;
     document.getElementById('agentsTotalProfit').textContent = totalProfit.toFixed(2) + ' сом';
     document.getElementById('agentsTotalCommission').textContent = totalCommission.toFixed(2) + ' сом';
-    document.getElementById('agentsNetProfit').textContent = netProfit.toFixed(2) + ' сом';
-    document.getElementById('agentsTotalSales').textContent = totalSales.toFixed(2) + ' сом';
-    document.getElementById('agentsAvgCheck').textContent = totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) + ' сом' : '0 сом';
-    document.getElementById('agentsAvgProfit').textContent = totalOrders > 0 ? (totalProfit / totalOrders).toFixed(2) + ' сом' : '0 сом';
-    document.getElementById('agentsBestAgent').textContent = agentsList.length > 0 ? agentsList[0].name : '-';
     
     // Таблица
     const container = document.getElementById('agentsProfitReportContent');
@@ -1868,147 +1082,89 @@ async function loadAgentsProfitReport() {
 
 // ============ ОТЧЁТ ПО РАСХОДАМ ============
 async function loadExpensesReport() {
-  // Инициализируем опции месяцев
-  initMonthOptionsFor('expenseMonthOptionsGroup');
-  
   const dateFilter = document.getElementById('expenseDateFilter').value;
-  const categoryFilter = document.getElementById('expenseCategoryFilter') ? 
-    document.getElementById('expenseCategoryFilter').value : '';
   
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // 00:00:00 сегодня
   let startDate = new Date(0);
-  let endDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  let endDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Завтра, чтобы включить сегодняшние
   
-  // Проверяем, выбран ли конкретный месяц
-  const monthPeriod = parseMonthPeriod(dateFilter);
-  if (monthPeriod) {
-    startDate = new Date(monthPeriod.year, monthPeriod.month, 1);
-    endDate = new Date(monthPeriod.year, monthPeriod.month + 1, 1);
-  } else {
-    switch(dateFilter) {
-      case 'today':
-        startDate = new Date(today);
-        break;
-      case 'yesterday':
-        startDate = new Date(today.getTime() - 86400000);
-        endDate = new Date(today);
-        break;
-      case 'week':
-        startDate = new Date(today.getTime() - 7 * 86400000);
-        break;
-      case 'last30days':
-        startDate = new Date(today.getTime() - 30 * 86400000);
-        break;
-    }
+  switch(dateFilter) {
+    case 'today':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'yesterday':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
   }
   
-  console.log('📊 Загрузка расходов, период:', dateFilter);
+  console.log('📊 Загрузка расходов, период:', dateFilter, 'с', startDate, 'по', endDate);
   
   try {
+    // Загружаем расходы и заказы для расчёта прибыли
     const [expensesSnap, ordersSnap] = await Promise.all([
       db.collection('expenses').get(),
       db.collection('orders').get()
     ]);
     
-    console.log('📊 Всего расходов в базе:', expensesSnap.size);
+    console.log('📋 Всего расходов в базе:', expensesSnap.size);
     
-    let expenses = [];
-    let categoryTotals = {};
-    
-    // Функция для добавления расхода
-    const addExpense = (expense) => {
-      const category = expense.category || 'прочее';
-      const amount = parseFloat(expense.amount) || 0;
-      
-      // Группируем по категориям
-      categoryTotals[category] = (categoryTotals[category] || 0) + amount;
-      
-      // Фильтр по категории
-      if (!categoryFilter || category === categoryFilter) {
-        expenses.push(expense);
-      }
-    };
-    
+    // Показываем первые 3 расхода для отладки
+    let debugCount = 0;
     expensesSnap.forEach(doc => {
-      const data = doc.data();
-      
-      // Проверяем, регулярный ли это расход
-      if (data.isRecurring === true && data.recurringDays && data.recurringDays.length > 0 && data.isActive !== false) {
-        // Регулярный расход - генерируем записи для каждого дня в периоде
-        const recurringStartDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
-        recurringStartDate.setHours(0, 0, 0, 0); // Сбрасываем время для корректного сравнения
-        
-        // ВАЖНО: Не генерируем регулярные расходы на будущие дни!
-        const todayEndLimit = new Date();
-        todayEndLimit.setHours(23, 59, 59, 999);
-        const effectiveEndDate = new Date(Math.min(endDate.getTime(), todayEndLimit.getTime()));
-        
-        // Начинаем с максимума: либо начало периода, либо дата создания расхода (как в loadDashboard)
-        let currentDate = new Date(Math.max(startDate.getTime(), recurringStartDate.getTime()));
-        currentDate.setHours(0, 0, 0, 0);
-        
-        while (currentDate <= effectiveEndDate) {
-          const dayOfWeek = currentDate.getDay(); // 0=Вс, 1=Пн, ... 6=Сб
-          
-          // Проверяем, входит ли этот день недели в выбранные дни
-          if (data.recurringDays.includes(dayOfWeek)) {
-            addExpense({
-              id: doc.id + '_' + currentDate.getTime(), // Уникальный ID для виртуальной записи
-              originalId: doc.id, // Оригинальный ID регулярного расхода
-              ...data,
-              expenseDate: new Date(currentDate),
-              isVirtual: true, // Пометка, что это виртуальная запись
-              category: data.category || 'прочее'
-            });
-          }
-          
-          // Переходим к следующему дню
-          currentDate.setDate(currentDate.getDate() + 1);
-        }
-      } else if (!data.isRecurring) {
-        // Обычный расход (НЕ регулярный) - обрабатываем как раньше
-        let expenseDate;
-        if (data.timestamp) {
-          expenseDate = new Date(data.timestamp);
-        } else if (data.date) {
-          expenseDate = new Date(data.date);
-        } else if (data.createdAt) {
-          expenseDate = new Date(data.createdAt);
-        } else {
-          expenseDate = new Date(0);
-        }
-        
-        // Используем строгое сравнение < endDate (как в loadDashboard)
-        if (expenseDate >= startDate && expenseDate < endDate) {
-          addExpense({ id: doc.id, ...data, expenseDate, category: data.category || 'прочее' });
-        }
+      if (debugCount < 3) {
+        const data = doc.data();
+        console.log('🔍 Расход:', { 
+          id: doc.id, 
+          timestamp: data.timestamp, 
+          date: data.date,
+          amount: data.amount,
+          description: data.description 
+        });
+        debugCount++;
       }
-      // Если isRecurring=true но isActive=false - пропускаем (деактивированный регулярный расход)
     });
     
-    // Отладка расходов
-    const allExpensesSum = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
-    console.log('📊 [EXPENSES] Расходов найдено (без фильтра категории):', Object.values(categoryTotals).length, 'категорий');
-    console.log('📊 [EXPENSES] Период:', startDate, '-', endDate);
-    console.log('📊 [EXPENSES] Сумма всех расходов:', allExpensesSum);
+    let expenses = [];
+    expensesSnap.forEach(doc => {
+      const data = doc.data();
+      // Пробуем разные форматы даты
+      let expenseDate;
+      if (data.timestamp) {
+        expenseDate = new Date(data.timestamp);
+      } else if (data.date) {
+        // Может быть строка "2026-02-04" или timestamp
+        expenseDate = new Date(data.date);
+      } else if (data.createdAt) {
+        expenseDate = new Date(data.createdAt);
+      } else {
+        expenseDate = new Date(0);
+      }
+      
+      if (expenseDate >= startDate && expenseDate <= endDate) {
+        expenses.push({ id: doc.id, ...data, expenseDate });
+      }
+    });
     
-    // Считаем прибыль и комиссию агентам
+    console.log('✅ Расходов за период:', expenses.length);
+    
     let periodProfit = 0;
-    let agentCommission = 0;
-    
     ordersSnap.forEach(doc => {
       const data = doc.data();
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       if (orderDate >= startDate && orderDate <= endDate) {
         const items = data.items || data.cart || [];
-        let orderTotal = 0;
-        
         items.forEach(item => {
           const qty = item.qty || item.quantity || 1;
           const sale = (parseFloat(item.price) || 0) * qty;
-          orderTotal += sale;
           
+          // Ищем costPrice: сначала в заказе, потом в базе товаров
           let costPrice = parseFloat(item.costPrice) || 0;
           if (costPrice === 0 && item.id) {
             const product = products.find(p => p.id === item.id);
@@ -2018,155 +1174,44 @@ async function loadExpensesReport() {
           }
           
           const cost = costPrice * qty;
+          // Прибыль только если есть закупочная цена
           if (costPrice > 0) {
             periodProfit += sale - cost;
           }
         });
-        
-        // Комиссия агентам 2%
-        if (data.partner || data.agentId || data.referredBy) {
-          agentCommission += orderTotal * 0.02;
-        }
       }
     });
     
     const totalExpenses = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-    const allExpenses = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
-    const netProfit = periodProfit - allExpenses - agentCommission;
+    const netProfit = periodProfit - totalExpenses;
     
-    // Форматируем даты периода
-    const formatDate = (d) => d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    let periodText = '📅 Все время';
-    if (dateFilter === 'today') {
-      periodText = `📅 Сегодня: ${formatDate(startDate)}`;
-    } else if (dateFilter === 'yesterday') {
-      periodText = `📅 Вчера: ${formatDate(startDate)}`;
-    } else if (dateFilter === 'week') {
-      periodText = `📅 ${formatDate(startDate)} — ${formatDate(endDate)}`;
-    } else if (dateFilter === 'month') {
-      periodText = `📅 ${formatDate(startDate)} — ${formatDate(endDate)}`;
-    } else if (dateFilter === 'all' && expenses.length > 0) {
-      // Находим самую раннюю дату расхода
-      const earliestDate = expenses.reduce((min, e) => {
-        return e.expenseDate < min ? e.expenseDate : min;
-      }, expenses[0].expenseDate);
-      periodText = `📅 С ${formatDate(earliestDate)} — ${formatDate(now)}`;
-    }
-    
-    // Обновляем UI
-    document.getElementById('expensesPeriodDates').textContent = periodText;
-    document.getElementById('totalExpenses').textContent = allExpenses.toFixed(2) + ' сом';
+    document.getElementById('totalExpenses').textContent = totalExpenses.toFixed(2) + ' сом';
     document.getElementById('expensesPeriodProfit').textContent = periodProfit.toFixed(2) + ' сом';
-    document.getElementById('expensesAgentCommission').textContent = agentCommission.toFixed(2) + ' сом';
-    document.getElementById('expensesCount').textContent = expenses.length;
-    document.getElementById('expensesNetProfit').textContent = netProfit.toFixed(2) + ' сом';
-    document.getElementById('expensesNetProfit').parentElement.parentElement.style.background = 
-      netProfit >= 0 ? 'linear-gradient(135deg,#28a745,#20c997)' : 'linear-gradient(135deg,#dc3545,#c82333)';
-    document.getElementById('expensesNetInfo').textContent = 
-      `${periodProfit.toFixed(0)} - ${allExpenses.toFixed(0)} (расходы) - ${agentCommission.toFixed(0)} (агенты)`;
+    document.getElementById('netProfit').textContent = netProfit.toFixed(2) + ' сом';
+    document.getElementById('netProfit').style.color = netProfit >= 0 ? '#28a745' : '#dc3545';
     
-    // Диаграмма по категориям
-    const categoryIcons = {
-      'аренда': '🏠', 'зарплата': '💵', 'транспорт': '🚗', 'реклама': '📢',
-      'коммунальные': '💡', 'закупка': '📦', 'ремонт': '🔧', 'связь': '📱',
-      'налоги': '📋', 'прочее': '📦'
-    };
-    
-    const sortedCategories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
-    const maxAmount = sortedCategories.length > 0 ? sortedCategories[0][1] : 1;
-    
-    let chartHtml = '';
-    if (sortedCategories.length > 0) {
-      chartHtml = sortedCategories.map(([cat, amount]) => {
-        const percent = ((amount / allExpenses) * 100).toFixed(1);
-        const barWidth = (amount / maxAmount) * 100;
-        const icon = categoryIcons[cat] || '📦';
-        return `
-          <div style="margin-bottom:12px;">
-            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-              <span>${icon} ${cat.charAt(0).toUpperCase() + cat.slice(1)}</span>
-              <span style="font-weight:600;color:#dc3545;">${amount.toFixed(2)} сом (${percent}%)</span>
-            </div>
-            <div style="background:#eee;border-radius:4px;height:20px;overflow:hidden;">
-              <div style="background:linear-gradient(90deg,#dc3545,#ff6b6b);width:${barWidth}%;height:100%;border-radius:4px;"></div>
-            </div>
-          </div>
-        `;
-      }).join('');
-    } else {
-      chartHtml = '<div style="color:#999;text-align:center;padding:20px;">Нет расходов за период</div>';
-    }
-    document.getElementById('expensesCategoryChart').innerHTML = chartHtml;
-    
-    // Таблица расходов
+    // Таблица
     expenses.sort((a, b) => b.expenseDate - a.expenseDate);
     
     const tbody = document.getElementById('expensesReportBody');
     tbody.innerHTML = expenses.map((e, i) => {
       const dateStr = e.expenseDate.toLocaleDateString('ru-RU');
-      const icon = categoryIcons[e.category] || '📦';
-      const recurringBadge = e.isRecurring ? '<span style="background:#17a2b8;color:white;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:5px;">🔄 Регулярный</span>' : '';
-      const deleteBtn = e.isVirtual 
-        ? `<button onclick="deleteRecurringExpense('${e.originalId}')" class="btn-red" style="padding:6px 12px; font-size:12px;" title="Удалить регулярный расход">🔄🗑️</button>`
-        : `<button onclick="deleteExpense('${e.id}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>`;
       return `
-        <tr${e.isVirtual ? ' style="background:#f0f8ff;"' : ''}>
+        <tr>
           <td data-label="#">${i + 1}</td>
-          <td data-label="Дата">${dateStr}${recurringBadge}</td>
-          <td data-label="Категория">${icon} ${e.category || 'прочее'}</td>
+          <td data-label="Дата">${dateStr}</td>
           <td data-label="Описание">${e.description || '-'}</td>
           <td data-label="Сумма" class="right" style="color:#dc3545; font-weight:600;">${(parseFloat(e.amount) || 0).toFixed(2)} сом</td>
           <td data-label="Действия" class="center">
-            ${deleteBtn}
+            <button onclick="deleteExpense('${e.id}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>
           </td>
         </tr>
       `;
     }).join('');
     
-    if (expenses.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:30px;color:#999;">Нет расходов за период</td></tr>';
-    }
-    
   } catch (error) {
     console.error('Ошибка загрузки расходов:', error);
   }
-}
-
-// Экспорт расходов в Excel
-async function exportExpensesToExcel() {
-  const dateFilter = document.getElementById('expenseDateFilter').value;
-  const periodNames = { 'today': 'Сегодня', 'yesterday': 'Вчера', 'week': 'За_неделю', 'month': 'За_месяц', 'all': 'Всё_время' };
-  
-  const rows = [];
-  document.querySelectorAll('#expensesReportBody tr').forEach(tr => {
-    const cells = tr.querySelectorAll('td');
-    if (cells.length >= 5) {
-      rows.push([
-        cells[0].textContent,
-        cells[1].textContent,
-        cells[2].textContent,
-        cells[3].textContent,
-        cells[4].textContent
-      ]);
-    }
-  });
-  
-  const wb = XLSX.utils.book_new();
-  const wsData = [
-    ['ОТЧЁТ ПО РАСХОДАМ'],
-    ['Период:', periodNames[dateFilter]],
-    ['Всего расходов:', document.getElementById('totalExpenses').textContent],
-    ['Чистая прибыль:', document.getElementById('expensesNetProfit').textContent],
-    [''],
-    ['#', 'Дата', 'Категория', 'Описание', 'Сумма'],
-    ...rows
-  ];
-  
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-  XLSX.utils.book_append_sheet(wb, ws, 'Расходы');
-  
-  XLSX.writeFile(wb, `Расходы_${periodNames[dateFilter]}_${new Date().toISOString().slice(0,10)}.xlsx`);
-  Swal.fire('Успех', 'Отчёт скачан!', 'success');
 }
 
 // ============ ФУНКЦИИ РАСХОДОВ ============
@@ -2175,36 +1220,16 @@ function openAddExpenseModal() {
   document.getElementById('expenseDate').value = new Date().toISOString().split('T')[0];
   document.getElementById('expenseDescription').value = '';
   document.getElementById('expenseAmount').value = '';
-  document.getElementById('expenseCategory').value = 'прочее';
 }
 
 function closeAddExpenseModal() {
   document.getElementById('addExpenseModal').classList.remove('active');
 }
 
-// Переключение опций ежедневного расхода
-function toggleRecurringOptions() {
-  const isRecurring = document.getElementById('expenseIsRecurring').checked;
-  document.getElementById('recurringOptions').style.display = isRecurring ? 'block' : 'none';
-}
-
-// Выбрать все дни
-function selectAllDays() {
-  document.querySelectorAll('.recurringDay').forEach(cb => cb.checked = true);
-}
-
 async function saveExpense() {
-  const category = document.getElementById('expenseCategory').value;
   const description = document.getElementById('expenseDescription').value.trim();
   const amount = parseFloat(document.getElementById('expenseAmount').value);
   const date = document.getElementById('expenseDate').value;
-  const isRecurring = document.getElementById('expenseIsRecurring').checked;
-  
-  // Получаем выбранные дни
-  const recurringDays = [];
-  document.querySelectorAll('.recurringDay:checked').forEach(cb => {
-    recurringDays.push(parseInt(cb.value));
-  });
   
   if (!description) {
     Swal.fire('Ошибка', 'Введите описание расхода', 'error');
@@ -2221,41 +1246,17 @@ async function saveExpense() {
     return;
   }
   
-  if (isRecurring && recurringDays.length === 0) {
-    Swal.fire('Ошибка', 'Выберите хотя бы один день недели для регулярного расхода', 'error');
-    return;
-  }
-  
   try {
-    const expenseData = {
-      category: category || 'прочее',
+    await db.collection('expenses').add({
       description,
       amount,
       date,
       timestamp: new Date(date).getTime(),
-      createdAt: Date.now(),
-      isRecurring: isRecurring,
-      recurringDays: isRecurring ? recurringDays : [],
-      isActive: true // для регулярных расходов
-    };
-    
-    await db.collection('expenses').add(expenseData);
+      createdAt: Date.now()
+    });
     
     closeAddExpenseModal();
-    
-    if (isRecurring) {
-      const daysNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-      const selectedDaysText = recurringDays.map(d => daysNames[d]).join(', ');
-      Swal.fire('Успех', `Регулярный расход добавлен!\nБудет повторяться: ${selectedDaysText}`, 'success');
-    } else {
-      Swal.fire('Успех', 'Расход добавлен!', 'success');
-    }
-    
-    // Сброс формы
-    document.getElementById('expenseIsRecurring').checked = false;
-    document.querySelectorAll('.recurringDay').forEach(cb => cb.checked = false);
-    document.getElementById('recurringOptions').style.display = 'none';
-    
+    Swal.fire('Успех', 'Расход добавлен!', 'success');
     loadExpensesReport();
     
   } catch (error) {
@@ -2281,304 +1282,6 @@ async function deleteExpense(id) {
       loadExpensesReport();
     } catch (error) {
       console.error('Ошибка удаления:', error);
-      Swal.fire('Ошибка', 'Не удалось удалить', 'error');
-    }
-  }
-}
-
-// Удаление ВСЕХ расходов за выбранный период
-async function deleteAllExpensesForPeriod() {
-  const dateFilter = document.getElementById('expenseDateFilter').value;
-  
-  // Определяем текст периода для подтверждения
-  let periodText = 'все время';
-  const monthPeriod = parseMonthPeriod(dateFilter);
-  if (monthPeriod) {
-    periodText = `${MONTH_NAMES_RU[monthPeriod.month]} ${monthPeriod.year}`;
-  } else {
-    switch(dateFilter) {
-      case 'today': periodText = 'сегодня'; break;
-      case 'yesterday': periodText = 'вчера'; break;
-      case 'week': periodText = 'неделю'; break;
-      case 'last30days': periodText = 'последние 30 дней'; break;
-    }
-  }
-  
-  const result = await Swal.fire({
-    title: 'Удалить ВСЕ расходы?',
-    html: `<p>Вы уверены, что хотите удалить <b>все</b> расходы за <b>${periodText}</b>?</p><p style="color:#dc3545;; font-weight:bold;">Это действие нельзя отменить!</p>`,
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: '#dc3545',
-    confirmButtonText: 'Да, удалить все',
-    cancelButtonText: 'Отмена'
-  });
-  
-  if (!result.isConfirmed) return;
-  
-  try {
-    const now = new Date();
-    let startDate = new Date(0);
-    let endDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    
-    // Определяем границы периода
-    if (monthPeriod) {
-      startDate = new Date(monthPeriod.year, monthPeriod.month, 1);
-      endDate = new Date(monthPeriod.year, monthPeriod.month + 1, 1);
-    } else {
-      switch(dateFilter) {
-        case 'today':
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          break;
-        case 'yesterday':
-          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-          endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          break;
-        case 'week':
-          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          break;
-        case 'last30days':
-          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          break;
-      }
-    }
-    
-    const expensesSnap = await db.collection('expenses').get();
-    const batch = db.batch();
-    let deleteCount = 0;
-    
-    expensesSnap.forEach(doc => {
-      const data = doc.data();
-      
-      // Пропускаем регулярные расходы - их нужно удалять отдельно
-      if (data.isRecurring) return;
-      
-      const ts = data.timestamp || data.createdAt || 0;
-      const expenseDate = new Date(ts);
-      
-      if (expenseDate >= startDate && expenseDate < endDate) {
-        batch.delete(doc.ref);
-        deleteCount++;
-      }
-    });
-    
-    if (deleteCount === 0) {
-      Swal.fire('Нет расходов', 'За выбранный период нет расходов для удаления', 'info');
-      return;
-    }
-    
-    await batch.commit();
-    
-    Swal.fire('Удалено!', `Успешно удалено расходов: ${deleteCount}`, 'success');
-    loadExpensesReport();
-    
-  } catch (error) {
-    console.error('Ошибка удаления:', error);
-    Swal.fire('Ошибка', 'Не удалось удалить расходы: ' + error.message, 'error');
-  }
-}
-
-// Остановить ВСЕ регулярные расходы
-async function stopAllRecurringExpenses() {
-  const result = await Swal.fire({
-    title: 'Остановить ВСЕ регулярные расходы?',
-    html: `<p>Выберите действие:</p>
-           <p><b>Деактивировать</b> - расходы перестанут появляться, но сохранятся в базе</p>
-           <p><b>Удалить</b> - полностью удалить из базы</p>`,
-    icon: 'warning',
-    showCancelButton: true,
-    showDenyButton: true,
-    confirmButtonColor: '#dc3545',
-    denyButtonColor: '#ffc107',
-    confirmButtonText: '🗑️ Удалить все',
-    denyButtonText: '⏸️ Деактивировать все',
-    cancelButtonText: 'Отмена'
-  });
-  
-  if (!result.isConfirmed && !result.isDenied) return;
-  
-  try {
-    const expensesSnap = await db.collection('expenses').get();
-    const batch = db.batch();
-    let count = 0;
-    
-    expensesSnap.forEach(doc => {
-      const data = doc.data();
-      if (data.isRecurring) {
-        if (result.isConfirmed) {
-          // Удалить полностью
-          batch.delete(doc.ref);
-        } else {
-          // Деактивировать
-          batch.update(doc.ref, { isActive: false });
-        }
-        count++;
-      }
-    });
-    
-    if (count === 0) {
-      Swal.fire('Нет регулярных расходов', 'Нет регулярных расходов для обработки', 'info');
-      return;
-    }
-    
-    await batch.commit();
-    
-    const action = result.isConfirmed ? 'удалено' : 'деактивировано';
-    Swal.fire('Готово!', `Регулярных расходов ${action}: ${count}`, 'success');
-    loadExpensesReport();
-    
-  } catch (error) {
-    console.error('Ошибка:', error);
-    Swal.fire('Ошибка', 'Не удалось обработать регулярные расходы: ' + error.message, 'error');
-  }
-}
-
-// Удаление регулярного расхода
-async function deleteRecurringExpense(id) {
-  const result = await Swal.fire({
-    title: 'Удалить регулярный расход?',
-    text: 'Это удалит расход для всех дней. Если хотите остановить только с определённой даты, выберите "Деактивировать".',
-    icon: 'warning',
-    showCancelButton: true,
-    showDenyButton: true,
-    confirmButtonColor: '#dc3545',
-    denyButtonColor: '#ffc107',
-    confirmButtonText: '🗑️ Удалить полностью',
-    denyButtonText: '⏸️ Деактивировать',
-    cancelButtonText: 'Отмена'
-  });
-  
-  if (result.isConfirmed) {
-    try {
-      await db.collection('expenses').doc(id).delete();
-      Swal.fire('Удалено!', 'Регулярный расход полностью удалён', 'success');
-      loadExpensesReport();
-    } catch (error) {
-      console.error('Ошибка удаления:', error);
-      Swal.fire('Ошибка', 'Не удалось удалить', 'error');
-    }
-  } else if (result.isDenied) {
-    try {
-      await db.collection('expenses').doc(id).update({ isActive: false });
-      Swal.fire('Деактивировано!', 'Регулярный расход больше не будет добавляться', 'success');
-      loadExpensesReport();
-    } catch (error) {
-      console.error('Ошибка деактивации:', error);
-      Swal.fire('Ошибка', 'Не удалось деактивировать', 'error');
-    }
-  }
-}
-
-// Показать список регулярных расходов
-async function showRecurringExpenses() {
-  try {
-    const snapshot = await db.collection('expenses').where('isRecurring', '==', true).get();
-    
-    if (snapshot.empty) {
-      Swal.fire('Регулярные расходы', 'Нет настроенных регулярных расходов', 'info');
-      return;
-    }
-    
-    const daysNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-    const categoryIcons = {
-      'аренда': '🏠', 'зарплата': '💵', 'транспорт': '🚗', 'реклама': '📢',
-      'коммунальные': '💡', 'закупка': '📦', 'ремонт': '🔧', 'связь': '📱',
-      'налоги': '📋', 'прочее': '📦'
-    };
-    
-    let html = '<div style="max-height:400px;overflow-y:auto;">';
-    
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      const icon = categoryIcons[data.category] || '📦';
-      const days = (data.recurringDays || []).map(d => daysNames[d]).join(', ');
-      const status = data.isActive !== false ? 
-        '<span style="color:#28a745;">✅ Активен</span>' : 
-        '<span style="color:#dc3545;">⏸️ Деактивирован</span>';
-      const startDate = data.date || 'N/A';
-      
-      html += `
-        <div style="background:white;border:1px solid #ddd;border-radius:10px;padding:15px;margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <strong>${icon} ${data.description}</strong>
-            ${status}
-          </div>
-          <div style="font-size:13px;color:#666;margin-bottom:5px;">
-            <span style="margin-right:15px;">💰 ${data.amount} сом</span>
-            <span>📅 Начало: ${startDate}</span>
-          </div>
-          <div style="font-size:13px;color:#17a2b8;margin-bottom:10px;">
-            🔄 Дни: ${days}
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${data.isActive !== false ? 
-              `<button onclick="deactivateRecurring('${doc.id}')" style="background:#ffc107;color:#333;border:none;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:12px;">⏸️ Деактивировать</button>` :
-              `<button onclick="activateRecurring('${doc.id}')" style="background:#28a745;color:white;border:none;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:12px;">▶️ Активировать</button>`
-            }
-            <button onclick="deleteRecurringFromList('${doc.id}')" style="background:#dc3545;color:white;border:none;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:12px;">🗑️ Удалить</button>
-          </div>
-        </div>
-      `;
-    });
-    
-    html += '</div>';
-    
-    Swal.fire({
-      title: '🔄 Регулярные расходы',
-      html: html,
-      width: 500,
-      showCloseButton: true,
-      showConfirmButton: false
-    });
-    
-  } catch (error) {
-    console.error('Ошибка загрузки регулярных расходов:', error);
-    Swal.fire('Ошибка', 'Не удалось загрузить регулярные расходы', 'error');
-  }
-}
-
-// Активировать регулярный расход
-async function activateRecurring(id) {
-  try {
-    await db.collection('expenses').doc(id).update({ isActive: true });
-    Swal.close();
-    Swal.fire('Активировано!', 'Регулярный расход снова активен', 'success');
-    loadExpensesReport();
-  } catch (error) {
-    Swal.fire('Ошибка', 'Не удалось активировать', 'error');
-  }
-}
-
-// Деактивировать регулярный расход
-async function deactivateRecurring(id) {
-  try {
-    await db.collection('expenses').doc(id).update({ isActive: false });
-    Swal.close();
-    Swal.fire('Деактивировано!', 'Регулярный расход приостановлен', 'success');
-    loadExpensesReport();
-  } catch (error) {
-    Swal.fire('Ошибка', 'Не удалось деактивировать', 'error');
-  }
-}
-
-// Удалить регулярный расход из списка
-async function deleteRecurringFromList(id) {
-  const result = await Swal.fire({
-    title: 'Удалить регулярный расход?',
-    text: 'Это действие нельзя отменить',
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: '#dc3545',
-    confirmButtonText: 'Удалить',
-    cancelButtonText: 'Отмена'
-  });
-  
-  if (result.isConfirmed) {
-    try {
-      await db.collection('expenses').doc(id).delete();
-      Swal.fire('Удалено!', '', 'success').then(() => showRecurringExpenses());
-      loadExpensesReport();
-    } catch (error) {
       Swal.fire('Ошибка', 'Не удалось удалить', 'error');
     }
   }

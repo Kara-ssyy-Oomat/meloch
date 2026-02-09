@@ -82,7 +82,15 @@
           
           <div style="display:flex; gap:8px; align-items:center;">
             <select id="newCategory" style="flex:1; padding:12px; border:1px solid #ddd; border-radius:8px; font-size:16px; min-height:48px;">
-              <option value="">Загрузка категорий...</option>
+              <option value="">Выберите категорию</option>
+              <option value="все" data-category="все">Все товары</option>
+              <option value="ножницы" data-category="ножницы">✂️ Ножницы</option>
+              <option value="скотч" data-category="скотч">Скотч</option>
+              <option value="нож" data-category="нож">🔪 Нож</option>
+              <option value="корейские" data-category="корейские">Корейские товары</option>
+              <option value="часы" data-category="часы">⌚ Часы</option>
+              <option value="электроника" data-category="электроника">🔌 Электроника</option>
+              <option value="бытовые" data-category="бытовые">Бытовые техники</option>
             </select>
             <button type="button" onclick="showNewCategoryInput()" style="width:48px; height:48px; min-width:48px; min-height:48px; flex-shrink:0; background:linear-gradient(135deg, #ff9a56, #ff6b35); color:white; border:none; border-radius:8px; cursor:pointer; font-size:20px; display:flex; align-items:center; justify-content:center;" title="Добавить новую категорию">➕</button>
           </div>
@@ -177,7 +185,6 @@ function initFirebase() {
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
     loadProducts(); // Загружаем товары после инициализации
-    loadCategoriesForSelect(); // Загружаем категории из Firebase
   } catch (error) {
     console.error('Firebase initialization error:', error);
     Swal.fire('Ошибка', 'Ошибка инициализации Firebase: ' + error.message, 'error');
@@ -201,67 +208,6 @@ async function loadProducts() {
     console.log('Loaded products:', products.length);
   } catch (error) {
     console.error('Error loading products:', error);
-  }
-}
-
-// ============ ЗАГРУЗКА КАТЕГОРИЙ ИЗ FIREBASE ============
-async function loadCategoriesForSelect() {
-  const select = document.getElementById('newCategory');
-  if (!select) return;
-  
-  // Стандартные категории (базовые)
-  const standardCategories = [
-    { value: '', label: 'Выберите категорию' },
-    { value: 'все', label: '📦 Все товары' },
-    { value: 'ножницы', label: '✂️ Ножницы' },
-    { value: 'скотч', label: '📀 Скотч' },
-    { value: 'нож', label: '🔪 Нож' },
-    { value: 'корейские', label: '🇰🇷 Корейские товары' },
-    { value: 'часы', label: '⌚ Часы' },
-    { value: 'электроника', label: '🔌 Электроника' },
-    { value: 'бытовые', label: '🏠 Бытовые техники' }
-  ];
-  
-  const standardValues = standardCategories.map(c => c.value.toLowerCase());
-  
-  try {
-    // Загружаем категории из seller_categories
-    const snapshot = await db.collection('seller_categories').get();
-    const dbCategories = [];
-    
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.name) {
-        const nameLower = data.name.toLowerCase();
-        // Не дублируем стандартные
-        if (!standardValues.includes(nameLower)) {
-          dbCategories.push(data.name);
-        }
-      }
-    });
-    
-    // Формируем HTML
-    let html = '';
-    
-    // Стандартные категории
-    standardCategories.forEach(cat => {
-      html += `<option value="${cat.value}">${cat.label}</option>`;
-    });
-    
-    // Категории из базы данных
-    if (dbCategories.length > 0) {
-      html += '<optgroup label="🆕 Добавленные категории">';
-      dbCategories.forEach(name => {
-        html += `<option value="${name.toLowerCase()}">🏷️ ${name}</option>`;
-      });
-      html += '</optgroup>';
-    }
-    
-    select.innerHTML = html;
-    console.log('Загружено категорий из базы:', dbCategories.length);
-    
-  } catch (error) {
-    console.error('Ошибка загрузки категорий:', error);
   }
 }
 
@@ -828,8 +774,6 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
         createdAt: Date.now(),
         status: 'approved'
       });
-      // Перезагружаем список категорий чтобы новая отобразилась
-      await loadCategoriesForSelect();
     }
     
     Swal.fire('Товар добавлен!', 'Товар успешно добавлен в каталог', 'success');

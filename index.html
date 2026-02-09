@@ -306,7 +306,6 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
 
   <!-- jsPDF для генерации PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -1798,7 +1797,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Название сайта -->
-  <div style="text-align:center; margin:20px 0 10px; padding-top: env(safe-area-inset-top, 0px);">
+  <div style="text-align:center; margin:20px 0 10px;">
     <h1 style="font-size:2.5rem; color:#007bff; margin:0; font-weight:900; text-shadow:2px 2px 4px rgba(0,0,0,0.1);">B2B Market</h1>
     <p style="font-size:0.9rem; color:#666; margin:5px 0 0;">Оптовые товары по выгодным ценам</p>
   </div>
@@ -2229,7 +2228,7 @@ const firebaseConfig = {
 };
 
 // Проверка инициализации Firebase — делаем безопасно и ждём загрузки SDK
-let db, storage, fcmMessaging;
+let db, storage;
 function initFirebase() {
   try {
     if (typeof firebase === 'undefined') throw new Error('Firebase SDK не загружен');
@@ -2250,7 +2249,6 @@ function initFirebase() {
 }
 
 // Подписка на новые сообщения от админа для badge на иконке чата
-let lastMessageCount = -1; // Для определения новых сообщений
 function subscribeToNewChatMessages() {
   const clientId = localStorage.getItem('chatClientId');
   if (!clientId) {
@@ -2258,221 +2256,29 @@ function subscribeToNewChatMessages() {
     return;
   }
   
+  // Используем простой запрос без составного индекса
   db.collection('chatMessages')
     .where('clientId', '==', clientId)
     .orderBy('timestamp', 'asc')
     .onSnapshot(snapshot => {
-      // Считаем непрочитанные от админа
+      // Считаем непрочитанные от админа локально
       let unreadCount = 0;
-      let lastAdminMsg = null;
       snapshot.forEach(doc => {
         const msg = doc.data();
         if (msg.sender === 'admin' && msg.read === false) {
           unreadCount++;
-          lastAdminMsg = msg;
         }
       });
       
-      // Badge на иконке чата
       const badge = document.getElementById('navChatBadge');
       if (badge) {
         badge.textContent = unreadCount > 0 ? unreadCount : '!';
         badge.style.display = unreadCount > 0 ? 'flex' : 'none';
       }
-      
-      // Badge на иконке PWA (значок на рабочем столе)
-      if ('setAppBadge' in navigator && unreadCount > 0) {
-        navigator.setAppBadge(unreadCount).catch(() => {});
-      } else if ('setAppBadge' in navigator && unreadCount === 0) {
-        navigator.clearAppBadge().catch(() => {});
-      }
-      
-      // Показываем уведомление + звук если пришло НОВОЕ сообщение
-      if (lastMessageCount >= 0 && unreadCount > lastMessageCount && lastAdminMsg) {
-        // Звук уведомления
-        playNotificationSound();
-        
-        // Системное уведомление (если разрешено)
-        showChatNotification(lastAdminMsg.text || 'Новое сообщение от продавца');
-      }
-      
-      lastMessageCount = unreadCount;
       console.log('💬 Непрочитанных сообщений:', unreadCount);
     }, error => {
       console.log('Ошибка подписки на чат:', error.message);
     });
-}
-
-// Звук уведомления (генерируем программно)
-function playNotificationSound() {
-  try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    // Мелодия из 3 нот (как WhatsApp)
-    const notes = [
-      { freq: 880, start: 0, duration: 0.15 },     // A5
-      { freq: 1100, start: 0.18, duration: 0.15 },  // C#6
-      { freq: 1320, start: 0.36, duration: 0.2 }    // E6
-    ];
-    
-    notes.forEach(note => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.frequency.value = note.freq;
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime + note.start);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + note.start + note.duration);
-      osc.start(audioCtx.currentTime + note.start);
-      osc.stop(audioCtx.currentTime + note.start + note.duration + 0.05);
-    });
-  } catch (e) {
-    console.log('Звук недоступен:', e);
-  }
-}
-
-// Системное уведомление
-function showChatNotification(text) {
-  // Не показываем если chat.html уже открыт в iframe
-  const chatIframe = document.getElementById('chatIframe');
-  if (chatIframe && chatIframe.style.display !== 'none') return;
-  
-  // Запрашиваем разрешение если ещё не спрашивали
-  if (Notification.permission === 'default') {
-    Notification.requestPermission();
-    return;
-  }
-  
-  if (Notification.permission === 'granted') {
-    const notification = new Notification('💬 Кербен - Новое сообщение', {
-      body: text.substring(0, 100),
-      icon: './icon-kerben.jpg',
-      badge: './icon-kerben.jpg',
-      tag: 'kerben-chat',
-      renotify: true,
-      requireInteraction: true,
-      vibrate: [300, 100, 300]
-    });
-    
-    notification.onclick = () => {
-      window.focus();
-      // Открываем чат
-      const chatBtn = document.querySelector('[onclick*="openChat"]');
-      if (chatBtn) chatBtn.click();
-      notification.close();
-    };
-  }
-}
-
-// ==================== PUSH-УВЕДОМЛЕНИЯ (FCM) ====================
-async function initPushNotifications() {
-  try {
-    // Проверяем поддержку
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.log('🔔 Push-уведомления не поддерживаются');
-      return;
-    }
-    
-    if (!firebase.messaging) {
-      console.log('🔔 Firebase Messaging SDK не загружен');
-      return;
-    }
-    
-    fcmMessaging = firebase.messaging();
-    
-    // Используем уже существующий Service Worker (sw.js) для FCM
-    // НЕ регистрируем новый SW чтобы избежать конфликтов
-    let registration = await navigator.serviceWorker.getRegistration('./');
-    
-    // Если основной SW не зарегистрирован, ждём его регистрации
-    if (!registration) {
-      console.log('🔔 Ждём регистрации основного Service Worker...');
-      return; // FCM инициализируется позже когда SW будет готов
-    }
-    
-    console.log('🔔 FCM использует существующий Service Worker');
-    
-    // Если уже есть разрешение - получаем токен
-    if (Notification.permission === 'granted') {
-      await getFCMToken(registration);
-    }
-    
-    // Обработка уведомлений когда приложение открыто
-    fcmMessaging.onMessage((payload) => {
-      console.log('🔔 Получено сообщение (foreground):', payload);
-      
-      // Показываем уведомление через SweetAlert
-      const title = payload.notification?.title || 'Кербен';
-      const body = payload.notification?.body || 'Новое сообщение';
-      
-      Swal.fire({
-        title: title,
-        text: body,
-        icon: 'info',
-        toast: true,
-        position: 'top-end',
-        showConfirmButton: false,
-        timer: 5000
-      });
-      
-      // Также показываем системное уведомление
-      if (Notification.permission === 'granted') {
-        new Notification(title, {
-          body: body,
-          icon: './icon-kerben.jpg'
-        });
-      }
-    });
-    
-    console.log('🔔 FCM инициализирован');
-    
-  } catch (error) {
-    console.error('🔔 Ошибка инициализации FCM:', error);
-  }
-}
-
-// Получение FCM токена
-async function getFCMToken(registration) {
-  try {
-    // VAPID ключ из Firebase Console -> Project Settings -> Cloud Messaging
-    const vapidKey = 'BCdA8I-AhgwdmbQmyCcvh_oAJ4KyMTMG5niUHMlJzZPhv3VWeDKfexWDpfL5LNpRy-CBUuL4k9YMPY9CVSGrlds'; 
-    
-    const token = await fcmMessaging.getToken({ 
-      vapidKey: vapidKey,
-      serviceWorkerRegistration: registration 
-    });
-    
-    if (token) {
-      console.log('🔔 FCM Token:', token);
-      await saveFCMToken(token);
-    }
-  } catch (error) {
-    console.error('🔔 Ошибка получения токена:', error);
-  }
-}
-
-// Сохранение токена в Firestore
-async function saveFCMToken(token) {
-  try {
-    const clientId = localStorage.getItem('chatClientId');
-    const customerPhone = localStorage.getItem('customerPhone');
-    
-    // Сохраняем токен в коллекцию fcmTokens
-    await db.collection('fcmTokens').doc(token).set({
-      token: token,
-      clientId: clientId || null,
-      customerPhone: customerPhone || null,
-      platform: IS_IOS ? 'ios' : (IS_ANDROID ? 'android' : 'web'),
-      userAgent: navigator.userAgent,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    
-    console.log('🔔 FCM токен сохранён в Firestore');
-  } catch (error) {
-    console.error('🔔 Ошибка сохранения токена:', error);
-  }
 }
 
 if (typeof firebase !== 'undefined') {
@@ -5465,36 +5271,10 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       .then((registration) => {
         console.log('✅ Service Worker зарегистрирован:', registration.scope);
         
-        // Удаляем старый FCM Service Worker если есть (чтобы не было конфликтов)
-        navigator.serviceWorker.getRegistration('./firebase-messaging-sw.js').then(fcmReg => {
-          if (fcmReg) {
-            fcmReg.unregister().then(() => {
-              console.log('🗑️ Старый FCM SW удалён');
-            });
-          }
-        });
-        
-        // Инициализируем Push-уведомления ПОСЛЕ регистрации SW
-        if (typeof initPushNotifications === 'function') {
-          // Ждём пока SW станет активным
-          if (registration.active) {
-            initPushNotifications();
-          } else {
-            navigator.serviceWorker.ready.then(() => {
-              initPushNotifications();
-            });
-          }
-        }
-        
-        // Проверяем обновления СРАЗУ при запуске!
-        registration.update().then(() => {
-          console.log('🔍 Проверка обновлений выполнена');
-        }).catch(err => console.log('Ошибка проверки обновлений:', err));
-        
-        // Проверка обновлений каждые 5 минут (чаще для быстрого обновления)
+        // Проверка обновлений каждые 30 минут (не влияет на производительность)
         setInterval(() => {
           registration.update();
-        }, 5 * 60 * 1000);
+        }, 30 * 60 * 1000);
         
         // Дополнительная проверка при возвращении на вкладку (без нагрузки)
         document.addEventListener('visibilitychange', () => {
@@ -5503,29 +5283,22 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
           }
         });
         
-        // Обработка обновлений - БЕЗ автоматической перезагрузки (чтобы избежать циклов)
+        // Обработка обновлений
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
           
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('🔄 Найдена новая версия Service Worker');
+              // Новая версия доступна - обновляем автоматически!
+              console.log('🔄 Найдена новая версия - автоматическое обновление...');
               
-              // Активируем новый Service Worker
-              newWorker.postMessage('skipWaiting');
+              // Активируем новый Service Worker и перезагружаем
+              newWorker.postMessage({ action: 'skipWaiting' });
               
-              // Показываем уведомление вместо автоматической перезагрузки
-              if (typeof Swal !== 'undefined') {
-                Swal.fire({
-                  title: '🔄 Доступно обновление',
-                  text: 'Нажмите OK чтобы обновить приложение',
-                  icon: 'info',
-                  confirmButtonText: 'Обновить',
-                  allowOutsideClick: false
-                }).then(() => {
-                  window.location.reload();
-                });
-              }
+              // Небольшая задержка для плавности
+              setTimeout(() => {
+                window.location.reload();
+              }, 1000);
             }
           });
         });
@@ -5535,13 +5308,14 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       });
   });
   
-  // Флаг для предотвращения множественных перезагрузок
+  // Автоматическое обновление при активации нового SW (плавно и незаметно)
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!refreshing) {
       refreshing = true;
-      console.log('✨ Service Worker обновлён');
-      // НЕ перезагружаем автоматически - ждём действия пользователя
+      console.log('✨ Приложение обновлено - перезагрузка...');
+      // Обновление происходит плавно
+      window.location.reload();
     }
   });
 }
