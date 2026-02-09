@@ -583,9 +583,13 @@
         
         fcmMessaging = firebase.messaging();
         
-        // Регистрируем Service Worker для FCM
-        const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
-        console.log('🔔 FCM SW зарегистрирован');
+        // Используем существующий Service Worker (sw.js) для FCM
+        let registration = await navigator.serviceWorker.getRegistration('./');
+        if (!registration) {
+          // Регистрируем sw.js если ещё не зарегистрирован
+          registration = await navigator.serviceWorker.register('./sw.js');
+        }
+        console.log('🔔 FCM использует существующий SW');
         
         // Получаем токен
         const token = await fcmMessaging.getToken({

@@ -1,9 +1,64 @@
 // Service Worker для PWA приложения "Кербен"
-// Обеспечивает кэширование и автоматическое обновление
+// Обеспечивает кэширование, автоматическое обновление и Push-уведомления
 
-const CACHE_VERSION = 'kerben-v2.3.0-autoupdate'; // Улучшено автообновление
+const CACHE_VERSION = 'kerben-v2.4.0-fcm'; // Добавлена поддержка FCM
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
+
+// ==================== PUSH-УВЕДОМЛЕНИЯ (FCM) ====================
+// Импортируем Firebase для обработки push
+importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js');
+
+// Инициализация Firebase в Service Worker
+firebase.initializeApp({
+  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+  authDomain: "svoysayet.firebaseapp.com",
+  projectId: "svoysayet",
+  storageBucket: "svoysayet.firebasestorage.app",
+  messagingSenderId: "450143000217",
+  appId: "1:450143000217:web:7495cefaea0b94966e8a08"
+});
+
+const messaging = firebase.messaging();
+
+// Обработка push-уведомлений в фоне (когда сайт закрыт)
+messaging.onBackgroundMessage((payload) => {
+  console.log('[SW] Получено фоновое сообщение:', payload);
+  
+  const title = payload.notification?.title || 'Кербен';
+  const options = {
+    body: payload.notification?.body || 'Новое сообщение',
+    icon: './icon-kerben.jpg',
+    badge: './icon-kerben.jpg',
+    tag: 'kerben-notification',
+    vibrate: [200, 100, 200],
+    data: payload.data || {},
+    requireInteraction: true
+  };
+
+  self.registration.showNotification(title, options);
+});
+
+// Обработка клика по уведомлению
+self.addEventListener('notificationclick', (event) => {
+  console.log('[SW] Клик по уведомлению');
+  event.notification.close();
+  
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if (client.url.includes('chat.html') || client.url.includes('index.html')) {
+            return client.focus();
+          }
+        }
+        return clients.openWindow('./chat.html');
+      })
+  );
+});
+
+// ==================== КЭШИРОВАНИЕ ====================
 
 // Firebase SDK для кэширования
 const FIREBASE_URLS = [

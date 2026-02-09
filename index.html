@@ -2301,9 +2301,17 @@ async function initPushNotifications() {
     
     fcmMessaging = firebase.messaging();
     
-    // Регистрируем отдельный Service Worker для FCM
-    const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
-    console.log('🔔 FCM Service Worker зарегистрирован');
+    // Используем уже существующий Service Worker (sw.js) для FCM
+    // НЕ регистрируем новый SW чтобы избежать конфликтов
+    let registration = await navigator.serviceWorker.getRegistration('./');
+    
+    // Если основной SW не зарегистрирован, ждём его регистрации
+    if (!registration) {
+      console.log('🔔 Ждём регистрации основного Service Worker...');
+      return; // FCM инициализируется позже когда SW будет готов
+    }
+    
+    console.log('🔔 FCM использует существующий Service Worker');
     
     // Если уже есть разрешение - получаем токен
     if (Notification.permission === 'granted') {
@@ -2395,7 +2403,7 @@ async function requestNotificationPermission() {
     if (permission === 'granted') {
       console.log('🔔 Разрешение на уведомления получено');
       
-      const registration = await navigator.serviceWorker.getRegistration('./firebase-messaging-sw.js');
+      const registration = await navigator.serviceWorker.getRegistration('./');
       if (registration && fcmMessaging) {
         await getFCMToken(registration);
       }
@@ -5412,6 +5420,15 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js')
       .then((registration) => {
         console.log('✅ Service Worker зарегистрирован:', registration.scope);
+        
+        // Удаляем старый FCM Service Worker если есть (чтобы не было конфликтов)
+        navigator.serviceWorker.getRegistration('./firebase-messaging-sw.js').then(fcmReg => {
+          if (fcmReg) {
+            fcmReg.unregister().then(() => {
+              console.log('🗑️ Старый FCM SW удалён');
+            });
+          }
+        });
         
         // Проверяем обновления СРАЗУ при запуске!
         registration.update().then(() => {
