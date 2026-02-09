@@ -577,29 +577,31 @@
     async function initFCM() {
       try {
         if (!firebase.messaging) {
-          console.log('Firebase Messaging SDK не загружен');
+          console.log('🔔 Firebase Messaging SDK не загружен');
           return;
         }
         
         fcmMessaging = firebase.messaging();
         
-        // Используем существующий Service Worker (sw.js) для FCM
-        let registration = await navigator.serviceWorker.getRegistration('./');
-        if (!registration) {
-          // Регистрируем sw.js если ещё не зарегистрирован
-          registration = await navigator.serviceWorker.register('./sw.js');
-        }
-        console.log('🔔 FCM использует существующий SW');
+        // Ждём готовности Service Worker
+        let registration = await navigator.serviceWorker.ready;
+        console.log('🔔 SW готов, scope:', registration.scope);
         
         // Получаем токен
-        const token = await fcmMessaging.getToken({
-          vapidKey: VAPID_KEY,
-          serviceWorkerRegistration: registration
-        });
-        
-        if (token) {
-          console.log('🔔 FCM Token:', token);
-          await saveFCMToken(token);
+        try {
+          const token = await fcmMessaging.getToken({
+            vapidKey: VAPID_KEY,
+            serviceWorkerRegistration: registration
+          });
+          
+          if (token) {
+            console.log('🔔 FCM Token получен:', token.substring(0, 20) + '...');
+            await saveFCMToken(token);
+          } else {
+            console.log('🔔 Токен пустой - возможно нет разрешения');
+          }
+        } catch (tokenErr) {
+          console.error('🔔 Ошибка получения токена:', tokenErr);
         }
         
         // Обработка сообщений когда страница открыта
@@ -658,8 +660,37 @@
       // Если уведомления уже разрешены - инициализируем FCM
       if (Notification.permission === 'granted') {
         await initFCM();
+      } else if (Notification.permission === 'default') {
+        // Первый визит - предлагаем включить уведомления через 2 секунды
+        const askedBefore = localStorage.getItem('notificationAsked');
+        if (!askedBefore) {
+          setTimeout(async () => {
+            const result = await Swal.fire({
+              title: '🔔 Включить уведомления?',
+              html: 'Получайте уведомления о новых сообщениях<br>даже когда браузер закрыт',
+              icon: 'question',
+              showCancelButton: true,
+              confirmButtonText: 'Да, включить',
+              cancelButtonText: 'Позже',
+              confirmButtonColor: '#4CAF50'
+            });
+            
+            localStorage.setItem('notificationAsked', 'true');
+            
+            if (result.isConfirmed) {
+              await toggleNotifications();
+            }
+          }, 2000);
+        }
       }
     };
+    
+    // Регистрация Service Worker для push-уведомлений
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => console.log('✅ SW зарегистрирован:', reg.scope))
+        .catch(err => console.error('❌ SW ошибка:', err));
+    }
     
     document.addEventListener('DOMContentLoaded', init);
   </script>
