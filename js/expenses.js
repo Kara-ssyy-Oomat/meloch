@@ -168,7 +168,7 @@ async function loadExpensesReport() {
     const todayStart = today.getTime();
     const yesterdayStart = todayStart - 86400000;
     const weekStart = todayStart - 7 * 86400000;
-    const monthStart = todayStart - 30 * 86400000;
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).getTime();
     
     console.log('📅 Временные метки:');
     console.log('  Сейчас:', new Date(now).toLocaleString());
@@ -204,7 +204,7 @@ async function loadExpensesReport() {
         case 'today': daysInPeriod = 1; break;
         case 'yesterday': daysInPeriod = 1; break;
         case 'week': daysInPeriod = 7; break;
-        case 'month': daysInPeriod = 30; break;
+        case 'month': daysInPeriod = today.getDate(); break;
       }
       
       console.log('📅 Дней в периоде:', daysInPeriod);

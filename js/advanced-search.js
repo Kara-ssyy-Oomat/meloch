@@ -382,17 +382,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const searchInput = document.getElementById('search');
   
   if (searchInput) {
-    searchInput.addEventListener('input', function() {
-      showAutocomplete(this);
-    });
-    
-    searchInput.addEventListener('keydown', handleAutocompleteKeydown);
-    
-    document.addEventListener('click', function(e) {
-      if (!searchInput.contains(e.target) && e.target.id !== 'autocompleteDropdown') {
-        hideAutocomplete();
-      }
-    });
+    // Автодополнение отключено
   }
   
   initVoiceSearch();
