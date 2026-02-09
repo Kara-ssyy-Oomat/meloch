@@ -2250,6 +2250,7 @@ function initFirebase() {
 }
 
 // Подписка на новые сообщения от админа для badge на иконке чата
+let lastMessageCount = -1; // Для определения новых сообщений
 function subscribeToNewChatMessages() {
   const clientId = localStorage.getItem('chatClientId');
   if (!clientId) {
@@ -2257,29 +2258,111 @@ function subscribeToNewChatMessages() {
     return;
   }
   
-  // Используем простой запрос без составного индекса
   db.collection('chatMessages')
     .where('clientId', '==', clientId)
     .orderBy('timestamp', 'asc')
     .onSnapshot(snapshot => {
-      // Считаем непрочитанные от админа локально
+      // Считаем непрочитанные от админа
       let unreadCount = 0;
+      let lastAdminMsg = null;
       snapshot.forEach(doc => {
         const msg = doc.data();
         if (msg.sender === 'admin' && msg.read === false) {
           unreadCount++;
+          lastAdminMsg = msg;
         }
       });
       
+      // Badge на иконке чата
       const badge = document.getElementById('navChatBadge');
       if (badge) {
         badge.textContent = unreadCount > 0 ? unreadCount : '!';
         badge.style.display = unreadCount > 0 ? 'flex' : 'none';
       }
+      
+      // Badge на иконке PWA (значок на рабочем столе)
+      if ('setAppBadge' in navigator && unreadCount > 0) {
+        navigator.setAppBadge(unreadCount).catch(() => {});
+      } else if ('setAppBadge' in navigator && unreadCount === 0) {
+        navigator.clearAppBadge().catch(() => {});
+      }
+      
+      // Показываем уведомление + звук если пришло НОВОЕ сообщение
+      if (lastMessageCount >= 0 && unreadCount > lastMessageCount && lastAdminMsg) {
+        // Звук уведомления
+        playNotificationSound();
+        
+        // Системное уведомление (если разрешено)
+        showChatNotification(lastAdminMsg.text || 'Новое сообщение от продавца');
+      }
+      
+      lastMessageCount = unreadCount;
       console.log('💬 Непрочитанных сообщений:', unreadCount);
     }, error => {
       console.log('Ошибка подписки на чат:', error.message);
     });
+}
+
+// Звук уведомления (генерируем программно)
+function playNotificationSound() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Мелодия из 3 нот (как WhatsApp)
+    const notes = [
+      { freq: 880, start: 0, duration: 0.15 },     // A5
+      { freq: 1100, start: 0.18, duration: 0.15 },  // C#6
+      { freq: 1320, start: 0.36, duration: 0.2 }    // E6
+    ];
+    
+    notes.forEach(note => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.frequency.value = note.freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime + note.start);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + note.start + note.duration);
+      osc.start(audioCtx.currentTime + note.start);
+      osc.stop(audioCtx.currentTime + note.start + note.duration + 0.05);
+    });
+  } catch (e) {
+    console.log('Звук недоступен:', e);
+  }
+}
+
+// Системное уведомление
+function showChatNotification(text) {
+  // Не показываем если chat.html уже открыт в iframe
+  const chatIframe = document.getElementById('chatIframe');
+  if (chatIframe && chatIframe.style.display !== 'none') return;
+  
+  // Запрашиваем разрешение если ещё не спрашивали
+  if (Notification.permission === 'default') {
+    Notification.requestPermission();
+    return;
+  }
+  
+  if (Notification.permission === 'granted') {
+    const notification = new Notification('💬 Кербен - Новое сообщение', {
+      body: text.substring(0, 100),
+      icon: './icon-kerben.jpg',
+      badge: './icon-kerben.jpg',
+      tag: 'kerben-chat',
+      renotify: true,
+      requireInteraction: true,
+      vibrate: [300, 100, 300]
+    });
+    
+    notification.onclick = () => {
+      window.focus();
+      // Открываем чат
+      const chatBtn = document.querySelector('[onclick*="openChat"]');
+      if (chatBtn) chatBtn.click();
+      notification.close();
+    };
+  }
 }
 
 // ==================== PUSH-УВЕДОМЛЕНИЯ (FCM) ====================
