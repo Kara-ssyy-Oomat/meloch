@@ -525,16 +525,25 @@
           <div class="value blue" id="netProfit">0 сом</div>
         </div>
       </div>
-      <div class="controls-row">
-        <select id="expenseDateFilter" onchange="loadExpensesReport()">
+      <div class="controls-row" style="flex-wrap:wrap;">
+        <select id="expenseDateFilter" onchange="onExpenseDateFilterChange()">
           <option value="all">Все время</option>
           <option value="today">Сегодня</option>
           <option value="yesterday">Вчера</option>
           <option value="week">За неделю</option>
           <option value="month">За месяц</option>
+          <option value="custom">📅 Выбрать даты</option>
         </select>
         <button class="btn-blue" onclick="loadExpensesReport()">🔄 Обновить</button>
         <button class="btn-primary" onclick="openAddExpenseModal()">➕ Добавить расход</button>
+        <button class="btn-red" onclick="deleteAllExpensesForPeriod()" style="font-size:12px;">🗑️ Удалить все за период</button>
+      </div>
+      <div id="customDateRange" style="display:none; padding:8px 0 0; width:100%; display:none; gap:8px; align-items:center; flex-wrap:wrap;">
+        <label style="font-size:13px; color:#555;">С:</label>
+        <input type="date" id="expenseDateFrom" onchange="loadExpensesReport()" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+        <label style="font-size:13px; color:#555;">По:</label>
+        <input type="date" id="expenseDateTo" onchange="loadExpensesReport()" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+        <span id="customDateDaysCount" style="font-size:13px; color:#667eea; font-weight:600;"></span>
       </div>
     </div>
     <div class="table-container">
@@ -573,6 +582,49 @@
       <div class="form-group">
         <label>Дата:</label>
         <input type="date" id="expenseDate">
+      </div>
+      <div class="form-group">
+        <label style="display:flex !important; align-items:center; gap:8px; cursor:pointer; margin-bottom:0;">
+          <input type="checkbox" id="expenseFillRange" onchange="toggleFillRangeOptions()" style="width:auto; padding:0;">
+          <span>📆 Добавить за каждый день до сегодня</span>
+        </label>
+        <div id="fillRangeInfo" style="display:none; margin-top:8px; padding:10px; background:#fff3cd; border-radius:8px; font-size:13px; color:#856404;">
+          💡 Расход будет создан <b>на каждый день</b> от выбранной даты до сегодня.
+          <div id="fillRangeDaysInfo" style="margin-top:6px; font-weight:600; color:#667eea;"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label style="display:flex !important; align-items:center; gap:8px; cursor:pointer; margin-bottom:0;">
+          <input type="checkbox" id="expenseIsRecurring" onchange="toggleRecurringOptions()" style="width:auto; padding:0;">
+          <span>🔄 Регулярный расход (повторяется по дням недели)</span>
+        </label>
+      </div>
+      <div id="recurringOptions" style="display:none; padding:10px; background:#f0f4ff; border-radius:10px; margin-bottom:12px;">
+        <p style="font-size:13px; color:#555; margin-bottom:8px;">Выберите дни недели:</p>
+        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">
+          <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" class="recurringDay" value="1" onchange="updateFillRangeDaysInfo()"> Пн
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" class="recurringDay" value="2" onchange="updateFillRangeDaysInfo()"> Вт
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" class="recurringDay" value="3" onchange="updateFillRangeDaysInfo()"> Ср
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" class="recurringDay" value="4" onchange="updateFillRangeDaysInfo()"> Чт
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" class="recurringDay" value="5" onchange="updateFillRangeDaysInfo()"> Пт
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" class="recurringDay" value="6" onchange="updateFillRangeDaysInfo()"> Сб
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" class="recurringDay" value="0" onchange="updateFillRangeDaysInfo()"> Вс
+          </label>
+        </div>
+        <button type="button" onclick="document.querySelectorAll('.recurringDay').forEach(c=>c.checked=true); updateFillRangeDaysInfo()" style="padding:6px 12px; background:#667eea; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">✅ Выбрать все</button>
       </div>
       <button class="btn-red" onclick="saveExpense()" style="width:100%; padding:14px; font-size:16px; font-weight:600;">💾 Сохранить расход</button>
     </div>
@@ -1081,6 +1133,51 @@ async function loadAgentsProfitReport() {
 }
 
 // ============ ОТЧЁТ ПО РАСХОДАМ ============
+
+// Показать/скрыть поля выбора дат
+function onExpenseDateFilterChange() {
+  const dateFilter = document.getElementById('expenseDateFilter').value;
+  const customRange = document.getElementById('customDateRange');
+  if (dateFilter === 'custom') {
+    customRange.style.display = 'flex';
+    // Устанавливаем значения по умолчанию: начало месяца — сегодня
+    const now = new Date();
+    const fromEl = document.getElementById('expenseDateFrom');
+    const toEl = document.getElementById('expenseDateTo');
+    if (!fromEl.value) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      fromEl.value = monthStart.toISOString().split('T')[0];
+    }
+    if (!toEl.value) {
+      toEl.value = now.toISOString().split('T')[0];
+    }
+    updateCustomDaysCount();
+  } else {
+    customRange.style.display = 'none';
+  }
+  loadExpensesReport();
+}
+
+// Подсчёт количества дней в выбранном диапазоне
+function updateCustomDaysCount() {
+  const fromEl = document.getElementById('expenseDateFrom');
+  const toEl = document.getElementById('expenseDateTo');
+  const countEl = document.getElementById('customDateDaysCount');
+  if (fromEl.value && toEl.value) {
+    const from = new Date(fromEl.value);
+    const to = new Date(toEl.value);
+    const diffMs = to.getTime() - from.getTime();
+    const days = Math.round(diffMs / (24 * 60 * 60 * 1000)) + 1;
+    if (days > 0) {
+      countEl.textContent = `(${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'})`;
+    } else {
+      countEl.textContent = '⚠️ Неверный диапазон';
+    }
+  } else {
+    countEl.textContent = '';
+  }
+}
+
 async function loadExpensesReport() {
   const dateFilter = document.getElementById('expenseDateFilter').value;
   
@@ -1101,6 +1198,16 @@ async function loadExpensesReport() {
       break;
     case 'month':
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case 'custom':
+      const fromVal = document.getElementById('expenseDateFrom').value;
+      const toVal = document.getElementById('expenseDateTo').value;
+      if (fromVal) startDate = new Date(fromVal);
+      if (toVal) {
+        endDate = new Date(toVal);
+        endDate.setHours(23, 59, 59, 999); // Включаем весь последний день
+      }
+      updateCustomDaysCount();
       break;
   }
   
@@ -1194,13 +1301,17 @@ async function loadExpensesReport() {
     expenses.sort((a, b) => b.expenseDate - a.expenseDate);
     
     const tbody = document.getElementById('expensesReportBody');
+    const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
     tbody.innerHTML = expenses.map((e, i) => {
       const dateStr = e.expenseDate.toLocaleDateString('ru-RU');
+      const recurringBadge = e.isRecurring ? '<span style="background:#17a2b8; color:white; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:6px;">🔄 Регулярный</span>' : '';
+      const daysInfo = (e.isRecurring && e.recurringDays && e.recurringDays.length > 0) ? 
+        '<span style="color:#666; font-size:11px; margin-left:6px;">(' + e.recurringDays.map(d => dayNames[d]).join(', ') + ')</span>' : '';
       return `
         <tr>
           <td data-label="#">${i + 1}</td>
           <td data-label="Дата">${dateStr}</td>
-          <td data-label="Описание">${e.description || '-'}</td>
+          <td data-label="Описание">${e.description || '-'}${recurringBadge}${daysInfo}</td>
           <td data-label="Сумма" class="right" style="color:#dc3545; font-weight:600;">${(parseFloat(e.amount) || 0).toFixed(2)} сом</td>
           <td data-label="Действия" class="center">
             <button onclick="deleteExpense('${e.id}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>
@@ -1215,11 +1326,65 @@ async function loadExpensesReport() {
 }
 
 // ============ ФУНКЦИИ РАСХОДОВ ============
+function toggleRecurringOptions() {
+  const isChecked = document.getElementById('expenseIsRecurring').checked;
+  document.getElementById('recurringOptions').style.display = isChecked ? 'block' : 'none';
+  updateFillRangeDaysInfo();
+}
+
+function toggleFillRangeOptions() {
+  const isChecked = document.getElementById('expenseFillRange').checked;
+  document.getElementById('fillRangeInfo').style.display = isChecked ? 'block' : 'none';
+  if (isChecked) updateFillRangeDaysInfo();
+}
+
+function updateFillRangeDaysInfo() {
+  const dateVal = document.getElementById('expenseDate').value;
+  const infoEl = document.getElementById('fillRangeDaysInfo');
+  if (!dateVal || !infoEl) return;
+  const from = new Date(dateVal);
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  from.setHours(0,0,0,0);
+  const diffMs = today.getTime() - from.getTime();
+  const totalDays = Math.floor(diffMs / (24*60*60*1000)) + 1;
+  if (totalDays < 1) {
+    infoEl.textContent = '⚠️ Дата должна быть сегодня или раньше';
+    return;
+  }
+  const isRecurring = document.getElementById('expenseIsRecurring').checked;
+  let activeDays = totalDays;
+  if (isRecurring) {
+    const selectedDays = Array.from(document.querySelectorAll('.recurringDay:checked')).map(cb => parseInt(cb.value));
+    if (selectedDays.length > 0) {
+      activeDays = 0;
+      for (let i = 0; i < totalDays; i++) {
+        const d = new Date(from);
+        d.setDate(d.getDate() + i);
+        if (selectedDays.includes(d.getDay())) activeDays++;
+      }
+    }
+  }
+  const amount = parseFloat(document.getElementById('expenseAmount').value) || 0;
+  const total = amount * activeDays;
+  const daysWord = activeDays === 1 ? 'день' : activeDays < 5 ? 'дня' : 'дней';
+  const extra = isRecurring ? ' (по выбранным дням)' : '';
+  infoEl.innerHTML = `📅 ${activeDays} ${daysWord}${extra} × ${amount.toFixed(2)} = <b>${total.toFixed(2)} сом</b>`;
+}
+
 function openAddExpenseModal() {
   document.getElementById('addExpenseModal').classList.add('active');
   document.getElementById('expenseDate').value = new Date().toISOString().split('T')[0];
   document.getElementById('expenseDescription').value = '';
   document.getElementById('expenseAmount').value = '';
+  document.getElementById('expenseIsRecurring').checked = false;
+  document.getElementById('recurringOptions').style.display = 'none';
+  document.getElementById('expenseFillRange').checked = false;
+  document.getElementById('fillRangeInfo').style.display = 'none';
+  document.querySelectorAll('.recurringDay').forEach(cb => cb.checked = false);
+  // Обновлять инфо о диапазоне при изменении даты/суммы
+  document.getElementById('expenseDate').addEventListener('change', updateFillRangeDaysInfo);
+  document.getElementById('expenseAmount').addEventListener('input', updateFillRangeDaysInfo);
 }
 
 function closeAddExpenseModal() {
@@ -1246,17 +1411,103 @@ async function saveExpense() {
     return;
   }
   
+  // Проверяем добавление за диапазон дней
+  const fillRange = document.getElementById('expenseFillRange').checked;
+
+  // Проверяем регулярный расход
+  const isRecurring = document.getElementById('expenseIsRecurring').checked;
+  let selectedDays = [];
+  if (isRecurring) {
+    selectedDays = Array.from(document.querySelectorAll('.recurringDay:checked')).map(cb => parseInt(cb.value));
+    if (selectedDays.length === 0) {
+      Swal.fire('Ошибка', 'Выберите хотя бы один день недели для регулярного расхода', 'error');
+      return;
+    }
+  }
+
   try {
-    await db.collection('expenses').add({
+    if (fillRange) {
+      // Создаём расход на каждый день от выбранной даты до сегодня
+      const fromDate = new Date(date);
+      fromDate.setHours(0,0,0,0);
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      if (fromDate > today) {
+        Swal.fire('Ошибка', 'Дата начала не может быть позже сегодня', 'error');
+        return;
+      }
+      const totalDays = Math.floor((today - fromDate) / (24*60*60*1000)) + 1;
+
+      // Собираем даты с учётом дней недели (если включён регулярный)
+      const datesToAdd = [];
+      for (let i = 0; i < totalDays; i++) {
+        const d = new Date(fromDate);
+        d.setDate(d.getDate() + i);
+        if (isRecurring && selectedDays.length > 0) {
+          if (!selectedDays.includes(d.getDay())) continue;
+        }
+        datesToAdd.push(d);
+      }
+
+      if (datesToAdd.length === 0) {
+        Swal.fire('Ошибка', 'Нет подходящих дней в выбранном диапазоне', 'error');
+        return;
+      }
+
+      const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+      const extraInfo = isRecurring ? `<br>Дни: <b>${selectedDays.map(d => dayNames[d]).join(', ')}</b>` : '';
+      const confirmResult = await Swal.fire({
+        title: `Добавить ${datesToAdd.length} расходов?`,
+        html: `<b>${description}</b><br>По ${amount.toFixed(2)} сом × ${datesToAdd.length} дней = <b>${(amount * datesToAdd.length).toFixed(2)} сом</b>${extraInfo}`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Да, добавить',
+        cancelButtonText: 'Отмена'
+      });
+      if (!confirmResult.isConfirmed) return;
+
+      const batch = db.batch();
+      datesToAdd.forEach(d => {
+        const dateStr = d.toISOString().split('T')[0];
+        const ref = db.collection('expenses').doc();
+        batch.set(ref, {
+          description,
+          amount,
+          date: dateStr,
+          timestamp: d.getTime(),
+          createdAt: Date.now(),
+          isRecurring: false
+        });
+      });
+      await batch.commit();
+
+      closeAddExpenseModal();
+      Swal.fire('Успех', `Добавлено ${datesToAdd.length} расходов на сумму ${(amount * datesToAdd.length).toFixed(2)} сом`, 'success');
+      loadExpensesReport();
+      return;
+    }
+
+    const expenseData = {
       description,
       amount,
       date,
       timestamp: new Date(date).getTime(),
-      createdAt: Date.now()
-    });
+      createdAt: Date.now(),
+      isRecurring: isRecurring || false
+    };
+    if (isRecurring) {
+      expenseData.recurringDays = selectedDays;
+    }
+    await db.collection('expenses').add(expenseData);
     
     closeAddExpenseModal();
-    Swal.fire('Успех', 'Расход добавлен!', 'success');
+    if (isRecurring) {
+      const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+      const names = selectedDays.map(d => dayNames[d]).join(', ');
+      Swal.fire('Успех', `Регулярный расход "${description}" добавлен! Дни: ${names}`, 'success');
+    } else {
+      Swal.fire('Успех', 'Расход добавлен!', 'success');
+    }
     loadExpensesReport();
     
   } catch (error) {
@@ -1284,6 +1535,103 @@ async function deleteExpense(id) {
       console.error('Ошибка удаления:', error);
       Swal.fire('Ошибка', 'Не удалось удалить', 'error');
     }
+  }
+}
+
+// ============ УДАЛЕНИЕ ВСЕХ РАСХОДОВ ЗА ПЕРИОД ============
+async function deleteAllExpensesForPeriod() {
+  const dateFilter = document.getElementById('expenseDateFilter').value;
+  if (dateFilter === 'all') {
+    const confirmAll = await Swal.fire({
+      title: '⚠️ Удалить ВСЕ расходы?',
+      text: 'Вы выбрали "Все время". Это удалит абсолютно все расходы! Выберите конкретный период для удаления.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc3545',
+      confirmButtonText: 'Да, удалить ВСЕ',
+      cancelButtonText: 'Отмена'
+    });
+    if (!confirmAll.isConfirmed) return;
+  }
+
+  const now = new Date();
+  let startDate = new Date(0);
+  let endDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  let periodName = 'весь период';
+
+  switch(dateFilter) {
+    case 'today':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      periodName = 'сегодня';
+      break;
+    case 'yesterday':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      periodName = 'вчера';
+      break;
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      periodName = 'неделю';
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      periodName = 'месяц';
+      break;
+    case 'custom':
+      const fromVal = document.getElementById('expenseDateFrom').value;
+      const toVal = document.getElementById('expenseDateTo').value;
+      if (fromVal) startDate = new Date(fromVal);
+      if (toVal) { endDate = new Date(toVal); endDate.setHours(23, 59, 59, 999); }
+      periodName = `${fromVal || '...'} — ${toVal || '...'}`;
+      break;
+  }
+
+  try {
+    // Считаем сколько расходов попадает в период
+    const snapshot = await db.collection('expenses').get();
+    const toDelete = [];
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      let expDate;
+      if (data.timestamp) expDate = new Date(data.timestamp);
+      else if (data.date) expDate = new Date(data.date);
+      else if (data.createdAt) expDate = new Date(data.createdAt);
+      else return;
+      if (expDate >= startDate && expDate <= endDate) {
+        toDelete.push(doc.id);
+      }
+    });
+
+    if (toDelete.length === 0) {
+      Swal.fire('Пусто', 'Нет расходов за выбранный период', 'info');
+      return;
+    }
+
+    const confirm = await Swal.fire({
+      title: `🗑️ Удалить ${toDelete.length} расход(ов)?`,
+      html: `Период: <b>${periodName}</b><br>Будет удалено: <b>${toDelete.length}</b> записей`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc3545',
+      confirmButtonText: `Удалить ${toDelete.length} шт.`,
+      cancelButtonText: 'Отмена'
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    // Удаляем батчами по 500 (лимит Firestore)
+    const batch = db.batch();
+    toDelete.forEach(id => {
+      batch.delete(db.collection('expenses').doc(id));
+    });
+    await batch.commit();
+
+    Swal.fire('Готово!', `Удалено ${toDelete.length} расходов за ${periodName}`, 'success');
+    loadExpensesReport();
+
+  } catch (error) {
+    console.error('Ошибка массового удаления:', error);
+    Swal.fire('Ошибка', 'Не удалось удалить расходы: ' + error.message, 'error');
   }
 }
 

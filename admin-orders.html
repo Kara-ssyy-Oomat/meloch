@@ -163,6 +163,7 @@
         <select id="ordersFilterCombined" onchange="applyOrdersCombinedFilter()" style="width:50%; padding:8px 10px; border:1px solid #e0e0e0; border-radius:8px; font-size:13px; background:#fff;">
           <option value="all|all">Все</option>
           <option value="all|today">Сегодня</option>
+          <option value="all|yesterday">Вчера</option>
           <option value="all|week">Неделя</option>
           <option value="pending|all">🕐 Новые</option>
           <option value="preparing|all">📦 Готовятся</option>
@@ -387,12 +388,16 @@ function renderOrdersManagementFromCache() {
     return;
   }
 
-  const dateFilterEl = document.getElementById('ordersFilterDate');
-  const statusFilterEl = document.getElementById('ordersFilterStatus');
+  const comboEl = document.getElementById('ordersFilterCombined');
   const searchEl = document.getElementById('ordersSearchClient');
 
-  const dateFilter = dateFilterEl ? dateFilterEl.value : 'all';
-  const statusFilter = statusFilterEl ? statusFilterEl.value : 'all';
+  let statusFilter = 'all';
+  let dateFilter = 'all';
+  if (comboEl && comboEl.value) {
+    const parts = comboEl.value.split('|');
+    statusFilter = parts[0] || 'all';
+    dateFilter = parts[1] || 'all';
+  }
   const searchQuery = ((searchEl ? searchEl.value : '') || '').toLowerCase();
 
   const now = Date.now();
@@ -403,7 +408,15 @@ function renderOrdersManagementFromCache() {
 
     let dateMatch = true;
     if (dateFilter === 'today') {
-      dateMatch = (now - timestamp) < oneDayMs;
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      dateMatch = timestamp >= todayStart.getTime();
+    } else if (dateFilter === 'yesterday') {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const yesterdayStart = new Date(todayStart);
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+      dateMatch = timestamp >= yesterdayStart.getTime() && timestamp < todayStart.getTime();
     } else if (dateFilter === 'week') {
       dateMatch = (now - timestamp) < (7 * oneDayMs);
     } else if (dateFilter === 'month') {
