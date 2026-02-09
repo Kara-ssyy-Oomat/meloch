@@ -79,8 +79,7 @@ function addBottomNavStyles() {
       background: #fff;
       display: flex;
       align-items: center;
-      height: calc(56px + env(safe-area-inset-bottom, 0px));
-      padding-bottom: env(safe-area-inset-bottom, 0px);
+      height: 56px;
       border-top: 1px solid #eee;
       box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
     }
@@ -137,10 +136,10 @@ function addBottomNavStyles() {
     /* Контейнер iframe для страниц */
     #pageFrame {
       position: fixed;
-      top: env(safe-area-inset-top, 0px);
+      top: 0;
       left: 0;
       width: 100%;
-      height: calc(100% - 56px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+      height: calc(100% - 56px);
       z-index: 99998;
       border: none;
       background: #fff;
