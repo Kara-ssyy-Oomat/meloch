@@ -2240,8 +2240,6 @@ function initFirebase() {
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
     
-    // Push-уведомления инициализируются ПОСЛЕ регистрации Service Worker (см. код ниже)
-    
     // Подписка на новые сообщения в чате
     subscribeToNewChatMessages();
     
@@ -2391,42 +2389,6 @@ async function saveFCMToken(token) {
     console.log('🔔 FCM токен сохранён в Firestore');
   } catch (error) {
     console.error('🔔 Ошибка сохранения токена:', error);
-  }
-}
-
-// Запрос разрешения на уведомления (вызывается по кнопке)
-async function requestNotificationPermission() {
-  try {
-    const permission = await Notification.requestPermission();
-    
-    if (permission === 'granted') {
-      console.log('🔔 Разрешение на уведомления получено');
-      
-      const registration = await navigator.serviceWorker.getRegistration('./');
-      if (registration && fcmMessaging) {
-        await getFCMToken(registration);
-      }
-      
-      Swal.fire({
-        icon: 'success',
-        title: 'Уведомления включены!',
-        text: 'Вы будете получать уведомления о заказах и сообщениях',
-        timer: 3000
-      });
-      
-      return true;
-    } else {
-      console.log('🔔 Разрешение отклонено:', permission);
-      Swal.fire({
-        icon: 'warning',
-        title: 'Уведомления отключены',
-        text: 'Включите уведомления в настройках браузера для получения важных сообщений'
-      });
-      return false;
-    }
-  } catch (error) {
-    console.error('🔔 Ошибка запроса разрешения:', error);
-    return false;
   }
 }
 
