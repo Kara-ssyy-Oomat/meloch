@@ -1215,12 +1215,14 @@ async function loadExpensesReport() {
   
   try {
     // Загружаем расходы и заказы для расчёта прибыли
-    const [expensesSnap, ordersSnap] = await Promise.all([
+    const [expensesSnap, ordersSnap, agentExpensesSnap] = await Promise.all([
       db.collection('expenses').get(),
-      db.collection('orders').get()
+      db.collection('orders').get(),
+      db.collection('agentExpenses').get()
     ]);
     
     console.log('📋 Всего расходов в базе:', expensesSnap.size);
+    console.log('🤝 Расходов агентов в базе:', agentExpensesSnap.size);
     
     // Показываем первые 3 расхода для отладки
     let debugCount = 0;
@@ -1259,7 +1261,33 @@ async function loadExpensesReport() {
       }
     });
     
-    console.log('✅ Расходов за период:', expenses.length);
+    // Добавляем расходы агентов
+    agentExpensesSnap.forEach(doc => {
+      const data = doc.data();
+      let expenseDate;
+      if (data.timestamp) {
+        expenseDate = new Date(data.timestamp);
+      } else if (data.date) {
+        expenseDate = new Date(data.date);
+      } else if (data.createdAt) {
+        expenseDate = new Date(data.createdAt);
+      } else {
+        expenseDate = new Date(0);
+      }
+      
+      if (expenseDate >= startDate && expenseDate <= endDate) {
+        expenses.push({
+          id: 'agent_' + doc.id,
+          description: data.description || '-',
+          amount: data.amount || 0,
+          expenseDate,
+          isAgentExpense: true,
+          agentName: data.agentName || 'Агент'
+        });
+      }
+    });
+    
+    console.log('✅ Расходов за период (включая агентов):', expenses.length);
     
     let periodProfit = 0;
     ordersSnap.forEach(doc => {
@@ -1305,17 +1333,25 @@ async function loadExpensesReport() {
     tbody.innerHTML = expenses.map((e, i) => {
       const dateStr = e.expenseDate.toLocaleDateString('ru-RU');
       const recurringBadge = e.isRecurring ? '<span style="background:#17a2b8; color:white; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:6px;">🔄 Регулярный</span>' : '';
+      const agentBadge = e.isAgentExpense ? '<span style="background:#ff9800; color:white; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:6px;">🤝 ' + e.agentName + '</span>' : '';
       const daysInfo = (e.isRecurring && e.recurringDays && e.recurringDays.length > 0) ? 
         '<span style="color:#666; font-size:11px; margin-left:6px;">(' + e.recurringDays.map(d => dayNames[d]).join(', ') + ')</span>' : '';
+      
+      let deleteBtn = '';
+      if (e.isAgentExpense) {
+        const realId = e.id.replace('agent_', '');
+        deleteBtn = `<button onclick="deleteAgentExpenseAdmin('${realId}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>`;
+      } else {
+        deleteBtn = `<button onclick="deleteExpense('${e.id}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>`;
+      }
+      
       return `
         <tr>
           <td data-label="#">${i + 1}</td>
           <td data-label="Дата">${dateStr}</td>
-          <td data-label="Описание">${e.description || '-'}${recurringBadge}${daysInfo}</td>
+          <td data-label="Описание">${e.description || '-'}${recurringBadge}${agentBadge}${daysInfo}</td>
           <td data-label="Сумма" class="right" style="color:#dc3545; font-weight:600;">${(parseFloat(e.amount) || 0).toFixed(2)} сом</td>
-          <td data-label="Действия" class="center">
-            <button onclick="deleteExpense('${e.id}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>
-          </td>
+          <td data-label="Действия" class="center">${deleteBtn}</td>
         </tr>
       `;
     }).join('');
@@ -1533,6 +1569,29 @@ async function deleteExpense(id) {
       loadExpensesReport();
     } catch (error) {
       console.error('Ошибка удаления:', error);
+      Swal.fire('Ошибка', 'Не удалось удалить', 'error');
+    }
+  }
+}
+
+// Удалить расход агента (из админки)
+async function deleteAgentExpenseAdmin(id) {
+  const result = await Swal.fire({
+    title: 'Удалить расход агента?',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#ff9800',
+    confirmButtonText: 'Удалить',
+    cancelButtonText: 'Отмена'
+  });
+  
+  if (result.isConfirmed) {
+    try {
+      await db.collection('agentExpenses').doc(id).delete();
+      Swal.fire('Удалено!', 'Расход агента удалён', 'success');
+      loadExpensesReport();
+    } catch (error) {
+      console.error('Ошибка удаления расхода агента:', error);
       Swal.fire('Ошибка', 'Не удалось удалить', 'error');
     }
   }

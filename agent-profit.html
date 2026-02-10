@@ -609,6 +609,252 @@
       border-top: 1px dashed #ddd;
     }
     
+    /* Секция расходов агента */
+    .expenses-section {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    
+    .expenses-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    
+    .expenses-title {
+      margin: 0;
+      color: #333;
+      font-size: 18px;
+    }
+    
+    .expenses-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    
+    .add-expense-btn {
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #ff9800, #f57c00);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .add-expense-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(255,152,0,0.35);
+    }
+    
+    .expense-period-select {
+      padding: 8px 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      background: white;
+      outline: none;
+    }
+    
+    .expense-period-select:focus {
+      border-color: #ff9800;
+    }
+    
+    .expenses-total-row {
+      background: #fff3e0;
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border: 1px solid #ffe0b2;
+    }
+    
+    .expenses-total-label {
+      font-size: 14px;
+      color: #e65100;
+      font-weight: 500;
+    }
+    
+    .expenses-total-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e65100;
+    }
+    
+    .expenses-note {
+      font-size: 11px;
+      color: #999;
+      text-align: center;
+      margin-bottom: 12px;
+      font-style: italic;
+    }
+    
+    .expense-card {
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 10px;
+      border-left: 4px solid #ff9800;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+    
+    .expense-card:hover {
+      background: #fff8e1;
+      transform: translateX(3px);
+    }
+    
+    .expense-info {
+      flex: 1;
+    }
+    
+    .expense-desc {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    
+    .expense-date-text {
+      font-size: 12px;
+      color: #999;
+    }
+    
+    .expense-amount {
+      font-weight: 700;
+      color: #e65100;
+      font-size: 16px;
+      margin-right: 12px;
+      white-space: nowrap;
+    }
+    
+    .expense-delete-btn {
+      background: #ff5252;
+      color: white;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    
+    .expense-delete-btn:hover {
+      background: #d32f2f;
+      transform: scale(1.1);
+    }
+    
+    .expenses-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    /* Модалка расхода */
+    .expense-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .expense-modal {
+      background: white;
+      width: 95%;
+      max-width: 420px;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    
+    .expense-modal-header {
+      background: linear-gradient(135deg, #ff9800, #f57c00);
+      color: white;
+      padding: 18px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .expense-modal-header h3 { margin: 0; font-size: 18px; }
+    
+    .expense-modal-close {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      font-size: 24px;
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    
+    .expense-modal-body { padding: 20px; }
+    
+    .expense-form-group {
+      margin-bottom: 15px;
+    }
+    
+    .expense-form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 6px;
+    }
+    
+    .expense-form-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 15px;
+      transition: border-color 0.3s;
+    }
+    
+    .expense-form-input:focus {
+      outline: none;
+      border-color: #ff9800;
+    }
+    
+    .expense-save-btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #ff9800, #f57c00);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 16px;
+      transition: all 0.3s;
+    }
+    
+    .expense-save-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(255,152,0,0.35);
+    }
+
     @media (max-width: 600px) {
       .stats-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -629,6 +875,15 @@
       
       .order-actions {
         justify-content: flex-end;
+      }
+      
+      .expenses-header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .expenses-controls {
+        justify-content: space-between;
       }
     }
   </style>
@@ -747,6 +1002,37 @@
         </div>
       </div>
       
+      <!-- Секция расходов агента -->
+      <div class="expenses-section">
+        <div class="expenses-header">
+          <h3 class="expenses-title">📝 Мои расходы (для компании)</h3>
+          <div class="expenses-controls">
+            <select id="agentExpensePeriod" class="expense-period-select" onchange="loadAgentExpenses()">
+              <option value="all">📅 Все время</option>
+              <option value="today">📅 Сегодня</option>
+              <option value="week">📅 Неделя</option>
+              <option value="month" selected>📅 Месяц</option>
+            </select>
+            <button class="add-expense-btn" onclick="openAgentExpenseModal()">➕ Добавить расход</button>
+          </div>
+        </div>
+        
+        <div class="expenses-note">⚠️ Эти расходы записываются для отчёта компании и НЕ вычитаются из вашей прибыли</div>
+        
+        <div class="expenses-total-row">
+          <span class="expenses-total-label">💸 Итого расходов:</span>
+          <span class="expenses-total-value" id="agentExpensesTotal">0 сом</span>
+        </div>
+        
+        <div class="expenses-list" id="agentExpensesList">
+          <div class="empty-state">
+            <div class="empty-icon">📝</div>
+            <div>Расходов пока нет</div>
+            <div style="font-size:13px; color:#999; margin-top:8px;">Записывайте сюда расходы: бензин, обед, связь и т.д.</div>
+          </div>
+        </div>
+      </div>
+      
       <!-- Список заказов -->
       <div class="orders-container">
         <div class="orders-header">
@@ -766,6 +1052,31 @@
     <div class="bottom-bar">
       <button class="logout-btn" onclick="logoutAgent()">🚪 Выйти из аккаунта</button>
       <a href="index.html" class="close-btn">✖ На главную</a>
+    </div>
+  </div>
+
+  <!-- Модальное окно добавления расхода агента -->
+  <div class="expense-modal-overlay" id="agentExpenseModal" onclick="if(event.target===this) closeAgentExpenseModal()">
+    <div class="expense-modal">
+      <div class="expense-modal-header">
+        <h3>📝 Новый расход</h3>
+        <button class="expense-modal-close" onclick="closeAgentExpenseModal()">&times;</button>
+      </div>
+      <div class="expense-modal-body">
+        <div class="expense-form-group">
+          <label>📋 За что расход?</label>
+          <input type="text" id="agentExpenseDesc" class="expense-form-input" placeholder="Бензин, обед, связь, доставка...">
+        </div>
+        <div class="expense-form-group">
+          <label>💰 Сумма (сом)</label>
+          <input type="number" id="agentExpenseAmount" class="expense-form-input" placeholder="0" min="0" step="1">
+        </div>
+        <div class="expense-form-group">
+          <label>📅 Дата</label>
+          <input type="date" id="agentExpenseDate" class="expense-form-input">
+        </div>
+        <button class="expense-save-btn" onclick="saveAgentExpense()">✅ Сохранить расход</button>
+      </div>
     </div>
   </div>
 
@@ -820,6 +1131,7 @@
           currentAgent = JSON.parse(saved);
           showDashboard();
           startOrdersListener();
+          loadAgentExpenses();
         }
       } catch(e) {
         console.error('Ошибка загрузки агента:', e);
@@ -926,6 +1238,7 @@
         
         showDashboard();
         startOrdersListener();
+        loadAgentExpenses();
         
       } catch(e) {
         console.error('Ошибка регистрации:', e);
@@ -988,6 +1301,7 @@
         
         showDashboard();
         startOrdersListener();
+        loadAgentExpenses();
         
       } catch(e) {
         console.error('Ошибка входа:', e);
@@ -1443,6 +1757,179 @@
         closeClientsModal();
       }
     });
+    
+    // ==================== РАСХОДЫ АГЕНТА (для компании) ====================
+    
+    // Открыть модалку
+    function openAgentExpenseModal() {
+      document.getElementById('agentExpenseModal').style.display = 'flex';
+      document.getElementById('agentExpenseDate').value = new Date().toISOString().split('T')[0];
+      document.getElementById('agentExpenseDesc').value = '';
+      document.getElementById('agentExpenseAmount').value = '';
+      setTimeout(() => document.getElementById('agentExpenseDesc').focus(), 200);
+    }
+    
+    // Закрыть модалку
+    function closeAgentExpenseModal() {
+      document.getElementById('agentExpenseModal').style.display = 'none';
+    }
+    
+    // Сохранить расход
+    async function saveAgentExpense() {
+      if (!currentAgent) return;
+      
+      const description = document.getElementById('agentExpenseDesc').value.trim();
+      const amount = parseFloat(document.getElementById('agentExpenseAmount').value);
+      const date = document.getElementById('agentExpenseDate').value;
+      
+      if (!description) {
+        Swal.fire('Ошибка', 'Укажите за что расход', 'warning');
+        return;
+      }
+      if (!amount || amount <= 0) {
+        Swal.fire('Ошибка', 'Укажите корректную сумму', 'warning');
+        return;
+      }
+      if (!date) {
+        Swal.fire('Ошибка', 'Выберите дату', 'warning');
+        return;
+      }
+      
+      try {
+        Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        
+        await db.collection('agentExpenses').add({
+          agentId: currentAgent.id,
+          agentName: currentAgent.name,
+          description: description,
+          amount: amount,
+          date: date,
+          timestamp: new Date(date).getTime(),
+          createdAt: Date.now()
+        });
+        
+        closeAgentExpenseModal();
+        Swal.fire({
+          icon: 'success',
+          title: 'Записано!',
+          text: `Расход "${description}" — ${amount.toLocaleString()} сом`,
+          timer: 2000,
+          showConfirmButton: false
+        });
+        
+        loadAgentExpenses();
+      } catch(e) {
+        console.error('Ошибка сохранения расхода:', e);
+        Swal.fire('Ошибка', 'Не удалось сохранить расход', 'error');
+      }
+    }
+    
+    // Загрузить расходы агента
+    async function loadAgentExpenses() {
+      if (!currentAgent) return;
+      
+      try {
+        const snapshot = await db.collection('agentExpenses')
+          .where('agentId', '==', currentAgent.id)
+          .get();
+        
+        let expenses = [];
+        snapshot.forEach(doc => expenses.push({ id: doc.id, ...doc.data() }));
+        
+        // Сортируем на клиенте (без orderBy в запросе не нужен составной индекс)
+        expenses.sort((a, b) => (b.timestamp || b.createdAt || 0) - (a.timestamp || a.createdAt || 0));
+        
+        // Фильтр по периоду
+        const period = document.getElementById('agentExpensePeriod').value;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStart = today.getTime();
+        
+        expenses = expenses.filter(exp => {
+          const t = exp.timestamp || exp.createdAt || 0;
+          switch(period) {
+            case 'today': return t >= todayStart;
+            case 'week':
+              const ws = new Date(today); ws.setDate(ws.getDate() - ws.getDay());
+              return t >= ws.getTime();
+            case 'month':
+              return t >= new Date(today.getFullYear(), today.getMonth(), 1).getTime();
+            case 'all': return true;
+            default: return true;
+          }
+        });
+        
+        const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+        document.getElementById('agentExpensesTotal').textContent = totalExpenses.toLocaleString() + ' сом';
+        
+        const listEl = document.getElementById('agentExpensesList');
+        
+        if (expenses.length === 0) {
+          listEl.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">📝</div>
+              <div>Расходов за этот период нет</div>
+              <div style="font-size:13px; color:#999; margin-top:8px;">Записывайте сюда расходы: бензин, обед, связь и т.д.</div>
+            </div>
+          `;
+          return;
+        }
+        
+        listEl.innerHTML = expenses.map(exp => {
+          const d = new Date(exp.timestamp || exp.createdAt);
+          const dateStr = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+          return `
+            <div class="expense-card">
+              <div class="expense-info">
+                <div class="expense-desc">${exp.description}</div>
+                <div class="expense-date-text">📅 ${dateStr}</div>
+              </div>
+              <div class="expense-amount">${exp.amount.toLocaleString()} сом</div>
+              <button class="expense-delete-btn" onclick="deleteAgentExpense('${exp.id}')" title="Удалить">🗑️</button>
+            </div>
+          `;
+        }).join('');
+        
+      } catch(e) {
+        console.error('Ошибка загрузки расходов агента:', e);
+        // Если коллекция не существует, просто показываем пустой список
+        const listEl = document.getElementById('agentExpensesList');
+        if (listEl) {
+          listEl.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">📝</div>
+              <div>Расходов пока нет</div>
+            </div>
+          `;
+        }
+      }
+    }
+    
+    // Удалить расход
+    async function deleteAgentExpense(id) {
+      const result = await Swal.fire({
+        title: 'Удалить расход?',
+        text: 'Это действие нельзя отменить',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Да, удалить',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#dc3545'
+      });
+      
+      if (result.isConfirmed) {
+        try {
+          await db.collection('agentExpenses').doc(id).delete();
+          Swal.fire({ icon: 'success', title: 'Удалено!', timer: 1500, showConfirmButton: false });
+          loadAgentExpenses();
+        } catch(e) {
+          console.error('Ошибка удаления:', e);
+          Swal.fire('Ошибка', 'Не удалось удалить', 'error');
+        }
+      }
+    }
+    
+    // ==================== КОНЕЦ РАСХОДОВ АГЕНТА ====================
     
     // Запуск
     document.addEventListener('DOMContentLoaded', init);
