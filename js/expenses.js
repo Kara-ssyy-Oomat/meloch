@@ -127,6 +127,26 @@ async function loadExpensesReport() {
     });
     console.log('💸 Всего расходов:', expenses.length);
     
+    // Получаем расходы агентов из коллекции agentExpenses
+    try {
+      const agentExpSnapshot = await db.collection('agentExpenses').get();
+      agentExpSnapshot.forEach(doc => {
+        const data = doc.data();
+        expenses.push({
+          id: 'agent_' + doc.id,
+          description: data.description,
+          amount: data.amount || 0,
+          timestamp: normalizeEpochMs(data.timestamp, normalizeEpochMs(data.createdAt, Date.now())),
+          createdAt: data.createdAt || Date.now(),
+          isAgentExpense: true,
+          agentName: data.agentName || 'Агент'
+        });
+      });
+      console.log('🤝 Расходов агентов загружено:', agentExpSnapshot.size);
+    } catch(e) {
+      console.log('⚠️ Не удалось загрузить расходы агентов:', e);
+    }
+    
     // Получаем заказы для расчета прибыли
     const ordersSnapshot = await db.collection('orders').get();
     let orders = [];
@@ -368,12 +388,17 @@ async function loadExpensesReport() {
       const recurringBadge = expense.isRecurring ? 
         `<span style="background:#17a2b8; color:white; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:8px;">🔄 Регулярный</span>` : '';
       
+      // Метка расхода агента
+      const agentBadge = expense.isAgentExpense ? 
+        `<span style="background:#ff9800; color:white; padding:2px 6px; border-radius:4px; font-size:11px; margin-left:8px;">🤝 ${expense.agentName}</span>` : '';
+      
       row.innerHTML = `
         <td data-label="#" style="padding:12px; font-weight:600; color:#666;">${index + 1}</td>
         <td data-label="Дата" style="padding:12px; color:#666;">${dateStr}</td>
         <td data-label="Описание" style="padding:12px; color:#333;">
           ${expense.description}
           ${recurringBadge}
+          ${agentBadge}
           ${daysInfo}
           ${expense.isVirtual ? '<span style="color:#888; font-size:12px; margin-left:8px;">(авто)</span>' : ''}
         </td>
@@ -381,6 +406,8 @@ async function loadExpensesReport() {
         <td data-label="Действия" style="padding:12px; text-align:center;">
           ${expense.isVirtual ? 
             '<span style="color:#999; font-size:12px;">—</span>' : 
+            expense.isAgentExpense ?
+            `<button onclick="deleteAgentExpenseFromReport('${expense.id.replace('agent_', '')}')" style="padding:6px 12px; background:#ff9800; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">🗑️ Удалить</button>` :
             `<button onclick="deleteExpense('${realExpenseId}')" style="padding:6px 12px; background:#dc3545; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">🗑️ Удалить</button>`
           }
         </td>
@@ -414,6 +441,30 @@ async function deleteExpense(expenseId) {
       loadExpensesReport();
     } catch (error) {
       console.error('Ошибка удаления расхода:', error);
+      Swal.fire('Ошибка', 'Не удалось удалить расход', 'error');
+    }
+  }
+}
+
+// Удалить расход агента из отчёта
+async function deleteAgentExpenseFromReport(expenseId) {
+  const result = await Swal.fire({
+    title: 'Удалить расход агента?',
+    text: 'Это действие нельзя отменить',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Да, удалить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#ff9800'
+  });
+  
+  if (result.isConfirmed) {
+    try {
+      await db.collection('agentExpenses').doc(expenseId).delete();
+      Swal.fire('Удалено', 'Расход агента удален', 'success');
+      loadExpensesReport();
+    } catch (error) {
+      console.error('Ошибка удаления расхода агента:', error);
       Swal.fire('Ошибка', 'Не удалось удалить расход', 'error');
     }
   }
