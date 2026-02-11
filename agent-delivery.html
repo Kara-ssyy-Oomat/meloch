@@ -600,12 +600,17 @@
               orders.push({ id: doc.id, ...data });
             } else if (agentFilter === 'own') {
               // Только наши клиенты (без агента)
-              if (!clientAgentId) {
+              if (!clientAgentId && !data.partner) {
                 orders.push({ id: doc.id, ...data });
               }
             } else {
-              // Конкретный агент
-              if (clientAgentId === agentFilter) {
+              // Конкретный агент — проверяем и clientAgents, и поле partner
+              const selectedAgent = allAgentsList.find(a => a.id === agentFilter);
+              const agentName = selectedAgent ? selectedAgent.name : '';
+              const matchByClientAgents = clientAgentId === agentFilter;
+              const matchByPartner = data.partner && (data.partner === agentFilter || data.partner === agentName);
+              
+              if (matchByClientAgents || matchByPartner) {
                 orders.push({ id: doc.id, ...data });
               }
             }
