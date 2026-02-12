@@ -3164,6 +3164,27 @@ document.getElementById('submitOrder').onclick = async () => {
 
       const productRef = db.collection('products').doc(item.id);
       batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(-need) });
+
+      // === СПИСАНИЕ СО СКЛАДОВ ===
+      // Если у товара есть warehouseStock, списываем со склада с наибольшим остатком
+      const ws = localProduct.warehouseStock;
+      if (ws && typeof ws === 'object') {
+        let remaining = need;
+        // Сортируем склады по убыванию остатка, чтобы списать с самого заполненного
+        const sortedWarehouses = Object.entries(ws)
+          .filter(([, qty]) => qty > 0)
+          .sort((a, b) => b[1] - a[1]);
+        
+        const updatedWs = { ...ws };
+        for (const [whId, whQty] of sortedWarehouses) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(remaining, whQty);
+          updatedWs[whId] = whQty - deduct;
+          remaining -= deduct;
+        }
+        
+        batch.update(productRef, { warehouseStock: updatedWs });
+      }
     }
 
     batch.set(orderRef, {
