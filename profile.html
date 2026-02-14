@@ -556,6 +556,15 @@
         window.location.href = url;
       }
     }
+    
+    // Переход на полную страницу (admin/agent) — открывает в родительском окне
+    function navigateTop(url) {
+      if (window.parent !== window) {
+        window.top.location.href = url;
+      } else {
+        window.location.href = url;
+      }
+    }
   </script>
   <script>
     // ==================== КОНФИГУРАЦИЯ ====================
@@ -1008,7 +1017,7 @@
           <div class="menu-section">
             <div class="menu-section-title">🔐 Панель администратора</div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-products.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-products.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">➕</span>
                 <span class="menu-text">Добавить товар</span>
@@ -1016,7 +1025,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-orders.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-orders.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">📦</span>
                 <span class="menu-text">Заказы клиентов</span>
@@ -1032,7 +1041,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-chat.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-chat.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">💬</span>
                 <span class="menu-text">Чат с клиентами</span>
@@ -1041,7 +1050,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-profit.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-profit.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">💰</span>
                 <span class="menu-text">Отчет по прибыли</span>
@@ -1049,7 +1058,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-sellers.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-sellers.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">🏪</span>
                 <span class="menu-text">Управление продавцами</span>
@@ -1057,7 +1066,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-categories.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-categories.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">📁</span>
                 <span class="menu-text">Управление категориями</span>
@@ -1065,7 +1074,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-agents.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-agents.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">🤝</span>
                 <span class="menu-text">Управление агентами</span>
@@ -1073,7 +1082,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-warehouse.html'">
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-warehouse.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">🏭</span>
                 <span class="menu-text">Управление складами</span>
@@ -1119,21 +1128,21 @@
             </div>
           </div>
           
-          <a href="cart.html" class="menu-item">
+          <div class="menu-item" onclick="openInFrame('cart.html')">
             <div class="menu-item-left">
               <span class="menu-icon">🛒</span>
               <span class="menu-text">Корзина</span>
             </div>
             <span class="menu-arrow">›</span>
-          </a>
+          </div>
           
-          <a href="chat.html" class="menu-item">
+          <div class="menu-item" onclick="openInFrame('chat.html')">
             <div class="menu-item-left">
               <span class="menu-icon">💬</span>
               <span class="menu-text">Чат с продавцом</span>
             </div>
             <span class="menu-arrow">›</span>
-          </a>
+          </div>
           
           <div class="menu-item" onclick="goToPage('index.html', 'openFavoritesPage')">
             <div class="menu-item-left">
@@ -1160,7 +1169,7 @@
           </div>
           
           ${(isAdmin || isAgent) ? `
-          <div class="menu-item" onclick="window.location.href='agent-profit.html'">
+          <div class="menu-item" onclick="navigateTop('agent-profit.html')">
             <div class="menu-item-left">
               <span class="menu-icon">💰</span>
               <span class="menu-text">Моя прибыль (агент)</span>
@@ -1168,7 +1177,7 @@
             <span class="menu-arrow">›</span>
           </div>
           
-          <div class="menu-item" onclick="window.location.href='agent-delivery.html'">
+          <div class="menu-item" onclick="navigateTop('agent-delivery.html')">
             <div class="menu-item-left">
               <span class="menu-icon">📋</span>
               <span class="menu-text">Список доставки</span>
@@ -1216,7 +1225,7 @@
     function goToPage(page, funcName) {
       // Сохраняем функцию для вызова после загрузки страницы
       localStorage.setItem('callAfterLoad', funcName);
-      window.location.href = page;
+      navigateTop(page);
     }
     
     // ==================== ВХОД ДЛЯ АДМИНА ====================
@@ -2394,7 +2403,7 @@
           showConfirmButton: false
         }).then(() => {
           // Переходим на главную для добавления товаров
-          window.location.href = 'index.html';
+          navigateTop('index.html');
         });
         
       } catch (error) {
