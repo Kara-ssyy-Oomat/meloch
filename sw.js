@@ -1,9 +1,11 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v2.2.0-optimized'; // Оптимизация загрузки
+const CACHE_VERSION = 'kerben-v3.2.0-scroll-fix2'; // Фикс: полная очистка конфликтов CSS прокрутки
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
+const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
+const IMAGE_CACHE_LIMIT = 200; // Максимум 200 изображений в кэше
 
 // Firebase SDK для кэширования
 const FIREBASE_URLS = [
@@ -99,10 +101,10 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((cacheNames) => {
-        // Удаляем старые кэши (кроме Firebase)
+        // Удаляем старые кэши (кроме Firebase и изображений)
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME && cacheName !== FIREBASE_CACHE) {
+            if (cacheName !== CACHE_NAME && cacheName !== FIREBASE_CACHE && cacheName !== IMAGE_CACHE) {
               console.log('[SW] Удаление старого кэша:', cacheName);
               return caches.delete(cacheName);
             }
@@ -121,7 +123,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
   // Firebase SDK и CDN - Cache First (из кэша, потом сеть)
-  if (url.origin.includes('gstatic.com') || url.origin.includes('jsdelivr.net')) {
+  if (url.origin.includes('gstatic.com') || url.origin.includes('jsdelivr.net') || url.origin.includes('cdnjs.cloudflare.com')) {
     event.respondWith(
       caches.match(event.request).then(cachedResponse => {
         if (cachedResponse) {
@@ -135,6 +137,41 @@ self.addEventListener('fetch', (event) => {
             });
           }
           return response;
+        });
+      })
+    );
+    return;
+  }
+  
+  // НОВОЕ: Кэширование изображений товаров (wsrv.nl, imgbb, cloudinary)
+  if (url.origin.includes('wsrv.nl') || 
+      url.origin.includes('i.ibb.co') || 
+      url.origin.includes('images.weserv.nl') ||
+      (url.origin.includes('cloudinary.com') && event.request.destination === 'image')) {
+    event.respondWith(
+      caches.open(IMAGE_CACHE).then(cache => {
+        return cache.match(event.request).then(cachedResponse => {
+          if (cachedResponse) {
+            return cachedResponse; // Изображение из кэша — мгновенно!
+          }
+          return fetch(event.request).then(response => {
+            if (response.ok) {
+              cache.put(event.request, response.clone());
+              // Ограничиваем размер кэша
+              cache.keys().then(keys => {
+                if (keys.length > IMAGE_CACHE_LIMIT) {
+                  cache.delete(keys[0]); // Удаляем самое старое
+                }
+              });
+            }
+            return response;
+          }).catch(() => {
+            // Офлайн — показываем placeholder
+            return new Response(
+              '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect fill="#f0f0f0" width="200" height="200"/><text fill="#999" font-family="Arial" font-size="14" x="100" y="100" text-anchor="middle">📷</text></svg>',
+              { headers: { 'Content-Type': 'image/svg+xml' } }
+            );
+          });
         });
       })
     );

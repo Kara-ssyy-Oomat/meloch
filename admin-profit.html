@@ -1287,7 +1287,84 @@ async function loadExpensesReport() {
       }
     });
     
-    console.log('✅ Расходов за период (включая агентов):', expenses.length);
+    // ========== РЕГУЛЯРНЫЕ РАСХОДЫ: генерация виртуальных записей ==========
+    // Находим все регулярные расходы с выбранными днями недели
+    const recurringExpenses = [];
+    expensesSnap.forEach(doc => {
+      const data = doc.data();
+      if (data.isRecurring && data.recurringDays && data.recurringDays.length > 0) {
+        let expenseCreatedDate;
+        if (data.timestamp) {
+          expenseCreatedDate = new Date(data.timestamp);
+        } else if (data.date) {
+          expenseCreatedDate = new Date(data.date);
+        } else {
+          expenseCreatedDate = new Date(data.createdAt || 0);
+        }
+        expenseCreatedDate.setHours(0, 0, 0, 0);
+        recurringExpenses.push({
+          id: doc.id,
+          ...data,
+          expenseCreatedDate
+        });
+      }
+    });
+    
+    console.log('🔄 Регулярных расходов найдено:', recurringExpenses.length);
+    
+    if (recurringExpenses.length > 0) {
+      // Определяем реальный диапазон дат для генерации виртуальных записей
+      const periodStart = new Date(startDate);
+      periodStart.setHours(0, 0, 0, 0);
+      const periodEnd = new Date(endDate);
+      periodEnd.setHours(23, 59, 59, 999);
+      
+      // Удаляем оригинальные записи регулярных расходов из списка (они заменятся виртуальными)
+      const recurringIds = new Set(recurringExpenses.map(e => e.id));
+      expenses = expenses.filter(e => !recurringIds.has(e.id));
+      
+      // Генерируем виртуальные записи для каждого дня периода
+      const dayMs = 24 * 60 * 60 * 1000;
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      recurringExpenses.forEach(expense => {
+        // Начинаем с позднейшей из: начала периода или даты создания расхода
+        const genStart = new Date(Math.max(periodStart.getTime(), expense.expenseCreatedDate.getTime()));
+        genStart.setHours(0, 0, 0, 0);
+        
+        // Заканчиваем не позже сегодня (не генерируем в будущее)
+        const genEnd = new Date(Math.min(periodEnd.getTime(), todayMidnight.getTime()));
+        genEnd.setHours(23, 59, 59, 999);
+        
+        let currentDay = new Date(genStart);
+        let dayIndex = 0;
+        
+        while (currentDay <= genEnd) {
+          const dayOfWeek = currentDay.getDay(); // 0=Вс, 1=Пн, ... 6=Сб
+          
+          // Проверяем, попадает ли день недели в выбранные дни
+          if (expense.recurringDays.includes(dayOfWeek)) {
+            expenses.push({
+              id: expense.id + '_virtual_' + dayIndex,
+              description: expense.description + ' (регулярный)',
+              amount: expense.amount,
+              expenseDate: new Date(currentDay),
+              isRecurring: true,
+              recurringDays: expense.recurringDays,
+              isVirtual: true
+            });
+          }
+          
+          currentDay.setDate(currentDay.getDate() + 1);
+          dayIndex++;
+        }
+      });
+      
+      console.log('✅ Расходов после добавления регулярных:', expenses.length);
+    }
+    // ========== КОНЕЦ РЕГУЛЯРНЫХ РАСХОДОВ ==========
+    
+    console.log('✅ Расходов за период (включая агентов и регулярные):', expenses.length);
     
     let periodProfit = 0;
     ordersSnap.forEach(doc => {
@@ -1338,7 +1415,11 @@ async function loadExpensesReport() {
         '<span style="color:#666; font-size:11px; margin-left:6px;">(' + e.recurringDays.map(d => dayNames[d]).join(', ') + ')</span>' : '';
       
       let deleteBtn = '';
-      if (e.isAgentExpense) {
+      if (e.isVirtual) {
+        // Извлекаем реальный ID расхода из виртуального ID
+        const realId = e.id.split('_virtual_')[0];
+        deleteBtn = `<button onclick="deleteExpense('${realId}')" class="btn-red" style="padding:6px 12px; font-size:12px;" title="Удалить регулярный расход">🗑️</button>`;
+      } else if (e.isAgentExpense) {
         const realId = e.id.replace('agent_', '');
         deleteBtn = `<button onclick="deleteAgentExpenseAdmin('${realId}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>`;
       } else {

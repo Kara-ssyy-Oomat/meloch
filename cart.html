@@ -816,8 +816,8 @@
         } catch(e) { console.log('Customer update error:', e); }
 
         // Отправка уведомления в Telegram (фоново — текстовое сообщение)
-        const driverInfo = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
-        const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfo}\nТовары:\n${items}\n\nИтого: ${total} сом`;
+        const driverInfoText = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
+        const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfoText}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
         // Отправляем Excel, PDF для печати, PDF с фото — фоново
         const orderData = { name, phone, address, driverName, driverPhone, cart: [...cart], total, currentTime };
@@ -825,8 +825,8 @@
         if (typeof sendOrderAsExcelFile === 'function') {
           sendOrderAsExcelFile(name, phone, address, driverName, driverPhone, orderData.cart, total, currentTime).catch(e => console.error('Excel error:', e));
         }
-        if (typeof sendOrderAsExcel === 'function') {
-          sendOrderAsExcel(name, phone, address, driverName, driverPhone, orderData.cart, total, currentTime).catch(e => console.error('PDF print error:', e));
+        if (typeof sendOrderAsPrintPDF === 'function') {
+          sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone, orderData.cart, total, currentTime).catch(e => console.error('PDF print error:', e));
         }
         if (typeof sendOrderAsPDF === 'function') {
           sendOrderAsPDF(name, phone, address, driverName, driverPhone, orderData.cart, total, currentTime).catch(e => console.error('PDF photo error:', e));
