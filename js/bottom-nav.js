@@ -26,6 +26,7 @@ window.addEventListener('message', function(e) {
   }
   if (e.data === 'closeIframe') {
     closePageFrame();
+    setActiveNavItem('home');
   }
 });
 
@@ -36,25 +37,25 @@ function createBottomNavigation() {
   navBar.id = 'bottomNavBar';
   navBar.innerHTML = `
     <div class="nav-main">
-      <button onclick="navGoHome()" class="nav-item active" data-nav="home">
+      <button class="nav-item active" data-nav="home">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
         <span class="nav-text">Главная</span>
       </button>
-      <button onclick="navGoCategories()" class="nav-item" data-nav="categories">
+      <button class="nav-item" data-nav="categories">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6zm8-8h2v6h-2V5zm0 8h2v6h-2v-6z"/></svg>
         <span class="nav-text">Меню</span>
       </button>
-      <button onclick="navGoCart()" class="nav-item" data-nav="cart">
+      <button class="nav-item" data-nav="cart">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6l.1-.1L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4c-.1 0-.2-.1-.2-.4z"/></svg>
         <span class="nav-text">Корзина</span>
         <span id="navCartBadge" class="nav-badge">0</span>
       </button>
-      <button onclick="navGoChat()" class="nav-item" data-nav="chat">
+      <button class="nav-item" data-nav="chat">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
         <span class="nav-text">Чат</span>
         <span id="navChatBadge" class="nav-badge" style="display:none">!</span>
       </button>
-      <button onclick="navGoProfile()" class="nav-item" data-nav="profile">
+      <button class="nav-item" data-nav="profile">
         <svg class="nav-svg" viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
         <span class="nav-text">Профиль</span>
       </button>
@@ -63,7 +64,13 @@ function createBottomNavigation() {
   
   addBottomNavStyles();
   document.body.appendChild(navBar);
-  // padding-bottom уже задан в CSS index.html
+  
+  // Привязываем обработчики через addEventListener (надёжнее onclick)
+  navBar.querySelector('[data-nav="home"]').addEventListener('click', navGoHome);
+  navBar.querySelector('[data-nav="categories"]').addEventListener('click', navGoCategories);
+  navBar.querySelector('[data-nav="cart"]').addEventListener('click', navGoCart);
+  navBar.querySelector('[data-nav="chat"]').addEventListener('click', navGoChat);
+  navBar.querySelector('[data-nav="profile"]').addEventListener('click', navGoProfile);
 }
 
 function addBottomNavStyles() {
@@ -104,6 +111,11 @@ function addBottomNavStyles() {
       position: relative;
       color: #9e9e9e;
       transition: color 0.2s;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+      padding: 0;
     }
     .nav-item:active { background: #f5f5f5; }
     .nav-item.active { color: #4CAF50; }
@@ -139,7 +151,12 @@ function addBottomNavStyles() {
 }
 
 // Навигация
+let _navBusy = false; // Защита от двойных нажатий
+
 function navGoHome() {
+  if (_navBusy) return;
+  _navBusy = true; setTimeout(() => _navBusy = false, 300);
+  
   setActiveNavItem('home');
   closePageFrame();
   closeCategoriesPanel();
@@ -147,18 +164,27 @@ function navGoHome() {
 }
 
 function navGoCategories() {
-  setActiveNavItem('categories');
+  if (_navBusy) return;
+  _navBusy = true; setTimeout(() => _navBusy = false, 300);
+  
   closePageFrame();
+  setActiveNavItem('categories');
   openCategoriesPanel();
 }
 
 function navGoCart() {
+  if (_navBusy) return;
+  _navBusy = true; setTimeout(() => _navBusy = false, 300);
+  
   setActiveNavItem('cart');
   closeCategoriesPanel();
   openPageInFrame('cart.html');
 }
 
 function navGoChat() {
+  if (_navBusy) return;
+  _navBusy = true; setTimeout(() => _navBusy = false, 300);
+  
   setActiveNavItem('chat');
   closeCategoriesPanel();
   // Скрываем badge при открытии чата
@@ -168,6 +194,9 @@ function navGoChat() {
 }
 
 function navGoProfile() {
+  if (_navBusy) return;
+  _navBusy = true; setTimeout(() => _navBusy = false, 300);
+  
   setActiveNavItem('profile');
   closeCategoriesPanel();
   openPageInFrame('profile.html');
@@ -190,15 +219,19 @@ function openPageInFrame(url) {
   // Сохраняем текущую позицию скролла
   navSavedScrollPos = window.scrollY || window.pageYOffset;
   
-  // Скрываем предыдущий iframe если другой
-  if (_currentFrameUrl && _currentFrameUrl !== url && _frameCache[_currentFrameUrl]) {
-    _frameCache[_currentFrameUrl].style.display = 'none';
-  }
+  // Скрываем ВСЕ iframe кроме нужного
+  Object.keys(_frameCache).forEach(key => {
+    if (key !== url && _frameCache[key]) {
+      _frameCache[key].style.display = 'none';
+      _frameCache[key].style.pointerEvents = 'none';
+    }
+  });
   
   // Проверяем кэш
   if (_frameCache[url]) {
     // Мгновенное открытие из кэша!
     _frameCache[url].style.display = 'block';
+    _frameCache[url].style.pointerEvents = 'auto';
     _currentFrameUrl = url;
     
     // Для корзины — обновляем данные при каждом открытии
@@ -223,9 +256,13 @@ function openPageInFrame(url) {
 
 // Закрытие iframe (скрываем, НЕ уничтожаем)
 function closePageFrame() {
-  if (_currentFrameUrl && _frameCache[_currentFrameUrl]) {
-    _frameCache[_currentFrameUrl].style.display = 'none';
-  }
+  // Скрываем ВСЕ кэшированные iframe
+  Object.keys(_frameCache).forEach(key => {
+    if (_frameCache[key]) {
+      _frameCache[key].style.display = 'none';
+      _frameCache[key].style.pointerEvents = 'none';
+    }
+  });
   _currentFrameUrl = null;
   
   // Также скрываем старый pageFrame если есть
@@ -236,7 +273,6 @@ function closePageFrame() {
   }
   
   // Восстанавливаем позицию скролла
-  setActiveNavItem('home');
   setTimeout(() => {
     window.scrollTo(0, navSavedScrollPos);
   }, 0);
@@ -257,7 +293,7 @@ function preloadPageFrames() {
     setTimeout(() => {
       const frame = document.createElement('iframe');
       frame.className = 'page-frame-cached';
-      frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px);z-index:99998;border:none;background:#fff;display:none;';
+      frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px);z-index:99998;border:none;background:#fff;display:none;pointer-events:none;';
       frame.src = url;
       document.body.appendChild(frame);
       _frameCache[url] = frame;
