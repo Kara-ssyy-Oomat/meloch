@@ -72,6 +72,9 @@ function activateAdminMode() {
   const editorBtnContainer = document.getElementById('editorBtnContainer');
   if (editorBtnContainer) editorBtnContainer.style.display = 'flex';
   
+  // ОПТИМИЗАЦИЯ: Загружаем тяжёлые admin-библиотеки (jsPDF, XLSX, Chart.js, EXIF)
+  if (typeof loadAdminLibraries === 'function') loadAdminLibraries();
+  
   console.log('🔐 Режим администратора активирован');
 }
 

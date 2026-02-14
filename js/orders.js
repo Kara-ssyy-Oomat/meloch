@@ -374,9 +374,11 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
 }
 
 // Функция отправки заказа как PDF файл БЕЗ ФОТО (для печати) в Telegram
-async function sendOrderAsExcel(name, phone, address, driverName, driverPhone, cartItems, total, time) {
+// ПРИМЕЧАНИЕ: Ранее называлась sendOrderAsExcel, переименована для ясности
+async function sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone, cartItems, total, time) {
   try {
     console.log('=== Начало создания PDF файла без фото (для печати) ===');
+
     
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -626,6 +628,9 @@ async function sendOrderAsExcel(name, phone, address, driverName, driverPhone, c
     console.error('Ошибка отправки PDF без фото:', error);
   }
 }
+
+// Алиас для обратной совместимости (старое название)
+const sendOrderAsExcel = sendOrderAsPrintPDF;
 
 // Функция отправки заказа как Excel файл в Telegram
 async function sendOrderAsExcelFile(name, phone, address, driverName, driverPhone, cartItems, total, time) {
@@ -1256,7 +1261,13 @@ function repeatOrder(index) {
   });
   
   updateCart();
-  saveCart();
+  // saveCart определена в cart.html, вызываем только если доступна
+  if (typeof saveCart === 'function') {
+    saveCart();
+  } else {
+    // Фоллбэк: сохраняем корзину в localStorage напрямую
+    try { localStorage.setItem('cart', JSON.stringify(cart)); } catch(e) {}
+  }
   
   if (addedCount > 0 && notFoundItems.length === 0) {
     Swal.fire('Готово!', `Все ${addedCount} товар(ов) добавлены в корзину`, 'success');

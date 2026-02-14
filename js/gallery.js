@@ -261,7 +261,9 @@ async function addNewExtraPhotoToEdit() {
 
 // Показать превью изображения
 function showPreview(src) {
-  document.getElementById('previewImg').src = src;
+  const img = document.getElementById('previewImg');
+  // Используем прокси для мобильных
+  img.src = typeof getImageUrl === 'function' ? getImageUrl(src) : src;
   document.getElementById('previewBlock').style.display = 'block';
   lockPageScroll();
 }
@@ -298,13 +300,18 @@ function showImageModal(imageUrl, title) {
       };
     }
     
-    // Закрытие по Escape
-    document.addEventListener('keydown', function(e) {
+    // Закрытие по Escape (используем именованную функцию для предотвращения утечки памяти)
+    function handleEscapeKey(e) {
       if (e.key === 'Escape') {
         previewBlock.style.display = 'none';
         unlockPageScroll();
+        document.removeEventListener('keydown', handleEscapeKey);
       }
-    });
+    }
+    // Удаляем предыдущий слушатель перед добавлением нового
+    document.removeEventListener('keydown', window._galleryEscapeHandler);
+    window._galleryEscapeHandler = handleEscapeKey;
+    document.addEventListener('keydown', handleEscapeKey);
     
     lockPageScroll();
   }
