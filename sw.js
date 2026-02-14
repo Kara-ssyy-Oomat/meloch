@@ -1,7 +1,7 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v3.2.0-scroll-fix2'; // Фикс: полная очистка конфликтов CSS прокрутки
+const CACHE_VERSION = 'kerben-v3.3.0-fast-pages'; // Быстрая загрузка корзины/чата/профиля
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

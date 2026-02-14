@@ -11,6 +11,12 @@
   <link rel="icon" type="image/jpeg" href="icon-kerben.jpg">
   
   <title>Профиль - Кербен</title>
+
+  <!-- Предзагрузка DNS -->
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
   
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -332,8 +338,19 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- XLSX и jsPDF загружаются лениво — нужны только при экспорте заказа -->
+  <script>
+    let _profileLibsLoaded = false;
+    function loadProfileExportLibs() {
+      if (_profileLibsLoaded) return Promise.resolve();
+      return Promise.all([
+        new Promise(r => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = r; s.onerror = r; document.head.appendChild(s); }),
+        new Promise(r => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload = r; s.onerror = r; document.head.appendChild(s); })
+      ]).then(() => { _profileLibsLoaded = true; console.log('📚 Профиль: XLSX + jsPDF загружены'); });
+    }
+    // Предзагружаем через 3 секунды после страницы
+    window.addEventListener('load', () => setTimeout(loadProfileExportLibs, 3000));
+  </script>
 </head>
 
 <body>
@@ -1652,6 +1669,9 @@
     
     // ==================== ГЕНЕРАЦИЯ И ОТПРАВКА 3 ФАЙЛОВ ====================
     async function sendEditedOrderFiles(orderId, clientName, clientPhone, address, items, totalAmount) {
+      // Загружаем библиотеки экспорта если ещё не загружены
+      await loadProfileExportLibs();
+      
       const dateStr = new Date().toLocaleDateString('ru-RU') + ' ' + new Date().toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
       
       // Загрузка данных товаров для фото

@@ -16,6 +16,12 @@
   <link rel="icon" type="image/jpeg" href="icon-kerben.jpg">
   
   <title>Корзина - Кербен</title>
+
+  <!-- Предзагрузка DNS для быстрого доступа -->
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
   
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -211,8 +217,17 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- XLSX и jsPDF загружаются лениво — нужны только при отправке заказа -->
+  <script>
+    let _cartLibsLoaded = false;
+    function loadCartExportLibs() {
+      if (_cartLibsLoaded) return Promise.resolve();
+      return Promise.all([
+        new Promise(r => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = r; s.onerror = r; document.head.appendChild(s); }),
+        new Promise(r => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload = r; s.onerror = r; document.head.appendChild(s); })
+      ]).then(() => { _cartLibsLoaded = true; });
+    }
+  </script>
 </head>
 
 <body>
@@ -819,6 +834,9 @@
         const driverInfoText = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
         const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfoText}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
+        // Загружаем XLSX/jsPDF если ещё не загружены (нужны для Excel/PDF файлов)
+        await loadCartExportLibs();
+
         // Отправляем Excel, PDF для печати, PDF с фото — фоново
         const orderData = { name, phone, address, driverName, driverPhone, cart: [...cart], total, currentTime };
 
@@ -855,6 +873,14 @@
     
     document.addEventListener('DOMContentLoaded', () => {
       loadProducts();
+    });
+
+    // Слушаем сообщение от родителя для обновления корзины при повторном открытии
+    window.addEventListener('message', function(e) {
+      if (e.data === 'refreshCart') {
+        cart = JSON.parse(localStorage.getItem('cart') || '[]');
+        renderCart();
+      }
     });
   </script>
   <script src="js/image-optimizer.js"></script>
