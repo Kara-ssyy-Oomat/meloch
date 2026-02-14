@@ -133,18 +133,7 @@ function addBottomNavStyles() {
       padding: 0 4px;
     }
     
-    /* Контейнер iframe для страниц */
-    #pageFrame {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: calc(100% - 56px);
-      z-index: 99998;
-      border: none;
-      background: #fff;
-      display: none;
-    }
+    /* Контейнер iframe для страниц — стили через inline */
   `;
   document.head.appendChild(styles);
 }
@@ -187,29 +176,63 @@ function navGoProfile() {
 // Сохранённая позиция скролла для навигации
 let navSavedScrollPos = 0;
 
-// Открытие страницы в iframe
+// ============================================
+// ОПТИМИЗАЦИЯ: Кэширование iframe для мгновенного открытия страниц
+// ============================================
+// Каждая страница загружается один раз и потом просто показывается/скрывается.
+// При переключении вкладки iframe не уничтожается.
+const _frameCache = {}; // { 'cart.html': iframeElement, ... }
+let _currentFrameUrl = null;
+let _framesPreloaded = false;
+
+// Открытие страницы в iframe (мгновенно из кэша или загрузка)
 function openPageInFrame(url) {
   // Сохраняем текущую позицию скролла
   navSavedScrollPos = window.scrollY || window.pageYOffset;
   
-  let frame = document.getElementById('pageFrame');
-  
-  if (!frame) {
-    frame = document.createElement('iframe');
-    frame.id = 'pageFrame';
-    document.body.appendChild(frame);
+  // Скрываем предыдущий iframe если другой
+  if (_currentFrameUrl && _currentFrameUrl !== url && _frameCache[_currentFrameUrl]) {
+    _frameCache[_currentFrameUrl].style.display = 'none';
   }
   
+  // Проверяем кэш
+  if (_frameCache[url]) {
+    // Мгновенное открытие из кэша!
+    _frameCache[url].style.display = 'block';
+    _currentFrameUrl = url;
+    
+    // Для корзины — обновляем данные при каждом открытии
+    if (url === 'cart.html') {
+      try {
+        _frameCache[url].contentWindow.postMessage('refreshCart', '*');
+      } catch(e) {}
+    }
+    return;
+  }
+  
+  // Создаём новый iframe
+  const frame = document.createElement('iframe');
+  frame.className = 'page-frame-cached';
+  frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px);z-index:99998;border:none;background:#fff;';
   frame.src = url;
-  frame.style.display = 'block';
+  document.body.appendChild(frame);
+  
+  _frameCache[url] = frame;
+  _currentFrameUrl = url;
 }
 
-// Закрытие iframe
+// Закрытие iframe (скрываем, НЕ уничтожаем)
 function closePageFrame() {
-  const frame = document.getElementById('pageFrame');
-  if (frame) {
-    frame.style.display = 'none';
-    frame.src = 'about:blank';
+  if (_currentFrameUrl && _frameCache[_currentFrameUrl]) {
+    _frameCache[_currentFrameUrl].style.display = 'none';
+  }
+  _currentFrameUrl = null;
+  
+  // Также скрываем старый pageFrame если есть
+  const oldFrame = document.getElementById('pageFrame');
+  if (oldFrame) {
+    oldFrame.style.display = 'none';
+    oldFrame.src = 'about:blank';
   }
   
   // Восстанавливаем позицию скролла
@@ -218,6 +241,36 @@ function closePageFrame() {
     window.scrollTo(0, navSavedScrollPos);
   }, 0);
 }
+
+// Предзагрузка iframe в фоне после загрузки главной страницы
+function preloadPageFrames() {
+  if (_framesPreloaded) return;
+  _framesPreloaded = true;
+  
+  const pages = ['cart.html', 'chat.html', 'profile.html'];
+  let delay = 0;
+  
+  pages.forEach(url => {
+    if (_frameCache[url]) return;
+    delay += 1500; // Загружаем с интервалом чтобы не нагружать
+    
+    setTimeout(() => {
+      const frame = document.createElement('iframe');
+      frame.className = 'page-frame-cached';
+      frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px);z-index:99998;border:none;background:#fff;display:none;';
+      frame.src = url;
+      document.body.appendChild(frame);
+      _frameCache[url] = frame;
+      console.log('📄 Предзагружен:', url);
+    }, delay);
+  });
+}
+
+// Запуск предзагрузки после полной загрузки страницы
+window.addEventListener('load', function() {
+  // Ждём 3 секунды после загрузки чтобы не конкурировать с товарами
+  setTimeout(preloadPageFrames, 3000);
+});
 
 function setActiveNavItem(navName) {
   document.querySelectorAll('.nav-item').forEach(item => {
