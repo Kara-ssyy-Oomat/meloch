@@ -1,7 +1,16 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
+  <script>
+    // Если загружен напрямую (не в iframe) — перенаправляем в index.html SPA
+    if (window.parent === window) {
+      window.location.replace('index.html?page=profile');
+    }
+    // Если в iframe — скрываем нижнее меню (родитель уже показывает своё)
+    if (window.parent !== window) {
+      document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>');
+    }
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4CAF50">
