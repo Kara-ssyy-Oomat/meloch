@@ -162,19 +162,19 @@
             icons.profile + '<span class="bnav-text">Профиль</span></button>' +
         '</div>';
     } else {
-      // На всех остальных страницах — обычные ссылки <a>
+      // На всех остальных страницах — ссылки ведут через index.html (SPA)
       navBar.innerHTML =
         '<div class="bnav-main">' +
           '<a href="index.html" class="bnav-item' + (activeTab === 'home' ? ' active' : '') + '">' +
             icons.home + '<span class="bnav-text">Главная</span></a>' +
           '<a href="index.html#categories" class="bnav-item' + (activeTab === 'categories' ? ' active' : '') + '">' +
             icons.categories + '<span class="bnav-text">Меню</span></a>' +
-          '<a href="cart.html" class="bnav-item' + (activeTab === 'cart' ? ' active' : '') + '">' +
+          '<a href="index.html?page=cart" class="bnav-item' + (activeTab === 'cart' ? ' active' : '') + '">' +
             icons.cart + '<span class="bnav-text">Корзина</span>' +
             '<span id="navCartBadge" class="bnav-badge">0</span></a>' +
-          '<a href="chat.html" class="bnav-item' + (activeTab === 'chat' ? ' active' : '') + '">' +
+          '<a href="index.html?page=chat" class="bnav-item' + (activeTab === 'chat' ? ' active' : '') + '">' +
             icons.chat + '<span class="bnav-text">Чат</span></a>' +
-          '<a href="profile.html" class="bnav-item' + (activeTab === 'profile' ? ' active' : '') + '">' +
+          '<a href="index.html?page=profile" class="bnav-item' + (activeTab === 'profile' ? ' active' : '') + '">' +
             icons.profile + '<span class="bnav-text">Профиль</span></a>' +
         '</div>';
     }
@@ -485,12 +485,34 @@
   });
 
   // Запуск при загрузке DOM
+  // Обработка параметра ?page= на index.html (переход из admin/agent страниц)
+  function handlePageParam() {
+    if (!isIndexPage()) return;
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var pageParam = params.get('page');
+      if (pageParam) {
+        var pageMap = { 'cart': 'cart', 'chat': 'chat', 'profile': 'profile' };
+        var navName = pageMap[pageParam];
+        if (navName) {
+          openPageInFrame(pageParam + '.html');
+          setActiveNavItem(navName);
+        }
+        // Убираем параметр из URL без перезагрузки
+        history.replaceState(null, '', 'index.html');
+      }
+    } catch(e) {
+      console.log('Ошибка обработки параметра page:', e);
+    }
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() {
       removeOldInlineNavs();
       createBottomNavigation();
       updateNavCounts();
       setInterval(updateNavCounts, 5000);
+      handlePageParam();
     });
   } else {
     // DOM уже загружен
@@ -498,6 +520,7 @@
     createBottomNavigation();
     updateNavCounts();
     setInterval(updateNavCounts, 5000);
+    handlePageParam();
   }
 
   // Предзагрузка iframe только на index.html
