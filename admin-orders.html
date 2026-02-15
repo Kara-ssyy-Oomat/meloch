@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}#ordersManagementWindow{bottom:0!important}</style>')</script>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}#ordersManagementWindow{bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Заказы клиентов - Кербен</title>
@@ -27,33 +27,7 @@
       z-index: 999999 !important;
     }
     
-    /* Нижнее меню */
-    .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 56px;
-      background: #fff;
-      border-top: 1px solid #eee;
-      display: flex;
-      justify-content: space-around;
-      z-index: 99999;
-    }
-    .nav-item {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      color: #9e9e9e;
-      text-decoration: none;
-      position: relative;
-    }
-    .nav-item.active { color: #4CAF50; }
-    .nav-item svg { width: 24px; height: 24px; fill: currentColor; }
-    .nav-item span { font-size: 11px; }
+
     
     /* Карточки товаров в модальном окне */
     .order-items-cards {
@@ -2124,29 +2098,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-  <!-- Нижнее меню -->
-  <nav class="bottom-nav">
-    <a href="index.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
-      <span>Главная</span>
-    </a>
-    <a href="index.html#categories" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6z"/></svg>
-      <span>Меню</span>
-    </a>
-    <a href="cart.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4z"/></svg>
-      <span>Корзина</span>
-    </a>
-    <a href="chat.html" class="nav-item">
-      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
-      <span>Чат</span>
-    </a>
-    <a href="profile.html" class="nav-item active">
-      <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
-      <span>Профиль</span>
-    </a>
-  </nav>
-
+<script src="js/bottom-nav.js?v=20"></script>
 </body>
 </html>

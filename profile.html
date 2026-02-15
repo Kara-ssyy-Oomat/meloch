@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}</style>')</script>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4CAF50">
@@ -2382,9 +2382,25 @@
           return;
         }
         
-        if (data.status !== 'approved') {
+        if (data.status === 'blocked') {
           document.getElementById('sellerLoader').style.display = 'none';
-          Swal.fire('Ожидание', 'Ваша заявка ещё не одобрена. Дождитесь проверки.', 'info');
+          Swal.fire({
+            icon: 'error',
+            title: '🚫 Доступ запрещён',
+            text: 'Ваш аккаунт заблокирован администратором. Обратитесь в поддержку.',
+            confirmButtonText: 'Понятно'
+          });
+          return;
+        }
+        
+        if (data.status === 'pending') {
+          document.getElementById('sellerLoader').style.display = 'none';
+          Swal.fire({
+            icon: 'info',
+            title: '⏳ Заявка на рассмотрении',
+            text: 'Ваша заявка ещё не одобрена администратором. Дождитесь проверки.',
+            confirmButtonText: 'Понятно'
+          });
           return;
         }
         
@@ -2431,5 +2447,6 @@
       if (e.key === 'cart') updateCartBadge();
     });
   </script>
+<script src="js/bottom-nav.js?v=20"></script>
 </body>
 </html>
