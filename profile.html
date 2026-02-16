@@ -214,7 +214,7 @@
       top: 0;
       left: 0;
       right: 0;
-      bottom: 56px;
+      bottom: 0;
       background: #f5f5f5;
       z-index: 9500;
     }
@@ -542,6 +542,25 @@
   <script>
     // Запоминаем изначальный URL при загрузке
     const initialUrl = window.location.href;
+    
+    // Закрыть все модальные окна (вызывается при нажатии "Профиль" в нижнем меню)
+    function closeAllModals() {
+      document.querySelectorAll('.modal-window').forEach(function(el) {
+        el.style.display = 'none';
+      });
+    }
+    
+    // Слушаем сообщения от родительского окна
+    window.addEventListener('message', function(e) {
+      if (e.data === 'resetProfile') {
+        closeAllModals();
+        window.scrollTo(0, 0);
+      }
+      if (e.data === 'refreshCart') {
+        // обновляем бейдж корзины если нужно
+        if (typeof updateCartBadge === 'function') updateCartBadge();
+      }
+    });
     
     // Закрытие iframe или возврат назад
     function goBack() {
