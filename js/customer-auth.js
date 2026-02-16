@@ -19,34 +19,64 @@ document.addEventListener('DOMContentLoaded', function() {
   initCustomerAuth();
 });
 
+// Вспомогательная функция: сохранить профиль во все хранилища
+function _saveCustomerData() {
+  if (!currentCustomer) return;
+  try { localStorage.setItem('customerData', JSON.stringify(currentCustomer)); } catch(e) {}
+  if (window.PersistProfile) window.PersistProfile.save(currentCustomer);
+}
+
 // Инициализация системы авторизации
 function initCustomerAuth() {
-  // Проверяем, есть ли сохранённая сессия
-  const savedCustomer = localStorage.getItem('customerData');
-  if (savedCustomer) {
-    try {
-      currentCustomer = JSON.parse(savedCustomer);
-      updateCustomerUI();
-      console.log('👤 Клиент авторизован:', currentCustomer.name);
-      
-      // Проверяем, является ли клиент админом (по телефону)
-      const normalizedPhone = normalizePhone(currentCustomer.phone);
-      const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-      
-      if (normalizedPhone === adminPhone) {
-        // Это админ - устанавливаем флаг и активируем режим
-        currentCustomer.isAdmin = true;
-        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
-        activateAdminMode();
-        console.log('🔐 Автоматический вход админа по телефону');
-      } else if (currentCustomer.isAdmin) {
-        // Флаг уже есть
-        activateAdminMode();
+  // Используем PersistProfile для надёжного восстановления (localStorage → IndexedDB → cookie)
+  if (window.PersistProfile) {
+    window.PersistProfile.load(function(data) {
+      if (data) {
+        _initWithCustomerData(data);
       }
-    } catch (e) {
-      localStorage.removeItem('customerData');
+    });
+  } else {
+    // Fallback: обычный localStorage
+    const savedCustomer = localStorage.getItem('customerData');
+    if (savedCustomer) {
+      try {
+        _initWithCustomerData(JSON.parse(savedCustomer));
+      } catch (e) {
+        localStorage.removeItem('customerData');
+      }
     }
   }
+}
+
+// Применить загруженные данные клиента
+function _initWithCustomerData(data) {
+  if (!data || !data.phone) return;
+  currentCustomer = data;
+  
+  // Если данные восстановлены из cookie — нужно перелогиниться полноценно
+  if (data._restoredFromCookie) {
+    console.log('[Auth] ⚠️ Данные из cookie-бэкапа, авто-логин по телефону...');
+    delete currentCustomer._restoredFromCookie;
+  }
+  
+  updateCustomerUI();
+  console.log('👤 Клиент авторизован:', currentCustomer.name);
+  
+  // Проверяем, является ли клиент админом (по телефону)
+  const normalizedPhone = normalizePhone(currentCustomer.phone);
+  const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+  
+  if (normalizedPhone === adminPhone) {
+    currentCustomer.isAdmin = true;
+    _saveCustomerData();
+    activateAdminMode();
+    console.log('🔐 Автоматический вход админа по телефону');
+  } else if (currentCustomer.isAdmin) {
+    activateAdminMode();
+  }
+  
+  // Убеждаемся что данные сохранены во всех хранилищах
+  _saveCustomerData();
 }
 
 // Активировать режим администратора
@@ -290,8 +320,8 @@ async function loginCustomer(phone, password) {
       isAdmin: isAdminLogin  // Сохраняем флаг админа
     };
     
-    // Сохраняем сессию
-    localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+    // Сохраняем сессию (localStorage + IndexedDB + cookie)
+    _saveCustomerData();
     
     // Если это админ - активируем админ-режим
     if (isAdminLogin) {
@@ -372,7 +402,7 @@ async function registerCustomer(data) {
       isAdmin: isAdminRegister  // Сохраняем флаг админа
     };
     
-    localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+    _saveCustomerData();
     updateCustomerUI();
     fillOrderFormWithCustomerData();
     
@@ -423,7 +453,7 @@ async function autoRegisterAfterOrder(name, phone, address) {
       // Клиент существует - автоматический вход
       const doc = existing.docs[0];
       currentCustomer = { id: doc.id, ...doc.data() };
-      localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+      _saveCustomerData();
       updateCustomerUI();
       
       // Проверяем, является ли админом
@@ -476,7 +506,7 @@ async function autoRegisterAfterOrder(name, phone, address) {
       isAdmin: isAdminRegister
     };
     
-    localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+    _saveCustomerData();
     updateCustomerUI();
     
     // Если это админ - активируем админ-режим
@@ -882,7 +912,7 @@ function openAdminLoginFromProfile() {
         
         // Телефон и пароль совпали - успешный вход админа
         currentCustomer.isAdmin = true;
-        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+        _saveCustomerData();
         
         activateAdminMode();
         
@@ -1244,7 +1274,7 @@ function editCustomerProfile() {
         // Обновляем локально
         currentCustomer.name = result.value.name;
         currentCustomer.address = result.value.address;
-        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+        _saveCustomerData();
         
         updateCustomerUI();
         fillOrderFormWithCustomerData();
@@ -1278,7 +1308,9 @@ function logoutCustomer() {
   }).then((result) => {
     if (result.isConfirmed) {
       currentCustomer = null;
-      localStorage.removeItem('customerData');
+      // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
+      if (window.PersistProfile) window.PersistProfile.remove();
+      try { localStorage.removeItem('customerData'); } catch(e) {}
       
       // Сбрасываем флаги администратора
       if (typeof isAdmin !== 'undefined') {
