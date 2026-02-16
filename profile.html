@@ -347,6 +347,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при экспорте заказа -->
   <script>
     let _profileLibsLoaded = false;
@@ -627,59 +628,91 @@
         });
     }
     
+    // Вспомогательная: сохранить профиль во все хранилища
+    function _saveProfileData() {
+      if (!currentCustomer) return;
+      try { localStorage.setItem('customerData', JSON.stringify(currentCustomer)); } catch(e) {}
+      if (window.PersistProfile) window.PersistProfile.save(currentCustomer);
+    }
+    
     // ==================== ИНИЦИАЛИЗАЦИЯ ====================
     async function init() {
-      const saved = localStorage.getItem('customerData');
-      if (saved) {
-        try {
-          currentCustomer = JSON.parse(saved);
-          
-          // Проверяем, является ли клиент админом
-          const normalizedPhone = normalizePhone(currentCustomer.phone);
-          const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-          
-          if (normalizedPhone === adminPhone || currentCustomer.isAdmin) {
-            isAdmin = true;
-            currentCustomer.isAdmin = true;
-            localStorage.setItem('customerData', JSON.stringify(currentCustomer));
-          }
-          
-          // Быстро восстанавливаем isAgent из кэша
-          const cachedAgent = sessionStorage.getItem('isAgent_' + normalizedPhone);
-          if (cachedAgent === 'true') {
-            isAgent = true;
-          }
-          
-          // Сначала показываем кэшированный dashboard мгновенно
-          const cachedDashboard = sessionStorage.getItem('dashboardCache_' + normalizedPhone);
-          if (cachedDashboard) {
-            try {
-              _dashboardCache = JSON.parse(cachedDashboard);
-              _customerOrders = _dashboardCache.orders || [];
-              renderDashboard(_dashboardCache.stats || { ordersCount: 0, totalSpent: 0 }, _dashboardCache.orders || []);
-            } catch (e) {
-              console.log('Ошибка чтения кэша dashboard');
+      // Используем PersistProfile для надёжного восстановления (localStorage → IndexedDB → cookie)
+      function _onProfileLoaded(data) {
+        if (data && data.phone) {
+          try {
+            currentCustomer = data;
+            
+            // Если восстановлено из cookie — минимальные данные, нужна перезагрузка из Firestore
+            if (data._restoredFromCookie) {
+              delete currentCustomer._restoredFromCookie;
+              console.log('[Profile] ⚠️ Восстановлено из cookie-бэкапа');
             }
+            
+            // Проверяем, является ли клиент админом
+            const normalizedPhone = normalizePhone(currentCustomer.phone);
+            const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+            
+            if (normalizedPhone === adminPhone || currentCustomer.isAdmin) {
+              isAdmin = true;
+              currentCustomer.isAdmin = true;
+              _saveProfileData();
+            }
+            
+            // Быстро восстанавливаем isAgent из кэша
+            const cachedAgent = sessionStorage.getItem('isAgent_' + normalizedPhone);
+            if (cachedAgent === 'true') {
+              isAgent = true;
+            }
+            
+            // Сначала показываем кэшированный dashboard мгновенно
+            const cachedDashboard = sessionStorage.getItem('dashboardCache_' + normalizedPhone);
+            if (cachedDashboard) {
+              try {
+                _dashboardCache = JSON.parse(cachedDashboard);
+                _customerOrders = _dashboardCache.orders || [];
+                renderDashboard(_dashboardCache.stats || { ordersCount: 0, totalSpent: 0 }, _dashboardCache.orders || []);
+              } catch (e) {
+                console.log('Ошибка чтения кэша dashboard');
+              }
+            }
+            
+            // Параллельно обновляем данные в фоне
+            checkAgentStatus(normalizedPhone);
+            loadDashboard();
+            
+            // Подписка на непрочитанные сообщения для админа
+            if (isAdmin) {
+              subscribeToUnreadChatMessages();
+            }
+          } catch(e) {
+            console.error('Ошибка загрузки данных:', e);
+            if (window.PersistProfile) window.PersistProfile.remove();
+            try { localStorage.removeItem('customerData'); } catch(ex) {}
+            showLoginForm();
           }
-          
-          // Параллельно обновляем данные в фоне
-          checkAgentStatus(normalizedPhone);
-          loadDashboard();
-          
-          // Подписка на непрочитанные сообщения для админа (после загрузки dashboard)
-          if (isAdmin) {
-            subscribeToUnreadChatMessages();
-          }
-        } catch(e) {
-          console.error('Ошибка загрузки данных:', e);
-          localStorage.removeItem('customerData');
+        } else {
           showLoginForm();
         }
-      } else {
-        showLoginForm();
+        updateCartBadge();
+        _fillComplaintForms();
       }
-      updateCartBadge();
       
+      if (window.PersistProfile) {
+        window.PersistProfile.load(_onProfileLoaded);
+      } else {
+        // Fallback
+        const saved = localStorage.getItem('customerData');
+        if (saved) {
+          try { _onProfileLoaded(JSON.parse(saved)); } catch(e) { showLoginForm(); updateCartBadge(); }
+        } else {
+          showLoginForm();
+          updateCartBadge();
+        }
+      }
+    }
+    
+    function _fillComplaintForms() {
       // Автозаполнение форм жалобы/предложения
       if (currentCustomer) {
         const complaintName = document.getElementById('complaintName');
@@ -850,7 +883,7 @@
         
         currentCustomer = { id: doc.id, ...data, isAdmin: isAdminLogin };
         isAdmin = isAdminLogin;
-        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+        _saveProfileData();
         
         Swal.fire({ 
           icon: 'success', 
@@ -905,7 +938,7 @@
         };
         
         isAdmin = isAdminRegister;
-        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+        _saveProfileData();
         
         Swal.fire({ 
           icon: 'success', 
@@ -1329,7 +1362,7 @@
           
           currentCustomer.name = formValues.name;
           currentCustomer.address = formValues.address;
-          localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+          _saveProfileData();
           
           Swal.fire({ icon: 'success', title: 'Профиль обновлён!', timer: 1500, showConfirmButton: false });
           loadDashboard();
@@ -1350,9 +1383,11 @@
         confirmButtonColor: '#dc3545'
       }).then(r => {
         if (r.isConfirmed) {
-          localStorage.removeItem('customerData');
+          // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
+          if (window.PersistProfile) window.PersistProfile.remove();
+          try { localStorage.removeItem('customerData'); } catch(e) {}
           sessionStorage.removeItem('profileHtmlCache');
-          sessionStorage.clear(); // Очищаем все кэши сессии
+          sessionStorage.clear();
           currentCustomer = null;
           isAdmin = false;
           showLoginForm();

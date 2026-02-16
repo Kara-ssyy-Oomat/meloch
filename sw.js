@@ -1,7 +1,7 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v3.5.0-spa-redirect'; // Фикс: редирект на SPA оболочку
+const CACHE_VERSION = 'kerben-v3.6.0-persist-profile'; // Фикс: сохранение профиля на Android
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -42,6 +42,7 @@ const STATIC_CACHE_URLS = [
   './js/quantity.js',
   './js/orders.js',
   './js/customer-auth.js',
+  './js/persist-profile.js',
   './js/chat.js',
   './js/seller.js',
   './js/admin-chat.js',
