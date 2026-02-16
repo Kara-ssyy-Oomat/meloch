@@ -89,7 +89,36 @@
 
   <script>
     // КРИТИЧНО: Принудительно разблокируем прокрутку при загрузке
-  // Добавить в конец скрипта (после загрузки страницы)
+    // Принудительная очистка кэшей при обновлении версии
+    (function() {
+      var APP_VERSION = 'v4.0.0';
+      var lastVersion = localStorage.getItem('app_version');
+      if (lastVersion !== APP_VERSION) {
+        console.log('[Update] Обнаружена новая версия: ' + lastVersion + ' → ' + APP_VERSION);
+        localStorage.setItem('app_version', APP_VERSION);
+        // Очищаем все SW кэши
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            names.forEach(function(name) {
+              caches.delete(name);
+              console.log('[Update] Кэш удалён:', name);
+            });
+          });
+        }
+        // Просим SW обновиться
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage('clearAllCaches');
+        }
+        // Перерегистрируем SW
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            registrations.forEach(function(reg) { reg.update(); });
+          });
+        }
+      }
+    })();
+  </script>
+  <script>
 
 // Проверяем, есть ли функция для вызова после загрузки (из страницы профиля)
 document.addEventListener('DOMContentLoaded', function() {

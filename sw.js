@@ -1,7 +1,7 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v3.6.0-persist-profile'; // Фикс: сохранение профиля на Android
+const CACHE_VERSION = 'kerben-v4.0.0-fix-mobile'; // Принудительное обновление на мобильных
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -188,27 +188,30 @@ self.addEventListener('fetch', (event) => {
   }
   
   // Только для HTML, CSS, JS - остальное грузим напрямую
-  if (!event.request.url.match(/\.(html|css|js)$/)) {
+  if (!event.request.url.match(/\.(html|css|js)(\?.*)?$/)) {
     return; // Изображения и другие файлы загружаются напрямую (быстрее!)
   }
+  
+  // Убираем параметры версии (?v=XX) для единообразного кэширования
+  const cleanUrl = event.request.url.replace(/\?.*$/, '');
+  const cleanRequest = new Request(cleanUrl, { headers: event.request.headers });
   
   event.respondWith(
     // Стратегия Network First - всегда пытаемся загрузить свежее
     fetch(event.request)
       .then((response) => {
-        // Если получили ответ от сети, кэшируем в фоне (не тормозит!)
         if (response && response.status === 200) {
           const responseToCache = response.clone();
-          // Кэширование происходит асинхронно, не блокирует показ страницы
+          // Кэшируем по чистому URL (без ?v=)
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
+            cache.put(cleanRequest, responseToCache);
           });
         }
         return response;
       })
       .catch(() => {
-        // Если сеть недоступна, берём из кэша (офлайн режим)
-        return caches.match(event.request)
+        // Если сеть недоступна, ищем по чистому URL в кэше
+        return caches.match(cleanRequest)
           .then((cachedResponse) => {
             if (cachedResponse) {
               return cachedResponse;
@@ -269,7 +272,15 @@ self.addEventListener('fetch', (event) => {
 
 // Обработка сообщений от клиента
 self.addEventListener('message', (event) => {
-  if (event.data === 'skipWaiting') {
+  if (event.data === 'skipWaiting' || (event.data && event.data.action === 'skipWaiting')) {
     self.skipWaiting();
+  }
+  // Принудительная очистка всех кэшей
+  if (event.data === 'clearAllCaches' || (event.data && event.data.action === 'clearAllCaches')) {
+    caches.keys().then(names => {
+      return Promise.all(names.map(name => caches.delete(name)));
+    }).then(() => {
+      console.log('[SW] Все кэши очищены');
+    });
   }
 });
