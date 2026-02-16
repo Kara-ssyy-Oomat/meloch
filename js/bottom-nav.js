@@ -57,7 +57,8 @@
       '  background: #fff;' +
       '  display: flex;' +
       '  align-items: center;' +
-      '  height: 56px;' +
+      '  height: calc(56px + env(safe-area-inset-bottom, 0px));' +
+      '  padding-bottom: env(safe-area-inset-bottom, 0px);' +
       '  border-top: 1px solid #eee;' +
       '  box-shadow: 0 -2px 10px rgba(0,0,0,0.08);' +
       '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;' +
@@ -117,7 +118,7 @@
       '  justify-content: center;' +
       '  padding: 0 4px;' +
       '}' +
-      'body { padding-bottom: 56px !important; }';
+      'body { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important; }';
     document.head.appendChild(styles);
   }
 
@@ -238,6 +239,15 @@
     _navBusy = true; setTimeout(function() { _navBusy = false; }, 300);
     setActiveNavItem('profile');
     closeCategoriesPanel();
+    
+    // Если профиль уже открыт — закрываем все модальные окна внутри
+    if (_currentFrameUrl === 'profile.html' && _frameCache['profile.html']) {
+      try {
+        _frameCache['profile.html'].contentWindow.postMessage('resetProfile', '*');
+      } catch(e) {}
+      return;
+    }
+    
     openPageInFrame('profile.html');
   }
 
@@ -269,7 +279,7 @@
 
     var frame = document.createElement('iframe');
     frame.className = 'page-frame-cached';
-    frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px);z-index:99998;border:none;background:#fff;';
+    frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;';
     frame.src = url;
     document.body.appendChild(frame);
     _frameCache[url] = frame;
@@ -307,7 +317,7 @@
       setTimeout(function() {
         var frame = document.createElement('iframe');
         frame.className = 'page-frame-cached';
-        frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px);z-index:99998;border:none;background:#fff;display:none;pointer-events:none;';
+        frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;display:none;pointer-events:none;';
         frame.src = url;
         document.body.appendChild(frame);
         _frameCache[url] = frame;
