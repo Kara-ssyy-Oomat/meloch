@@ -532,6 +532,7 @@ function createOrderCard(order, index) {
             <option value="cancelled" ${status === 'cancelled' ? 'selected' : ''}>✕ Отменён</option>
           </select>
           <button onclick="openOrderItemsDetailModal('${order.id}', '${(order.name || '').replace(/'/g, "\\'")}', '${order.phone || ''}', '${dateStr}')" style="padding:8px 12px; background:#007bff; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">📋 Товары</button>
+          <button onclick="openAddItemToOrderModal('${order.id}')" style="padding:8px 12px; background:#17a2b8; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer; font-weight:600;">➕ Добавить товар</button>
           <button onclick="openEditOrderModal('${order.id}')" style="padding:8px 12px; background:#ff9800; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">✏️ Редактировать</button>
           <div style="display:flex; gap:6px;">
             <button onclick="exportOrderToExcel('${order.id}', '${(order.name || '').replace(/'/g, "\\'")}', '${order.phone || ''}')" style="flex:1; padding:8px 12px; background:#25d366; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">📤</button>
