@@ -191,6 +191,20 @@ let extraPhotoCounter = 0;
 let packCalcPreviewTimeout = null;
 const _packCalcIsIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
+// ============ СКРЫВАЕМ ПОЛЯ ТОЛЬКО ДЛЯ АДМИНА ОТ ПРОДАВЦОВ ============
+(function() {
+  try {
+    const sellerRaw = localStorage.getItem('currentSeller');
+    if (sellerRaw && JSON.parse(sellerRaw).id) {
+      // Продавец — скрываем цену закупки и наценку
+      const costPriceField = document.getElementById('newCostPrice');
+      const profitDisplay = document.getElementById('profitDisplay');
+      if (costPriceField) costPriceField.style.display = 'none';
+      if (profitDisplay) profitDisplay.style.display = 'none';
+    }
+  } catch(e) {}
+})();
+
 // ============ ФУНКЦИЯ ЗАКРЫТИЯ ОКНА ============
 function closeAddProductWindow() {
   window.location.href = 'profile.html';
@@ -714,6 +728,20 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
     const packsPerBox = parseInt(document.getElementById('newPacksPerBox').value) || 20;
     const extraImages = extraPhotoUrls.map(p => p.url).filter(url => url && url.trim());
     
+    // Определяем продавца (если залогинен) или админ
+    let _sellerId = 'admin';
+    let _sellerName = 'Главный администратор';
+    try {
+      const _sellerRaw = localStorage.getItem('currentSeller');
+      if (_sellerRaw) {
+        const _seller = JSON.parse(_sellerRaw);
+        if (_seller && _seller.id) {
+          _sellerId = _seller.id;
+          _sellerName = _seller.name || 'Продавец';
+        }
+      }
+    } catch(e) {}
+    
     const productData = { 
       title, 
       description: description || '',
@@ -731,6 +759,8 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
       isPack: isPack,
       packQty: isPack ? packQty : null,
       packsPerBox: isPack ? packsPerBox : null,
+      sellerId: _sellerId,
+      sellerName: _sellerName,
       variants: null
     };
     
@@ -743,8 +773,8 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
     if (newCategoryInputValue) {
       await db.collection('seller_categories').add({
         name: newCategoryInputValue,
-        sellerId: 'admin',
-        sellerName: 'Главный администратор',
+        sellerId: _sellerId,
+        sellerName: _sellerName,
         createdAt: Date.now(),
         status: 'approved'
       });

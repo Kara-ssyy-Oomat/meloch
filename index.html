@@ -125,12 +125,12 @@ document.addEventListener('DOMContentLoaded', function() {
   const funcToCall = localStorage.getItem('callAfterLoad');
   if (funcToCall) {
     localStorage.removeItem('callAfterLoad');
-    // Даём время на инициализацию
+    // Даём время на инициализацию (defer-скрипты + checkSavedSeller + loadProducts)
     setTimeout(() => {
       if (typeof window[funcToCall] === 'function') {
         window[funcToCall]();
       }
-    }, 500);
+    }, 1500);
   }
 });
   </script>
@@ -650,6 +650,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let products = [];
     let isAdmin = false;
     let isEditorMode = false;
+    let currentSeller = null;
     let cachedSellerCategories = [];
     let boxPurchaseMode = false;
     let productsReady = false;
@@ -681,15 +682,15 @@ document.addEventListener('DOMContentLoaded', function() {
   <script src="js/firebase-config.js"></script>
   <script src="js/image-proxy.js"></script>
   <script src="js/client-identity.js"></script>
-  <script src="js/helpers.js"></script>
+  <script src="js/helpers.js?v=2"></script>
   <script src="js/product-loader.js"></script>
-  <script src="js/product-renderer.js"></script>
+  <script src="js/product-renderer.js?v=5"></script>
   <script src="js/cart.js"></script>
   <script src="js/favorites.js"></script>
   <script src="js/quantity.js?v=2"></script>
-  <script src="js/app-init.js"></script>
+  <script src="js/app-init.js?v=3"></script>
   <script src="js/filters.js"></script>
-  <script src="js/bottom-nav.js?v=20"></script>
+  <script src="js/bottom-nav.js?v=23"></script>
   <script src="js/scroll-buttons.js"></script>
 
   <!-- ОТЛОЖЕННЫЕ модули: defer — загружаются параллельно, выполняются после DOM -->
@@ -704,8 +705,8 @@ document.addEventListener('DOMContentLoaded', function() {
   <script defer src="js/variants.js?v=2"></script>
   <script defer src="js/orders.js?v=2"></script>
   <script defer src="js/persist-profile.js?v=1"></script>
-  <script defer src="js/customer-auth.js?v=3"></script>
-  <script defer src="js/seller.js?v=2"></script>
+  <script defer src="js/customer-auth.js?v=5"></script>
+  <script defer src="js/seller.js?v=4"></script>
   <script defer src="js/order-tracking.js?v=2"></script>
   <script defer src="js/partners.js?v=2"></script>
   <script defer src="js/agents.js?v=2"></script>

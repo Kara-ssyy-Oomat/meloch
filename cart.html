@@ -224,6 +224,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при отправке заказа -->
   <script>
     let _cartLibsLoaded = false;
@@ -822,19 +823,43 @@
         });
 
         // Авторегистрация клиента
+        let _autoCustomerId = null;
         try {
-          const customerDoc = await db.collection('customers').doc(phone).get();
+          const normalizedPhone = phone.replace(/[^\d+]/g, '');
+          const nPhone = normalizedPhone.startsWith('0') ? '+996' + normalizedPhone.substring(1) : 
+                         normalizedPhone.startsWith('+') ? normalizedPhone : 
+                         normalizedPhone.startsWith('996') ? '+' + normalizedPhone : '+996' + normalizedPhone;
+          
+          const customerDoc = await db.collection('customers').doc(nPhone).get();
           if (!customerDoc.exists) {
-            await db.collection('customers').doc(phone).set({
-              name, phone, address, registeredAt: firebase.firestore.FieldValue.serverTimestamp(),
-              totalOrders: 1, totalSpent: total
+            await db.collection('customers').doc(nPhone).set({
+              name, phone: nPhone, address, registeredAt: firebase.firestore.FieldValue.serverTimestamp(),
+              totalOrders: 1, totalSpent: total,
+              password: nPhone.slice(-4),
+              createdAt: Date.now()
             });
+            _autoCustomerId = nPhone;
           } else {
-            await db.collection('customers').doc(phone).update({
+            await db.collection('customers').doc(nPhone).update({
               name, address, totalOrders: firebase.firestore.FieldValue.increment(1),
               totalSpent: firebase.firestore.FieldValue.increment(total)
             });
+            _autoCustomerId = nPhone;
           }
+          
+          // ВАЖНО: Сохраняем customerData для PersistProfile (чтобы profile.html находил данные)
+          const customerDataForProfile = {
+            id: _autoCustomerId,
+            name: name,
+            phone: nPhone,
+            address: address || '',
+            createdAt: Date.now()
+          };
+          try { localStorage.setItem('customerData', JSON.stringify(customerDataForProfile)); } catch(e) {}
+          if (window.PersistProfile) {
+            window.PersistProfile.save(customerDataForProfile);
+          }
+          console.log('[Cart] ✅ Профиль клиента сохранён для profile.html');
         } catch(e) { console.log('Customer update error:', e); }
 
         // Отправка уведомления в Telegram (фоново — текстовое сообщение)
