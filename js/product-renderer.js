@@ -225,9 +225,9 @@ function renderProductsCore() {
   
   let filtered = isEditorMode ? products : products.filter(p => !p.blocked);
   
-  // Продавец видит только свои товары
-  if (userRole === 'seller' && currentSeller) {
-    filtered = filtered.filter(p => p.sellerId === currentSeller.id);
+  // Продавец в режиме редактора видит только свои товары
+  if (isEditorMode && userRole === 'seller' && currentSeller) {
+    filtered = products.filter(p => p.sellerId === currentSeller.id);
   }
   
   // Корейский менеджер видит только корейские товары, часы и электронику
@@ -357,6 +357,10 @@ function renderProductsCore() {
     const qtyDisabledAttr = outOfStock ? 'disabled' : '';
     const buyLabel = outOfStock ? 'Нет в наличии' : 'Купить';
 
+    // Продавец видит кнопку "Редактировать" только на своих товарах в режиме редактора
+    const isSellerOwnProduct = (userRole === 'seller' && currentSeller && p.sellerId === currentSeller.id);
+    const showEditorCard = isEditorMode && (userRole !== 'seller' || isSellerOwnProduct);
+
     card.innerHTML = `
         <div class="card-image" style="position:relative; background:#f0f0f0;">
         ${blockedBadgeHtml}
@@ -368,7 +372,7 @@ function renderProductsCore() {
         ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="openProductImage('${p.id}')" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
       </div>
       <div class="card-body"
-        ${isEditorMode ? `
+        ${showEditorCard ? `
           <!-- Компактная карточка для режима редактора -->
           <div style="font-weight:600; color:#333; font-size:14px; margin-bottom:6px;">${p.title||'Товар'}</div>
           <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
@@ -588,14 +592,29 @@ function loadMoreProducts() {
     const buyDisabledAttr = outOfStock ? 'disabled' : '';
     const qtyDisabledAttr = outOfStock ? 'disabled' : '';
     const buyLabel = outOfStock ? 'Нет в наличии' : 'Купить';
+
+    // Логика редактора — такая же как в основном рендере
+    const isSellerOwnProduct = (userRole === 'seller' && currentSeller && p.sellerId === currentSeller.id);
+    const showEditorCard = isEditorMode && (userRole !== 'seller' || isSellerOwnProduct);
     
     card.innerHTML = `
       <div class="card-image" style="position:relative; background:#f0f0f0;">
         ${blockedBadgeHtml}${packBadgeHtml}${galleryBadgeHtml}${favoriteHtml}
         ${p.createdAt && (Date.now() - p.createdAt) < 4 * 24 * 60 * 60 * 1000 ? `<div class="new-badge">NEW</div>` : ''}
+        ${isEditorMode ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,123,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;z-index:1;">#${idx + 1}</div>` : ''}
         ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="openProductImage('${p.id}')" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
       </div>
-      <div class="card-body">
+      <div class="card-body"
+        ${showEditorCard ? `
+          <div style="font-weight:600; color:#333; font-size:14px; margin-bottom:6px;">${p.title||'Товар'}</div>
+          <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
+            <span style="font-size:16px; font-weight:700; color:#e53935;">${p.price||0} сом</span>
+          </div>
+          <div style="font-size:12px; color:#666; margin-bottom:8px;">
+            ${stock !== null ? `📦 Остаток: ${stock}` : '📦 Без лимита'} ${p.isPack ? '| 📦 Пачка' : ''}
+          </div>
+          <button onclick="openEditProductModal('${p.id}')" style="width:100%; background:linear-gradient(135deg,#007bff,#0056b3); color:white; border:none; padding:12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;">✏️ Редактировать</button>
+        ` : `
         <div class="card-title"><div>${p.title||''}</div></div>
         ${packInfoHtml}
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -610,6 +629,7 @@ function loadMoreProducts() {
           <input type="text" inputmode="numeric" value="${p.minQty||1}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
           <button onclick="addToCartById('${p.id}', this)" ${buyDisabledAttr}>${buyLabel}</button>
         </div>
+        `}
       </div>
     `;
     

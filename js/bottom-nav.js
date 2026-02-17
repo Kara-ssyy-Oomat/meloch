@@ -240,12 +240,19 @@
     setActiveNavItem('profile');
     closeCategoriesPanel();
     
-    // Если профиль уже открыт — закрываем все модальные окна внутри
+    // Если профиль уже открыт — обновляем данные и закрываем модалки внутри
     if (_currentFrameUrl === 'profile.html' && _frameCache['profile.html']) {
       try {
-        _frameCache['profile.html'].contentWindow.postMessage('resetProfile', '*');
+        _frameCache['profile.html'].contentWindow.postMessage('refreshProfile', '*');
       } catch(e) {}
       return;
+    }
+    
+    // Если iframe кэширован но не текущий — обновим данные перед показом
+    if (_frameCache['profile.html']) {
+      try {
+        _frameCache['profile.html'].contentWindow.postMessage('refreshProfile', '*');
+      } catch(e) {}
     }
     
     openPageInFrame('profile.html');
@@ -478,6 +485,7 @@
   window.setActiveNavItem = setActiveNavItem;
   window.updateNavCounts = updateNavCounts;
   window.closeCategoriesPanel = closeCategoriesPanel;
+  window.navGoProfile = navGoProfile;
 
   // Слушаем события
   window.addEventListener('cartUpdated', updateNavCounts);
@@ -491,6 +499,17 @@
     if (e.data === 'closeIframe') {
       closePageFrame();
       setActiveNavItem('home');
+    }
+    // Продавец вышел через profile.html — деактивируем на главной
+    if (e.data === 'sellerLoggedOut') {
+      try {
+        if (typeof currentSeller !== 'undefined') currentSeller = null;
+        if (typeof userRole !== 'undefined') userRole = 'guest';
+        if (typeof isEditorMode !== 'undefined') isEditorMode = false;
+        var editorBtnContainer = document.getElementById('editorBtnContainer');
+        if (editorBtnContainer) editorBtnContainer.style.display = 'none';
+        if (typeof renderProducts === 'function') renderProducts();
+      } catch(err) { console.error('Ошибка деактивации продавца:', err); }
     }
   });
 

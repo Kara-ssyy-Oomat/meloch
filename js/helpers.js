@@ -146,6 +146,11 @@ window.addEventListener('load', function() {
 // ===========================================
 
 function openAddProductWindow() {
+  // Если продавец - используем специальную форму добавления
+  if (typeof currentSeller !== 'undefined' && currentSeller && typeof openSellerAddProduct === 'function') {
+    openSellerAddProduct();
+    return;
+  }
   const window = document.getElementById('addProductWindow');
   if (window) {
     window.style.display = 'flex';

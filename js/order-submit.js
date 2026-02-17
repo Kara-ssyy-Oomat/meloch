@@ -319,12 +319,12 @@ document.getElementById('submitOrder').onclick = async () => {
     const driverInfo = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
     const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfo}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
-    // СРАЗУ показываем успех клиенту
-    Swal.fire('Успех!', 'Ваш заказ принят и отправляется!', 'success');
+    // СРАЗУ показываем успех клиенту и ЖДЁМ закрытия
+    await Swal.fire('Успех!', 'Ваш заказ принят и отправляется!', 'success');
     
-    // Автоматическая регистрация/вход после первого заказа
+    // Автоматическая регистрация/вход после первого заказа (после закрытия Успех! диалога)
     if (typeof autoRegisterAfterOrder === 'function') {
-      autoRegisterAfterOrder(name, phone, address);
+      await autoRegisterAfterOrder(name, phone, address);
     }
     
     // Обновляем статистику клиента если он авторизован

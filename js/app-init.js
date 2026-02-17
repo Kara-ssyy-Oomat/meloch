@@ -145,14 +145,19 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   try {
+    // Восстанавливаем продавца до загрузки товаров (показываем кнопку редактора)
+    if (typeof checkSavedSeller === 'function') checkSavedSeller();
+
     loadProducts().then(() => {
       // renderProducts() уже вызван внутри loadProducts() — не вызываем повторно!
       loadSellerCategories(); // Загружаем категории продавцов
       updateCart(); // Обновляем корзину ПОСЛЕ загрузки товаров
       updateFavoritesCount(); // Обновляем счётчик избранного
       
-      // Проверяем сохранённого продавца (после загрузки товаров)
-      if (typeof checkSavedSeller === 'function') checkSavedSeller();
+      // Повторно проверяем продавца (на случай если defer-скрипт seller.js ещё не был загружен ранее)
+      if (typeof checkSavedSeller === 'function' && !currentSeller && localStorage.getItem('currentSeller')) {
+        checkSavedSeller();
+      }
       
       // Инициализируем калькулятор прибыли
       if (typeof setupProfitCalculator === 'function') setupProfitCalculator();

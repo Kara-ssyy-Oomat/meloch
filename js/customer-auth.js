@@ -63,16 +63,20 @@ function _initWithCustomerData(data) {
   console.log('👤 Клиент авторизован:', currentCustomer.name);
   
   // Проверяем, является ли клиент админом (по телефону)
+  // НЕ активируем админ-режим если уже залогинен продавец
+  const hasSavedSeller = !!localStorage.getItem('currentSeller');
   const normalizedPhone = normalizePhone(currentCustomer.phone);
   const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
   
-  if (normalizedPhone === adminPhone) {
-    currentCustomer.isAdmin = true;
-    _saveCustomerData();
-    activateAdminMode();
-    console.log('🔐 Автоматический вход админа по телефону');
-  } else if (currentCustomer.isAdmin) {
-    activateAdminMode();
+  if (!hasSavedSeller) {
+    if (normalizedPhone === adminPhone) {
+      currentCustomer.isAdmin = true;
+      _saveCustomerData();
+      activateAdminMode();
+      console.log('🔐 Автоматический вход админа по телефону');
+    } else if (currentCustomer.isAdmin) {
+      activateAdminMode();
+    }
   }
   
   // Убеждаемся что данные сохранены во всех хранилищах
@@ -340,8 +344,6 @@ async function loginCustomer(phone, password) {
       text: 'Вы успешно вошли в личный кабинет',
       timer: 2000,
       showConfirmButton: false
-    }).then(() => {
-      showCustomerDashboard();
     });
     
   } catch (error) {
@@ -423,8 +425,6 @@ async function registerCustomer(data) {
       `,
       confirmButtonText: 'Отлично!',
       confirmButtonColor: '#4CAF50'
-    }).then(() => {
-      showCustomerDashboard();
     });
     
   } catch (error) {
@@ -435,8 +435,26 @@ async function registerCustomer(data) {
 
 // Автоматическая регистрация после первого заказа
 async function autoRegisterAfterOrder(name, phone, address) {
-  // Если клиент уже авторизован - только обновляем статистику
+  // Если клиент уже авторизован - открываем профиль для отслеживания заказа
   if (currentCustomer) {
+    const trackResult = await Swal.fire({
+      icon: 'info',
+      title: 'Заказ принят!',
+      html: `<p style="color:#666; font-size:14px;">Откройте профиль, чтобы отслеживать статус заказа.</p>`,
+      confirmButtonText: 'Открыть профиль',
+      showCancelButton: true,
+      cancelButtonText: 'Закрыть',
+      confirmButtonColor: '#4CAF50',
+      allowOutsideClick: false,
+      allowEscapeKey: false
+    });
+    if (trackResult.isConfirmed) {
+      if (typeof navGoProfile === 'function') {
+        navGoProfile();
+      } else {
+        showCustomerDashboard();
+      }
+    }
     return;
   }
   
@@ -462,18 +480,26 @@ async function autoRegisterAfterOrder(name, phone, address) {
       }
       
       // Открываем профиль
-      setTimeout(() => {
-        Swal.fire({
-          icon: 'success',
-          title: 'Добро пожаловать!',
-          html: `<p>Рады видеть вас снова, <strong>${currentCustomer.name}</strong>!</p>
-                 <p style="color:#666; font-size:14px;">Ваш заказ принят. Нажмите "Профиль" чтобы отслеживать заказы.</p>`,
-          confirmButtonText: 'Открыть профиль',
-          confirmButtonColor: '#4CAF50'
-        }).then(() => {
+      const welcomeResult = await Swal.fire({
+        icon: 'success',
+        title: 'Добро пожаловать!',
+        html: `<p>Рады видеть вас снова, <strong>${currentCustomer.name}</strong>!</p>
+               <p style="color:#666; font-size:14px;">Ваш заказ принят. Нажмите "Профиль" чтобы отслеживать заказы.</p>`,
+        confirmButtonText: 'Открыть профиль',
+        showCancelButton: true,
+        cancelButtonText: 'Закрыть',
+        confirmButtonColor: '#4CAF50',
+        allowOutsideClick: false,
+        allowEscapeKey: false
+      });
+      if (welcomeResult.isConfirmed) {
+        // Открываем профиль через навигацию нижнего меню (iframe), а не overlay
+        if (typeof navGoProfile === 'function') {
+          navGoProfile();
+        } else {
           showCustomerDashboard();
-        });
-      }, 500);
+        }
+      }
       return;
     }
     
@@ -515,28 +541,36 @@ async function autoRegisterAfterOrder(name, phone, address) {
     }
     
     // Показываем сообщение об автоматической регистрации и открываем профиль
-    setTimeout(() => {
-      Swal.fire({
-        icon: 'success',
-        title: '🎉 Профиль создан!',
-        html: `
-          <div style="text-align:center;">
-            <p>Добро пожаловать, <strong>${name}</strong>!</p>
-            <p style="color:#666; font-size:14px;">Ваш профиль создан автоматически.</p>
-            <div style="background:#f0f8ff; padding:15px; border-radius:10px; margin:15px 0;">
-              <p style="margin:0; font-weight:bold; color:#333;">🔐 Ваш пароль для входа:</p>
-              <p style="margin:5px 0 0; font-size:24px; color:#4CAF50; font-weight:bold;">${autoPassword}</p>
-              <p style="margin:5px 0 0; font-size:12px; color:#999;">Это последние 4 цифры вашего номера</p>
-            </div>
-            <p style="color:#666; font-size:13px;">Теперь вы можете отслеживать заказы и получать скидки!</p>
+    const regResult = await Swal.fire({
+      icon: 'success',
+      title: '🎉 Профиль создан!',
+      html: `
+        <div style="text-align:center;">
+          <p>Добро пожаловать, <strong>${name}</strong>!</p>
+          <p style="color:#666; font-size:14px;">Ваш профиль создан автоматически.</p>
+          <div style="background:#f0f8ff; padding:15px; border-radius:10px; margin:15px 0;">
+            <p style="margin:0; font-weight:bold; color:#333;">🔐 Ваш пароль для входа:</p>
+            <p style="margin:5px 0 0; font-size:24px; color:#4CAF50; font-weight:bold;">${autoPassword}</p>
+            <p style="margin:5px 0 0; font-size:12px; color:#999;">Это последние 4 цифры вашего номера</p>
           </div>
-        `,
-        confirmButtonText: 'Открыть профиль',
-        confirmButtonColor: '#4CAF50'
-      }).then(() => {
+          <p style="color:#666; font-size:13px;">Теперь вы можете отслеживать заказы и получать скидки!</p>
+        </div>
+      `,
+      confirmButtonText: 'Открыть профиль',
+      showCancelButton: true,
+      cancelButtonText: 'Закрыть',
+      confirmButtonColor: '#4CAF50',
+      allowOutsideClick: false,
+      allowEscapeKey: false
+    });
+    if (regResult.isConfirmed) {
+      // Открываем профиль через навигацию нижнего меню (iframe), а не overlay
+      if (typeof navGoProfile === 'function') {
+        navGoProfile();
+      } else {
         showCustomerDashboard();
-      });
-    }, 500);
+      }
+    }
     
   } catch (error) {
     console.error('Ошибка автоматической регистрации:', error);
@@ -561,7 +595,7 @@ async function showCustomerDashboard() {
   // Показываем загрузку
   const loadingModal = document.createElement('div');
   loadingModal.id = 'profileFullscreenModal';
-  loadingModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:44px;background:#f5f5f5;z-index:9500;display:flex;align-items:center;justify-content:center;overscroll-behavior:contain;';
+  loadingModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:44px;background:#f5f5f5;z-index:99990;display:flex;align-items:center;justify-content:center;overscroll-behavior:contain;';
   loadingModal.innerHTML = '<div style="text-align:center;"><div style="font-size:40px;margin-bottom:10px;">⏳</div><div>Загрузка...</div></div>';
   document.body.appendChild(loadingModal);
   
