@@ -26,14 +26,60 @@ function _saveCustomerData() {
   if (window.PersistProfile) window.PersistProfile.save(currentCustomer);
 }
 
+// Восстановить профиль из Firestore по телефону (если localStorage очищен)
+async function _restoreCustomerFromCloud(cookieData) {
+  if (!cookieData || !cookieData.phone) return null;
+  if (typeof db === 'undefined' || !db) return null;
+
+  try {
+    const normalizedPhone = normalizePhone(cookieData.phone);
+    const snapshot = await db.collection('customers')
+      .where('phone', '==', normalizedPhone)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) return null;
+
+    const doc = snapshot.docs[0];
+    const data = doc.data() || {};
+
+    // Если имя есть в cookie и не совпадает с базой, не восстанавливаем
+    const cookieName = (cookieData.name || '').trim().toLowerCase();
+    const dbName = (data.name || '').trim().toLowerCase();
+    if (cookieName && dbName && cookieName !== dbName) return null;
+
+    return {
+      id: doc.id,
+      name: data.name || cookieData.name || '',
+      phone: data.phone || normalizedPhone,
+      address: data.address || '',
+      createdAt: data.createdAt,
+      ordersCount: data.ordersCount || 0,
+      totalSpent: data.totalSpent || 0,
+      isAdmin: !!data.isAdmin
+    };
+  } catch (error) {
+    console.error('[Auth] Ошибка восстановления из Firestore:', error);
+    return null;
+  }
+}
+
 // Инициализация системы авторизации
 function initCustomerAuth() {
   // Используем PersistProfile для надёжного восстановления (localStorage → IndexedDB → cookie)
   if (window.PersistProfile) {
-    window.PersistProfile.load(function(data) {
-      if (data) {
-        _initWithCustomerData(data);
+    window.PersistProfile.load(async function(data) {
+      if (!data) return;
+
+      if (data._restoredFromCookie) {
+        const cloudData = await _restoreCustomerFromCloud(data);
+        if (cloudData) {
+          _initWithCustomerData(cloudData);
+          return;
+        }
       }
+
+      _initWithCustomerData(data);
     });
   } else {
     // Fallback: обычный localStorage
