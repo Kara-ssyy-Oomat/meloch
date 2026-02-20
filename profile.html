@@ -661,19 +661,63 @@
       try { localStorage.setItem('customerData', JSON.stringify(currentCustomer)); } catch(e) {}
       if (window.PersistProfile) window.PersistProfile.save(currentCustomer);
     }
+
+    // Восстановить профиль из Firestore по телефону (если localStorage очищен)
+    async function _restoreProfileFromCloud(cookieData) {
+      if (!cookieData || !cookieData.phone) return null;
+      if (typeof db === 'undefined' || !db) return null;
+
+      try {
+        const normalizedPhone = normalizePhone(cookieData.phone);
+        const snapshot = await db.collection('customers')
+          .where('phone', '==', normalizedPhone)
+          .limit(1)
+          .get();
+
+        if (snapshot.empty) return null;
+
+        const doc = snapshot.docs[0];
+        const data = doc.data() || {};
+
+        // Если имя есть в cookie и не совпадает с базой, не восстанавливаем
+        const cookieName = (cookieData.name || '').trim().toLowerCase();
+        const dbName = (data.name || '').trim().toLowerCase();
+        if (cookieName && dbName && cookieName !== dbName) return null;
+
+        return {
+          id: doc.id,
+          name: data.name || cookieData.name || '',
+          phone: data.phone || normalizedPhone,
+          address: data.address || '',
+          createdAt: data.createdAt,
+          ordersCount: data.ordersCount || 0,
+          totalSpent: data.totalSpent || 0,
+          isAdmin: !!data.isAdmin
+        };
+      } catch (error) {
+        console.error('[Profile] Ошибка восстановления из Firestore:', error);
+        return null;
+      }
+    }
     
     // ==================== ИНИЦИАЛИЗАЦИЯ ====================
     async function init() {
       // Используем PersistProfile для надёжного восстановления (localStorage → IndexedDB → cookie)
-      function _onProfileLoaded(data) {
+      async function _onProfileLoaded(data) {
         if (data && data.phone) {
           try {
-            currentCustomer = data;
-            
-            // Если восстановлено из cookie — минимальные данные, нужна перезагрузка из Firestore
             if (data._restoredFromCookie) {
-              delete currentCustomer._restoredFromCookie;
-              console.log('[Profile] ⚠️ Восстановлено из cookie-бэкапа');
+              const cloudData = await _restoreProfileFromCloud(data);
+              if (cloudData) {
+                currentCustomer = cloudData;
+                _saveProfileData();
+              } else {
+                currentCustomer = data;
+                delete currentCustomer._restoredFromCookie;
+                console.log('[Profile] ⚠️ Восстановлено из cookie-бэкапа');
+              }
+            } else {
+              currentCustomer = data;
             }
             
             // Проверяем, является ли клиент админом
@@ -690,6 +734,21 @@
             const cachedAgent = sessionStorage.getItem('isAgent_' + normalizedPhone);
             if (cachedAgent === 'true') {
               isAgent = true;
+            }
+
+            // Фолбэк: если агент уже авторизован в localStorage и телефон совпадает
+            try {
+              const agentRaw = localStorage.getItem('currentAgent');
+              if (agentRaw) {
+                const agent = JSON.parse(agentRaw);
+                const agentPhone = normalizePhone(agent && agent.phone);
+                if (agentPhone && agentPhone === normalizedPhone) {
+                  isAgent = true;
+                  sessionStorage.setItem('isAgent_' + normalizedPhone, 'true');
+                }
+              }
+            } catch (e) {
+              console.log('Ошибка чтения currentAgent:', e);
             }
             
             // Сначала показываем кэшированный dashboard мгновенно
