@@ -159,6 +159,7 @@ function initFirebase() {
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
     loadProducts(); // Загружаем товары после инициализации
+    loadSellerCategoriesForSelect(); // Загружаем категории продавцов
   } catch (error) {
     console.error('Firebase initialization error:', error);
     Swal.fire('Ошибка', 'Ошибка инициализации Firebase: ' + error.message, 'error');
@@ -211,6 +212,41 @@ function closeAddProductWindow() {
 }
 
 // ============ ФУНКЦИИ ДЛЯ КАТЕГОРИЙ ============
+
+// Загрузка категорий продавцов из Firebase
+async function loadSellerCategoriesForSelect() {
+  try {
+    const categorySelect = document.getElementById('newCategory');
+    if (!categorySelect) return;
+    
+    // Стандартные категории (уже есть в HTML)
+    const standardCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
+    
+    // Загружаем категории из seller_categories
+    const snapshot = await db.collection('seller_categories').get();
+    
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const catName = data.name;
+      if (catName && !standardCategories.includes(catName.toLowerCase())) {
+        // Проверяем, нет ли уже такой опции
+        const exists = Array.from(categorySelect.options).some(opt => opt.value.toLowerCase() === catName.toLowerCase());
+        if (!exists) {
+          const option = document.createElement('option');
+          option.value = catName.toLowerCase();
+          option.textContent = '🏪 ' + catName;
+          option.setAttribute('data-category', catName.toLowerCase());
+          categorySelect.appendChild(option);
+        }
+      }
+    });
+    
+    console.log('✅ Категории продавцов загружены для формы добавления');
+  } catch (error) {
+    console.error('Ошибка загрузки категорий:', error);
+  }
+}
+
 function showNewCategoryInput() {
   document.getElementById('newCategoryInputDiv').style.display = 'block';
   document.getElementById('newCategory').disabled = true;
