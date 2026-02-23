@@ -5,9 +5,14 @@
 // === МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ТОВАРА ===
 let currentEditProductId = null;
 
-function openEditProductModal(productId) {
+async function openEditProductModal(productId) {
   const p = products.find(pr => pr.id === productId);
   if (!p) return;
+  
+  // Гарантируем загрузку категорий перед открытием формы
+  if (typeof ensureSellerCategoriesLoaded === 'function') {
+    await ensureSellerCategoriesLoaded();
+  }
   
   currentEditProductId = productId;
   const modal = document.getElementById('editProductModal');

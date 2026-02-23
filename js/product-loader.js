@@ -150,6 +150,17 @@ async function uploadToImgBB(file) {
 
 // addNewExtraPhotoToEdit() определена в gallery.js
 
+// Флаг загрузки категорий
+let sellerCategoriesLoaded = false;
+
+// Функция гарантированной загрузки категорий
+async function ensureSellerCategoriesLoaded() {
+  if (!sellerCategoriesLoaded || cachedSellerCategories.length === 0) {
+    await loadSellerCategoriesCache();
+    sellerCategoriesLoaded = true;
+  }
+}
+
 // Функция для генерации опций категорий (включая категории продавцов)
 function generateCategoryOptions(currentCat) {
   const standardOptions = [
@@ -172,13 +183,15 @@ function generateCategoryOptions(currentCat) {
   });
   
   // Категории продавцов (только официальные из seller_categories)
-  cachedSellerCategories.forEach(cat => {
-    const catLower = cat.toLowerCase();
-    if (!standardOptions.find(o => o.value === catLower)) {
-      const selected = (currentCat || '').toLowerCase() === catLower ? 'selected' : '';
-      html += `<option value="${catLower}" ${selected}>🏪 ${cat}</option>`;
-    }
-  });
+  if (typeof cachedSellerCategories !== 'undefined' && cachedSellerCategories.length > 0) {
+    cachedSellerCategories.forEach(cat => {
+      const catLower = cat.toLowerCase();
+      if (!standardOptions.find(o => o.value === catLower)) {
+        const selected = (currentCat || '').toLowerCase() === catLower ? 'selected' : '';
+        html += `<option value="${catLower}" ${selected}>🏪 ${cat}</option>`;
+      }
+    });
+  }
   
   // НЕ добавляем неизвестные категории из товаров - только официальные
   

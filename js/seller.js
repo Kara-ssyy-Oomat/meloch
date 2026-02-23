@@ -532,6 +532,11 @@ async function openSellerAddProduct() {
     return;
   }
 
+  // Гарантируем загрузку категорий перед открытием формы
+  if (typeof ensureSellerCategoriesLoaded === 'function') {
+    await ensureSellerCategoriesLoaded();
+  }
+
   const categoryOptions = typeof generateCategoryOptions === 'function' ? generateCategoryOptions('все') : '<option value="все">Все товары</option>';
 
   const { value: formValues } = await Swal.fire({
