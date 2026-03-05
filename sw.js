@@ -1,7 +1,7 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v4.0.1-bottom-nav'; // Принудительное обновление после фикса нижнего меню
+const CACHE_VERSION = 'kerben-v4.0.3-bottom-nav-6px'; // Принудительное обновление после настройки нижнего меню на 6px
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
