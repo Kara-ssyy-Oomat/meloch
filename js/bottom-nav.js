@@ -6,6 +6,9 @@
 (function() {
   'use strict';
 
+  var BOTTOM_NAV_HEIGHT = 56;
+  var BOTTOM_NAV_LIFT = 8;
+
   // Не создаём меню если страница загружена внутри iframe
   if (window.parent !== window) {
     return;
@@ -52,16 +55,17 @@
     styles.textContent = 
       '#bottomNavBar {' +
       '  position: fixed;' +
-      '  bottom: 0; left: 0; right: 0;' +
+      '  bottom: calc(' + BOTTOM_NAV_LIFT + 'px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;' +
       '  z-index: 99999;' +
       '  background: #fff;' +
       '  display: flex;' +
       '  align-items: center;' +
-      '  height: calc(56px + env(safe-area-inset-bottom, 0px));' +
-      '  padding-bottom: env(safe-area-inset-bottom, 0px);' +
+      '  height: ' + BOTTOM_NAV_HEIGHT + 'px;' +
+      '  padding-bottom: 0;' +
       '  border-top: 1px solid #eee;' +
       '  box-shadow: 0 -2px 10px rgba(0,0,0,0.08);' +
       '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;' +
+      '  box-sizing: border-box;' +
       '}' +
       '#bottomNavBar .bnav-main {' +
       '  flex: 1;' +
@@ -118,7 +122,7 @@
       '  justify-content: center;' +
       '  padding: 0 4px;' +
       '}' +
-      'body { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important; }';
+      'body { padding-bottom: calc(' + (BOTTOM_NAV_HEIGHT + BOTTOM_NAV_LIFT) + 'px + env(safe-area-inset-bottom, 0px)) !important; }';
     document.head.appendChild(styles);
   }
 
@@ -286,7 +290,7 @@
 
     var frame = document.createElement('iframe');
     frame.className = 'page-frame-cached';
-    frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;';
+    frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - ' + (BOTTOM_NAV_HEIGHT + BOTTOM_NAV_LIFT) + 'px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;';
     frame.src = url;
     document.body.appendChild(frame);
     _frameCache[url] = frame;
@@ -324,7 +328,7 @@
       setTimeout(function() {
         var frame = document.createElement('iframe');
         frame.className = 'page-frame-cached';
-        frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - 56px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;display:none;pointer-events:none;';
+        frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - ' + (BOTTOM_NAV_HEIGHT + BOTTOM_NAV_LIFT) + 'px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;display:none;pointer-events:none;';
         frame.src = url;
         document.body.appendChild(frame);
         _frameCache[url] = frame;
@@ -449,7 +453,7 @@
       '  background: rgba(0,0,0,0.5);' +
       '}' +
       '.categories-panel-content {' +
-      '  position: absolute; bottom: 56px; left: 0; right: 0;' +
+      '  position: absolute; bottom: calc(' + (BOTTOM_NAV_HEIGHT + BOTTOM_NAV_LIFT) + 'px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;' +
       '  background: white; border-radius: 20px 20px 0 0;' +
       '  max-height: 70vh; transform: translateY(100%); transition: transform 0.3s;' +
       '}' +
