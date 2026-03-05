@@ -7,7 +7,7 @@
   'use strict';
 
   var BOTTOM_NAV_HEIGHT = 56;
-  var BOTTOM_NAV_LIFT = 6;
+  var BOTTOM_NAV_LIFT = 0;
 
   // Не создаём меню если страница загружена внутри iframe
   if (window.parent !== window) {
@@ -73,7 +73,6 @@
       '  justify-content: space-around;' +
       '  align-items: center;' +
       '  height: 100%;' +
-      '  transform: translateY(-' + BOTTOM_NAV_LIFT + 'px);' +
       '}' +
       '#bottomNavBar .bnav-item {' +
       '  flex: 1;' +
