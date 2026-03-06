@@ -301,6 +301,7 @@ document.getElementById('submitOrder').onclick = async () => {
         title: item.title,
         qty: item.qty,
         price: item.price,
+        image: item.image || null,
         costPrice: item.costPrice || 0,
         sellerId: item.sellerId || null,
         sellerName: item.sellerName || null,
