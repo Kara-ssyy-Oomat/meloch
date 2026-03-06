@@ -4,10 +4,13 @@
 
 // === МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ТОВАРА ===
 let currentEditProductId = null;
+let _scrollBeforeEditModal = 0;
 
 async function openEditProductModal(productId) {
   const p = products.find(pr => pr.id === productId);
   if (!p) return;
+  
+  _scrollBeforeEditModal = window.scrollY || window.pageYOffset;
   
   // Гарантируем загрузку категорий перед открытием формы
   if (typeof ensureSellerCategoriesLoaded === 'function') {
@@ -267,10 +270,9 @@ async function saveEditProductModal() {
     await db.collection('products').doc(currentEditProductId).update(updateData);
     
     Swal.close();
-    const scrollY = window.scrollY;
+    _restoreScrollAfterRender = _scrollBeforeEditModal;
     closeEditProductModal();
     renderProducts();
-    requestAnimationFrame(() => window.scrollTo(0, scrollY));
     
     Swal.fire({
       icon: 'success',

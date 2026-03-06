@@ -8,6 +8,7 @@ let _currentPage = 1;
 let _allFilteredProducts = []; // Все отфильтрованные товары
 let _isLoadingMore = false;
 let _scrollObserver = null;
+let _restoreScrollAfterRender = null; // Позиция скролла для восстановления после рендера
 
 // На iPhone/медленных устройствах полный renderProducts на каждый символ сильно тормозит ввод.
 // Поэтому делаем debounce с увеличенной задержкой для iOS.
@@ -539,6 +540,13 @@ function renderProductsCore() {
       updateQtyDisplay(p.id);
     }
   });
+
+  // Восстанавливаем позицию скролла после редактирования товара
+  if (_restoreScrollAfterRender !== null) {
+    const y = _restoreScrollAfterRender;
+    _restoreScrollAfterRender = null;
+    requestAnimationFrame(() => window.scrollTo(0, y));
+  }
 }
 
 // ПАГИНАЦИЯ: подгрузка следующей порции товаров без полной перерисовки

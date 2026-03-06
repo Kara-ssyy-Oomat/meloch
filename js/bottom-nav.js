@@ -268,7 +268,7 @@
   var _currentFrameUrl = null;
   var _framesPreloaded = false;
 
-  function openPageInFrame(url) {
+  function openPageInFrame(url, skipPush) {
     navSavedScrollPos = window.scrollY || window.pageYOffset;
 
     Object.keys(_frameCache).forEach(function(key) {
@@ -277,6 +277,11 @@
         _frameCache[key].style.pointerEvents = 'none';
       }
     });
+
+    // Добавляем запись в history для кнопки "Назад" на Android
+    if (!skipPush) {
+      history.pushState({ framePage: url }, '', '');
+    }
 
     if (_frameCache[url]) {
       _frameCache[url].style.display = 'block';
@@ -495,6 +500,45 @@
   window.addEventListener('cartUpdated', updateNavCounts);
   window.addEventListener('storage', function(e) {
     if (e.key === 'cart') updateNavCounts();
+  });
+
+  // Обработка кнопки "Назад" на Android
+  window.addEventListener('popstate', function(e) {
+    // 1. Сначала проверяем SweetAlert
+    if (typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible()) {
+      Swal.close();
+      history.pushState(null, '', '');
+      return;
+    }
+
+    // 2. Модальные окна на главной странице
+    var editModal = document.getElementById('editProductModal');
+    if (editModal && editModal.style.display !== 'none') {
+      if (typeof closeEditProductModal === 'function') closeEditProductModal();
+      history.pushState(null, '', '');
+      return;
+    }
+    var trackModal = document.getElementById('trackOrderModal');
+    if (trackModal && trackModal.style.display !== 'none') {
+      if (typeof closeTrackOrderModal === 'function') closeTrackOrderModal();
+      history.pushState(null, '', '');
+      return;
+    }
+
+    // 3. Панель категорий
+    var catPanel = document.getElementById('categoriesPanel');
+    if (catPanel) {
+      closeCategoriesPanel();
+      history.pushState(null, '', '');
+      return;
+    }
+
+    // 4. Закрываем iframe
+    if (_currentFrameUrl) {
+      closePageFrame();
+      setActiveNavItem('home');
+      return;
+    }
   });
 
   // Слушаем сообщения от iframe
