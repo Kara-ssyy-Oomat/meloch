@@ -129,7 +129,7 @@
 
       <!-- Поиск -->
       <div style="padding:12px 16px 8px; background:#fff;">
-        <input type="text" id="ordersSearchClient" placeholder="🔍 Поиск по имени или телефону..." oninput="scheduleOrdersManagementSearch()" style="width:100%; padding:10px 14px; border:1px solid #e0e0e0; border-radius:10px; font-size:15px; background:#f8f8f8; box-sizing:border-box;">
+        <input type="text" id="ordersSearchClient" placeholder="🔍 Поиск по имени, телефону или товару..." oninput="scheduleOrdersManagementSearch()" style="width:100%; padding:10px 14px; border:1px solid #e0e0e0; border-radius:10px; font-size:15px; background:#f8f8f8; box-sizing:border-box;">
       </div>
 
       <!-- Фильтры -->
@@ -353,6 +353,33 @@ function updateOrdersManagementView() {
   }
 }
 
+// Нормализация русских статусов в английские коды
+const _statusNormalizeMap = {
+  'Новый': 'pending',
+  'новый': 'pending',
+  'В обработке': 'pending',
+  'Готовится': 'preparing',
+  'готовится': 'preparing',
+  'Логистика': 'logistics',
+  'логистика': 'logistics',
+  'Доставка': 'driver',
+  'доставка': 'driver',
+  'У курьера': 'driver',
+  'Доставлен': 'completed',
+  'доставлен': 'completed',
+  'Готов': 'completed',
+  'готов': 'completed',
+  'Отменён': 'cancelled',
+  'отменён': 'cancelled',
+  'Отменен': 'cancelled',
+  'отменен': 'cancelled'
+};
+
+function normalizeStatus(raw) {
+  if (!raw) return 'pending';
+  return _statusNormalizeMap[raw] || raw;
+}
+
 function renderOrdersManagementFromCache() {
   const listDiv = document.getElementById('ordersManagementList');
   if (!listDiv) return;
@@ -397,12 +424,13 @@ function renderOrdersManagementFromCache() {
       dateMatch = (now - timestamp) < (30 * oneDayMs);
     }
 
-    const status = order.status || 'pending';
+    const status = normalizeStatus(order.status);
     const statusMatch = statusFilter === 'all' || status === statusFilter;
 
     const name = (order.name || '').toLowerCase();
     const phone = (order.phone || '').toLowerCase();
-    const searchMatch = !searchQuery || name.includes(searchQuery) || phone.includes(searchQuery);
+    const itemsText = (order.items || []).map(i => (i.title || '').toLowerCase()).join(' ');
+    const searchMatch = !searchQuery || name.includes(searchQuery) || phone.includes(searchQuery) || itemsText.includes(searchQuery);
 
     return dateMatch && statusMatch && searchMatch;
   });
@@ -465,7 +493,7 @@ function createOrderCard(order, index) {
   const date = new Date(order.timestamp);
   const dateStr = date.toLocaleDateString('ru-RU', {day:'2-digit', month:'short'}) + ', ' + date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
   
-  const status = order.status || 'pending';
+  const status = normalizeStatus(order.status);
   const statusMap = {
     pending: { icon: '🕐', text: 'Новый', color: '#ff9800', bg: '#fff3e0' },
     preparing: { icon: '📦', text: 'Готовится', color: '#2196f3', bg: '#e3f2fd' },

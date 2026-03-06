@@ -805,7 +805,7 @@
             costPrice: item.costPrice || 0, sellerId: item.sellerId || null,
             sellerName: item.sellerName || null, variant: item.variant || null
           })),
-          total, timestamp: Date.now(), time: currentTime, status: 'Новый',
+          total, timestamp: Date.now(), time: currentTime, status: 'pending',
           partner: partner || null, referredBy: referredBy || null
         });
 
@@ -819,7 +819,7 @@
         // Сохраняем в историю
         saveOrderToHistory({
           name, phone, address, driverName: driverName || null, driverPhone: driverPhone || null,
-          items: [...cart], total, timestamp: Date.now(), time: currentTime, status: 'Новый'
+          items: [...cart], total, timestamp: Date.now(), time: currentTime, status: 'pending'
         });
 
         // Авторегистрация клиента
