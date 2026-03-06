@@ -267,8 +267,10 @@ async function saveEditProductModal() {
     await db.collection('products').doc(currentEditProductId).update(updateData);
     
     Swal.close();
+    const scrollY = window.scrollY;
     closeEditProductModal();
     renderProducts();
+    requestAnimationFrame(() => window.scrollTo(0, scrollY));
     
     Swal.fire({
       icon: 'success',
