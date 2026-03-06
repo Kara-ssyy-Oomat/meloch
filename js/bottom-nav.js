@@ -504,6 +504,17 @@
       closePageFrame();
       setActiveNavItem('home');
     }
+    // Настройки — размер карточек
+    if (e.data && e.data.type === 'cardSizeChanged') {
+      var grid = document.getElementById('productTable');
+      if (grid) {
+        if (e.data.size === 'small') {
+          grid.classList.add('cards-small');
+        } else {
+          grid.classList.remove('cards-small');
+        }
+      }
+    }
     // Продавец вышел через profile.html — деактивируем на главной
     if (e.data === 'sellerLoggedOut') {
       try {
