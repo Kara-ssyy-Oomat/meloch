@@ -1290,7 +1290,7 @@ async function showOrderDetails(orderId) {
         
         if (confirm.isConfirmed) {
           try {
-            await db.collection('orders').doc(orderId).update({ status: 'Отменён' });
+            await db.collection('orders').doc(orderId).update({ status: 'cancelled' });
             Swal.fire('Заказ отменён', '', 'success');
             showCustomerDashboard(); // Обновляем список
           } catch (e) {

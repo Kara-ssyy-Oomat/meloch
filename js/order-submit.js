@@ -309,7 +309,7 @@ document.getElementById('submitOrder').onclick = async () => {
       total,
       timestamp: Date.now(),
       time: currentTime,
-      status: 'Новый',
+      status: 'pending',
       partner: partner || null,
       referredBy: referredBy || null
     });
@@ -343,7 +343,7 @@ document.getElementById('submitOrder').onclick = async () => {
       total,
       timestamp: Date.now(),
       time: currentTime,
-      status: 'Новый'
+      status: 'pending'
     });
     
     // Разблокируем кнопку после показа успеха
