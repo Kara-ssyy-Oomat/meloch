@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <script>
+    if (window.parent !== window) {
+      document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>');
+    }
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Настройки - Кербен</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+
+    .settings-header {
+      background: linear-gradient(135deg, #4CAF50, #2e7d32);
+      color: white;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .back-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .settings-header h1 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .settings-section {
+      background: white;
+      margin-top: 10px;
+      padding: 0;
+    }
+    .section-title {
+      padding: 16px 20px 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #4CAF50;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .section-desc {
+      padding: 0 20px 12px;
+      font-size: 13px;
+      color: #888;
+    }
+
+    /* Переключатель размера карточек */
+    .card-size-options {
+      display: flex;
+      gap: 12px;
+      padding: 0 20px 20px;
+    }
+    .card-size-option {
+      flex: 1;
+      border: 2px solid #e0e0e0;
+      border-radius: 14px;
+      padding: 14px 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: white;
+    }
+    .card-size-option.active {
+      border-color: #4CAF50;
+      background: #e8f5e9;
+      box-shadow: 0 0 0 3px rgba(76,175,80,0.15);
+    }
+    .card-size-option:active {
+      transform: scale(0.97);
+    }
+
+    .option-preview {
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    /* Превью крупных карточек */
+    .preview-large .preview-card {
+      width: 52px;
+      height: 72px;
+      background: #f0f0f0;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid #ddd;
+    }
+    .preview-large .preview-card .prev-img {
+      width: 100%;
+      height: 44px;
+      background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .preview-large .preview-card .prev-text {
+      padding: 3px;
+    }
+    .preview-large .preview-card .prev-text .line {
+      height: 3px;
+      background: #ccc;
+      border-radius: 2px;
+      margin-bottom: 2px;
+    }
+    .preview-large .preview-card .prev-text .line:last-child {
+      width: 60%;
+    }
+
+    /* Превью маленьких карточек */
+    .preview-small .preview-card {
+      width: 36px;
+      height: 54px;
+      background: #f0f0f0;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid #ddd;
+    }
+    .preview-small .preview-card .prev-img {
+      width: 100%;
+      height: 24px;
+      background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+    }
+    .preview-small .preview-card .prev-text {
+      padding: 2px;
+    }
+    .preview-small .preview-card .prev-text .line {
+      height: 2px;
+      background: #ccc;
+      border-radius: 2px;
+      margin-bottom: 1.5px;
+    }
+    .preview-small .preview-card .prev-text .line:last-child {
+      width: 60%;
+    }
+
+    .option-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 2px;
+    }
+    .option-hint {
+      font-size: 11px;
+      color: #888;
+    }
+
+    .check-icon {
+      display: none;
+      color: #4CAF50;
+      font-size: 18px;
+      margin-top: 6px;
+    }
+    .card-size-option.active .check-icon {
+      display: block;
+    }
+
+    /* Другие настройки — пункты меню */
+    .setting-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .setting-item-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .setting-icon { font-size: 20px; }
+    .setting-text { font-size: 15px; color: #333; }
+    .setting-value { font-size: 14px; color: #888; }
+
+    /* Toast уведомление */
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #333;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 25px;
+      font-size: 14px;
+      font-weight: 500;
+      z-index: 9999;
+      opacity: 0;
+      transition: all 0.3s ease;
+      white-space: nowrap;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="settings-header">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <h1>⚙️ Настройки</h1>
+  </div>
+
+  <div class="settings-section">
+    <div class="section-title">🖼️ Вид карточек товаров</div>
+    <div class="section-desc">Выберите размер карточек на главной странице</div>
+
+    <div class="card-size-options">
+      <!-- Крупные -->
+      <div class="card-size-option" id="optionLarge" onclick="setCardSize('large')">
+        <div class="option-preview preview-large">
+          <div class="preview-card">
+            <div class="prev-img">📷</div>
+            <div class="prev-text">
+              <div class="line"></div>
+              <div class="line"></div>
+            </div>
+          </div>
+          <div class="preview-card">
+            <div class="prev-img">📷</div>
+            <div class="prev-text">
+              <div class="line"></div>
+              <div class="line"></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-label">Крупные</div>
+        <div class="option-hint">Большие фото, 2 в ряд</div>
+        <div class="check-icon">✅</div>
+      </div>
+
+      <!-- Маленькие -->
+      <div class="card-size-option" id="optionSmall" onclick="setCardSize('small')">
+        <div class="option-preview preview-small">
+          <div class="preview-card">
+            <div class="prev-img">📷</div>
+            <div class="prev-text">
+              <div class="line"></div>
+              <div class="line"></div>
+            </div>
+          </div>
+          <div class="preview-card">
+            <div class="prev-img">📷</div>
+            <div class="prev-text">
+              <div class="line"></div>
+              <div class="line"></div>
+            </div>
+          </div>
+        </div>
+        <div class="option-label">Компактные</div>
+        <div class="option-hint">Мелкие фото, 2 в ряд</div>
+        <div class="check-icon">✅</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // Инициализация — подсветим текущий выбор
+    (function() {
+      var size = localStorage.getItem('cardSize') || 'large';
+      highlightOption(size);
+    })();
+
+    function setCardSize(size) {
+      localStorage.setItem('cardSize', size);
+      highlightOption(size);
+      showToast(size === 'large' ? '✅ Крупные карточки' : '✅ Компактные карточки');
+
+      // Уведомляем родительское окно (index.html) об изменении
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'cardSizeChanged', size: size }, '*');
+        }
+      } catch(e) {}
+    }
+
+    function highlightOption(size) {
+      document.getElementById('optionLarge').classList.toggle('active', size === 'large');
+      document.getElementById('optionSmall').classList.toggle('active', size === 'small');
+    }
+
+    function showToast(text) {
+      var t = document.getElementById('toast');
+      t.textContent = text;
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(function() { t.classList.remove('show'); }, 1500);
+    }
+
+    function goBack() {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage('closeIframe', '*');
+      } else {
+        history.back();
+      }
+    }
+  </script>
+</body>
+</html>

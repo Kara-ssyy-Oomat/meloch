@@ -465,6 +465,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
   <!-- Сетка карточек товаров -->
   <div id="productTable" class="product-grid"></div>
+  <script>
+    // Применяем размер карточек из настроек
+    (function() {
+      var s = localStorage.getItem('cardSize');
+      if (s === 'small') {
+        document.getElementById('productTable').classList.add('cards-small');
+      }
+    })();
+  </script>
 
 
 
