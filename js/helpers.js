@@ -21,6 +21,15 @@ function lockPageScroll() {
   document.body.style.setProperty('touch-action', 'none', 'important');
   document.documentElement.style.setProperty('overflow-y', 'hidden', 'important');
   document.documentElement.classList.add('modal-open');
+
+  // Safety: автоматически разблокируем через 30 секунд если забыли
+  clearTimeout(lockPageScroll._safetyTimer);
+  lockPageScroll._safetyTimer = setTimeout(function() {
+    if (scrollLockCount > 0) {
+      console.warn('⚠️ Safety: принудительная разблокировка прокрутки (timeout)');
+      forceUnlockScroll();
+    }
+  }, 30000);
   
   console.log('🔒 lockPageScroll: count=' + scrollLockCount);
 }

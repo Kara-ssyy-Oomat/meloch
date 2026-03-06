@@ -97,6 +97,8 @@
       '}' +
       '#bottomNavBar .bnav-item:active { background: #f5f5f5; }' +
       '#bottomNavBar .bnav-item.active { color: #4CAF50; }' +
+      '#bottomNavBar { touch-action: manipulation !important; pointer-events: auto !important; }' +
+      '#bottomNavBar .bnav-item { touch-action: manipulation !important; pointer-events: auto !important; }' +
       '#bottomNavBar .bnav-svg {' +
       '  width: 24px;' +
       '  height: 24px;' +
@@ -202,10 +204,11 @@
 
   // ============ НАВИГАЦИЯ (только для index.html) ============
   var _navBusy = false;
+  var _navBusyTimer = null;
 
   function navGoHome() {
     if (_navBusy) return;
-    _navBusy = true; setTimeout(function() { _navBusy = false; }, 300);
+    _navBusy = true; clearTimeout(_navBusyTimer); _navBusyTimer = setTimeout(function() { _navBusy = false; }, 300);
     setActiveNavItem('home');
     closePageFrame();
     closeCategoriesPanel();
@@ -214,7 +217,7 @@
 
   function navGoCategories() {
     if (_navBusy) return;
-    _navBusy = true; setTimeout(function() { _navBusy = false; }, 300);
+    _navBusy = true; clearTimeout(_navBusyTimer); _navBusyTimer = setTimeout(function() { _navBusy = false; }, 300);
     closePageFrame();
     setActiveNavItem('categories');
     openCategoriesPanel();
@@ -222,7 +225,7 @@
 
   function navGoCart() {
     if (_navBusy) return;
-    _navBusy = true; setTimeout(function() { _navBusy = false; }, 300);
+    _navBusy = true; clearTimeout(_navBusyTimer); _navBusyTimer = setTimeout(function() { _navBusy = false; }, 300);
     setActiveNavItem('cart');
     closeCategoriesPanel();
     openPageInFrame('cart.html');
@@ -230,7 +233,7 @@
 
   function navGoChat() {
     if (_navBusy) return;
-    _navBusy = true; setTimeout(function() { _navBusy = false; }, 300);
+    _navBusy = true; clearTimeout(_navBusyTimer); _navBusyTimer = setTimeout(function() { _navBusy = false; }, 300);
     setActiveNavItem('chat');
     closeCategoriesPanel();
     var badge = document.getElementById('navChatBadge');
@@ -240,7 +243,7 @@
 
   function navGoProfile() {
     if (_navBusy) return;
-    _navBusy = true; setTimeout(function() { _navBusy = false; }, 300);
+    _navBusy = true; clearTimeout(_navBusyTimer); _navBusyTimer = setTimeout(function() { _navBusy = false; }, 300);
     setActiveNavItem('profile');
     closeCategoriesPanel();
     

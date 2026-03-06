@@ -219,7 +219,10 @@ function renderProductsCore() {
   container.innerHTML = '';
   
   // Сбрасываем пагинацию при новом рендере (поиск/фильтр/категория)
-  _currentPage = 1;
+  // НО: при редактировании товара сохраняем текущую страницу
+  if (_restoreScrollAfterRender === null) {
+    _currentPage = 1;
+  }
   
   // ОПТИМИЗАЦИЯ: Используем DocumentFragment для пакетного добавления
   const fragment = document.createDocumentFragment();
@@ -545,7 +548,13 @@ function renderProductsCore() {
   if (_restoreScrollAfterRender !== null) {
     const y = _restoreScrollAfterRender;
     _restoreScrollAfterRender = null;
-    requestAnimationFrame(() => window.scrollTo(0, y));
+    // Множественные попытки для iOS
+    window.scrollTo(0, y);
+    requestAnimationFrame(function() {
+      window.scrollTo(0, y);
+      setTimeout(function() { window.scrollTo(0, y); }, 50);
+      setTimeout(function() { window.scrollTo(0, y); }, 150);
+    });
   }
 }
 
