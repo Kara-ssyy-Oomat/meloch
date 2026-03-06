@@ -634,6 +634,22 @@
     let _customerOrders = [];
     let _dashboardCache = null; // Кэш данных dashboard
     
+    // Подписка на новые заказы (pending) для badge
+    function subscribeToNewOrders() {
+      db.collection('orders')
+        .where('status', '==', 'pending')
+        .onSnapshot(snapshot => {
+          const count = snapshot.size;
+          const badge = document.getElementById('ordersUnreadBadge');
+          if (badge) {
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'inline' : 'none';
+          }
+        }, error => {
+          console.log('Ошибка подписки на заказы:', error.message);
+        });
+    }
+
     // Подписка на непрочитанные сообщения для badge
     function subscribeToUnreadChatMessages() {
       console.log('🔔 Запускаем подписку на непрочитанные сообщения...');
@@ -770,6 +786,7 @@
             // Подписка на непрочитанные сообщения для админа
             if (isAdmin) {
               subscribeToUnreadChatMessages();
+              subscribeToNewOrders();
             }
           } catch(e) {
             console.error('Ошибка загрузки данных:', e);
@@ -1163,6 +1180,7 @@
               <div class="menu-item-left">
                 <span class="menu-icon">📦</span>
                 <span class="menu-text">Заказы клиентов</span>
+                <span id="ordersUnreadBadge" style="display:none; background:red; color:white; font-size:11px; padding:2px 6px; border-radius:10px; margin-left:8px; font-weight:bold;">0</span>
               </div>
               <span class="menu-arrow">›</span>
             </div>
