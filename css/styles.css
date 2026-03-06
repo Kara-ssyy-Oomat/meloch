@@ -191,7 +191,6 @@ body.swal2-height-auto {
 .product-card .card-image { 
   width: 100%; 
   aspect-ratio: 4/3; 
-  max-height: 140px; 
   overflow: hidden; 
   background: #f8f8f8; 
   display: flex; 
@@ -217,7 +216,15 @@ body.swal2-height-auto {
 .card-title { 
   font-size: 13px; 
   color: #222; 
-  min-height: 36px; 
+  min-height: 32px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+  max-height: 2.6em;
+  word-break: break-word;
 }
 
 .card-price { 
@@ -1251,8 +1258,8 @@ button.delete-item:hover {
   }
   
   .product-card .card-image {
-    max-height: 90px; 
     aspect-ratio: 1/1;
+    max-height: none;
   }
   
   .card-actions .card-qty-input { 
@@ -1276,6 +1283,40 @@ button.delete-item:hover {
     width: auto; 
   }
 }
+
+/* ===========================================
+   Компактные карточки (режим "small")
+   =========================================== */
+.product-grid.cards-small {
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 6px;
+}
+.product-grid.cards-small .product-card .card-image {
+  aspect-ratio: 1/1;
+  max-height: 90px;
+  padding: 3px;
+}
+.product-grid.cards-small .product-card .card-body {
+  padding: 4px;
+  gap: 3px;
+}
+.product-grid.cards-small .card-title {
+  font-size: 11px;
+  min-height: 26px;
+  -webkit-line-clamp: 2;
+  line-height: 1.2;
+  max-height: 2.4em;
+}
+.product-grid.cards-small .card-price {
+  font-size: 13px;
+}
+.product-grid.cards-small .card-oldprice {
+  font-size: 11px;
+}
+.product-grid.cards-small .card-stock {
+  font-size: 10px;
+}
+
 
 /* ===========================================
    Адаптивные стили - 600px
