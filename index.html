@@ -468,7 +468,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <script>
     // Применяем размер карточек из настроек
     (function() {
-      var s = localStorage.getItem('cardSize');
+      var s = localStorage.getItem('cardSize') || 'small';
       if (s === 'small') {
         document.getElementById('productTable').classList.add('cards-small');
       }
