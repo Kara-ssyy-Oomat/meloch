@@ -1288,8 +1288,13 @@ button.delete-item:hover {
    Компактные карточки (режим "small")
    =========================================== */
 .product-grid.cards-small {
-  grid-template-columns: repeat(2, 1fr) !important;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)) !important;
   gap: 6px;
+}
+@media (max-width: 700px) {
+  .product-grid.cards-small {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
 }
 .product-grid.cards-small .product-card .card-image {
   aspect-ratio: 1/1;
