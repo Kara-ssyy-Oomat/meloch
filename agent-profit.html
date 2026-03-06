@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -1039,6 +1040,9 @@
           <h3 class="orders-title">📋 Заказы моих клиентов</h3>
           <span class="orders-count" id="ordersCount">0 заказов</span>
         </div>
+        <div style="padding:0 0 12px;">
+          <input type="text" id="ordersSearchInput" placeholder="🔍 Поиск по имени, телефону или товару..." oninput="filterOrders()" style="width:100%; padding:10px 14px; border:1px solid #e0e0e0; border-radius:10px; font-size:14px; background:#f8f8f8; box-sizing:border-box; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='#9c27b0'" onblur="this.style.borderColor='#e0e0e0'">
+        </div>
         <div class="orders-list" id="ordersList">
           <div class="empty-state">
             <div class="empty-icon">📭</div>
@@ -1090,6 +1094,23 @@
       <div class="modal-body" id="clientsList">
         <div class="empty-state">Загрузка...</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно товаров заказа -->
+  <div id="orderItemsModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:10000; background:#f5f5f5; overflow-y:auto; -webkit-overflow-scrolling:touch;">
+    <div style="width:100%; min-height:100%; background:#f5f5f5; position:relative;">
+      <div id="orderItemsHeader" style="position:sticky; top:0; z-index:10; background:linear-gradient(135deg,#9c27b0,#7b1fa2); color:white; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 10px rgba(0,0,0,0.2);">
+        <div>
+          <div style="font-size:17px; font-weight:700;">📦 Товары заказа</div>
+          <div id="orderItemsClientInfo" style="font-size:12px; opacity:0.9; margin-top:3px;"></div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="orderItemsPdfBtn" onclick="downloadOrderItemsPdf()" style="background:rgba(255,255,255,0.2); border:none; color:white; height:40px; padding:0 14px; border-radius:20px; font-size:13px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">📄 PDF</button>
+          <button onclick="closeOrderItemsModal()" style="background:rgba(255,255,255,0.2); border:none; color:white; width:40px; height:40px; border-radius:50%; font-size:22px; cursor:pointer; display:flex; align-items:center; justify-content:center;">&times;</button>
+        </div>
+      </div>
+      <div id="orderItemsContent" style="padding:12px; max-width:600px; margin:0 auto;"></div>
     </div>
   </div>
 
@@ -1395,6 +1416,7 @@
     function filterOrders() {
       const periodFilter = document.getElementById('periodFilter').value;
       const statusFilter = document.getElementById('statusFilter').value;
+      const searchInput = (document.getElementById('ordersSearchInput')?.value || '').trim().toLowerCase();
       
       const now = Date.now();
       const today = new Date();
@@ -1425,7 +1447,16 @@
         
         const statusMatch = statusFilter === 'all' || order.status === statusFilter;
         
-        return periodMatch && statusMatch;
+        // Поиск по имени, телефону, товарам
+        let searchMatch = true;
+        if (searchInput) {
+          const name = (order.name || '').toLowerCase();
+          const phone = (order.phone || '').toLowerCase();
+          const items = (order.items || []).map(i => (i.title || '').toLowerCase()).join(' ');
+          searchMatch = name.includes(searchInput) || phone.includes(searchInput) || items.includes(searchInput);
+        }
+        
+        return periodMatch && statusMatch && searchMatch;
       });
       
       filteredOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -1482,19 +1513,8 @@
         const statusColor = statusColors[order.status] || '#666';
         const isRecent = (order.timestamp || 0) > oneDayAgo;
         
-        let itemsHtml = '';
         const itemsCount = order.items ? order.items.length : 0;
-        if (order.items && order.items.length > 0) {
-          itemsHtml = `<div class="order-items" id="items_${order.id}">
-            <div class="order-items-title">📦 Товары:</div>
-            ${order.items.map(item => `
-              <div class="order-item">
-                <span>${item.title || 'Товар'}</span>
-                <span>${item.qty} × ${item.price} = <strong>${((item.price || 0) * (item.qty || 0)).toLocaleString()}</strong> сом</span>
-              </div>
-            `).join('')}
-          </div>`;
-        }
+        const totalQty = order.items ? order.items.reduce((s, i) => s + (i.qty || 0), 0) : 0;
         
         return `
           <div class="order-card ${isRecent ? 'recent' : ''}" style="border-left-color:${statusColor};">
@@ -1512,13 +1532,12 @@
                 <div class="order-status" style="background:${statusColor};">${order.status || 'Новый'}</div>
               </div>
             </div>
-            ${itemsHtml}
             <div class="order-footer">
               <div class="order-total">
                 Сумма: <strong>${(order.total || 0).toLocaleString()} сом</strong>
               </div>
               <div class="order-actions">
-                ${itemsCount > 0 ? `<button class="order-btn purple" onclick="toggleItems('${order.id}')">👁️ Товары (${itemsCount})</button>` : ''}
+                ${itemsCount > 0 ? `<button class="order-btn purple" onclick="openOrderItemsModal('${order.id}')">📦 Товары (${totalQty} шт)</button>` : ''}
                 <div class="order-profit">+${profit.toLocaleString()} сом</div>
               </div>
             </div>
@@ -1527,11 +1546,253 @@
       }).join('');
     }
     
-    // Показать/скрыть товары
-    function toggleItems(orderId) {
-      const el = document.getElementById('items_' + orderId);
-      if (el) {
-        el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    // Открыть модальное окно товаров заказа
+    async function openOrderItemsModal(orderId) {
+      const order = allOrders.find(o => o.id === orderId);
+      if (!order || !order.items || order.items.length === 0) return;
+      
+      const modal = document.getElementById('orderItemsModal');
+      const content = document.getElementById('orderItemsContent');
+      const clientInfo = document.getElementById('orderItemsClientInfo');
+      
+      clientInfo.textContent = (order.name || 'Клиент') + ' • ' + (order.phone || '');
+      
+      _currentOrderItemsId = orderId;
+      
+      // Показываем модалку сразу с загрузкой
+      content.innerHTML = '<div style="text-align:center; padding:40px; color:#888;">⏳ Загрузка товаров...</div>';
+      modal.style.display = 'block';
+      document.body.style.overflow = 'hidden';
+      
+      // Подгружаем фото из коллекции products для товаров без image
+      const itemsMissingImage = order.items.filter(function(item) { return !item.image; });
+      const imageMap = {};
+      
+      if (itemsMissingImage.length > 0) {
+        const productIds = itemsMissingImage.map(function(item) { return item.id; }).filter(Boolean);
+        // Firestore 'in' запрос поддерживает до 10 элементов, разбиваем на чанки
+        for (let i = 0; i < productIds.length; i += 10) {
+          const chunk = productIds.slice(i, i + 10);
+          try {
+            const snap = await db.collection('products').where(firebase.firestore.FieldPath.documentId(), 'in', chunk).get();
+            snap.forEach(function(doc) {
+              const d = doc.data();
+              if (d.imageUrl) imageMap[doc.id] = d.imageUrl;
+              else if (d.image) imageMap[doc.id] = d.image;
+              else if (d.images && d.images.length > 0) imageMap[doc.id] = d.images[0];
+            });
+          } catch (e) {
+            console.warn('Ошибка загрузки фото товаров:', e);
+          }
+        }
+      }
+      
+      const totalQty = order.items.reduce(function(s, i) { return s + (i.qty || 0); }, 0);
+      const totalSum = order.items.reduce(function(s, i) { return s + ((i.price || 0) * (i.qty || 0)); }, 0);
+      
+      let html = '<div style="background:white; border-radius:12px; padding:14px; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 4px rgba(0,0,0,0.06);">' +
+        '<div>' +
+          '<div style="font-size:13px; color:#888;">Товаров: <strong style="color:#333;">' + order.items.length + '</strong></div>' +
+          '<div style="font-size:13px; color:#888; margin-top:2px;">Общее кол-во: <strong style="color:#333;">' + totalQty + ' шт</strong></div>' +
+        '</div>' +
+        '<div style="text-align:right;">' +
+          '<div style="font-size:18px; font-weight:700; color:#9c27b0;">' + totalSum.toLocaleString() + ' сом</div>' +
+          '<div style="font-size:12px; color:#4caf50; font-weight:600;">+' + Math.round(totalSum * 0.02).toLocaleString() + ' прибыль</div>' +
+        '</div>' +
+      '</div>';
+      
+      order.items.forEach(function(item) {
+        const itemTotal = (item.price || 0) * (item.qty || 0);
+        const imgSrc = item.image || (item.id && imageMap[item.id]) || '';
+        html += '<div style="background:white; border-radius:12px; margin-bottom:10px; overflow:hidden; box-shadow:0 1px 6px rgba(0,0,0,0.07);">' +
+          '<div style="display:flex; gap:12px; padding:12px;">' +
+            '<div style="flex-shrink:0; width:80px; height:80px; border-radius:10px; overflow:hidden; background:#f0f0f0; display:flex; align-items:center; justify-content:center;">' +
+              (imgSrc ? '<img src="' + imgSrc + '" referrerpolicy="no-referrer" style="width:100%; height:100%; object-fit:cover;" onerror="this.parentElement.innerHTML=\'📦\'">' : '<div style="font-size:32px;">📦</div>') +
+            '</div>' +
+            '<div style="flex:1; min-width:0;">' +
+              '<div style="font-size:14px; font-weight:600; color:#333; margin-bottom:6px; word-break:break-word;">' + (item.title || 'Товар') + '</div>' +
+              '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">' +
+                '<span style="background:#e3f2fd; color:#1565c0; padding:3px 8px; border-radius:6px; font-size:12px; font-weight:600;">' + (item.price || 0).toLocaleString() + ' сом/шт</span>' +
+                '<span style="background:#f3e5f5; color:#7b1fa2; padding:3px 8px; border-radius:6px; font-size:12px; font-weight:600;">× ' + (item.qty || 0) + '</span>' +
+              '</div>' +
+              '<div style="font-size:15px; font-weight:700; color:#333;">' + itemTotal.toLocaleString() + ' сом</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      });
+      
+      content.innerHTML = html;
+    }
+    
+    // Текущий orderId для PDF
+    let _currentOrderItemsId = null;
+    
+    function closeOrderItemsModal() {
+      document.getElementById('orderItemsModal').style.display = 'none';
+      document.body.style.overflow = '';
+      _currentOrderItemsId = null;
+    }
+    
+    // Скачать PDF со списком товаров заказа
+    async function downloadOrderItemsPdf() {
+      const order = allOrders.find(o => o.id === _currentOrderItemsId);
+      if (!order || !order.items || order.items.length === 0) return;
+      
+      const btn = document.getElementById('orderItemsPdfBtn');
+      const origText = btn.innerHTML;
+      btn.innerHTML = '⏳';
+      btn.disabled = true;
+      
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const scale = 1.5;
+        let yPos = 5;
+        
+        const clientName = order.name || 'Клиент';
+        const clientPhone = order.phone || '';
+        const orderDate = order.createdAt ? (order.createdAt.toDate ? order.createdAt.toDate() : new Date(order.createdAt)).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '';
+        const totalQty = order.items.reduce(function(s, i) { return s + (i.qty || 0); }, 0);
+        const totalSum = order.items.reduce(function(s, i) { return s + ((i.price || 0) * (i.qty || 0)); }, 0);
+        
+        // === ЗАГОЛОВОК ===
+        const hdrC = document.createElement('canvas');
+        const hdrX = hdrC.getContext('2d');
+        hdrC.width = 600 * scale; hdrC.height = 80 * scale;
+        hdrX.scale(scale, scale);
+        hdrX.fillStyle = '#9c27b0';
+        hdrX.fillRect(0, 0, 600, 80);
+        hdrX.fillStyle = 'white';
+        hdrX.font = 'bold 26px Arial';
+        hdrX.textAlign = 'center';
+        hdrX.fillText('ЗАКАЗ', 300, 30);
+        hdrX.font = '15px Arial';
+        hdrX.fillText(clientName + '  •  ' + clientPhone, 300, 52);
+        hdrX.font = '13px Arial';
+        hdrX.fillText(orderDate, 300, 72);
+        doc.addImage(hdrC.toDataURL('image/png'), 'PNG', 10, yPos, 190, 22);
+        yPos += 25;
+        
+        // === СТАТИСТИКА ===
+        const stC = document.createElement('canvas');
+        const stX = stC.getContext('2d');
+        stC.width = 600 * scale; stC.height = 40 * scale;
+        stX.scale(scale, scale);
+        stX.fillStyle = '#f3e5f5';
+        stX.fillRect(0, 0, 600, 40);
+        stX.strokeStyle = '#9c27b0';
+        stX.lineWidth = 2;
+        stX.strokeRect(0, 0, 600, 40);
+        stX.fillStyle = '#7b1fa2';
+        stX.font = 'bold 14px Arial';
+        stX.textAlign = 'center';
+        stX.fillText('Товаров: ' + order.items.length + '  |  Кол-во: ' + totalQty + ' шт  |  Сумма: ' + totalSum.toLocaleString() + ' сом', 300, 26);
+        doc.addImage(stC.toDataURL('image/png'), 'PNG', 10, yPos, 190, 11);
+        yPos += 14;
+        
+        // === ЗАГОЛОВОК ТАБЛИЦЫ ===
+        const thC = document.createElement('canvas');
+        const thX = thC.getContext('2d');
+        thC.width = 600 * scale; thC.height = 35 * scale;
+        thX.scale(scale, scale);
+        thX.fillStyle = '#e0e0e0';
+        thX.fillRect(0, 0, 600, 35);
+        thX.strokeStyle = '#333';
+        thX.lineWidth = 2;
+        thX.strokeRect(0, 0, 600, 35);
+        thX.beginPath();
+        thX.moveTo(40, 0); thX.lineTo(40, 35);
+        thX.moveTo(310, 0); thX.lineTo(310, 35);
+        thX.moveTo(390, 0); thX.lineTo(390, 35);
+        thX.moveTo(490, 0); thX.lineTo(490, 35);
+        thX.stroke();
+        thX.fillStyle = '#333';
+        thX.font = 'bold 12px Arial';
+        thX.textAlign = 'center';
+        thX.fillText('№', 20, 23);
+        thX.fillText('НАЗВАНИЕ', 175, 23);
+        thX.fillText('КОЛ-ВО', 350, 23);
+        thX.fillText('ЦЕНА', 440, 23);
+        thX.fillText('СУММА', 550, 23);
+        doc.addImage(thC.toDataURL('image/png'), 'PNG', 10, yPos, 190, 10);
+        yPos += 10;
+        
+        // === СТРОКИ ТОВАРОВ ===
+        for (let i = 0; i < order.items.length; i++) {
+          if (yPos > 265) { doc.addPage(); yPos = 10; }
+          
+          const item = order.items[i];
+          const itemTotal = (item.price || 0) * (item.qty || 0);
+          const title = item.title || 'Товар';
+          
+          const rC = document.createElement('canvas');
+          const rX = rC.getContext('2d');
+          rC.width = 600 * scale; rC.height = 35 * scale;
+          rX.scale(scale, scale);
+          rX.fillStyle = i % 2 === 0 ? 'white' : '#faf4fc';
+          rX.fillRect(0, 0, 600, 35);
+          rX.strokeStyle = '#ccc';
+          rX.lineWidth = 1;
+          rX.strokeRect(0, 0, 600, 35);
+          rX.beginPath();
+          rX.moveTo(40, 0); rX.lineTo(40, 35);
+          rX.moveTo(310, 0); rX.lineTo(310, 35);
+          rX.moveTo(390, 0); rX.lineTo(390, 35);
+          rX.moveTo(490, 0); rX.lineTo(490, 35);
+          rX.stroke();
+          
+          rX.fillStyle = '#333';
+          rX.font = '11px Arial';
+          rX.textAlign = 'center';
+          rX.fillText(String(i + 1), 20, 22);
+          
+          rX.textAlign = 'left';
+          if (title.length > 35) {
+            rX.fillText(title.substring(0, 35), 48, 15);
+            rX.fillText(title.substring(35, 70), 48, 28);
+          } else {
+            rX.fillText(title, 48, 22);
+          }
+          
+          rX.textAlign = 'center';
+          rX.font = 'bold 12px Arial';
+          rX.fillText((item.qty || 0) + ' шт', 350, 22);
+          rX.font = '11px Arial';
+          rX.fillText((item.price || 0).toLocaleString() + ' сом', 440, 22);
+          rX.font = 'bold 11px Arial';
+          rX.fillText(itemTotal.toLocaleString() + ' сом', 550, 22);
+          
+          doc.addImage(rC.toDataURL('image/png'), 'PNG', 10, yPos, 190, 9);
+          yPos += 9;
+        }
+        
+        // === ИТОГО ===
+        if (yPos > 265) { doc.addPage(); yPos = 10; }
+        const tC = document.createElement('canvas');
+        const tX = tC.getContext('2d');
+        tC.width = 600 * scale; tC.height = 50 * scale;
+        tX.scale(scale, scale);
+        tX.fillStyle = '#ffeb3b';
+        tX.fillRect(0, 0, 600, 50);
+        tX.strokeStyle = '#333';
+        tX.lineWidth = 3;
+        tX.strokeRect(0, 0, 600, 50);
+        tX.fillStyle = '#333';
+        tX.font = 'bold 22px Arial';
+        tX.textAlign = 'right';
+        tX.fillText('ИТОГО:  ' + totalSum.toLocaleString() + ' сом', 580, 33);
+        doc.addImage(tC.toDataURL('image/png'), 'PNG', 10, yPos, 190, 14);
+        
+        // Скачиваем PDF
+        const fileName = 'Заказ_' + clientName.replace(/\s+/g, '_') + '_' + (order.createdAt ? new Date(order.createdAt.toDate ? order.createdAt.toDate() : order.createdAt).toLocaleDateString('ru-RU').replace(/\./g, '-') : 'без_даты') + '.pdf';
+        doc.save(fileName);
+        
+      } catch (err) {
+        console.error('Ошибка создания PDF:', err);
+        Swal.fire('Ошибка', 'Не удалось создать PDF', 'error');
+      } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
       }
     }
     

@@ -71,20 +71,23 @@
     .date-picker {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
     }
     
     .date-picker label {
       font-weight: 600;
       color: #333;
+      font-size: 14px;
     }
     
-    .date-picker input {
-      padding: 10px 15px;
+    .date-picker input[type="date"] {
+      padding: 8px 10px;
       border: 1px solid #ddd;
       border-radius: 8px;
-      font-size: 15px;
+      font-size: 14px;
+      flex: 1;
+      min-width: 120px;
     }
     
     .load-btn {
@@ -333,8 +336,10 @@
   
   <div class="filters">
     <div class="date-picker">
-      <label>📅 Дата:</label>
-      <input type="date" id="dateFilter" />
+      <label>📅 От:</label>
+      <input type="date" id="dateFrom" />
+      <label>До:</label>
+      <input type="date" id="dateTo" />
       <select class="agent-select" id="agentFilter">
         <option value="all">Все клиенты</option>
         <option value="own">Наши клиенты</option>
@@ -485,7 +490,8 @@
       
       const today = new Date();
       const dateStr = today.toISOString().split('T')[0];
-      document.getElementById('dateFilter').value = dateStr;
+      document.getElementById('dateFrom').value = dateStr;
+      document.getElementById('dateTo').value = dateStr;
       
       // Загружаем агентов
       await loadAgentsForFilter();
@@ -503,7 +509,8 @@
     });
     
     async function loadDeliveryList() {
-      const dateInput = document.getElementById('dateFilter').value;
+      const dateFromInput = document.getElementById('dateFrom').value;
+      const dateToInput = document.getElementById('dateTo').value || dateFromInput;
       let agentFilter = document.getElementById('agentFilter').value;
       
       // Если это агент (не админ) - показываем только его клиентов
@@ -511,19 +518,18 @@
         agentFilter = currentAgentId;
       }
       
-      if (!dateInput) {
+      if (!dateFromInput) {
         Swal.fire('Ошибка', 'Выберите дату', 'error');
         return;
       }
       
-      const selectedDate = new Date(dateInput);
-      const startOfDay = new Date(selectedDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(selectedDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      const startDate = new Date(dateFromInput);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(dateToInput);
+      endDate.setHours(23, 59, 59, 999);
       
-      const startTimestamp = startOfDay.getTime();
-      const endTimestamp = endOfDay.getTime();
+      const startTimestamp = startDate.getTime();
+      const endTimestamp = endDate.getTime();
       
       document.getElementById('clientList').innerHTML = `
         <div style="text-align:center; padding:40px;">
@@ -626,12 +632,13 @@
         document.getElementById('totalSummary').style.display = clients.length > 0 ? 'flex' : 'none';
         
         // Дата для печати
-        const dateForPrint = selectedDate.toLocaleDateString('ru-RU', { 
-          weekday: 'long', 
-          day: 'numeric', 
-          month: 'long', 
-          year: 'numeric' 
-        });
+        const dateOpts = { day: 'numeric', month: 'long', year: 'numeric' };
+        let dateForPrint;
+        if (dateFromInput === (dateToInput || dateFromInput)) {
+          dateForPrint = startDate.toLocaleDateString('ru-RU', { weekday: 'long', ...dateOpts });
+        } else {
+          dateForPrint = startDate.toLocaleDateString('ru-RU', dateOpts) + ' — ' + endDate.toLocaleDateString('ru-RU', dateOpts);
+        }
         document.getElementById('printDate').textContent = dateForPrint;
         _deliveryDate = dateForPrint;
         
@@ -925,7 +932,7 @@
         // Отправляем в Telegram
         const botToken = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
         const chatId = '5567924440';
-        const dateForFile = document.getElementById('dateFilter').value.replace(/-/g, '_');
+        const dateForFile = document.getElementById('dateFrom').value.replace(/-/g, '_') + (document.getElementById('dateTo').value && document.getElementById('dateTo').value !== document.getElementById('dateFrom').value ? '_' + document.getElementById('dateTo').value.replace(/-/g, '_') : '');
         const agentSuffix = _deliveryAgentName ? ('_' + _deliveryAgentName.replace(/\s+/g, '_')) : '';
         
         const formData = new FormData();
