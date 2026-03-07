@@ -879,6 +879,14 @@ async function showCustomerDashboard() {
             <span style="color:#ccc;">›</span>
           </div>
           
+          <div onclick="openPriceRoundingFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span style="font-size:18px;">🔢</span>
+              <span style="font-size:15px; color:#333;">Округление цен</span>
+            </div>
+            <span style="color:#ccc;">›</span>
+          </div>
+          
           <div onclick="openAgentsManagementFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
             <div style="display:flex; align-items:center; gap:12px;">
               <span style="font-size:18px;">🤝</span>
@@ -1069,6 +1077,12 @@ function openSellersManagementFromProfile() {
 function openCategoriesManagementFromProfile() {
   closeProfileAndRun(() => {
     window.location.href = 'admin-categories.html';
+  });
+}
+
+function openPriceRoundingFromProfile() {
+  closeProfileAndRun(() => {
+    window.location.href = 'admin-rounding.html';
   });
 }
 
