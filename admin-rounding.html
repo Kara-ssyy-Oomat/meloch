@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Округление количества - Админ</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding-bottom: 70px;
+    }
+    .header {
+      background: linear-gradient(90deg, #ff5722, #e64a19);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header h2 { margin: 0; font-size: 20px; }
+    .header p { margin: 5px 0 0; opacity: 0.9; font-size: 13px; }
+    .back-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      font-size: 24px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container { padding: 16px; max-width: 600px; margin: 0 auto; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-row { display: flex; gap: 10px; margin-bottom: 12px; }
+    .form-row label {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 4px;
+      display: block;
+    }
+    .form-row .field { flex: 1; }
+    .form-row input, .form-row select {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: inherit;
+    }
+    .form-row input:focus, .form-row select:focus {
+      border-color: #ff5722;
+      outline: none;
+    }
+    .action-btn {
+      width: 100%;
+      padding: 16px;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      margin-bottom: 10px;
+    }
+    .action-btn:disabled {
+      background: #ccc !important;
+      cursor: not-allowed;
+    }
+    .btn-on { background: linear-gradient(135deg, #4caf50, #388e3c); }
+    .btn-off { background: linear-gradient(135deg, #ff5722, #d84315); }
+    .info-box {
+      background: #fff3e0;
+      border: 1px solid #ffe0b2;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      color: #e65100;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+    .stats-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      flex: 1;
+      background: #fff;
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .stat-num { font-size: 22px; font-weight: 700; }
+    .stat-num.orange { color: #ff5722; }
+    .stat-num.green { color: #4caf50; }
+    .stat-num.grey { color: #999; }
+    .stat-label { font-size: 11px; color: #999; margin-top: 4px; }
+    .preview-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+    }
+    .preview-item:last-child { border-bottom: none; }
+    .preview-item-name {
+      flex: 1;
+      color: #333;
+      margin-right: 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .badge-on {
+      background: #e8f5e9;
+      color: #2e7d32;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-off {
+      background: #fbe9e7;
+      color: #bf360c;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .badge-minqty {
+      background: #e3f2fd;
+      color: #1565c0;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h2>🔄 Округление количества</h2>
+      <p>Массовое вкл/выкл для товаров</p>
+    </div>
+    <button class="back-btn" onclick="window.location.href='index.html'">&times;</button>
+  </div>
+
+  <div class="container">
+
+    <div class="info-box">
+      💡 <b>Округление количества</b> — если включено, клиент может покупать только кратное минимуму. Например: мин. 5 шт → можно 5, 10, 15... но НЕ 7 или 8. Если клиент впишет 7 — автоматически исправится на 5.
+    </div>
+
+    <!-- Статистика -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-num orange" id="statTotal">—</div>
+        <div class="stat-label">Подходящих</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num green" id="statOn">—</div>
+        <div class="stat-label">Округление ВКЛ</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num grey" id="statOff">—</div>
+        <div class="stat-label">Округление ВЫКЛ</div>
+      </div>
+    </div>
+
+    <!-- Категория -->
+    <div class="card">
+      <div class="card-title">📁 Категория</div>
+      <div class="form-row">
+        <div class="field">
+          <select id="filterCategory" onchange="roundExcluded={};updatePreview()">
+            <option value="все">🛍️ Все товары</option>
+            <option value="ножницы">✂️ Ножницы</option>
+            <option value="скотч">📦 Скотч</option>
+            <option value="нож">🔪 Нож</option>
+            <option value="корейские">🇰🇷 Корейские товары</option>
+            <option value="часы">⌚ Часы</option>
+            <option value="электроника">🔌 Электроника</option>
+            <option value="бытовые">🏠 Бытовые техники</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Диапазон цен -->
+    <div class="card">
+      <div class="card-title">💰 Диапазон цен (сом)</div>
+      <div class="form-row">
+        <div class="field">
+          <label>От</label>
+          <input type="number" id="priceFrom" value="5" min="0" step="1" inputmode="numeric" onchange="roundExcluded={};updatePreview()" oninput="roundExcluded={};updatePreview()">
+        </div>
+        <div class="field">
+          <label>До</label>
+          <input type="number" id="priceTo" value="50" min="0" step="1" inputmode="numeric" onchange="roundExcluded={};updatePreview()" oninput="roundExcluded={};updatePreview()">
+        </div>
+      </div>
+    </div>
+
+    <!-- Минимум покупки (опционально) -->
+    <div class="card">
+      <div class="card-title">🛒 Минимум покупки (minQty)</div>
+      <div class="form-row">
+        <div class="field">
+          <label>Установить minQty для всех выбранных товаров</label>
+          <input type="number" id="newMinQty" value="" min="1" step="1" inputmode="numeric" placeholder="Оставьте пустым — не менять">
+        </div>
+      </div>
+      <div style="font-size:12px; color:#888;">Например: 5 — клиент покупает минимум 5 шт, при округлении может только 5, 10, 15...</div>
+    </div>
+
+    <!-- Предпросмотр -->
+    <div class="card">
+      <div class="card-title">👁️ Товары по фильтру</div>
+      <div id="previewContainer" style="color:#999; font-size:14px; text-align:center; padding:20px;">
+        Загрузка товаров...
+      </div>
+    </div>
+
+    <!-- Кнопки -->
+    <button class="action-btn btn-on" id="btnOn" onclick="applyRounding(true)" disabled>
+      ✅ Включить округление
+    </button>
+    <button class="action-btn btn-off" id="btnOff" onclick="applyRounding(false)" disabled>
+      ❌ Выключить округление
+    </button>
+
+    <!-- ============ РАЗДЕЛИТЕЛЬ ============ -->
+    <div style="height:20px; border-top:3px solid #e0e0e0; margin:20px 0 10px;"></div>
+    <div style="text-align:center; font-size:18px; font-weight:700; color:#1565c0; margin-bottom:14px;">🛒 Массовая установка минимума покупки</div>
+
+    <!-- Категория для minQty -->
+    <div class="card">
+      <div class="card-title">📁 Категория</div>
+      <div class="form-row">
+        <div class="field">
+          <select id="mqCategory" onchange="mqExcluded={};updateMinQtyPreview()">
+            <option value="все">🛍️ Все товары</option>
+            <option value="ножницы">✂️ Ножницы</option>
+            <option value="скотч">📦 Скотч</option>
+            <option value="нож">🔪 Нож</option>
+            <option value="корейские">🇰🇷 Корейские товары</option>
+            <option value="часы">⌚ Часы</option>
+            <option value="электроника">🔌 Электроника</option>
+            <option value="бытовые">🏠 Бытовые техники</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Диапазон цен для minQty -->
+    <div class="card">
+      <div class="card-title">💰 Диапазон цен (сом)</div>
+      <div class="form-row">
+        <div class="field">
+          <label>От</label>
+          <input type="number" id="mqPriceFrom" value="5" min="0" step="1" inputmode="numeric" onchange="mqExcluded={};updateMinQtyPreview()" oninput="mqExcluded={};updateMinQtyPreview()">
+        </div>
+        <div class="field">
+          <label>До</label>
+          <input type="number" id="mqPriceTo" value="25" min="0" step="1" inputmode="numeric" onchange="mqExcluded={};updateMinQtyPreview()" oninput="mqExcluded={};updateMinQtyPreview()">
+        </div>
+      </div>
+    </div>
+
+    <!-- Значение minQty -->
+    <div class="card">
+      <div class="card-title">🔢 Минимум покупки</div>
+      <div class="form-row">
+        <div class="field">
+          <label>Установить minQty</label>
+          <input type="number" id="mqValue" value="5" min="1" step="1" inputmode="numeric" onchange="updateMinQtyPreview()" oninput="updateMinQtyPreview()">
+        </div>
+      </div>
+      <div style="font-size:12px; color:#888;">Клиент не сможет купить меньше этого количества</div>
+    </div>
+
+    <!-- Предпросмотр minQty -->
+    <div class="card">
+      <div class="card-title">👁️ Товары без минимума</div>
+      <div id="mqPreviewContainer" style="color:#999; font-size:14px; text-align:center; padding:20px;">
+        Загрузка...
+      </div>
+    </div>
+
+    <!-- Кнопка установить minQty -->
+    <button class="action-btn" id="mqBtn" onclick="applyMinQty()" disabled style="background: linear-gradient(135deg, #1565c0, #1976d2);">
+      🛒 Установить минимум покупки
+    </button>
+
+    <div style="height:30px;"></div>
+  </div>
+
+<script>
+var firebaseConfig = {
+  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+  authDomain: "svoysayet.firebaseapp.com",
+  projectId: "svoysayet",
+  storageBucket: "svoysayet.firebasestorage.app",
+  messagingSenderId: "450143000217",
+  appId: "1:450143000217:web:7495cefaea0b94966e8a08"
+};
+
+var db;
+var products = [];
+var roundExcluded = {}; // исключённые товары из округления
+var mqExcluded = {}; // исключённые товары из минимума покупки
+
+// ============ ПРОВЕРКА АДМИНА ============
+function checkAdminAccess() {
+  try {
+    var customerData = localStorage.getItem('customerData');
+    var sellerData = localStorage.getItem('sellerData');
+    var isAdmin = false;
+    if (customerData) {
+      var c = JSON.parse(customerData);
+      if (c.isAdmin === true) isAdmin = true;
+    }
+    if (sellerData) {
+      var s = JSON.parse(sellerData);
+      if (s.isAdmin === true || s.role === 'admin') isAdmin = true;
+    }
+    if (!isAdmin) {
+      Swal.fire('Доступ запрещён', 'Только для главного администратора', 'error')
+        .then(function() { window.location.href = 'index.html'; });
+      return false;
+    }
+    return true;
+  } catch(e) {
+    window.location.href = 'index.html';
+    return false;
+  }
+}
+
+// ============ ИНИЦИАЛИЗАЦИЯ ============
+function init() {
+  if (!checkAdminAccess()) return;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    loadProducts();
+    loadSellerCategories();
+  } catch(err) {
+    Swal.fire('Ошибка', 'Firebase: ' + err.message, 'error');
+  }
+}
+
+// ============ ЗАГРУЗКА ТОВАРОВ ============
+async function loadProducts() {
+  try {
+    var snapshot = await db.collection('products').orderBy('order', 'desc').get();
+    products = [];
+    snapshot.forEach(function(doc) {
+      products.push({ id: doc.id, ...doc.data() });
+    });
+    updatePreview();
+    updateMinQtyPreview();
+  } catch(err) {
+    document.getElementById('previewContainer').innerHTML = '<div style="color:red;">Ошибка загрузки: ' + err.message + '</div>';
+  }
+}
+
+// ============ ЗАГРУЗКА КАТЕГОРИЙ ПРОДАВЦОВ ============
+async function loadSellerCategories() {
+  try {
+    var snapshot = await db.collection('seller_categories').get();
+    var select = document.getElementById('filterCategory');
+    var standard = ['все','ножницы','скотч','нож','корейские','часы','электроника','бытовые'];
+    snapshot.forEach(function(doc) {
+      var data = doc.data();
+      var name = data.name;
+      if (name && !standard.includes(name.toLowerCase())) {
+        // Добавляем в оба select
+        [select, document.getElementById('mqCategory')].forEach(function(sel) {
+          var exists = Array.from(sel.options).some(function(o) { return o.value.toLowerCase() === name.toLowerCase(); });
+          if (!exists) {
+            var opt = document.createElement('option');
+            opt.value = name.toLowerCase();
+            opt.textContent = '🏪 ' + name;
+            sel.appendChild(opt);
+          }
+        });
+      }
+    });
+  } catch(e) {
+    console.error('Ошибка загрузки категорий:', e);
+  }
+}
+
+// ============ ПОЛУЧИТЬ ОТФИЛЬТРОВАННЫЕ ТОВАРЫ ============
+function getFilteredProducts() {
+  var category = document.getElementById('filterCategory').value;
+  var from = parseFloat(document.getElementById('priceFrom').value) || 0;
+  var to = parseFloat(document.getElementById('priceTo').value) || Infinity;
+
+  return products.filter(function(p) {
+    var price = parseFloat(p.price);
+    if (isNaN(price)) return false;
+    if (price < from || price > to) return false;
+    if (category === 'все') {
+      // "Все товары" — только товары с категорией "все" или без категории (как на главной)
+      if (p.category && p.category.toLowerCase() !== 'все') return false;
+    } else {
+      if (!p.category || p.category.toLowerCase() !== category) return false;
+    }
+    return true;
+  });
+}
+
+// ============ ПРЕДПРОСМОТР ============
+function updatePreview() {
+  var container = document.getElementById('previewContainer');
+  if (products.length === 0) {
+    container.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">Загрузка...</div>';
+    return;
+  }
+
+  var filtered = getFilteredProducts();
+  var onCount = 0;
+  var offCount = 0;
+  var activeOn = 0;
+  var activeOff = 0;
+  var html = '';
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">Нет товаров по выбранным фильтрам</div>';
+    document.getElementById('statTotal').textContent = '0';
+    document.getElementById('statOn').textContent = '0';
+    document.getElementById('statOff').textContent = '0';
+    document.getElementById('btnOn').disabled = true;
+    document.getElementById('btnOff').disabled = true;
+    return;
+  }
+
+  html += '<div style="font-size:12px; color:#888; margin-bottom:8px; text-align:center;">Нажмите на товар чтобы исключить его</div>';
+
+  filtered.forEach(function(p) {
+    var isOn = !!p.roundQty;
+    if (isOn) onCount++; else offCount++;
+    var isExcluded = !!roundExcluded[p.id];
+    if (!isExcluded) {
+      if (isOn) activeOn++; else activeOff++;
+    }
+    var minQ = p.minQty || 1;
+    var cat = p.category || '—';
+    var rowStyle = isExcluded
+      ? 'opacity:0.4; text-decoration:line-through; background:#f5f5f5;'
+      : 'cursor:pointer;';
+
+    html += '<div class="preview-item" style="' + rowStyle + '" onclick="toggleRoundExclude(\'' + p.id + '\')">'; 
+    html += '<div class="preview-item-name">';
+    html += (isExcluded ? '❌ ' : '✅ ');
+    html += escapeHtml(p.title || 'Без названия') + ' <span style="color:#aaa; font-size:11px;">(' + escapeHtml(cat) + ')</span></div>';
+    html += '<div>';
+    if (!isExcluded) {
+      html += isOn ? '<span class="badge-on">✅ ВКЛ</span>' : '<span class="badge-off">выкл</span>';
+      if (minQ > 1) html += '<span class="badge-minqty">мин.' + minQ + '</span>';
+    } else {
+      html += '<span style="color:#999; font-size:12px;">исключён</span>';
+    }
+    html += ' <span style="color:#999; font-size:12px;">' + p.price + ' сом</span>';
+    html += '</div></div>';
+  });
+
+  container.innerHTML = '<div style="max-height:350px; overflow-y:auto;">' + html + '</div>';
+
+  var activeTotal = activeOn + activeOff;
+  document.getElementById('statTotal').textContent = activeTotal;
+  document.getElementById('statOn').textContent = activeOn;
+  document.getElementById('statOff').textContent = activeOff;
+  document.getElementById('btnOn').disabled = activeOff === 0;
+  document.getElementById('btnOff').disabled = activeOn === 0;
+
+  document.getElementById('btnOn').textContent = '✅ Включить округление (' + activeOff + ' товаров)';
+  document.getElementById('btnOff').textContent = '❌ Выключить округление (' + activeOn + ' товаров)';
+}
+
+function toggleRoundExclude(productId) {
+  if (roundExcluded[productId]) {
+    delete roundExcluded[productId];
+  } else {
+    roundExcluded[productId] = true;
+  }
+  updatePreview();
+}
+
+// ============ ПРИМЕНИТЬ ============
+async function applyRounding(enable) {
+  var filtered = getFilteredProducts().filter(function(p) { return !roundExcluded[p.id]; });
+  var toUpdate = [];
+  var newMinQty = parseInt(document.getElementById('newMinQty').value);
+  var hasMinQty = !isNaN(newMinQty) && newMinQty >= 1;
+
+  filtered.forEach(function(p) {
+    var needsChange = !!p.roundQty !== enable;
+    var needsMinQty = hasMinQty && (p.minQty || 1) !== newMinQty;
+    if (needsChange || needsMinQty) {
+      toUpdate.push({ id: p.id, title: p.title });
+    }
+  });
+
+  if (toUpdate.length === 0) {
+    Swal.fire('Ничего не изменится', 'Все товары уже в нужном состоянии', 'info');
+    return;
+  }
+
+  var actionText = enable ? 'Включить' : 'Выключить';
+  var minQtyText = hasMinQty ? '<br>minQty = <b>' + newMinQty + '</b>' : '';
+  
+  var result = await Swal.fire({
+    title: actionText + ' округление?',
+    html: 'Будет изменено <b>' + toUpdate.length + '</b> товар(ов).' + minQtyText + '<br><br>Это сохранится в базу навсегда.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Да, ' + actionText.toLowerCase(),
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: enable ? '#4caf50' : '#ff5722'
+  });
+
+  if (!result.isConfirmed) return;
+
+  var btn = enable ? document.getElementById('btnOn') : document.getElementById('btnOff');
+  btn.disabled = true;
+  btn.textContent = '⏳ Сохранение...';
+
+  try {
+    // Firestore batch max 500
+    for (var i = 0; i < toUpdate.length; i += 500) {
+      var batch = db.batch();
+      var chunk = toUpdate.slice(i, i + 500);
+      chunk.forEach(function(item) {
+        var ref = db.collection('products').doc(item.id);
+        var updateData = { roundQty: enable };
+        if (hasMinQty) updateData.minQty = newMinQty;
+        batch.update(ref, updateData);
+      });
+      await batch.commit();
+    }
+
+    // Обновляем локально
+    filtered.forEach(function(p) {
+      p.roundQty = enable;
+      if (hasMinQty) p.minQty = newMinQty;
+    });
+    roundExcluded = {};
+    updatePreview();
+
+    Swal.fire({
+      title: 'Готово!',
+      html: '✅ Обновлено <b>' + toUpdate.length + '</b> товар(ов).<br>Округление: <b>' + (enable ? 'ВКЛ' : 'ВЫКЛ') + '</b>' + minQtyText,
+      icon: 'success',
+      confirmButtonColor: '#4caf50'
+    });
+  } catch(err) {
+    Swal.fire('Ошибка', err.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+// ============ УТИЛИТЫ ============
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ============ МИНИМУМ ПОКУПКИ — ФИЛЬТР ============
+function getMqFilteredProducts() {
+  var category = document.getElementById('mqCategory').value;
+  var from = parseFloat(document.getElementById('mqPriceFrom').value) || 0;
+  var to = parseFloat(document.getElementById('mqPriceTo').value) || Infinity;
+
+  return products.filter(function(p) {
+    var price = parseFloat(p.price);
+    if (isNaN(price)) return false;
+    if (price < from || price > to) return false;
+    // Только товары без minQty (=1 или нет)
+    if (p.minQty && p.minQty > 1) return false;
+    if (category === 'все') {
+      if (p.category && p.category.toLowerCase() !== 'все') return false;
+    } else {
+      if (!p.category || p.category.toLowerCase() !== category) return false;
+    }
+    return true;
+  });
+}
+
+// ============ МИНИМУМ ПОКУПКИ — ПРЕДПРОСМОТР ============
+function updateMinQtyPreview() {
+  var container = document.getElementById('mqPreviewContainer');
+  if (products.length === 0) {
+    container.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">Загрузка...</div>';
+    return;
+  }
+
+  var filtered = getMqFilteredProducts();
+  var mqValue = parseInt(document.getElementById('mqValue').value) || 5;
+  var html = '';
+  var activeCount = 0;
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:20px; text-align:center; color:#999;">Нет товаров без минимума по выбранным фильтрам</div>';
+    document.getElementById('mqBtn').disabled = true;
+    return;
+  }
+
+  html += '<div style="font-size:12px; color:#888; margin-bottom:8px; text-align:center;">Нажмите на товар чтобы исключить его</div>';
+
+  filtered.forEach(function(p) {
+    var cat = p.category || '—';
+    var isExcluded = !!mqExcluded[p.id];
+    if (!isExcluded) activeCount++;
+    var rowStyle = isExcluded
+      ? 'opacity:0.4; text-decoration:line-through; background:#f5f5f5;'
+      : 'cursor:pointer;';
+    html += '<div class="preview-item" style="' + rowStyle + '" onclick="toggleMqExclude(\'' + p.id + '\')">';
+    html += '<div class="preview-item-name">';
+    html += (isExcluded ? '❌ ' : '✅ ');
+    html += escapeHtml(p.title || 'Без названия') + ' <span style="color:#aaa; font-size:11px;">(' + escapeHtml(cat) + ')</span></div>';
+    html += '<div>';
+    if (!isExcluded) {
+      html += '<span style="color:#999; font-size:12px;">мин.1</span>';
+      html += '<span style="color:#1565c0; font-size:12px; margin:0 4px;">→</span>';
+      html += '<span style="color:#1565c0; font-weight:600; font-size:13px;">мин.' + mqValue + '</span>';
+    } else {
+      html += '<span style="color:#999; font-size:12px;">исключён</span>';
+    }
+    html += ' <span style="color:#999; font-size:12px;">' + p.price + ' сом</span>';
+    html += '</div></div>';
+  });
+
+  container.innerHTML = '<div style="max-height:350px; overflow-y:auto;">' + html + '</div>';
+  document.getElementById('mqBtn').disabled = activeCount === 0;
+  document.getElementById('mqBtn').textContent = '🛒 Установить минимум покупки (' + activeCount + ' товаров)';
+}
+
+// Исключить/вернуть товар
+function toggleMqExclude(productId) {
+  if (mqExcluded[productId]) {
+    delete mqExcluded[productId];
+  } else {
+    mqExcluded[productId] = true;
+  }
+  updateMinQtyPreview();
+}
+
+// ============ МИНИМУМ ПОКУПКИ — ПРИМЕНИТЬ ============
+async function applyMinQty() {
+  var filtered = getMqFilteredProducts().filter(function(p) { return !mqExcluded[p.id]; });
+  var mqValue = parseInt(document.getElementById('mqValue').value) || 5;
+
+  if (filtered.length === 0 || mqValue < 1) return;
+
+  var result = await Swal.fire({
+    title: 'Установить минимум?',
+    html: 'У <b>' + filtered.length + '</b> товар(ов) будет установлен minQty = <b>' + mqValue + '</b>.<br><br>Это сохранится в базу.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Да, установить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#1565c0'
+  });
+
+  if (!result.isConfirmed) return;
+
+  var btn = document.getElementById('mqBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Сохранение...';
+
+  try {
+    for (var i = 0; i < filtered.length; i += 500) {
+      var batch = db.batch();
+      var chunk = filtered.slice(i, i + 500);
+      chunk.forEach(function(p) {
+        var ref = db.collection('products').doc(p.id);
+        batch.update(ref, { minQty: mqValue });
+      });
+      await batch.commit();
+    }
+
+    // Обновляем локально
+    filtered.forEach(function(p) { p.minQty = mqValue; });
+    mqExcluded = {};
+    updateMinQtyPreview();
+    updatePreview();
+
+    Swal.fire({
+      title: 'Готово!',
+      html: '✅ У <b>' + filtered.length + '</b> товар(ов) установлен минимум покупки: <b>' + mqValue + '</b> шт',
+      icon: 'success',
+      confirmButtonColor: '#1565c0'
+    });
+  } catch(err) {
+    Swal.fire('Ошибка', err.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+// ============ СТАРТ ============
+if (typeof firebase !== 'undefined') {
+  init();
+} else {
+  window.addEventListener('load', init);
+}
+</script>
+<script src="js/bottom-nav.js"></script>
+</body>
+</html>

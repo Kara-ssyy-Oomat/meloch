@@ -633,18 +633,32 @@
     let isAgent = false;
     let _customerOrders = [];
     let _dashboardCache = null; // Кэш данных dashboard
+    let _unsubOrders = null;
+    let _unsubChat = null;
+    let _badgeCounts = { orders: 0, chat: 0 }; // кэш количеств для бейджей
     
+    // Применить сохранённые значения бейджей к DOM
+    function applyBadgeCounts() {
+      const ob = document.getElementById('ordersUnreadBadge');
+      if (ob) {
+        ob.textContent = _badgeCounts.orders;
+        ob.style.display = _badgeCounts.orders > 0 ? 'inline' : 'none';
+      }
+      const cb = document.getElementById('chatUnreadBadge');
+      if (cb) {
+        cb.textContent = _badgeCounts.chat;
+        cb.style.display = _badgeCounts.chat > 0 ? 'inline' : 'none';
+      }
+    }
+
     // Подписка на новые заказы (pending) для badge
     function subscribeToNewOrders() {
-      db.collection('orders')
+      if (_unsubOrders) return; // уже подписан
+      _unsubOrders = db.collection('orders')
         .where('status', '==', 'pending')
         .onSnapshot(snapshot => {
-          const count = snapshot.size;
-          const badge = document.getElementById('ordersUnreadBadge');
-          if (badge) {
-            badge.textContent = count;
-            badge.style.display = count > 0 ? 'inline' : 'none';
-          }
+          _badgeCounts.orders = snapshot.size;
+          applyBadgeCounts();
         }, error => {
           console.log('Ошибка подписки на заказы:', error.message);
         });
@@ -652,20 +666,13 @@
 
     // Подписка на непрочитанные сообщения для badge
     function subscribeToUnreadChatMessages() {
-      console.log('🔔 Запускаем подписку на непрочитанные сообщения...');
+      if (_unsubChat) return; // уже подписан
       
-      db.collection('chatClients')
+      _unsubChat = db.collection('chatClients')
         .where('hasUnread', '==', true)
         .onSnapshot(snapshot => {
-          const unreadCount = snapshot.size;
-          console.log('📬 Клиентов с непрочитанными:', unreadCount);
-          
-          const badge = document.getElementById('chatUnreadBadge');
-          console.log('Badge элемент найден:', !!badge);
-          if (badge) {
-            badge.textContent = unreadCount;
-            badge.style.display = unreadCount > 0 ? 'inline' : 'none';
-          }
+          _badgeCounts.chat = snapshot.size;
+          applyBadgeCounts();
         }, error => {
           console.log('Ошибка подписки на чат:', error.message);
         });
@@ -1226,6 +1233,14 @@
               <span class="menu-arrow">›</span>
             </div>
             
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-rounding.html')">
+              <div class="menu-item-left">
+                <span class="menu-icon">🔢</span>
+                <span class="menu-text">Округление цен</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
             <div class="menu-item admin-menu-item" onclick="navigateTop('admin-agents.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">🤝</span>
@@ -1381,6 +1396,9 @@
         
         <div style="height:20px;"></div>
       `;
+      
+      // Восстанавливаем бейджи после пересоздания DOM
+      if (isAdmin) applyBadgeCounts();
       
       // Сохраняем HTML в кэш для мгновенной загрузки
       try {
