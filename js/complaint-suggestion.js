@@ -5,6 +5,7 @@
 // Открыть окно жалобы
 function openComplaintWindow() {
   document.getElementById('complaintWindow').style.display = 'flex';
+  history.pushState({ modal: 'complaint' }, '', '');
   lockPageScroll();
   
   // Очищаем форму
@@ -112,6 +113,7 @@ async function sendComplaint() {
 // Функции окна предложения товара
 function openSuggestionWindow() {
   document.getElementById('suggestionWindow').style.display = 'flex';
+  history.pushState({ modal: 'suggestion' }, '', '');
   lockPageScroll();
   
   // Очистка формы

@@ -14,6 +14,7 @@ function openBecomeSellerWindow() {
   setTimeout(() => {
     document.getElementById('becomeSellerWindow').style.display = 'flex';
     if (typeof lockPageScroll === 'function') lockPageScroll();
+    history.pushState({ modal: 'becomeSeller' }, '', '');
     
     // Очистка форм
     document.getElementById('sellerName').value = '';

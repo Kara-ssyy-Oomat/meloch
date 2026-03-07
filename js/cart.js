@@ -383,6 +383,7 @@ function openCartPage() {
   renderCartPage();
   document.getElementById('cartPage').style.display = '';
   if (typeof lockPageScroll === 'function') lockPageScroll();
+  history.pushState({ modal: 'cart' }, '', '');
 }
 
 function closeCartPage() {

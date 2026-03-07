@@ -283,6 +283,7 @@ function showImageModal(imageUrl, title) {
     previewBlock.style.display = 'flex';
     previewBlock.style.alignItems = 'center';
     previewBlock.style.justifyContent = 'center';
+    history.pushState({ modal: 'preview' }, '', '');
     
     // Закрытие по клику на фон
     previewBlock.onclick = function(e) {

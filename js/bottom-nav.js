@@ -505,43 +505,101 @@
     if (e.key === 'cart') updateNavCounts();
   });
 
+  // Начальный pushState чтобы кнопка "Назад" не выходила с сайта
+  history.pushState(null, '', '');
+
+  // Проверка видимости элемента
+  function _isModalVisible(id) {
+    var el = document.getElementById(id);
+    if (!el) return false;
+    var style = el.style.display;
+    return style !== 'none' && style !== '';
+  }
+
   // Обработка кнопки "Назад" на Android
   window.addEventListener('popstate', function(e) {
-    // 1. Сначала проверяем SweetAlert
+    // 1. Сначала проверяем SweetAlert (галерея и другие попапы)
     if (typeof Swal !== 'undefined' && Swal.isVisible && Swal.isVisible()) {
       Swal.close();
       history.pushState(null, '', '');
       return;
     }
 
-    // 2. Модальные окна на главной странице
-    var editModal = document.getElementById('editProductModal');
-    if (editModal && editModal.style.display !== 'none') {
+    // 2. Превью фото (previewBlock, z-index 9800)
+    if (_isModalVisible('previewBlock')) {
+      var pb = document.getElementById('previewBlock');
+      pb.style.display = 'none';
+      if (typeof unlockPageScroll === 'function') unlockPageScroll();
+      history.pushState(null, '', '');
+      return;
+    }
+
+    // 3. Окно партнёрских заказов (z-index 9650)
+    if (_isModalVisible('partnersOrdersWindow')) {
+      if (typeof closePartnersOrdersWindow === 'function') closePartnersOrdersWindow();
+      history.pushState(null, '', '');
+      return;
+    }
+
+    // 4. Корзина / Избранное / Жалоба / Предложение / Стать продавцом (z-index 9500)
+    if (_isModalVisible('cartPage')) {
+      if (typeof closeCartPage === 'function') closeCartPage();
+      history.pushState(null, '', '');
+      return;
+    }
+    if (_isModalVisible('favoritesPage')) {
+      if (typeof closeFavoritesPage === 'function') closeFavoritesPage();
+      history.pushState(null, '', '');
+      return;
+    }
+    if (_isModalVisible('complaintWindow')) {
+      if (typeof closeComplaintWindow === 'function') closeComplaintWindow();
+      history.pushState(null, '', '');
+      return;
+    }
+    if (_isModalVisible('suggestionWindow')) {
+      if (typeof closeSuggestionWindow === 'function') closeSuggestionWindow();
+      history.pushState(null, '', '');
+      return;
+    }
+    if (_isModalVisible('becomeSellerWindow')) {
+      if (typeof closeBecomeSellerWindow === 'function') closeBecomeSellerWindow();
+      history.pushState(null, '', '');
+      return;
+    }
+
+    // 5. Модальные окна редактирования (z-index 9000)
+    if (_isModalVisible('editProductModal')) {
       if (typeof closeEditProductModal === 'function') closeEditProductModal();
       history.pushState(null, '', '');
       return;
     }
-    var trackModal = document.getElementById('trackOrderModal');
-    if (trackModal && trackModal.style.display !== 'none') {
+
+    // 6. Отслеживание заказа (z-index 8000)
+    if (_isModalVisible('trackOrderModal')) {
       if (typeof closeTrackOrderModal === 'function') closeTrackOrderModal();
       history.pushState(null, '', '');
       return;
     }
 
-    // 3. Панель категорий
+    // 7. Панель категорий (только если видна)
     var catPanel = document.getElementById('categoriesPanel');
-    if (catPanel) {
-      closeCategoriesPanel();
+    if (catPanel && catPanel.style.display !== 'none' && catPanel.style.display !== '') {
+      if (typeof closeCategoriesPanel === 'function') closeCategoriesPanel();
       history.pushState(null, '', '');
       return;
     }
 
-    // 4. Закрываем iframe
+    // 8. Закрываем iframe
     if (_currentFrameUrl) {
       closePageFrame();
       setActiveNavItem('home');
+      history.pushState(null, '', '');
       return;
     }
+
+    // 9. Ничего не открыто — не выходим с сайта, возвращаем состояние
+    history.pushState(null, '', '');
   });
 
   // Слушаем сообщения от iframe
