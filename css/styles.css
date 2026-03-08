@@ -7,9 +7,9 @@ body.modal-open,
 body.scroll-locked {
   overflow-x: hidden !important;
   overflow-y: hidden !important;
-  position: fixed !important;
+  /* НЕ используем position:fixed — это вызывает прыжки и застревание прокрутки */
   width: 100% !important;
-  height: 100% !important;
+  touch-action: none !important;
 }
 
 /* Отключение задержки 300мс на iOS */
