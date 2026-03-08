@@ -461,22 +461,32 @@ async function loadOrdersManagement(forceRefresh = false) {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка заказов...</div>';
 
   try {
-    const ordersSnapshot = await db.collection('orders').orderBy('timestamp', 'desc').limit(200).get();
+    // Загружаем последние 200 заказов + отдельно ВСЕ pending (чтобы старые pending не терялись)
+    const [recentSnapshot, pendingSnapshot] = await Promise.all([
+      db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(),
+      db.collection('orders').where('status', '==', 'pending').get()
+    ]);
 
-    if (ordersSnapshot.empty) {
+    if (recentSnapshot.empty && pendingSnapshot.empty) {
       ordersManagementAllOrders = [];
       listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:60px; font-size:16px;">📭 Заказов пока нет</div>';
       return;
     }
 
-    const all = [];
-    ordersSnapshot.forEach(doc => {
+    const allMap = {};
+    recentSnapshot.forEach(doc => {
       const data = doc.data();
-      const timestamp = data.timestamp || Date.now();
-      all.push({ id: doc.id, ...data, timestamp });
+      allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
+    });
+    // Добавляем pending-заказы, которые могли не попасть в limit(200)
+    pendingSnapshot.forEach(doc => {
+      if (!allMap[doc.id]) {
+        const data = doc.data();
+        allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
+      }
     });
 
-    ordersManagementAllOrders = all;
+    ordersManagementAllOrders = Object.values(allMap);
     renderOrdersManagementFromCache();
   } catch (error) {
     console.error('Ошибка загрузки заказов:', error);
