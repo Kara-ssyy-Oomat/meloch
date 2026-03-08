@@ -47,26 +47,16 @@ function unlockPageScroll() {
 // Принудительная разблокировка прокрутки
 function forceUnlockScroll() {
   scrollLockCount = 0;
-  document.body.classList.remove('modal-open', 'scroll-locked', 'swal2-shown', 'swal2-height-auto');
-  document.body.style.top = '';
-  document.body.style.width = '';
-  // КРИТИЧНО: Восстанавливаем с !important через setProperty
-  document.body.style.removeProperty('overflow');
-  document.body.style.removeProperty('overflow-y');
-  document.body.style.removeProperty('overflow-x');
-  document.body.style.setProperty('overflow-y', 'scroll', 'important');
-  document.body.style.setProperty('overflow-x', 'hidden', 'important');
-  document.body.style.setProperty('position', 'static', 'important');
-  document.body.style.setProperty('height', 'auto', 'important');
-  document.body.style.setProperty('touch-action', 'pan-y', 'important');
-  document.documentElement.style.removeProperty('overflow');
-  document.documentElement.style.removeProperty('overflow-y');
-  document.documentElement.style.removeProperty('overflow-x');
-  document.documentElement.style.setProperty('overflow-y', 'scroll', 'important');
-  document.documentElement.style.setProperty('overflow-x', 'hidden', 'important');
-  document.documentElement.style.setProperty('position', 'static', 'important');
-  document.documentElement.style.setProperty('touch-action', 'pan-y', 'important');
-  document.documentElement.classList.remove('modal-open', 'swal2-shown', 'swal2-height-auto');
+  
+  // Батчим все DOM-изменения в один requestAnimationFrame для минимизации reflow
+  requestAnimationFrame(function() {
+    document.body.classList.remove('modal-open', 'scroll-locked', 'swal2-shown', 'swal2-height-auto');
+    document.documentElement.classList.remove('modal-open', 'swal2-shown', 'swal2-height-auto');
+    
+    // Сбрасываем inline-стили одним cssText
+    document.body.style.cssText = 'overflow-y: scroll !important; overflow-x: hidden !important; position: static !important; height: auto !important; touch-action: pan-y !important;';
+    document.documentElement.style.cssText = 'overflow-y: scroll !important; overflow-x: hidden !important; position: static !important; touch-action: pan-y !important;';
+  });
   
   savedScrollPosition = 0;
   console.log('🔓 forceUnlockScroll: прокрутка разблокирована');
@@ -116,10 +106,7 @@ function checkAndRestoreScroll() {
   }
 }
 
-// Запускаем проверку периодически (для iOS) — каждые 5 секунд
-setInterval(checkAndRestoreScroll, 5000);
-
-// Также проверяем при касании экрана - ОПТИМИЗАЦИЯ: используем debounce
+// Проверяем прокрутку при касании экрана (вместо постоянного polling каждые 5сек)
 let _checkScrollTimeout = null;
 document.addEventListener('touchstart', function() {
   if (_checkScrollTimeout) return; // Уже запланировано
@@ -128,6 +115,13 @@ document.addEventListener('touchstart', function() {
     checkAndRestoreScroll();
   }, 1000);
 }, { passive: true });
+
+// Проверяем при возврате вкладки из фона (вместо постоянного setInterval)
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) {
+    setTimeout(checkAndRestoreScroll, 300);
+  }
+});
 
 // КРИТИЧНО: Принудительная разблокировка прокрутки при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {

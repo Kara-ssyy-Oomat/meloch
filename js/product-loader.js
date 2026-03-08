@@ -9,6 +9,15 @@ const CACHE_DURATION = 120000; // 2 минуты кэш (увеличено с 3
 const LS_PRODUCTS_KEY = 'cachedProducts';
 const LS_PRODUCTS_TIME_KEY = 'cachedProductsTime';
 
+// Скрытие splash-экрана (вызывается при первом показе товаров)
+function hideSplashScreen() {
+  var splash = document.getElementById('splashScreen');
+  if (splash && !splash.classList.contains('splash-hide')) {
+    splash.classList.add('splash-hide');
+    setTimeout(function() { splash.remove(); }, 350);
+  }
+}
+
 // Загрузка товаров с мгновенным отображением из localStorage
 async function loadProducts() {
   try {
@@ -19,6 +28,7 @@ async function loadProducts() {
       products = productsCache;
       productsReady = true;
       renderProducts();
+      hideSplashScreen();
       return;
     }
     
@@ -33,6 +43,7 @@ async function loadProducts() {
           productsReady = true;
           renderProducts();
           showedFromCache = true;
+          hideSplashScreen();
           console.log('📦 Мгновенная загрузка из localStorage:', lsProducts.length, 'товаров');
         }
       }
@@ -96,6 +107,9 @@ async function loadProducts() {
     } else {
       renderProducts();
     }
+    
+    // Скрываем splash если ещё не скрыт (для случая без кэша)
+    hideSplashScreen();
     
     // Загружаем кэш категорий продавцов
     await loadSellerCategoriesCache();

@@ -154,6 +154,8 @@ document.addEventListener('DOMContentLoaded', function() {
       updateCart(); // Обновляем корзину ПОСЛЕ загрузки товаров
       updateFavoritesCount(); // Обновляем счётчик избранного
       
+      // splash уже скрыт из product-loader.js при первом показе товаров
+      
       // Повторно проверяем продавца (на случай если defer-скрипт seller.js ещё не был загружен ранее)
       if (typeof checkSavedSeller === 'function' && !currentSeller && localStorage.getItem('currentSeller')) {
         checkSavedSeller();

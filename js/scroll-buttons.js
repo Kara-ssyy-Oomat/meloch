@@ -48,10 +48,10 @@
     }
   }
   
-  // Слушаем прокрутку
+  // Слушаем прокрутку с увеличенным debounce (150мс вместо 50мс)
   window.addEventListener('scroll', function() {
     if (scrollTimeout) clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(updateScrollButtons, 50);
+    scrollTimeout = setTimeout(updateScrollButtons, 150);
   }, { passive: true });
   
   // Проверяем при загрузке

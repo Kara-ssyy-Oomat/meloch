@@ -56,7 +56,7 @@
       '#bottomNavBar {' +
       '  position: fixed;' +
       '  bottom: 0; left: 0; right: 0;' +
-      '  z-index: 99999;' +
+      '  z-index: 9999;' +
       '  background: #fff;' +
       '  display: flex;' +
       '  align-items: center;' +
@@ -660,7 +660,6 @@
       removeOldInlineNavs();
       createBottomNavigation();
       updateNavCounts();
-      setInterval(updateNavCounts, 5000);
       handlePageParam();
     });
   } else {
@@ -668,7 +667,6 @@
     removeOldInlineNavs();
     createBottomNavigation();
     updateNavCounts();
-    setInterval(updateNavCounts, 5000);
     handlePageParam();
   }
 

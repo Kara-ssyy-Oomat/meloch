@@ -90,8 +90,13 @@ function renderProducts() {
   renderProductsDebounced();
 }
 
+// Кэш переводов для поиска (чтобы не пересоздавать при каждом вызове)
+const _translationCache = new Map();
+
 // Функция для получения переводов и синонимов поискового запроса
 function getSearchTranslations(query) {
+  // Проверяем кэш
+  if (_translationCache.has(query)) return _translationCache.get(query);
   const translations = [];
   
   // Приводим запрос к нижнему регистру для поиска в словаре
@@ -188,7 +193,11 @@ function getSearchTranslations(query) {
     translations.push(...dictionary[lowerQuery]);
   }
   
-  return [...new Set(translations)]; // Удаляем дубликаты
+  const result = [...new Set(translations)]; // Удаляем дубликаты
+  // Сохраняем в кэш (максимум 50 записей чтобы не утекала память)
+  if (_translationCache.size > 50) _translationCache.clear();
+  _translationCache.set(query, result);
+  return result;
 }
 
 // Первичный рендер (при загрузке модуля)
