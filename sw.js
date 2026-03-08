@@ -1,7 +1,7 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v4.0.6-viewport-fit'; // Принудительное обновление после добавления viewport-fit=cover
+const CACHE_VERSION = 'kerben-v4.0.7-search-clear'; // Добавлена кнопка очистки поиска
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

@@ -36,7 +36,7 @@
 
   <!-- Стили -->
   <link rel="stylesheet" href="css/styles.css">
-  <link rel="stylesheet" href="css/index-page.css">
+  <link rel="stylesheet" href="css/index-page.css?v=3">
 
   <!-- Предзагрузка DNS для быстрого доступа к Firebase и CDN -->
   <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
@@ -134,10 +134,185 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
   </script>
+  <script>
+    // Подстраховка: скрываем splash максимум через 4 секунды
+    setTimeout(function() {
+      var s = document.getElementById('splashScreen');
+      if (s && !s.classList.contains('splash-hide')) {
+        s.classList.add('splash-hide');
+        setTimeout(function() { s.remove(); }, 350);
+      }
+    }, 4000);
+  </script>
 
 </head>
 
 <body style="overflow-y: scroll !important; position: static !important; height: auto !important; touch-action: pan-y !important;">
+
+  <!-- ========== SPLASH SCREEN: Караван Кербен ========== -->
+  <div id="splashScreen">
+    <div class="splash-bg">
+      <div class="splash-dunes"></div>
+      <div class="splash-dunes splash-dunes2"></div>
+      
+      <!-- Караван из эмодзи-верблюдов -->
+      <div class="splash-caravan">
+        <span class="splash-camel">🐫</span>
+        <span class="splash-camel s2">🐫</span>
+        <span class="splash-camel s3">🐪</span>
+      </div>
+      
+      <!-- Лого и название -->
+      <div class="splash-brand">
+        <img src="icon-kerben.jpg" alt="Кербен" class="splash-logo">
+        <div class="splash-title">Кербен</div>
+        <div class="splash-subtitle">B2B Market • Оптовый караван товаров</div>
+      </div>
+      
+      <!-- Индикатор загрузки -->
+      <div class="splash-loader">
+        <div class="splash-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="splash-loader-text">Загрузка товаров...</div>
+      </div>
+    </div>
+  </div>
+  <style>
+    #splashScreen {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 999999;
+      will-change: opacity;
+      transform: translateZ(0);
+    }
+    #splashScreen.splash-hide {
+      -webkit-animation: splashOut 0.3s ease forwards;
+      animation: splashOut 0.3s ease forwards;
+    }
+    @-webkit-keyframes splashOut {
+      to { opacity: 0; pointer-events: none; }
+    }
+    @keyframes splashOut {
+      to { opacity: 0; pointer-events: none; }
+    }
+    .splash-bg {
+      width: 100%; height: 100%;
+      background: linear-gradient(180deg, #87CEEB 0%, #f9c74f 50%, #DEB887 100%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      overflow: hidden; position: relative;
+    }
+    .splash-bg::before {
+      content: ''; position: absolute;
+      top: 10%; right: 18%;
+      width: 60px; height: 60px;
+      background: radial-gradient(circle, #FFF9C4 30%, #FFD54F 55%, transparent 68%);
+      border-radius: 50%;
+      box-shadow: 0 0 30px 10px rgba(255,213,79,0.35);
+    }
+    .splash-dunes {
+      position: absolute; bottom: 0; left: -10%; right: -10%;
+      height: 30%; background: #DEB887;
+      border-radius: 50% 60% 0 0 / 100% 100% 0 0;
+      transform: translateZ(0);
+    }
+    .splash-dunes2 {
+      height: 20%; left: -15%; right: -5%;
+      background: #D2B48C;
+      border-radius: 60% 40% 0 0 / 100% 100% 0 0;
+    }
+    .splash-caravan {
+      position: absolute; bottom: 18%;
+      display: flex; gap: 4px; align-items: flex-end;
+      transform: translateZ(0);
+      will-change: transform;
+      -webkit-animation: caravanMove 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+      animation: caravanMove 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+    }
+    @-webkit-keyframes caravanMove {
+      from { -webkit-transform: translateX(-100vw) translateZ(0); transform: translateX(-100vw) translateZ(0); }
+      to { -webkit-transform: translateX(0) translateZ(0); transform: translateX(0) translateZ(0); }
+    }
+    @keyframes caravanMove {
+      from { transform: translateX(-100vw) translateZ(0); }
+      to { transform: translateX(0) translateZ(0); }
+    }
+    .splash-camel {
+      font-size: 48px;
+      display: inline-block;
+      transform: scaleX(-1) translateZ(0);
+      -webkit-animation: camelWalk 0.6s ease-in-out infinite;
+      animation: camelWalk 0.6s ease-in-out infinite;
+    }
+    .splash-camel.s2 { font-size: 42px; -webkit-animation-delay: 0.2s; animation-delay: 0.2s; }
+    .splash-camel.s3 { font-size: 38px; -webkit-animation-delay: 0.4s; animation-delay: 0.4s; }
+    @-webkit-keyframes camelWalk {
+      0%, 100% { -webkit-transform: scaleX(-1) translateY(0) translateZ(0); transform: scaleX(-1) translateY(0) translateZ(0); }
+      50% { -webkit-transform: scaleX(-1) translateY(-5px) translateZ(0); transform: scaleX(-1) translateY(-5px) translateZ(0); }
+    }
+    @keyframes camelWalk {
+      0%, 100% { transform: scaleX(-1) translateY(0) translateZ(0); }
+      50% { transform: scaleX(-1) translateY(-5px) translateZ(0); }
+    }
+    .splash-brand {
+      display: flex; flex-direction: column;
+      align-items: center; z-index: 2;
+      transform: translateZ(0);
+      -webkit-animation: brandIn 0.4s ease-out 0.2s both;
+      animation: brandIn 0.4s ease-out 0.2s both;
+    }
+    @-webkit-keyframes brandIn {
+      from { opacity: 0; -webkit-transform: translateY(20px) translateZ(0); transform: translateY(20px) translateZ(0); }
+      to { opacity: 1; -webkit-transform: translateY(0) translateZ(0); transform: translateY(0) translateZ(0); }
+    }
+    @keyframes brandIn {
+      from { opacity: 0; transform: translateY(20px) translateZ(0); }
+      to { opacity: 1; transform: translateY(0) translateZ(0); }
+    }
+    .splash-logo {
+      width: 80px; height: 80px;
+      border-radius: 20px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+      margin-bottom: 14px;
+    }
+    .splash-title {
+      font-size: 2.6rem; font-weight: 900; color: #fff;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.25);
+      letter-spacing: 3px;
+    }
+    .splash-subtitle {
+      font-size: 0.9rem; color: rgba(255,255,255,0.9);
+      margin-top: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .splash-loader {
+      position: absolute; bottom: 8%; z-index: 2;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 10px;
+      -webkit-animation: brandIn 0.3s ease-out 0.5s both;
+      animation: brandIn 0.3s ease-out 0.5s both;
+    }
+    .splash-dots { display: flex; gap: 8px; }
+    .splash-dots span {
+      width: 10px; height: 10px;
+      background: rgba(255,255,255,0.8);
+      border-radius: 50%;
+      -webkit-animation: dotPulse 1s ease-in-out infinite;
+      animation: dotPulse 1s ease-in-out infinite;
+    }
+    .splash-dots span:nth-child(2) { -webkit-animation-delay: 0.15s; animation-delay: 0.15s; }
+    .splash-dots span:nth-child(3) { -webkit-animation-delay: 0.3s; animation-delay: 0.3s; }
+    @-webkit-keyframes dotPulse {
+      0%, 100% { -webkit-transform: scale(0.7); transform: scale(0.7); opacity: 0.4; }
+      50% { -webkit-transform: scale(1); transform: scale(1); opacity: 1; }
+    }
+    @keyframes dotPulse {
+      0%, 100% { transform: scale(0.7); opacity: 0.4; }
+      50% { transform: scale(1); opacity: 1; }
+    }
+    .splash-loader-text {
+      font-size: 0.8rem; color: rgba(255,255,255,0.75);
+    }
+  </style>
 
   <!-- Блок для просмотра фото -->
   <div id="previewBlock" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:9800; pointer-events:auto; background: rgba(0,0,0,0.85);">
@@ -411,7 +586,10 @@ document.addEventListener('DOMContentLoaded', function() {
       <button class="search-btn" onclick="applyFilters()">🔍 Найти</button>
       <button class="filter-toggle-btn" id="filterToggleBtn" onclick="toggleFilters()">⚙️ Фильтры</button>
       <button id="voiceSearchBtn" class="voice-search-btn" onclick="startVoiceSearch()" title="Голосовой поиск">🎤</button>
-      <input type="text" id="search" placeholder="🔍 Поиск товара..." oninput="scheduleRenderProducts()" autocomplete="off" style="width: 100%; order: 10; margin-top: 8px;" />
+      <div class="search-input-wrap" style="width: 100%; order: 10; margin-top: 8px; position: relative;">
+        <input type="text" id="search" placeholder="🔍 Поиск товара..." oninput="scheduleRenderProducts()" autocomplete="off" style="width: 100%; padding-right: 42px;" />
+        <button type="button" id="searchClearBtn" class="search-clear-btn" onclick="clearSearch()">&times;</button>
+      </div>
     </div>
     
     <div class="search-filters" id="searchFilters">
@@ -698,7 +876,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <script src="js/favorites.js"></script>
   <script src="js/quantity.js?v=2"></script>
   <script src="js/app-init.js?v=3"></script>
-  <script src="js/filters.js"></script>
+  <script src="js/filters.js?v=2"></script>
   <script src="js/bottom-nav.js?v=28"></script>
   <script src="js/scroll-buttons.js"></script>
 
