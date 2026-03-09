@@ -14,6 +14,11 @@ function hideSplashScreen() {
   var splash = document.getElementById('splashScreen');
   if (splash && !splash.classList.contains('splash-hide')) {
     splash.classList.add('splash-hide');
+    // Восстанавливаем белый фон и theme-color после splash
+    document.documentElement.style.background = '#fff';
+    document.body.style.background = '#fff';
+    var tc = document.querySelector('meta[name=\"theme-color\"]');
+    if (tc) tc.setAttribute('content', '#4CAF50');
     setTimeout(function() { splash.remove(); }, 350);
   }
 }
