@@ -22,7 +22,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Кербен">
-  <meta name="theme-color" content="#4CAF50">
+  <meta name="theme-color" content="#87CEEB">
+  
+  <!-- Фон iOS PWA splash = фон анимации -->
+  <style>html,body{background:#87CEEB!important}</style>
   
   <!-- Иконки для iOS (iPhone/iPad) -->
   <link rel="apple-touch-icon" href="icon-kerben.jpg">
@@ -202,6 +205,8 @@ document.addEventListener('DOMContentLoaded', function() {
       align-items: center; justify-content: center;
       overflow: hidden; position: relative;
     }
+    /* Восстанавливаем белый фон после удаления splash */
+    .splash-gone body, .splash-gone html { background: #fff !important; }
     .splash-bg::before {
       content: ''; position: absolute;
       top: 10%; right: 18%;
