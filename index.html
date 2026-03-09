@@ -587,13 +587,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
   <!-- Расширенный поиск с фильтрами -->
   <div class="search-container">
-    <div class="search-main" style="flex-wrap: wrap;">
-      <button class="search-btn" onclick="applyFilters()">🔍 Найти</button>
-      <button class="filter-toggle-btn" id="filterToggleBtn" onclick="toggleFilters()">⚙️ Фильтры</button>
-      <button id="voiceSearchBtn" class="voice-search-btn" onclick="startVoiceSearch()" title="Голосовой поиск">🎤</button>
-      <div class="search-input-wrap" style="width: 100%; order: 10; margin-top: 8px; position: relative;">
-        <input type="text" id="search" placeholder="🔍 Поиск товара..." oninput="scheduleRenderProducts()" autocomplete="off" style="width: 100%; padding-right: 42px;" />
+    <div class="search-main">
+      <div class="search-input-wrap" style="width: 100%; position: relative;">
+        <input type="text" id="search" placeholder="🔍 Поиск товара..." oninput="scheduleRenderProducts()" autocomplete="off" style="width: 100%; padding-right: 96px;" />
         <button type="button" id="searchClearBtn" class="search-clear-btn" onclick="clearSearch()">&times;</button>
+        <button class="filter-toggle-btn" id="filterToggleBtn" onclick="toggleFilters()" title="Фильтры">⚙️</button>
+        <button id="voiceSearchBtn" class="voice-search-btn" onclick="startVoiceSearch()" title="Голосовой поиск">🎤</button>
       </div>
     </div>
     
@@ -664,14 +663,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     <h2>Оформить заказ</h2>
 
-    <div id="cartList"></div>
-
-    <div class="cart-summary">Итого: <span id="totalSum">0</span> сом</div>
-
-    <!-- Кнопка открытия панели корзины перенесена вниз перед очисткой корзины -->
-    <div style="display:flex;gap:8px;">
-      <button id="openCartBtn" onclick="openCartPage()">Открыть корзину</button>
-      <!-- Кнопка очистки корзины будет в панели корзины -->
+    <div style="display:flex;gap:8px; margin-bottom:10px;">
+      <button id="openCartBtn" onclick="if(typeof navGoCartFromMain==='function')navGoCartFromMain();else if(document.querySelector('[data-nav=&quot;cart&quot;]'))document.querySelector('[data-nav=&quot;cart&quot;]').click();" style="width:100%; padding:14px; background:linear-gradient(135deg, #333, #555); color:white; border:none; border-radius:10px; cursor:pointer; font-size:16px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:8px;">🛒 Открыть корзину</button>
     </div>
 
     <input type="text" id="name" placeholder="Ваше имя" required />
@@ -738,37 +731,6 @@ document.addEventListener('DOMContentLoaded', function() {
       <!-- Список заказов -->
       <div id="partnersOrdersList" style="flex:1; overflow-y:auto; padding:15px;">
         <div style="text-align:center; color:#999; padding:40px;">Загрузка заказов...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Отдельная панель корзины -->
-  <div id="cartPage" style="display:none; position:fixed; top:0; left:0; right:0; bottom:56px; background:#f5f5f5; z-index:9500;">
-    <div style="height:100%; display:flex; flex-direction:column;">
-      <!-- Заголовок корзины -->
-      <div style="background:#fff; padding:15px 20px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
-        <button onclick="closeCartPage()" style="background:none; border:none; font-size:24px; cursor:pointer; padding:0; margin-right:10px;">←</button>
-        <div style="font-size:17px; font-weight:600; color:#333; flex:1;">Корзина</div>
-        <button onclick="clearCart()" style="background:none; border:none; color:#f44336; font-size:13px; cursor:pointer;">Очистить</button>
-      </div>
-      
-      <!-- Список товаров -->
-      <div id="cartPageList" style="flex:1; overflow-y:auto; padding:0; background:#fff;"></div>
-      
-      <!-- Пустая корзина -->
-      <div id="cartEmptyMessage" style="display:none; text-align:center; padding:60px 20px; color:#999; background:#fff; flex:1;">
-        <div style="font-size:48px; margin-bottom:15px;">🛒</div>
-        <div style="font-size:16px;">Корзина пуста</div>
-      </div>
-      
-      <!-- Нижняя панель с итогом -->
-      <div id="cartPageFooter" style="background:#fff; border-top:1px solid #e0e0e0; padding:15px 20px; flex-shrink:0;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <div style="font-size:14px; color:#666;">Итого:</div>
-          <div style="font-size:20px; font-weight:600; color:#333;" id="cartPageTotal">0 сом</div>
-        </div>
-        <div id="cartPageSummary" style="font-size:12px; color:#888; margin-bottom:12px;"></div>
-        <button onclick="(function(){ closeCartPage(); document.querySelector('.order-form').scrollIntoView({behavior:'smooth'}); })()" style="width:100%; background:#333; color:white; border:none; padding:15px; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer;">Оформить заказ</button>
       </div>
     </div>
   </div>
