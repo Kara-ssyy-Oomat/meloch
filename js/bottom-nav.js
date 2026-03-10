@@ -298,7 +298,7 @@
 
     var frame = document.createElement('iframe');
     frame.className = 'page-frame-cached';
-    frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - ' + BOTTOM_NAV_HEIGHT + 'px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;';
+    frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - ' + BOTTOM_NAV_HEIGHT + 'px - env(safe-area-inset-bottom, 0px));z-index:9990;border:none;background:#fff;';
     frame.src = url;
     document.body.appendChild(frame);
     _frameCache[url] = frame;
@@ -336,7 +336,7 @@
       setTimeout(function() {
         var frame = document.createElement('iframe');
         frame.className = 'page-frame-cached';
-        frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - ' + BOTTOM_NAV_HEIGHT + 'px - env(safe-area-inset-bottom, 0px));z-index:99998;border:none;background:#fff;display:none;pointer-events:none;';
+        frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - ' + BOTTOM_NAV_HEIGHT + 'px - env(safe-area-inset-bottom, 0px));z-index:9990;border:none;background:#fff;display:none;pointer-events:none;';
         frame.src = url;
         document.body.appendChild(frame);
         _frameCache[url] = frame;
@@ -454,7 +454,7 @@
     s.textContent =
       '#categoriesPanel {' +
       '  position: fixed; top: 0; left: 0; right: 0; bottom: 0;' +
-      '  z-index: 99997; opacity: 0; transition: opacity 0.3s;' +
+      '  z-index: 9995; opacity: 0; transition: opacity 0.3s;' +
       '}' +
       '.cat-overlay {' +
       '  position: absolute; top: 0; left: 0; right: 0; bottom: 0;' +
@@ -462,7 +462,7 @@
       '}' +
       '.categories-panel-content {' +
       '  position: absolute; bottom: calc(' + BOTTOM_NAV_HEIGHT + 'px + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;' +
-      '  background: white; border-radius: 20px 20px 0 0;' +
+      '  background: white; border-radius: 20px 20px 0 0; z-index: 9996;' +
       '  max-height: 70vh; transform: translateY(100%); transition: transform 0.3s;' +
       '}' +
       '.cat-header {' +
