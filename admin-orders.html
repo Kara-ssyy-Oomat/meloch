@@ -793,7 +793,7 @@ function buildOrderItemsDetailTableHTML(orderId, items) {
               min="0"
               oninput="updateOrderItemQtyManagement('${orderId}', ${idx}, this.value)"
               style="width:50px; padding:4px; border:1px solid #ddd; border-radius:4px; text-align:center; font-size:13px;">
-            <span style="color:#666; font-size:12px;" data-price="${item.price}">× ${item.price}</span>
+            <span style="color:#666; font-size:12px;" data-price="${item.price}" data-product-id="${item.id || ''}">× ${item.price}</span>
             <div style="margin-left:auto; font-weight:700; color:#007bff; font-size:15px;" id="itemSum_${orderId}_${idx}">${itemTotal.toFixed(0)} сом</div>
           </div>
         </div>
@@ -908,7 +908,26 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
     const sumEl = document.getElementById(`itemSum_${orderId}_${itemIndex}`);
     
     if (priceEl && sumEl) {
-      const price = parseInt(priceEl.dataset.price) || 0;
+      let price = parseInt(priceEl.dataset.price) || 0;
+      
+      // Проверяем оптовую цену из Firebase товара
+      const itemId = priceEl.dataset.productId;
+      if (itemId) {
+        try {
+          const prodDoc = await db.collection('products').doc(itemId).get();
+          if (prodDoc.exists) {
+            const prod = prodDoc.data();
+            if (prod.optQty && qty >= prod.optQty && prod.optPrice) {
+              price = prod.optPrice;
+            } else {
+              price = prod.price || price;
+            }
+            priceEl.dataset.price = price;
+            priceEl.textContent = '× ' + price;
+          }
+        } catch(e) { /* используем текущую цену */ }
+      }
+      
       const itemTotal = price * qty;
       sumEl.textContent = itemTotal + ' сом';
     }
@@ -942,6 +961,22 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
       
       if (items[itemIndex]) {
         items[itemIndex].qty = qty;
+        
+        // Пересчитываем цену с учётом оптовой
+        const itemId = items[itemIndex].id;
+        if (itemId) {
+          try {
+            const prodDoc = await db.collection('products').doc(itemId).get();
+            if (prodDoc.exists) {
+              const prod = prodDoc.data();
+              if (prod.optQty && qty >= prod.optQty && prod.optPrice) {
+                items[itemIndex].price = prod.optPrice;
+              } else {
+                items[itemIndex].price = prod.price || items[itemIndex].price;
+              }
+            }
+          } catch(e) { /* оставляем текущую цену */ }
+        }
       }
       
       const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -1334,15 +1369,19 @@ async function loadProductsToAdd() {
       const productCostPrice = product.costPrice || 0;
       const productPhoto = product.image || product.photo;
       
+      const optQty = product.optQty || 0;
+      const optPrice = product.optPrice || 0;
+      
       productCard.innerHTML = `
         <div style="display:flex; gap:12px; align-items:center;">
           ${productPhoto ? `<img src="${productPhoto}" style="width:60px; height:60px; object-fit:cover; border-radius:6px;">` : '<div style="width:60px; height:60px; background:#f0f0f0; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:24px;">📦</div>'}
           <div style="flex:1;">
             <div style="font-weight:600; margin-bottom:4px;">${productName}</div>
             <div style="font-size:13px; color:#666;">💰 ${productPrice} сом</div>
+            ${optQty && optPrice ? `<div style="font-size:12px; color:#e65100; margin-top:2px;">📦 Опт от ${optQty} шт: ${optPrice} сом</div>` : ''}
             ${product.category ? `<div style="font-size:12px; color:#888; margin-top:2px;">📁 ${product.category}</div>` : ''}
           </div>
-          <button onclick="askQtyAndAddProduct('${doc.id}', '${productName.replace(/'/g, "\\'")}', ${productPrice}, ${productCostPrice}, '${(productPhoto || '').replace(/'/g, "\\'")}'); event.stopPropagation();" style="padding:8px 16px; background:#17a2b8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; white-space:nowrap;">
+          <button onclick="askQtyAndAddProduct('${doc.id}', '${productName.replace(/'/g, "\\'")}', ${productPrice}, ${productCostPrice}, '${(productPhoto || '').replace(/'/g, "\\'")}', ${optQty}, ${optPrice}); event.stopPropagation();" style="padding:8px 16px; background:#17a2b8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; white-space:nowrap;">
             ➕ Добавить
           </button>
         </div>
@@ -1384,7 +1423,7 @@ function filterProductsToAdd() {
   });
 }
 
-async function addProductToOrder(productId, productName, productPrice, productCostPrice, qty = 1, productPhoto = '') {
+async function addProductToOrder(productId, productName, productPrice, productCostPrice, qty = 1, productPhoto = '', optQty = 0, optPrice = 0) {
   if (!currentOrderIdForAddItem) {
     Swal.fire('Ошибка', 'Не выбран заказ', 'error');
     return;
@@ -1419,11 +1458,23 @@ async function addProductToOrder(productId, productName, productPrice, productCo
     
     if (existingItemIndex !== -1) {
       items[existingItemIndex].qty += qty;
+      // Пересчитываем цену с учётом оптовой
+      const totalQty = items[existingItemIndex].qty;
+      if (optQty && totalQty >= optQty && optPrice) {
+        items[existingItemIndex].price = optPrice;
+      } else {
+        items[existingItemIndex].price = productPrice;
+      }
     } else {
+      // Определяем цену: оптовая или обычная
+      let finalPrice = productPrice;
+      if (optQty && qty >= optQty && optPrice) {
+        finalPrice = optPrice;
+      }
       const newItem = {
         id: productId,
         title: productName,
-        price: productPrice,
+        price: finalPrice,
         costPrice: productCostPrice,
         qty: qty
       };
@@ -1456,10 +1507,13 @@ async function addProductToOrder(productId, productName, productPrice, productCo
 }
 
 // Спросить количество перед добавлением
-async function askQtyAndAddProduct(productId, productName, productPrice, productCostPrice, productPhoto) {
+async function askQtyAndAddProduct(productId, productName, productPrice, productCostPrice, productPhoto, optQty, optPrice) {
+  optQty = optQty || 0;
+  optPrice = optPrice || 0;
+  
   const { value: qty } = await Swal.fire({
     title: 'Количество',
-    text: productName,
+    html: `${productName}${optQty && optPrice ? `<br><small style="color:#e65100;">📦 Опт от ${optQty} шт: ${optPrice} сом</small>` : ''}`,
     input: 'number',
     inputValue: 1,
     inputAttributes: {
@@ -1479,7 +1533,7 @@ async function askQtyAndAddProduct(productId, productName, productPrice, product
   });
   
   if (qty) {
-    addProductToOrder(productId, productName, productPrice, productCostPrice, parseInt(qty), productPhoto);
+    addProductToOrder(productId, productName, productPrice, productCostPrice, parseInt(qty), productPhoto, optQty, optPrice);
   }
 }
 
