@@ -1,7 +1,7 @@
 // Service Worker для PWA приложения "Кербен"
 // Обеспечивает кэширование и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v4.0.8-splash-pwa'; // Splash-экран совместимость с PWA
+const CACHE_VERSION = 'kerben-v4.0.9-zindex-fix'; // Исправление z-index иерархии навигации
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
