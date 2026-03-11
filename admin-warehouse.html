@@ -1184,14 +1184,17 @@ function renderStockProducts(filter = '') {
   }
 
   if (hideZero) {
-    filtered = filtered.filter(p => ((p.warehouseStock || {})[warehouseId] || 0) > 0);
+    filtered = filtered.filter(p => {
+      const qty = stockChanges.hasOwnProperty(p.id) ? stockChanges[p.id] : ((p.warehouseStock || {})[warehouseId] || 0);
+      return qty > 0;
+    });
   }
 
   const qtyDir = document.getElementById('stockQtyDir') ? document.getElementById('stockQtyDir').value : '';
   const qtyVal = parseInt(document.getElementById('stockQtyVal') ? document.getElementById('stockQtyVal').value : '', 10);
   if (qtyDir && !isNaN(qtyVal)) {
     filtered = filtered.filter(p => {
-      const qty = (p.warehouseStock || {})[warehouseId] || 0;
+      const qty = stockChanges.hasOwnProperty(p.id) ? stockChanges[p.id] : ((p.warehouseStock || {})[warehouseId] || 0);
       return qtyDir === 'gte' ? qty >= qtyVal : qty <= qtyVal;
     });
   }
@@ -1222,8 +1225,11 @@ function renderStockProducts(filter = '') {
   
   filtered.forEach(p => {
     const ws = p.warehouseStock || {};
-    const currentStock = ws[warehouseId] || 0;
+    const originalStock = ws[warehouseId] || 0;
+    const hasChange = stockChanges.hasOwnProperty(p.id);
+    const displayStock = hasChange ? stockChanges[p.id] : originalStock;
     const totalStock = typeof p.stock === 'number' ? p.stock : Object.values(ws).reduce((s, v) => s + (v || 0), 0);
+    const adjustedTotal = hasChange ? totalStock - originalStock + displayStock : totalStock;
     
     html += `
       <tr>
@@ -1231,15 +1237,18 @@ function renderStockProducts(filter = '') {
           <div style="font-weight:600; font-size:13px;">${esc(p.title) || 'Без названия'}</div>
           <div style="font-size:11px; color:#999;">${esc(p.category)}</div>
         </td>
-        <td style="text-align:center; font-weight:600; color:#666;">${totalStock}</td>
+        <td style="text-align:center; font-weight:600; color:#666;">${adjustedTotal}</td>
         <td style="text-align:center;">
           <input type="number" class="stock-input" 
-            value="${currentStock}" 
+            value="${displayStock}" 
             min="0" 
             inputmode="numeric"
             data-product-id="${p.id}"
-            data-original="${currentStock}"
-            onchange="onStockChange(this, '${p.id}')">
+            data-original="${originalStock}"
+            onfocus="if(this.value==='0')this.value=''"
+            onblur="if(this.value===''){this.value='0';onStockChange(this,'${p.id}')}"
+            onchange="onStockChange(this, '${p.id}')"
+            style="${hasChange ? 'background:#e8f5e9; font-weight:700;' : ''}">
         </td>
       </tr>
     `;
