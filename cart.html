@@ -287,6 +287,7 @@
     
     let cart = JSON.parse(localStorage.getItem('cart') || '[]');
     let products = [];
+    let primaryWarehouseId = '';
     
     // Функция исправления URL (https/ -> https://)
     function fixCartImageUrl(url) {
@@ -322,8 +323,14 @@
     
     async function loadProducts() {
       try {
-        const snapshot = await db.collection('products').get();
+        const [snapshot, settingsDoc] = await Promise.all([
+          db.collection('products').get(),
+          db.collection('settings').doc('warehouse').get()
+        ]);
         products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        if (settingsDoc.exists) {
+          primaryWarehouseId = settingsDoc.data().primaryWarehouseId || '';
+        }
       } catch (e) { console.error(e); }
       renderCart();
     }
@@ -779,21 +786,37 @@
           if (localStock < need) throw new Error(`Недостаточно остатка: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
           
           const productRef = db.collection('products').doc(item.id);
-          batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(-need) });
 
           // Списание со складов
           const ws = localProduct.warehouseStock;
           if (ws && typeof ws === 'object') {
             let remaining = need;
-            const sortedWh = Object.entries(ws).filter(([, qty]) => qty > 0).sort((a, b) => b[1] - a[1]);
             const updatedWs = { ...ws };
-            for (const [whId, whQty] of sortedWh) {
-              if (remaining <= 0) break;
-              const deduct = Math.min(remaining, whQty);
-              updatedWs[whId] = whQty - deduct;
+
+            // Если есть главный склад — списываем сначала с него
+            if (primaryWarehouseId && updatedWs[primaryWarehouseId] > 0) {
+              const deduct = Math.min(remaining, updatedWs[primaryWarehouseId]);
+              updatedWs[primaryWarehouseId] -= deduct;
               remaining -= deduct;
             }
-            batch.update(productRef, { warehouseStock: updatedWs });
+
+            // Если на главном не хватило — добираем с остальных
+            if (remaining > 0) {
+              const otherWh = Object.entries(updatedWs)
+                .filter(([whId, qty]) => qty > 0 && whId !== primaryWarehouseId)
+                .sort((a, b) => b[1] - a[1]);
+              for (const [whId, whQty] of otherWh) {
+                if (remaining <= 0) break;
+                const deduct = Math.min(remaining, whQty);
+                updatedWs[whId] -= deduct;
+                remaining -= deduct;
+              }
+            }
+
+            const newTotal = Object.values(updatedWs).reduce((s, v) => s + (v || 0), 0);
+            batch.update(productRef, { stock: newTotal, warehouseStock: updatedWs });
+          } else {
+            batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(-need) });
           }
         }
 
