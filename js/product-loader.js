@@ -94,7 +94,8 @@ async function loadProducts() {
         blocked: p.blocked, minQty: p.minQty, sellerId: p.sellerId,
         createdAt: p.createdAt, description: p.description,
         extraImages: p.extraImages, useQtyButtons: p.useQtyButtons,
-        unitsPerBox: p.unitsPerBox, showPricePerUnit: p.showPricePerUnit
+        unitsPerBox: p.unitsPerBox, showPricePerUnit: p.showPricePerUnit,
+        warehouseStock: p.warehouseStock || null
       }));
       localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
       localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));

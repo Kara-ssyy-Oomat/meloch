@@ -5,6 +5,8 @@
 // === МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ТОВАРА ===
 let currentEditProductId = null;
 let _scrollBeforeEditModal = 0;
+let _editWarehouses = [];
+let _editPrimaryWhId = '';
 
 async function openEditProductModal(productId) {
   const p = products.find(pr => pr.id === productId);
@@ -16,6 +18,16 @@ async function openEditProductModal(productId) {
   if (typeof ensureSellerCategoriesLoaded === 'function') {
     await ensureSellerCategoriesLoaded();
   }
+
+  // Загружаем склады для выбора
+  try {
+    const [whSnap, whSettings] = await Promise.all([
+      db.collection('warehouses').orderBy('order', 'asc').get(),
+      db.collection('settings').doc('warehouse').get()
+    ]);
+    _editWarehouses = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    _editPrimaryWhId = (whSettings.exists && whSettings.data().primaryWarehouseId) || '';
+  } catch(e) { _editWarehouses = []; _editPrimaryWhId = ''; }
   
   currentEditProductId = productId;
   const modal = document.getElementById('editProductModal');
@@ -67,6 +79,22 @@ async function openEditProductModal(productId) {
       <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📦 Остаток (пусто = без лимита)</label>
       <input type="number" id="editStock" value="${p.stock === 0 ? 0 : (p.stock || '')}" placeholder="Без лимита" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;" min="0">
     </div>
+    ${_editWarehouses.length > 0 ? `
+    <!-- Склад для записи остатка -->
+    <div style="margin-bottom:12px; background:#f8f9ff; border:1px solid #c5cae9; border-radius:8px; padding:12px;">
+      <label style="font-size:12px; color:#1a237e; display:block; margin-bottom:4px; font-weight:600;">🏭 На какой склад записать остаток?</label>
+      <select id="editStockWarehouse" style="width:100%; padding:10px; border:1px solid #1a237e; border-radius:8px; font-size:14px; box-sizing:border-box; background:white;">
+        <option value="">-- Не привязывать к складу --</option>
+        ${_editWarehouses.map(wh => {
+          const isPrimary = wh.id === _editPrimaryWhId;
+          const whName = (wh.name || 'Без названия').replace(/</g, '&lt;');
+          const currentQty = (p.warehouseStock || {})[wh.id] || 0;
+          return '<option value="' + wh.id + '"' + (isPrimary ? ' selected' : '') + '>' + whName + (isPrimary ? ' ⭐' : '') + ' (сейчас: ' + currentQty + ')' + '</option>';
+        }).join('')}
+      </select>
+      <div style="font-size:11px; color:#888; margin-top:4px;">⭐ — главный склад. Введённый остаток запишется на выбранный склад.</div>
+    </div>
+    ` : ''}
     
     <!-- Мин. покупка -->
     <div style="background:#fff3e0; border:1px solid #ffb74d; border-radius:8px; padding:12px; margin-bottom:12px;">
@@ -258,8 +286,24 @@ async function saveEditProductModal() {
     
     if (stock === null) {
       updateData.stock = firebase.firestore.FieldValue.delete();
+      updateData.warehouseStock = firebase.firestore.FieldValue.delete();
+      p.warehouseStock = null;
     } else {
-      updateData.stock = stock;
+      const whSelectEl = document.getElementById('editStockWarehouse');
+      const selectedWhId = whSelectEl ? whSelectEl.value : '';
+
+      if (selectedWhId) {
+        // Записываем остаток на выбранный склад
+        const oldWs = p.warehouseStock || {};
+        const newWs = { ...oldWs, [selectedWhId]: stock };
+        const totalStock = Object.values(newWs).reduce((s, v) => s + (v || 0), 0);
+        updateData.warehouseStock = newWs;
+        updateData.stock = totalStock;
+        p.warehouseStock = newWs;
+        p.stock = totalStock;
+      } else {
+        updateData.stock = stock;
+      }
     }
     
     // Если variants null, удаляем поле
