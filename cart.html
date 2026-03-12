@@ -775,6 +775,7 @@
         submitBtn.textContent = '⏳ Сохранение...';
         const orderRef = db.collection('orders').doc();
         const batch = db.batch();
+        const warehouseDeductions = {};
 
         for (const item of cart) {
           const localProduct = products.find(p => p.id === item.id);
@@ -792,12 +793,14 @@
           if (ws && typeof ws === 'object') {
             let remaining = need;
             const updatedWs = { ...ws };
+            const itemDeductions = {};
 
             // Если есть главный склад — списываем сначала с него
             if (primaryWarehouseId && updatedWs[primaryWarehouseId] > 0) {
               const deduct = Math.min(remaining, updatedWs[primaryWarehouseId]);
               updatedWs[primaryWarehouseId] -= deduct;
               remaining -= deduct;
+              itemDeductions[primaryWarehouseId] = deduct;
             }
 
             // Если на главном не хватило — добираем с остальных
@@ -810,7 +813,12 @@
                 const deduct = Math.min(remaining, whQty);
                 updatedWs[whId] -= deduct;
                 remaining -= deduct;
+                itemDeductions[whId] = deduct;
               }
+            }
+
+            if (Object.keys(itemDeductions).length > 0) {
+              warehouseDeductions[item.id] = itemDeductions;
             }
 
             const newTotal = Object.values(updatedWs).reduce((s, v) => s + (v || 0), 0);
@@ -830,7 +838,8 @@
             sellerName: item.sellerName || null, variant: item.variant || null
           })),
           total, timestamp: Date.now(), time: currentTime, status: 'pending',
-          partner: partner || null, referredBy: referredBy || null
+          partner: partner || null, referredBy: referredBy || null,
+          warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
         });
 
         await batch.commit();

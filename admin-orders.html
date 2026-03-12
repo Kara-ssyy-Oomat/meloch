@@ -683,6 +683,21 @@ async function saveEditOrder() {
 // Обновить статус заказа
 async function updateOrderStatus(orderId, newStatus) {
   try {
+    // Получаем заказ для проверки текущего статуса и возврата товаров
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    if (!orderDoc.exists) {
+      Swal.fire('Ошибка', 'Заказ не найден', 'error');
+      return;
+    }
+    const orderData = orderDoc.data();
+    const oldStatus = orderData.status;
+
+    // Если переводим в "Отменён" и заказ ещё не был отменён — возвращаем товары на склад
+    if (newStatus === 'cancelled' && oldStatus !== 'cancelled') {
+      await returnStockFromOrder(orderData);
+    }
+
+    // Если отменённый заказ восстанавливают (из cancelled в другой статус) — не трогаем склад
     await db.collection('orders').doc(orderId).update({ 
       status: newStatus,
       statusUpdatedAt: Date.now()
@@ -708,8 +723,10 @@ async function updateOrderStatus(orderId, newStatus) {
     Swal.fire({
       icon: 'success',
       title: 'Статус обновлен!',
-      text: `Заказ переведен в статус: ${statusTexts[newStatus]}`,
-      timer: 1500,
+      text: newStatus === 'cancelled' 
+        ? 'Заказ отменён. Товары возвращены на склад.' 
+        : `Заказ переведен в статус: ${statusTexts[newStatus]}`,
+      timer: 2000,
       showConfirmButton: false
     });
     
@@ -717,9 +734,83 @@ async function updateOrderStatus(orderId, newStatus) {
     
   } catch (error) {
     console.error('Ошибка обновления статуса:', error);
-    Swal.fire('Ошибка', 'Не удалось обновить статус заказа', 'error');
+    Swal.fire('Ошибка', 'Не удалось обновить статус заказа: ' + error.message, 'error');
     renderOrdersManagementFromCache();
   }
+}
+
+// Возврат товаров на склад из заказа
+async function returnStockFromOrder(orderData) {
+  const deductions = orderData.warehouseDeductions;
+  const items = orderData.items || [];
+  if (!items.length) return;
+
+  const batch = db.batch();
+
+  if (deductions && typeof deductions === 'object') {
+    // Есть данные о складах — возвращаем на те же склады
+    const productIds = Object.keys(deductions);
+    for (const productId of productIds) {
+      const productDoc = await db.collection('products').doc(productId).get();
+      if (!productDoc.exists) continue;
+      const product = productDoc.data();
+      const ws = product.warehouseStock || {};
+
+      const itemDeductions = deductions[productId];
+      for (const [whId, qty] of Object.entries(itemDeductions)) {
+        ws[whId] = (ws[whId] || 0) + qty;
+      }
+
+      const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
+      batch.update(db.collection('products').doc(productId), { 
+        warehouseStock: ws, 
+        stock: newTotal 
+      });
+
+      // Движение: возврат
+      const item = items.find(i => i.id === productId);
+      const returnQty = Object.values(itemDeductions).reduce((s, v) => s + v, 0);
+      const movRef = db.collection('warehouseMovements').doc();
+      batch.set(movRef, {
+        productId,
+        productTitle: item ? item.title : product.title || '',
+        warehouseId: Object.keys(itemDeductions)[0],
+        warehouseName: '',
+        type: 'return',
+        qty: returnQty,
+        direction: 'in',
+        oldQty: 0,
+        newQty: returnQty,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        note: 'Возврат при отмене заказа'
+      });
+    }
+  } else {
+    // Нет данных о складах (старый заказ) — возвращаем на главный склад или в stock
+    let primaryWhId = '';
+    try {
+      const settingsDoc = await db.collection('settings').doc('warehouse').get();
+      if (settingsDoc.exists) primaryWhId = settingsDoc.data().primaryWarehouseId || '';
+    } catch(e) {}
+
+    for (const item of items) {
+      if (!item.id || !item.qty) continue;
+      const productRef = db.collection('products').doc(item.id);
+      const productDoc = await productRef.get();
+      
+      if (productDoc.exists && primaryWhId) {
+        const product = productDoc.data();
+        const ws = product.warehouseStock || {};
+        ws[primaryWhId] = (ws[primaryWhId] || 0) + item.qty;
+        const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
+        batch.update(productRef, { warehouseStock: ws, stock: newTotal });
+      } else {
+        batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(item.qty) });
+      }
+    }
+  }
+
+  await batch.commit();
 }
 
 // Удалить заказ
@@ -742,6 +833,15 @@ async function deleteOrder(orderId) {
   if (!result.isConfirmed) return;
   
   try {
+    // Возвращаем товары на склад перед удалением, если заказ не был отменён
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    if (orderDoc.exists) {
+      const orderData = orderDoc.data();
+      if (orderData.status !== 'cancelled') {
+        await returnStockFromOrder(orderData);
+      }
+    }
+
     await db.collection('orders').doc(orderId).delete();
     
     if (Array.isArray(ordersManagementAllOrders)) {
@@ -754,6 +854,7 @@ async function deleteOrder(orderId) {
     Swal.fire({
       icon: 'success',
       title: 'Заказ удален!',
+      text: 'Товары возвращены на склад.',
       timer: 1500,
       showConfirmButton: false
     });
