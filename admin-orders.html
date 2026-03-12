@@ -739,28 +739,190 @@ async function updateOrderStatus(orderId, newStatus) {
   }
 }
 
+// Возврат одного товара на склад (главный или по deductions)
+async function returnStockForItem(orderId, productId, qty) {
+  if (!productId || !qty || qty <= 0) return;
+  
+  const productDoc = await db.collection('products').doc(productId).get();
+  if (!productDoc.exists) return;
+  
+  const product = productDoc.data();
+  const ws = product.warehouseStock || {};
+
+  // Проверяем, есть ли данные о списании в заказе
+  const orderDoc = await db.collection('orders').doc(orderId).get();
+  const orderData = orderDoc.exists ? orderDoc.data() : {};
+  const deductions = orderData.warehouseDeductions || {};
+  const itemDed = deductions[productId];
+
+  if (itemDed && typeof itemDed === 'object') {
+    // Возвращаем пропорционально на те же склады и уменьшаем deductions
+    let remaining = qty;
+    for (const whId of Object.keys(itemDed)) {
+      if (remaining <= 0) break;
+      const dedQty = itemDed[whId] || 0;
+      const returnQty = Math.min(remaining, dedQty);
+      ws[whId] = (ws[whId] || 0) + returnQty;
+      itemDed[whId] = dedQty - returnQty;
+      if (itemDed[whId] <= 0) delete itemDed[whId];
+      remaining -= returnQty;
+    }
+    // Если ещё осталось — на первый доступный склад
+    if (remaining > 0) {
+      let primaryWhId = '';
+      try {
+        const settingsDoc = await db.collection('settings').doc('warehouse').get();
+        if (settingsDoc.exists) primaryWhId = settingsDoc.data().primaryWarehouseId || '';
+      } catch(e) {}
+      const fallbackWh = primaryWhId || Object.keys(ws)[0];
+      if (fallbackWh) ws[fallbackWh] = (ws[fallbackWh] || 0) + remaining;
+    }
+
+    // Обновляем deductions в заказе
+    if (Object.keys(itemDed).length === 0) {
+      delete deductions[productId];
+    } else {
+      deductions[productId] = itemDed;
+    }
+    if (orderDoc.exists) {
+      await db.collection('orders').doc(orderId).update({ 
+        warehouseDeductions: Object.keys(deductions).length > 0 ? deductions : null 
+      });
+    }
+  } else {
+    // Нет данных — на главный склад
+    let primaryWhId = '';
+    try {
+      const settingsDoc = await db.collection('settings').doc('warehouse').get();
+      if (settingsDoc.exists) primaryWhId = settingsDoc.data().primaryWarehouseId || '';
+    } catch(e) {}
+
+    if (primaryWhId) {
+      ws[primaryWhId] = (ws[primaryWhId] || 0) + qty;
+    } else {
+      await db.collection('products').doc(productId).update({
+        stock: firebase.firestore.FieldValue.increment(qty)
+      });
+      return;
+    }
+  }
+
+  const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
+  await db.collection('products').doc(productId).update({ warehouseStock: ws, stock: newTotal });
+}
+
+// Списание одного товара со склада (главный → остальные)
+async function deductStockForItem(orderId, productId, qty) {
+  if (!productId || !qty || qty <= 0) return;
+
+  const productDoc = await db.collection('products').doc(productId).get();
+  if (!productDoc.exists) return;
+
+  const product = productDoc.data();
+  const ws = product.warehouseStock || {};
+
+  let primaryWhId = '';
+  try {
+    const settingsDoc = await db.collection('settings').doc('warehouse').get();
+    if (settingsDoc.exists) primaryWhId = settingsDoc.data().primaryWarehouseId || '';
+  } catch(e) {}
+
+  let remaining = qty;
+  const itemDeductions = {};
+
+  // Сначала с главного склада
+  if (primaryWhId && (ws[primaryWhId] || 0) > 0) {
+    const deduct = Math.min(remaining, ws[primaryWhId]);
+    ws[primaryWhId] -= deduct;
+    remaining -= deduct;
+    itemDeductions[primaryWhId] = deduct;
+  }
+
+  // Потом с остальных
+  if (remaining > 0) {
+    const otherWh = Object.entries(ws)
+      .filter(([whId, whQty]) => whQty > 0 && whId !== primaryWhId)
+      .sort((a, b) => b[1] - a[1]);
+    for (const [whId, whQty] of otherWh) {
+      if (remaining <= 0) break;
+      const deduct = Math.min(remaining, whQty);
+      ws[whId] -= deduct;
+      remaining -= deduct;
+      itemDeductions[whId] = deduct;
+    }
+  }
+
+  const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
+  await db.collection('products').doc(productId).update({ warehouseStock: ws, stock: newTotal });
+
+  // Обновляем warehouseDeductions в заказе
+  if (Object.keys(itemDeductions).length > 0) {
+    const orderDoc = await db.collection('orders').doc(orderId).get();
+    if (orderDoc.exists) {
+      const orderData = orderDoc.data();
+      const deductions = orderData.warehouseDeductions || {};
+      // Суммируем с существующими
+      if (deductions[productId]) {
+        for (const [whId, dedQty] of Object.entries(itemDeductions)) {
+          deductions[productId][whId] = (deductions[productId][whId] || 0) + dedQty;
+        }
+      } else {
+        deductions[productId] = itemDeductions;
+      }
+      await db.collection('orders').doc(orderId).update({ warehouseDeductions: deductions });
+    }
+  }
+}
+
 // Возврат товаров на склад из заказа
 async function returnStockFromOrder(orderData) {
-  const deductions = orderData.warehouseDeductions;
+  const deductions = orderData.warehouseDeductions || {};
   const items = orderData.items || [];
   if (!items.length) return;
 
+  let primaryWhId = '';
+  try {
+    const settingsDoc = await db.collection('settings').doc('warehouse').get();
+    if (settingsDoc.exists) primaryWhId = settingsDoc.data().primaryWarehouseId || '';
+  } catch(e) {}
+
   const batch = db.batch();
 
-  if (deductions && typeof deductions === 'object') {
-    // Есть данные о складах — возвращаем на те же склады
-    const productIds = Object.keys(deductions);
-    for (const productId of productIds) {
-      const productDoc = await db.collection('products').doc(productId).get();
-      if (!productDoc.exists) continue;
-      const product = productDoc.data();
-      const ws = product.warehouseStock || {};
+  // Собираем все productId: из items + из deductions
+  const allProductIds = new Set();
+  items.forEach(i => { if (i.id) allProductIds.add(i.id); });
+  Object.keys(deductions).forEach(pid => allProductIds.add(pid));
 
-      const itemDeductions = deductions[productId];
-      for (const [whId, qty] of Object.entries(itemDeductions)) {
+  for (const productId of allProductIds) {
+    const productDoc = await db.collection('products').doc(productId).get();
+    if (!productDoc.exists) continue;
+    const product = productDoc.data();
+    const ws = product.warehouseStock || {};
+
+    const itemDed = deductions[productId];
+    const item = items.find(i => i.id === productId);
+    let returnQty = 0;
+
+    if (itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0) {
+      // Есть данные о складах — возвращаем на те же склады
+      for (const [whId, qty] of Object.entries(itemDed)) {
         ws[whId] = (ws[whId] || 0) + qty;
+        returnQty += qty;
       }
+    } else if (item && item.qty > 0) {
+      // Нет deductions — возвращаем на главный склад
+      returnQty = item.qty;
+      if (primaryWhId) {
+        ws[primaryWhId] = (ws[primaryWhId] || 0) + returnQty;
+      } else {
+        batch.update(db.collection('products').doc(productId), {
+          stock: firebase.firestore.FieldValue.increment(returnQty)
+        });
+        continue;
+      }
+    }
 
+    if (returnQty > 0) {
       const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
       batch.update(db.collection('products').doc(productId), { 
         warehouseStock: ws, 
@@ -768,13 +930,11 @@ async function returnStockFromOrder(orderData) {
       });
 
       // Движение: возврат
-      const item = items.find(i => i.id === productId);
-      const returnQty = Object.values(itemDeductions).reduce((s, v) => s + v, 0);
       const movRef = db.collection('warehouseMovements').doc();
       batch.set(movRef, {
         productId,
         productTitle: item ? item.title : product.title || '',
-        warehouseId: Object.keys(itemDeductions)[0],
+        warehouseId: (itemDed ? Object.keys(itemDed)[0] : primaryWhId) || '',
         warehouseName: '',
         type: 'return',
         qty: returnQty,
@@ -784,29 +944,6 @@ async function returnStockFromOrder(orderData) {
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         note: 'Возврат при отмене заказа'
       });
-    }
-  } else {
-    // Нет данных о складах (старый заказ) — возвращаем на главный склад или в stock
-    let primaryWhId = '';
-    try {
-      const settingsDoc = await db.collection('settings').doc('warehouse').get();
-      if (settingsDoc.exists) primaryWhId = settingsDoc.data().primaryWarehouseId || '';
-    } catch(e) {}
-
-    for (const item of items) {
-      if (!item.id || !item.qty) continue;
-      const productRef = db.collection('products').doc(item.id);
-      const productDoc = await productRef.get();
-      
-      if (productDoc.exists && primaryWhId) {
-        const product = productDoc.data();
-        const ws = product.warehouseStock || {};
-        ws[primaryWhId] = (ws[primaryWhId] || 0) + item.qty;
-        const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-        batch.update(productRef, { warehouseStock: ws, stock: newTotal });
-      } else {
-        batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(item.qty) });
-      }
     }
   }
 
@@ -1061,6 +1198,7 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
       const items = orderData.items || [];
       
       if (items[itemIndex]) {
+        const oldQty = items[itemIndex].qty || 0;
         items[itemIndex].qty = qty;
         
         // Пересчитываем цену с учётом оптовой
@@ -1078,11 +1216,23 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
             }
           } catch(e) { /* оставляем текущую цену */ }
         }
+      
+        const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      
+        // Сначала сохраняем items/total
+        await db.collection('orders').doc(orderId).update({ items, total });
+
+        // Потом корректируем склад (функция сама обновит warehouseDeductions)
+        const diff = qty - oldQty;
+        if (diff > 0 && itemId) {
+          await deductStockForItem(orderId, itemId, diff);
+        } else if (diff < 0 && itemId) {
+          await returnStockForItem(orderId, itemId, Math.abs(diff));
+        }
+      } else {
+        const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+        await db.collection('orders').doc(orderId).update({ items, total });
       }
-      
-      const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
-      
-      await db.collection('orders').doc(orderId).update({ items, total });
       
       if (Array.isArray(ordersManagementAllOrders)) {
         const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -1124,7 +1274,14 @@ async function deleteOrderItemFromModal(orderId, itemIndex) {
     const orderData = orderDoc.data();
     const items = orderData.items || [];
     
+    // Запоминаем удаляемый товар для возврата на склад
+    const removedItem = items[itemIndex];
     items.splice(itemIndex, 1);
+
+    // Возвращаем удалённый товар на склад
+    if (removedItem && removedItem.id && removedItem.qty > 0 && orderData.status !== 'cancelled') {
+      await returnStockForItem(orderId, removedItem.id, removedItem.qty);
+    }
     
     if (items.length === 0) {
       await Swal.fire({
@@ -1591,6 +1748,10 @@ async function addProductToOrder(productId, productName, productPrice, productCo
       items,
       total
     });
+
+    // Списываем добавленный товар со склада
+    await deductStockForItem(orderId, productId, qty);
+    console.log('✅ Товар списан со склада:', productId, 'кол-во:', qty);
     
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -1603,7 +1764,8 @@ async function addProductToOrder(productId, productName, productPrice, productCo
     renderOrdersManagementFromCache();
     
   } catch (error) {
-    console.error('Ошибка добавления товара:', error);
+    console.error('❌ Ошибка добавления товара:', error);
+    Swal.fire('Ошибка', 'Не удалось добавить товар: ' + error.message, 'error');
   }
 }
 
