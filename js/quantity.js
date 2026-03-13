@@ -30,8 +30,7 @@ function incrementPack(productId, btnElement) {
   }
 
   // Проверка остатка
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   if (stock !== null && stock <= 0) {
     Swal.fire('Ошибка', 'Нет в наличии', 'warning');
     return;
@@ -264,8 +263,7 @@ function setPackQty(productId, inputElement) {
   }
   
   // Проверка остатка
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   
   if (stock !== null && newQty > stock) {
     newQty = stock;
@@ -361,8 +359,7 @@ function setQtyInput(productId, inputElement) {
   }
   
   // Проверка остатка
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   
   if (stock !== null && newQty > stock) {
     // Округляем вниз до кратного minQty, но не больше остатка (только если roundQty)
@@ -432,8 +429,7 @@ function incrementQty(productId, btnElement) {
     return;
   }
 
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   if (stock !== null && stock <= 0) {
     Swal.fire('Ошибка', 'Нет в наличии', 'warning');
     return;

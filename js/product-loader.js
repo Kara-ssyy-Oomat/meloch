@@ -9,6 +9,59 @@ const CACHE_DURATION = 120000; // 2 минуты кэш (увеличено с 3
 const LS_PRODUCTS_KEY = 'cachedProducts';
 const LS_PRODUCTS_TIME_KEY = 'cachedProductsTime';
 
+// Флаг: склады приостановлены (все товары без лимита)
+let warehousePaused = false;
+const LS_WH_PAUSED_KEY = 'warehousePaused';
+
+// Индивидуально приостановленные склады
+let pausedWarehouseIds = new Set();
+const LS_PAUSED_WH_IDS_KEY = 'pausedWarehouseIds';
+
+// Загрузка флага паузы складов (кэшируется в localStorage для мгновенного чтения)
+function loadWarehousePausedFromLS() {
+  try { warehousePaused = localStorage.getItem(LS_WH_PAUSED_KEY) === '1'; } catch(e) {}
+  try {
+    const raw = localStorage.getItem(LS_PAUSED_WH_IDS_KEY);
+    pausedWarehouseIds = raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch(e) { pausedWarehouseIds = new Set(); }
+}
+async function loadWarehousePausedFlag() {
+  try {
+    const doc = await db.collection('settings').doc('warehouse').get();
+    warehousePaused = doc.exists && doc.data().paused === true;
+    try { localStorage.setItem(LS_WH_PAUSED_KEY, warehousePaused ? '1' : '0'); } catch(e) {}
+  } catch(e) { warehousePaused = false; }
+  // Загружаем индивидуально приостановленные склады
+  try {
+    const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
+    pausedWarehouseIds = new Set();
+    whSnap.forEach(d => pausedWarehouseIds.add(d.id));
+    try { localStorage.setItem(LS_PAUSED_WH_IDS_KEY, JSON.stringify([...pausedWarehouseIds])); } catch(e) {}
+  } catch(e) { pausedWarehouseIds = new Set(); }
+}
+
+// Эффективный остаток товара (исключая приостановленные склады)
+// Возвращает null если остаток не отслеживается (безлимит), число если отслеживается
+function getEffectiveStock(product) {
+  if (!product) return null;
+  if (warehousePaused) return null;
+  if (typeof product.stock !== 'number' || !isFinite(product.stock)) return null;
+  // Если нет приостановленных складов — обычный остаток
+  if (pausedWarehouseIds.size === 0) return Math.max(0, Math.floor(product.stock));
+  // Если есть разбивка по складам — проверяем
+  const ws = product.warehouseStock;
+  if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
+    // Если товар есть на приостановленном складе — безлимит
+    for (const whId of Object.keys(ws)) {
+      if (pausedWarehouseIds.has(whId)) return null;
+    }
+    // Иначе обычный остаток
+    return Math.max(0, Math.floor(product.stock));
+  }
+  // Нет разбивки по складам — возвращаем общий остаток
+  return Math.max(0, Math.floor(product.stock));
+}
+
 // Скрытие splash-экрана (вызывается при первом показе товаров)
 function hideSplashScreen() {
   var splash = document.getElementById('splashScreen');
@@ -26,6 +79,9 @@ function hideSplashScreen() {
 // Загрузка товаров с мгновенным отображением из localStorage
 async function loadProducts() {
   try {
+    // Сразу читаем флаг паузы из localStorage (мгновенно)
+    loadWarehousePausedFromLS();
+
     // 1) Проверяем in-memory кэш (самый быстрый)
     const now = Date.now();
     if (productsCache.length > 0 && (now - productsCacheTime) < CACHE_DURATION) {
@@ -34,6 +90,8 @@ async function loadProducts() {
       productsReady = true;
       renderProducts();
       hideSplashScreen();
+      // Обновляем флаг с сервера в фоне (для следующей загрузки)
+      loadWarehousePausedFlag();
       return;
     }
     
@@ -57,6 +115,9 @@ async function loadProducts() {
     // 3) Загружаем свежие данные с Firebase (в фоне если кэш показан)
     console.log('Loading products from Firebase...');
     if (!showedFromCache) productsReady = false;
+    
+    // Грузим флаг паузы складов параллельно с товарами
+    const pausePromise = loadWarehousePausedFlag();
     
     let snapshot;
     try {
@@ -103,11 +164,15 @@ async function loadProducts() {
     
     productsReady = true;
     
-    // Перерисовываем только если данные изменились
+    // Запоминаем старое значение флага (из localStorage) перед обновлением с Firebase
+    const pausedBeforeFirebase = warehousePaused;
+    // Дождёмся загрузки флага паузы перед финальным рендером
+    await pausePromise;
+    
+    // Перерисовываем — данные или флаг паузы могли измениться
     if (showedFromCache) {
-      // Тихое обновление в фоне — только если данные реально отличаются
       const oldCount = (productsCache.length || 0);
-      if (oldCount !== products.length) {
+      if (oldCount !== products.length || pausedBeforeFirebase !== warehousePaused) {
         renderProducts();
       }
     } else {

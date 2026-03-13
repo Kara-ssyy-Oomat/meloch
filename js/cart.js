@@ -67,9 +67,8 @@ function addToCart(id, title, price, image, btn) {
     return;
   }
 
-  // Проверка остатка (если задан)
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  // Проверка остатка (если задан и склады не на паузе)
+  const stock = getEffectiveStock(product);
   if (stock !== null && stock <= 0) {
     Swal.fire('Ошибка', 'Нет в наличии (остаток 0)', 'warning');
     return;
@@ -212,8 +211,7 @@ function updateCart() {
     const product = products.find(p => p.id === item.id);
     if (!product || product.blocked) continue;
 
-    const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-    const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+    const stock = getEffectiveStock(product);
     if (stock !== null) {
       if (stock <= 0) continue;
       if (item.qty > stock) {
@@ -483,8 +481,7 @@ function changeCartItemQty(index, delta) {
   
   // Проверяем остаток
   if (product) {
-    const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-    const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+    const stock = getEffectiveStock(product);
     if (stock !== null && newQty > stock) {
       Swal.fire({
         icon: 'warning',

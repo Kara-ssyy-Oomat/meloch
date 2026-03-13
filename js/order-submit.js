@@ -97,8 +97,8 @@ document.getElementById('submitOrder').onclick = async () => {
       } else if (product.blocked) {
         // Товар заблокирован
         blockedItems.push(cartItem.title);
-      } else if (typeof product.stock === 'number' && isFinite(product.stock)) {
-        const stock = Math.max(0, Math.floor(product.stock));
+      } else if (getEffectiveStock(product) !== null) {
+        const stock = getEffectiveStock(product);
         // Если stock === 0 и склад не настроен — пропускаем проверку (товар доступен)
         const hasWarehouseSetup = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
         if (stock <= 0 && !hasWarehouseSetup) {

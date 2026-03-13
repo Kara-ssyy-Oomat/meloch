@@ -300,13 +300,13 @@ function renderProductsCore() {
   
   if (stockFilter === 'instock') {
     list = list.filter(p => {
-      const stock = typeof p.stock === 'number' ? p.stock : null;
-      return stock === null || stock > 0;
+      const s = getEffectiveStock(p);
+      return s === null || s > 0;
     });
   } else if (stockFilter === 'outofstock') {
     list = list.filter(p => {
-      const stock = typeof p.stock === 'number' ? p.stock : null;
-      return stock !== null && stock <= 0;
+      const s = getEffectiveStock(p);
+      return s !== null && s <= 0;
     });
   }
   
@@ -338,8 +338,8 @@ function renderProductsCore() {
     card.className = 'product-card';
     card.setAttribute('data-product-id', p.id);
 
-    const hasStock = typeof p.stock === 'number' && isFinite(p.stock);
-    const stock = hasStock ? Math.max(0, Math.floor(p.stock)) : null;
+    const stock = getEffectiveStock(p);
+    const hasStock = stock !== null;
     const outOfStock = stock !== null && stock <= 0;
     // Для товаров-пачек показываем "пачка" вместо "шт"
     const unitLabel = p.isPack ? 'пачка' : 'шт';
