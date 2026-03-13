@@ -335,7 +335,7 @@ function renderProductsCore() {
 
   pageList.forEach((p, idx) => {
     const card = document.createElement('div');
-    card.className = 'product-card';
+    card.className = 'product-card' + (isBulkSelectMode && bulkSelectedProducts.has(p.id) ? ' bulk-selected' : '');
     card.setAttribute('data-product-id', p.id);
 
     const stock = getEffectiveStock(p);
@@ -376,13 +376,14 @@ function renderProductsCore() {
 
     card.innerHTML = `
         <div class="card-image" style="position:relative; background:#f0f0f0;">
+        ${isBulkSelectMode && showEditorCard ? `<input type="checkbox" class="bulk-checkbox" ${bulkSelectedProducts.has(p.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleBulkSelectProduct('${p.id}')" />` : ''}
         ${blockedBadgeHtml}
         ${packBadgeHtml}
         ${galleryBadgeHtml}
         ${favoriteHtml}
         ${p.createdAt && (Date.now() - p.createdAt) < 4 * 24 * 60 * 60 * 1000 ? `<div class="new-badge">NEW</div>` : ''}
         ${isEditorMode ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,123,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;z-index:1;">#${idx + 1}</div>` : ''}
-        ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="openProductImage('${p.id}')" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
+        ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
       </div>
       <div class="card-body"
         ${showEditorCard ? `
@@ -593,7 +594,7 @@ function loadMoreProducts() {
   nextBatch.forEach((p, batchIdx) => {
     const idx = start + batchIdx;
     const card = document.createElement('div');
-    card.className = 'product-card';
+    card.className = 'product-card' + (isBulkSelectMode && bulkSelectedProducts.has(p.id) ? ' bulk-selected' : '');
     card.setAttribute('data-product-id', p.id);
     
     const hasStock = typeof p.stock === 'number' && isFinite(p.stock);
@@ -625,10 +626,11 @@ function loadMoreProducts() {
     
     card.innerHTML = `
       <div class="card-image" style="position:relative; background:#f0f0f0;">
+        ${isBulkSelectMode && showEditorCard ? `<input type="checkbox" class="bulk-checkbox" ${bulkSelectedProducts.has(p.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleBulkSelectProduct('${p.id}')" />` : ''}
         ${blockedBadgeHtml}${packBadgeHtml}${galleryBadgeHtml}${favoriteHtml}
         ${p.createdAt && (Date.now() - p.createdAt) < 4 * 24 * 60 * 60 * 1000 ? `<div class="new-badge">NEW</div>` : ''}
         ${isEditorMode ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,123,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;z-index:1;">#${idx + 1}</div>` : ''}
-        ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="openProductImage('${p.id}')" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
+        ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
       </div>
       <div class="card-body"
         ${showEditorCard ? `

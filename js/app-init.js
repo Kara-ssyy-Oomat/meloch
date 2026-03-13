@@ -19,13 +19,26 @@ function debounce(func, wait) {
 function toggleEditorMode() {
   isEditorMode = !isEditorMode;
   const btn = document.getElementById('editorModeBtn');
+  const bulkBtn = document.getElementById('bulkSelectBtn');
   if (btn) {
     if (isEditorMode) {
       btn.style.background = 'linear-gradient(135deg, #28a745, #20c997)';
       btn.innerHTML = '✅ Редактор ВКЛ';
+      if (bulkBtn) bulkBtn.style.display = 'flex';
     } else {
       btn.style.background = 'linear-gradient(135deg, #6c757d, #495057)';
       btn.innerHTML = '✏️ Редактор';
+      
+      // Сбрасываем режим выделения
+      if (bulkBtn) {
+        bulkBtn.style.display = 'none';
+        bulkBtn.style.background = 'linear-gradient(135deg, #9c27b0, #7b1fa2)';
+        bulkBtn.innerHTML = '☑️ Выделить';
+      }
+      isBulkSelectMode = false;
+      bulkSelectedProducts.clear();
+      const bar = document.getElementById('bulkActionBar');
+      if (bar) bar.style.display = 'none';
       
       // ВАЖНО: Принудительная очистка при выходе из режима редактора
       if (globalImageObserver) {

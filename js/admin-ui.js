@@ -45,6 +45,10 @@ function logoutAdmin() {
   isAdmin = false;
   userRole = 'guest';
   isEditorMode = false; // Выключаем режим редактора
+  isBulkSelectMode = false;
+  bulkSelectedProducts.clear();
+  const bulkBar = document.getElementById('bulkActionBar');
+  if (bulkBar) bulkBar.style.display = 'none';
   
   const managementHeader = document.getElementById('managementHeader');
   

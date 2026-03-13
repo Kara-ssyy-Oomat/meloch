@@ -76,8 +76,12 @@ async function openEditProductModal(productId) {
     
     <!-- Остаток -->
     <div style="margin-bottom:12px;">
-      <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📦 Остаток (пусто = без лимита)</label>
-      <input type="number" id="editStock" value="${p.stock === 0 ? 0 : (p.stock || '')}" placeholder="Без лимита" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;" min="0">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <label style="font-size:12px; color:#666;">📦 Остаток (пусто = без лимита)</label>
+        <button type="button" onclick="document.getElementById('editStock').value='';" style="padding:2px 8px; background:#ff9800; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;${typeof p.stock === 'number' ? '' : ' display:none;'}">✕ Убрать</button>
+      </div>
+      <input type="number" id="editStock" value="${typeof p.stock === 'number' ? p.stock : ''}" placeholder="Без лимита" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;" min="0">
+      ${typeof p.stock === 'number' && p.warehouseStock ? '<div style="font-size:11px; color:#e65100; margin-top:4px;">⚠️ Привязан к складу. Очистите поле чтобы убрать лимит.</div>' : ''}
     </div>
     ${_editWarehouses.length > 0 ? `
     <!-- Склад для записи остатка -->
@@ -313,6 +317,25 @@ async function saveEditProductModal() {
     
     await db.collection('products').doc(currentEditProductId).update(updateData);
     
+    // Обновляем localStorage-кэш чтобы при перезагрузке данные были актуальны
+    try {
+      if (typeof LS_PRODUCTS_KEY !== 'undefined') {
+        const lightProducts = products.map(pr => ({
+          id: pr.id, title: pr.title, price: pr.price, image: pr.image,
+          category: pr.category, stock: pr.stock, order: pr.order,
+          optPrice: pr.optPrice, optQty: pr.optQty, oldPrice: pr.oldPrice,
+          isPack: pr.isPack, packQty: pr.packQty, showPackInfo: pr.showPackInfo,
+          blocked: pr.blocked, minQty: pr.minQty, sellerId: pr.sellerId,
+          createdAt: pr.createdAt, description: pr.description,
+          extraImages: pr.extraImages, useQtyButtons: pr.useQtyButtons,
+          unitsPerBox: pr.unitsPerBox, showPricePerUnit: pr.showPricePerUnit,
+          warehouseStock: pr.warehouseStock || null
+        }));
+        localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
+        localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
+      }
+    } catch(e) { /* не критично */ }
+    
     Swal.close();
     _restoreScrollAfterRender = _scrollBeforeEditModal;
     closeEditProductModal();
@@ -515,33 +538,72 @@ async function showMoveProductModal(productId) {
   const currentCategoryIndex = categoryProducts.findIndex(p => p.id === productId);
   
   // Создаем список опций для выбора позиции (только товары из этой категории)
-  const options = {};
+  let optionsHtml = '';
   categoryProducts.forEach((p, idx) => {
-    options[idx] = `${idx + 1}. ${p.title}`;
+    const isCurrent = idx === currentCategoryIndex;
+    optionsHtml += `<div class="move-item${isCurrent ? ' move-current' : ''}" data-idx="${idx}" data-title="${(p.title||'').toLowerCase()}">`
+      + `<span class="move-num">${idx + 1}.</span> ${p.title}`
+      + (isCurrent ? ' <span style="color:#999;font-size:11px">(текущий)</span>' : '')
+      + `</div>`;
   });
   
   const { value: newCategoryPosition } = await Swal.fire({
     title: 'Переместить товар',
     html: `
-      <div style="text-align:left;margin-bottom:15px;">
+      <div style="text-align:left;margin-bottom:10px;">
         <strong>Товар:</strong> ${product.title}<br>
         <strong>Категория:</strong> ${product.category || 'Все товары'}<br>
-        <strong>Текущая позиция:</strong> #${currentCategoryIndex + 1} (в категории)
+        <strong>Текущая позиция:</strong> #${currentCategoryIndex + 1}
       </div>
-      <div style="text-align:left;">
-        <strong>Выберите товар, ПОСЛЕ которого разместить:</strong>
+      <input id="moveSearchInput" type="text" placeholder="🔍 Поиск товара..." style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:8px;box-sizing:border-box;">
+      <div style="text-align:left;font-size:12px;color:#888;margin-bottom:4px;">Выберите товар, ПОСЛЕ которого разместить:</div>
+      <div id="moveProductList" style="max-height:250px;overflow-y:auto;border:1px solid #eee;border-radius:8px;">
+        ${optionsHtml}
       </div>
+      <style>
+        .move-item{padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;text-align:left;transition:background .15s}
+        .move-item:last-child{border-bottom:none}
+        .move-item:hover{background:#e8f5e9}
+        .move-item.move-selected{background:#4CAF50;color:#fff}
+        .move-item.move-current{background:#fff8e1}
+        .move-item.move-hidden{display:none}
+        .move-num{color:#999;font-size:11px;min-width:28px;display:inline-block}
+        .move-item.move-selected .move-num{color:#fff}
+      </style>
     `,
-    input: 'select',
-    inputOptions: options,
-    inputPlaceholder: 'Выберите товар',
     showCancelButton: true,
     confirmButtonText: 'Переместить',
     cancelButtonText: 'Отмена',
-    inputValidator: (value) => {
-      if (value === undefined || value === null || value === '') {
-        return 'Выберите позицию!';
+    didOpen: () => {
+      const list = document.getElementById('moveProductList');
+      const search = document.getElementById('moveSearchInput');
+      let selectedIdx = null;
+      
+      list.addEventListener('click', (e) => {
+        const item = e.target.closest('.move-item');
+        if (!item) return;
+        list.querySelectorAll('.move-item').forEach(el => el.classList.remove('move-selected'));
+        item.classList.add('move-selected');
+        selectedIdx = item.dataset.idx;
+      });
+      
+      search.addEventListener('input', () => {
+        const q = search.value.toLowerCase().trim().replace(/ё/g, 'е');
+        list.querySelectorAll('.move-item').forEach(el => {
+          el.classList.toggle('move-hidden', q && !el.dataset.title.replace(/ё/g, 'е').includes(q));
+        });
+      });
+      
+      // Сохраняем getter для preConfirm
+      Swal.getPopup().__getSelected = () => selectedIdx;
+    },
+    preConfirm: () => {
+      const sel = Swal.getPopup().__getSelected();
+      if (sel === null || sel === undefined) {
+        Swal.showValidationMessage('Выберите товар из списка!');
+        return false;
       }
+      return sel;
     }
   });
   
@@ -591,6 +653,9 @@ async function showMoveProductModal(productId) {
     
     await batch.commit();
     
+    // Сбрасываем RAM-кэш чтобы loadProducts загрузил свежие данные
+    productsCacheTime = 0;
+    
     // Перезагружаем товары
     await loadProducts();
     
@@ -625,6 +690,7 @@ async function deleteProduct(productId) {
     if (result.isConfirmed) {
       await db.collection('products').doc(productId).delete();
       Swal.fire('Удалено!', 'Товар был успешно удален.', 'success');
+      productsCacheTime = 0;
       loadProducts();
     }
   } catch (error) {
@@ -678,6 +744,170 @@ function showEditWholesaleModal(productId) {
   editWholesaleModal.style.display = 'block';
 }
 
+// ===================================================================
+// МАССОВОЕ ВЫДЕЛЕНИЕ И ПЕРЕМЕЩЕНИЕ ТОВАРОВ ПО КАТЕГОРИЯМ
+// ===================================================================
+
+function toggleBulkSelectMode() {
+  isBulkSelectMode = !isBulkSelectMode;
+  bulkSelectedProducts.clear();
+
+  const btn = document.getElementById('bulkSelectBtn');
+  const bar = document.getElementById('bulkActionBar');
+
+  if (isBulkSelectMode) {
+    btn.style.background = 'linear-gradient(135deg, #e91e63, #c2185b)';
+    btn.innerHTML = '✅ Выделение ВКЛ';
+  } else {
+    btn.style.background = 'linear-gradient(135deg, #9c27b0, #7b1fa2)';
+    btn.innerHTML = '☑️ Выделить';
+    bar.style.display = 'none';
+  }
+  renderProducts();
+}
+
+function toggleBulkSelectProduct(productId) {
+  if (bulkSelectedProducts.has(productId)) {
+    bulkSelectedProducts.delete(productId);
+  } else {
+    bulkSelectedProducts.add(productId);
+  }
+  updateBulkUI();
+}
+
+function updateBulkUI() {
+  const bar = document.getElementById('bulkActionBar');
+  const countEl = document.getElementById('bulkSelectedCount');
+  const count = bulkSelectedProducts.size;
+
+  if (count > 0) {
+    bar.style.display = 'block';
+    countEl.textContent = count + ' выбрано';
+  } else {
+    bar.style.display = 'none';
+  }
+
+  // Обновляем визуальное состояние карточек и чекбоксов
+  document.querySelectorAll('.product-card').forEach(card => {
+    const id = card.getAttribute('data-product-id');
+    const cb = card.querySelector('.bulk-checkbox');
+    if (bulkSelectedProducts.has(id)) {
+      card.classList.add('bulk-selected');
+      if (cb) cb.checked = true;
+    } else {
+      card.classList.remove('bulk-selected');
+      if (cb) cb.checked = false;
+    }
+  });
+}
+
+function selectAllVisibleProducts() {
+  document.querySelectorAll('.product-card').forEach(card => {
+    const id = card.getAttribute('data-product-id');
+    if (id) bulkSelectedProducts.add(id);
+  });
+  updateBulkUI();
+}
+
+function deselectAllProducts() {
+  bulkSelectedProducts.clear();
+  updateBulkUI();
+}
+
+async function showBulkMoveCategoryModal() {
+  if (bulkSelectedProducts.size === 0) {
+    Swal.fire('Ошибка', 'Сначала выберите товары', 'warning');
+    return;
+  }
+
+  if (typeof ensureSellerCategoriesLoaded === 'function') {
+    await ensureSellerCategoriesLoaded();
+  }
+
+  const options = generateCategoryOptions('');
+  const { value: newCategory } = await Swal.fire({
+    title: '📁 Переместить ' + bulkSelectedProducts.size + ' товаров',
+    html: '<select id="swalBulkCategory" style="width:100%;padding:12px;border:2px solid #9c27b0;border-radius:10px;font-size:15px;margin-top:10px;">' + options + '</select>',
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: '✅ Переместить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#9c27b0',
+    preConfirm: () => {
+      return document.getElementById('swalBulkCategory').value;
+    }
+  });
+
+  if (newCategory) {
+    await bulkMoveToCategory(newCategory);
+  }
+}
+
+async function bulkMoveToCategory(newCategory) {
+  const ids = Array.from(bulkSelectedProducts);
+  const total = ids.length;
+
+  Swal.fire({
+    title: 'Перемещение...',
+    html: '0 / ' + total,
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    // Firebase batch max 500, разбиваем на чанки
+    const chunkSize = 400;
+    let done = 0;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const batch = db.batch();
+      chunk.forEach(id => {
+        batch.update(db.collection('products').doc(id), { category: newCategory });
+      });
+      await batch.commit();
+      done += chunk.length;
+      Swal.getHtmlContainer().textContent = done + ' / ' + total;
+    }
+
+    // Обновляем локально
+    ids.forEach(id => {
+      const p = products.find(pr => pr.id === id);
+      if (p) p.category = newCategory;
+    });
+
+    // Обновляем localStorage-кэш
+    try {
+      const cached = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+      cached.forEach(cp => {
+        if (ids.includes(cp.id)) cp.category = newCategory;
+      });
+      localStorage.setItem('cachedProducts', JSON.stringify(cached));
+    } catch(e) {}
+
+    bulkSelectedProducts.clear();
+    isBulkSelectMode = false;
+    const btn = document.getElementById('bulkSelectBtn');
+    if (btn) {
+      btn.style.background = 'linear-gradient(135deg, #9c27b0, #7b1fa2)';
+      btn.innerHTML = '☑️ Выделить';
+    }
+    document.getElementById('bulkActionBar').style.display = 'none';
+
+    renderProducts();
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Готово!',
+      text: total + ' товаров перемещено в «' + newCategory + '»',
+      timer: 2000,
+      showConfirmButton: false
+    });
+  } catch(err) {
+    console.error('Bulk move error:', err);
+    Swal.fire('Ошибка', 'Не удалось переместить: ' + err.message, 'error');
+  }
+}
+
 function closeEditWholesaleModal() {
   editWholesaleModal.style.display = 'none';
   currentWholesaleProductId = null;
@@ -697,6 +927,7 @@ async function saveWholesaleChanges() {
     
     Swal.fire('Успех!', 'Оптовые цены обновлены', 'success');
     closeEditWholesaleModal();
+    productsCacheTime = 0;
     loadProducts();
   } catch (error) {
     console.error('Error updating wholesale prices:', error);

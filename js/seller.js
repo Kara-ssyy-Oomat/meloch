@@ -250,6 +250,10 @@ function logoutSeller() {
   localStorage.removeItem('currentSeller');
   userRole = 'guest';
   isEditorMode = false;
+  isBulkSelectMode = false;
+  bulkSelectedProducts.clear();
+  const bulkBar = document.getElementById('bulkActionBar');
+  if (bulkBar) bulkBar.style.display = 'none';
   
   // Скрываем кнопку редактора
   const editorBtnContainer = document.getElementById('editorBtnContainer');
