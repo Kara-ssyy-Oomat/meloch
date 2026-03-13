@@ -63,7 +63,7 @@
     /* Статистика */
     .stats-row {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 10px;
       padding: 16px;
     }
@@ -537,10 +537,10 @@
       .page-header h1 { font-size: 16px; }
       .page-header p { font-size: 11px; }
 
-      .stats-row { grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 10px; }
-      .stat-card { padding: 8px 4px; border-radius: 10px; }
-      .stat-card .stat-value { font-size: 16px; }
-      .stat-card .stat-label { font-size: 9px; }
+      .stats-row { grid-template-columns: repeat(4, 1fr); gap: 5px; padding: 8px; }
+      .stat-card { padding: 6px 3px; border-radius: 10px; }
+      .stat-card .stat-value { font-size: 13px; }
+      .stat-card .stat-label { font-size: 8px; }
 
       .tabs { padding: 0 10px; gap: 6px; }
       .tab-btn { padding: 8px 14px; font-size: 13px; }
@@ -599,6 +599,52 @@
       .stock-filters-row { flex-wrap: wrap; gap: 6px !important; }
       .stock-filters-row select, .stock-filters-row input[type="number"] { font-size: 12px; padding: 4px 5px; }
 
+      /* Модалка остатков — на весь экран */
+      #stockModal { padding: 0; align-items: stretch; }
+      #stockModal .modal-content {
+        max-width: 100%;
+        max-height: 100vh;
+        height: 100vh;
+        border-radius: 0;
+      }
+      #stockModal #stockProductsList {
+        max-height: none !important;
+        flex: 1;
+        overflow-y: auto;
+      }
+      #stockModal .modal-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #stockModal .modal-footer {
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      }
+
+      /* Модалка перемещения — на весь экран */
+      #transferModal { padding: 0; align-items: stretch; }
+      #transferModal .modal-content {
+        max-width: 100%;
+        max-height: 100vh;
+        height: 100vh;
+        border-radius: 0;
+      }
+      #transferModal .modal-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+      }
+      #transferModal #transferProductList {
+        max-height: none !important;
+        flex: 1;
+        overflow-y: auto;
+      }
+      #transferModal .modal-footer {
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      }
+
       /* Трансфер */
       .transfer-arrow { font-size: 22px; padding: 4px 0; }
       .modal-body select { padding: 10px; font-size: 14px; }
@@ -642,6 +688,33 @@
     .stock-indicator.green { background: #4caf50; }
     .stock-indicator.yellow { background: #ff9800; }
     .stock-indicator.red { background: #f44336; }
+
+    /* Кнопка очистки поиска в модалке */
+    .stock-search-clear {
+      position: absolute;
+      right: 10px;
+      top: 0;
+      bottom: 8px;
+      margin: auto;
+      z-index: 2;
+      background: #e53935;
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      font-size: 14px;
+      line-height: 22px;
+      text-align: center;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    }
+    .stock-search-clear:active { background: #c62828; }
+    .search-bar input:not(:placeholder-shown) ~ .stock-search-clear { display: flex; }
 
     /* Кнопка «Распределить остатки» */
     .distribute-btn {
@@ -708,9 +781,37 @@
       <div class="stat-value" id="statTotalStock">0</div>
       <div class="stat-label">Всего единиц</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" onclick="showLowStockModal()" style="cursor:pointer;">
       <div class="stat-value" id="statLowStock">0</div>
       <div class="stat-label">Мало остатков</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statTotalCost">0</div>
+      <div class="stat-label">Себестоимость</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statTotalRetail">0</div>
+      <div class="stat-label">Продажная</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statTotalWholesale">0</div>
+      <div class="stat-label">Оптовая</div>
+    </div>
+  </div>
+
+  <!-- Модальное окно: Мало остатков -->
+  <div class="modal-overlay" id="lowStockModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚠️ Мало остатков (≤5)</h2>
+        <button class="modal-close" onclick="document.getElementById('lowStockModal').classList.remove('active')">×</button>
+      </div>
+      <div class="modal-body" style="padding:10px;">
+        <div id="lowStockList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="document.getElementById('lowStockModal').classList.remove('active')">Закрыть</button>
+      </div>
     </div>
   </div>
 
@@ -785,8 +886,9 @@
         <button class="modal-close" onclick="closeStockModal()">×</button>
       </div>
       <div class="modal-body" style="padding: 10px;">
-        <div class="search-bar" style="padding:0 0 8px;">
-          <input type="text" class="search-input" id="stockProductSearch" placeholder="🔍 Поиск товара..." oninput="filterStockProducts()" autocomplete="off" name="stock-search-nofill">
+        <div class="search-bar" style="padding:0 0 8px; position:relative;">
+          <input type="text" class="search-input" id="stockProductSearch" placeholder="🔍 Поиск товара..." oninput="filterStockProducts()" autocomplete="off" name="stock-search-nofill" style="padding-right:36px;">
+          <button type="button" class="stock-search-clear" onclick="document.getElementById('stockProductSearch').value='';filterStockProducts();">&times;</button>
         </div>
         <div class="stock-filters-row" style="padding:0 0 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <select id="stockCategoryFilter" onchange="filterStockProducts()" style="padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px; color:#555; background:#fff; cursor:pointer;">
@@ -1025,20 +1127,67 @@ function updateStats() {
   
   let totalStock = 0;
   let lowStockCount = 0;
+  let totalCost = 0;
+  let totalRetail = 0;
+  let totalWholesale = 0;
   products.forEach(p => {
     const ws = p.warehouseStock || {};
     const total = Object.values(ws).reduce((sum, v) => sum + (v || 0), 0);
+    let qty = 0;
     if (total > 0) {
+      qty = total;
       totalStock += total;
       if (total <= 5) lowStockCount++;
     } else if (typeof p.stock === 'number' && p.stock > 0) {
+      qty = p.stock;
       totalStock += p.stock;
       if (p.stock <= 5) lowStockCount++;
+    }
+    if (qty > 0) {
+      totalCost += qty * (p.costPrice || 0);
+      totalRetail += qty * (p.price || 0);
+      totalWholesale += qty * (p.optPrice || p.price || 0);
     }
   });
   
   document.getElementById('statTotalStock').textContent = totalStock.toLocaleString();
   document.getElementById('statLowStock').textContent = lowStockCount;
+  document.getElementById('statTotalCost').textContent = totalCost.toLocaleString();
+  document.getElementById('statTotalRetail').textContent = totalRetail.toLocaleString();
+  document.getElementById('statTotalWholesale').textContent = totalWholesale.toLocaleString();
+}
+
+function showLowStockModal() {
+  const lowItems = [];
+  products.forEach(p => {
+    const ws = p.warehouseStock || {};
+    const total = Object.values(ws).reduce((sum, v) => sum + (v || 0), 0);
+    let qty = 0;
+    if (total > 0) qty = total;
+    else if (typeof p.stock === 'number' && p.stock > 0) qty = p.stock;
+    if (qty > 0 && qty <= 5) lowItems.push({ title: p.title || 'Без названия', image: p.image || '', category: p.category || '', qty, price: p.price || 0 });
+  });
+  lowItems.sort((a, b) => a.qty - b.qty);
+  const container = document.getElementById('lowStockList');
+  const placeholder = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Ctext y=%2218%22 font-size=%2218%22%3E📦%3C/text%3E%3C/svg%3E";
+  if (!lowItems.length) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">✅</div><p>Нет товаров с малым остатком</p></div>';
+  } else {
+    container.innerHTML = lowItems.map(item => `
+      <div class="product-stock-card">
+        <img src="${item.image || placeholder}" alt="${esc(item.title)}" loading="lazy">
+        <div class="product-stock-info">
+          <div class="product-stock-title">${esc(item.title)}</div>
+          <div class="product-stock-category">${esc(item.category)} • ${item.price} сом</div>
+        </div>
+        <div class="product-stock-total">
+          <div class="total-value" style="color:#c62828;">${item.qty}</div>
+          <div class="total-label">остаток</div>
+        </div>
+      </div>
+    `).join('');
+  }
+  document.getElementById('lowStockModal').classList.add('active');
 }
 
 // ==================== ТАБЫ ====================
@@ -1401,7 +1550,7 @@ function renderStockProducts(filter = '') {
         <td style="text-align:center;">
           <div style="display:flex; align-items:center; justify-content:center; gap:3px;">
             <button class="stock-btn-in" onclick="stockMovement('${p.id}', 'in')" title="Приход">+</button>
-            <input type="number" class="stock-move-input" id="stockMove_${p.id}" min="1" value="1" inputmode="numeric">
+            <input type="number" class="stock-move-input" id="stockMove_${p.id}" min="1" value="1" inputmode="numeric" onfocus="if(this.value==='1')this.value=''" onblur="if(!this.value)this.value='1'">
             <button class="stock-btn-out" onclick="stockMovement('${p.id}', 'out')" title="Расход">&minus;</button>
           </div>
         </td>
@@ -1872,7 +2021,8 @@ async function editProductStock(productId) {
       <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #f0f0f0;">
         <span style="font-weight:600;">${wh.name}</span>
         <input type="number" id="swal-wh-${i}" value="${qty}" min="0" 
-          style="width:80px; padding:8px; border:1px solid #ddd; border-radius:8px; text-align:center; font-size:16px; font-weight:700;" inputmode="numeric">
+          style="width:80px; padding:8px; border:1px solid #ddd; border-radius:8px; text-align:center; font-size:16px; font-weight:700;" inputmode="numeric"
+          onfocus="this.dataset.old=this.value;this.value=''" onblur="if(!this.value)this.value=this.dataset.old||'0'">
       </div>
     `;
   });
