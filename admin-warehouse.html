@@ -177,6 +177,10 @@
     .btn-edit { background: #fff3e0; color: #e65100; }
     .btn-delete { background: #fce4ec; color: #c62828; }
     .btn-transfer { background: #e8f5e9; color: #2e7d32; }
+    .btn-pause-wh { background: #fff8e1; color: #f57f17; }
+    .btn-pause-wh.paused { background: #4CAF50; color: #fff; }
+    .warehouse-card.wh-paused { opacity: 0.7; border: 2px dashed #f57f17; }
+    .wh-paused-badge { display:inline-block; background:#f57f17; color:#fff; font-size:10px; padding:2px 7px; border-radius:10px; margin-left:6px; vertical-align:middle; font-weight:600; }
 
     /* Кнопка добавления склада */
     .add-warehouse-btn {
@@ -329,7 +333,8 @@
       width: 100%;
       max-width: 500px;
       max-height: 90vh;
-      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
       box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     }
     .modal-header {
@@ -357,6 +362,10 @@
     }
     .modal-body {
       padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+      -webkit-overflow-scrolling: touch;
     }
     .modal-body label {
       display: block;
@@ -447,18 +456,50 @@
       background: #f8f9ff;
     }
     .stock-input {
-      width: 70px;
-      padding: 6px 8px;
+      width: 55px;
+      padding: 5px 4px;
       border: 1px solid #ddd;
       border-radius: 6px;
       text-align: center;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
     }
     .stock-input:focus {
       border-color: #1a237e;
       outline: none;
     }
+    .stock-move-input {
+      width: 48px;
+      padding: 4px 2px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .stock-move-input:focus {
+      border-color: #1a237e;
+      outline: none;
+    }
+    .stock-btn-in, .stock-btn-out {
+      padding: 4px 6px;
+      border: none;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .stock-btn-in {
+      background: #4CAF50;
+      color: #fff;
+    }
+    .stock-btn-in:active { background: #388E3C; }
+    .stock-btn-out {
+      background: #ef5350;
+      color: #fff;
+    }
+    .stock-btn-out:active { background: #c62828; }
 
     /* Лоадер */
     .loader {
@@ -493,13 +534,13 @@
     /* Мобильные адаптации */
     @media (max-width: 600px) {
       .page-header { padding: 14px 12px; }
-      .page-header h1 { font-size: 17px; }
-      .page-header p { font-size: 12px; }
+      .page-header h1 { font-size: 16px; }
+      .page-header p { font-size: 11px; }
 
-      .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; }
-      .stat-card { padding: 10px 6px; border-radius: 10px; }
-      .stat-card .stat-value { font-size: 18px; }
-      .stat-card .stat-label { font-size: 11px; }
+      .stats-row { grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 10px; }
+      .stat-card { padding: 8px 4px; border-radius: 10px; }
+      .stat-card .stat-value { font-size: 16px; }
+      .stat-card .stat-label { font-size: 9px; }
 
       .tabs { padding: 0 10px; gap: 6px; }
       .tab-btn { padding: 8px 14px; font-size: 13px; }
@@ -507,37 +548,39 @@
       .content { padding: 10px; }
 
       /* Карточки складов */
-      .warehouse-card { padding: 14px 12px; border-radius: 12px; margin-bottom: 10px; }
+      .warehouse-card { padding: 12px 10px; border-radius: 12px; margin-bottom: 10px; }
       .warehouse-name { font-size: 15px; }
-      .warehouse-address { font-size: 12px; }
+      .warehouse-address { font-size: 11px; }
 
-      .warehouse-stats { gap: 8px; flex-wrap: wrap; justify-content: space-between; }
-      .warehouse-stat .ws-value { font-size: 16px; }
-      .warehouse-stat .ws-label { font-size: 10px; }
+      .warehouse-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+      .warehouse-stat .ws-value { font-size: 14px; }
+      .warehouse-stat .ws-label { font-size: 9px; }
 
-      .warehouse-actions { flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-      .warehouse-actions button { padding: 8px 6px; font-size: 11px; min-width: 0; }
+      .warehouse-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 8px; }
+      .warehouse-actions button { padding: 7px 4px; font-size: 11px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
       /* Модальные окна */
-      .modal-overlay { padding: 8px; }
-      .modal-content { border-radius: 14px; max-height: 95vh; }
-      .modal-header { padding: 14px; }
+      .modal-overlay { padding: 0; align-items: flex-end; }
+      .modal-content { border-radius: 16px 16px 0 0; max-height: 96vh; max-width: 100%; min-height: 0; -webkit-overflow-scrolling: touch; }
+      .modal-header { padding: 14px 12px; }
       .modal-header h2 { font-size: 16px; }
-      .modal-body { padding: 12px; }
-      .modal-footer { padding: 12px; gap: 8px; }
+      .modal-body { padding: 10px; }
+      .modal-footer { padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px) + 60px); gap: 8px; }
       .modal-footer button { padding: 10px; font-size: 14px; }
 
       /* Таблица остатков в модалке */
       .stock-table { font-size: 12px; }
-      .stock-table th { padding: 8px 4px; font-size: 11px; }
-      .stock-table td { padding: 8px 4px; }
-      .stock-input { width: 58px; padding: 5px 4px; font-size: 13px; }
+      .stock-table th { padding: 7px 3px; font-size: 10px; }
+      .stock-table td { padding: 7px 3px; }
+      .stock-input { width: 46px; padding: 4px 2px; font-size: 12px; }
+      .stock-move-input { width: 36px; padding: 3px 1px; font-size: 12px; }
+      .stock-btn-in, .stock-btn-out { padding: 5px 8px; font-size: 14px; font-weight: 700; min-width: 30px; }
 
       /* Товары на складе */
       .product-stock-card { padding: 10px; gap: 8px; }
-      .product-stock-card img { width: 44px; height: 44px; border-radius: 6px; }
-      .product-stock-title { font-size: 13px; }
-      .product-stock-category { font-size: 11px; }
+      .product-stock-card img { width: 40px; height: 40px; border-radius: 6px; }
+      .product-stock-title { font-size: 12px; }
+      .product-stock-category { font-size: 10px; }
       .product-stock-total .total-value { font-size: 16px; }
       .product-warehouse-badge { font-size: 10px; padding: 2px 6px; }
 
@@ -551,20 +594,35 @@
 
       /* Кнопка добавления */
       .add-warehouse-btn { width: 50px; height: 50px; font-size: 24px; bottom: 72px; right: 14px; }
+
+      /* Фильтры в модалке остатков */
+      .stock-filters-row { flex-wrap: wrap; gap: 6px !important; }
+      .stock-filters-row select, .stock-filters-row input[type="number"] { font-size: 12px; padding: 4px 5px; }
+
+      /* Трансфер */
+      .transfer-arrow { font-size: 22px; padding: 4px 0; }
+      .modal-body select { padding: 10px; font-size: 14px; }
+      .modal-body input[type="number"] { padding: 10px; font-size: 14px; }
     }
 
     @media (max-width: 380px) {
-      .stats-row { gap: 6px; padding: 8px; }
-      .stat-card .stat-value { font-size: 16px; }
+      .page-header h1 { font-size: 14px; }
+      .stats-row { gap: 4px; padding: 8px 6px; }
+      .stat-card .stat-value { font-size: 14px; }
+      .stat-card .stat-label { font-size: 8px; }
 
-      .warehouse-stats { gap: 6px; }
+      .warehouse-stats { grid-template-columns: repeat(2, 1fr); gap: 6px; }
       .warehouse-stat .ws-value { font-size: 14px; }
 
-      .warehouse-actions { gap: 4px; }
-      .warehouse-actions button { font-size: 10px; padding: 7px 4px; }
+      .warehouse-actions { grid-template-columns: repeat(3, 1fr); gap: 4px; }
+      .warehouse-actions button { font-size: 10px; padding: 6px 3px; }
 
-      .stock-input { width: 50px; font-size: 12px; }
-      .stock-table td { padding: 6px 3px; }
+      .stock-move-input { width: 32px; font-size: 11px; }
+      .stock-btn-in, .stock-btn-out { padding: 4px 6px; font-size: 13px; min-width: 26px; }
+      .stock-table th { padding: 6px 2px; font-size: 9px; }
+      .stock-table td { padding: 6px 2px; font-size: 11px; }
+
+      .tab-btn { padding: 7px 10px; font-size: 12px; }
     }
 
     /* Цветовая кодировка складов */
@@ -629,7 +687,10 @@
         <h1>🏭 Управление складами</h1>
         <p>Остатки и перемещения товаров</p>
       </div>
-      <button class="back-btn" onclick="window.location.href='profile.html'">←</button>
+      <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+        <button id="pauseWarehouseBtn" onclick="toggleWarehousePause()" style="padding:6px 8px; border:none; border-radius:8px; font-size:11px; font-weight:600; cursor:pointer; transition:all 0.2s; white-space:nowrap;" title="Приостановить склады">⏸ Пауза</button>
+        <button class="back-btn" onclick="window.location.href='profile.html'">←</button>
+      </div>
     </div>
   </div>
 
@@ -727,21 +788,24 @@
         <div class="search-bar" style="padding:0 0 8px;">
           <input type="text" class="search-input" id="stockProductSearch" placeholder="🔍 Поиск товара..." oninput="filterStockProducts()">
         </div>
-        <div style="padding:0 0 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#555; cursor:pointer; user-select:none;">
-            <input type="checkbox" id="stockHideZero" onchange="filterStockProducts()" style="width:18px; height:18px; accent-color:#1a237e; cursor:pointer;"> Только с остатком
+        <div class="stock-filters-row" style="padding:0 0 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <select id="stockCategoryFilter" onchange="filterStockProducts()" style="padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px; color:#555; background:#fff; cursor:pointer;">
+            <option value="">Все категории</option>
+          </select>
+          <label style="display:flex; align-items:center; gap:4px; font-size:13px; color:#555; cursor:pointer; user-select:none;">
+            <input type="checkbox" id="stockHideZero" onchange="filterStockProducts()" style="width:16px; height:16px; accent-color:#1a237e; cursor:pointer;"> С остатком
           </label>
           <span style="color:#ccc;">|</span>
           <div style="display:flex; align-items:center; gap:4px;">
             <select id="stockQtyDir" onchange="filterStockProducts()" style="padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px; color:#555; background:#fff; cursor:pointer;">
               <option value="">Кол-во</option>
-              <option value="gte">≥ больше</option>
-              <option value="lte">≤ меньше</option>
+              <option value="gte">≥</option>
+              <option value="lte">≤</option>
             </select>
-            <input type="number" id="stockQtyVal" min="0" placeholder="0" oninput="filterStockProducts()" style="width:60px; padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px; text-align:center;">
+            <input type="number" id="stockQtyVal" min="0" placeholder="0" oninput="filterStockProducts()" style="width:50px; padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px; text-align:center;">
           </div>
         </div>
-        <div id="stockProductsList" style="max-height: 60vh; overflow-y: auto;"></div>
+        <div id="stockProductsList" style="max-height: 55vh; overflow-y: auto; -webkit-overflow-scrolling: touch;"></div>
       </div>
       <div class="modal-footer">
         <button class="btn-cancel" onclick="closeStockModal()">Отмена</button>
@@ -754,18 +818,12 @@
   <div class="modal-overlay" id="transferModal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>🔄 Перемещение товара</h2>
+        <h2>🔄 Перемещение товаров</h2>
         <button class="modal-close" onclick="closeTransferModal()">×</button>
       </div>
       <div class="modal-body">
-        <label>Товар</label>
-        <select id="transferProduct" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px;" onchange="updateTransferInfo()">
-          <option value="">Выберите товар</option>
-        </select>
-        <div id="transferProductInfo" style="margin-top:8px; font-size:13px; color:#888;"></div>
-        
         <label>Со склада</label>
-        <select id="transferFrom" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px;" onchange="updateTransferInfo()">
+        <select id="transferFrom" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px;" onchange="updateTransferSelected()">
           <option value="">Выберите склад</option>
         </select>
         
@@ -775,10 +833,15 @@
         <select id="transferTo" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px;">
           <option value="">Выберите склад</option>
         </select>
-        
-        <label>Количество</label>
-        <input type="number" id="transferQty" placeholder="0" min="1" inputmode="numeric">
-        <div id="transferAvailable" style="margin-top:4px; font-size:12px; color:#888;"></div>
+
+        <div id="transferSelectedList" style="margin-top:10px;"></div>
+
+        <label style="margin-top:10px;">Добавить товары</label>
+        <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+          <input type="text" id="transferProductSearch" placeholder="🔍 Поиск товара..." oninput="filterTransferProducts()" style="flex:1; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+          <label style="display:flex; align-items:center; gap:4px; font-size:12px; white-space:nowrap; margin:0; cursor:pointer; user-select:none;"><input type="checkbox" id="transferOnlyInStock" onchange="filterTransferProducts()" checked> На складе</label>
+        </div>
+        <div id="transferProductList" style="max-height:180px; overflow-y:auto; border:1px solid #eee; border-radius:8px; background:#fafafa; -webkit-overflow-scrolling:touch;"></div>
       </div>
       <div class="modal-footer">
         <button class="btn-cancel" onclick="closeTransferModal()">Отмена</button>
@@ -822,6 +885,7 @@ let currentTab = 'warehouses';
 let selectedWarehouseFilter = 'all';
 let stockChanges = {}; // {productId: qty} для текущего склада
 let primaryWarehouseId = ''; // ID главного склада
+let warehousePaused = false; // Склады приостановлены
 
 // ==================== ИНИЦИАЛИЗАЦИЯ ====================
 document.addEventListener('DOMContentLoaded', async () => {
@@ -844,13 +908,91 @@ async function loadPrimaryWarehouse() {
     const doc = await db.collection('settings').doc('warehouse').get();
     if (doc.exists) {
       primaryWarehouseId = doc.data().primaryWarehouseId || '';
+      warehousePaused = doc.data().paused === true;
     }
-  } catch(e) { primaryWarehouseId = ''; }
+  } catch(e) { primaryWarehouseId = ''; warehousePaused = false; }
+  updatePauseButton();
+}
+
+function updatePauseButton() {
+  const btn = document.getElementById('pauseWarehouseBtn');
+  if (!btn) return;
+  if (warehousePaused) {
+    btn.textContent = '▶ Включить';
+    btn.style.background = '#4CAF50';
+    btn.style.color = '#fff';
+    btn.title = 'Склады приостановлены. Нажмите чтобы включить';
+  } else {
+    btn.textContent = '⏸ Пауза';
+    btn.style.background = 'rgba(255,255,255,0.15)';
+    btn.style.color = '#fff';
+    btn.title = 'Приостановить склады — товары будут без лимита';
+  }
+}
+
+async function toggleWarehousePause() {
+  const newState = !warehousePaused;
+  const msg = newState
+    ? 'Приостановить склады?\n\nВсе товары будут отображаться без лимита остатка. Остатки на складах сохранятся, но не учитываются.'
+    : 'Включить склады?\n\nОстатки снова будут учитываться при заказах.';
+  
+  const result = await Swal.fire({
+    title: newState ? '⏸ Приостановить?' : '▶ Включить?',
+    text: msg,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: newState ? 'Приостановить' : 'Включить',
+    cancelButtonText: 'Отмена'
+  });
+  if (!result.isConfirmed) return;
+  
+  try {
+    await db.collection('settings').doc('warehouse').set({ paused: newState }, { merge: true });
+    warehousePaused = newState;
+    try { localStorage.setItem('warehousePaused', newState ? '1' : '0'); } catch(e) {}
+    updatePauseButton();
+    renderWarehouses();
+    Swal.fire({
+      icon: 'success',
+      title: newState ? 'Склады приостановлены' : 'Склады включены',
+      text: newState ? 'Товары теперь без лимита' : 'Остатки снова активны',
+      timer: 2000,
+      showConfirmButton: false
+    });
+  } catch(e) {
+    Swal.fire('Ошибка', 'Не удалось изменить состояние: ' + e.message, 'error');
+  }
 }
 
 async function loadWarehouses() {
   const snap = await db.collection('warehouses').orderBy('order', 'asc').get();
   warehouses = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+async function toggleSingleWarehousePause(whId) {
+  const wh = warehouses.find(w => w.id === whId);
+  if (!wh) return;
+  const newState = !wh.paused;
+  const msg = newState
+    ? `Приостановить склад "${wh.name}"?\n\nТовары с этого склада не будут списываться при заказах.`
+    : `Включить склад "${wh.name}"?\n\nТовары снова будут списываться с этого склада.`;
+  const result = await Swal.fire({
+    title: newState ? '⏸ Приостановить склад?' : '▶ Включить склад?',
+    text: msg,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: newState ? 'Приостановить' : 'Включить',
+    cancelButtonText: 'Отмена'
+  });
+  if (!result.isConfirmed) return;
+  try {
+    await db.collection('warehouses').doc(whId).update({ paused: newState });
+    wh.paused = newState;
+    renderWarehouses();
+    Swal.fire({ icon: 'success', title: newState ? 'Склад приостановлен' : 'Склад включён', timer: 1500, showConfirmButton: false });
+  } catch(e) {
+    Swal.fire('Ошибка', 'Не удалось изменить состояние: ' + e.message, 'error');
+  }
 }
 
 async function loadProducts() {
@@ -954,11 +1096,15 @@ function renderWarehouses() {
     
     const colorClass = `wh-color-${(index % 4) + 1}`;
     
+    const ownPaused = wh.paused === true;
+    const globalPaused = warehousePaused;
+    const visualPaused = ownPaused || globalPaused;
+    const pauseBadge = ownPaused && globalPaused ? '⏸ Все+' : globalPaused ? '⏸ Все' : ownPaused ? '⏸ Пауза' : '';
     html += `
-      <div class="warehouse-card ${colorClass}">
+      <div class="warehouse-card ${colorClass}${visualPaused ? ' wh-paused' : ''}">
         <div class="warehouse-card-header">
           <div>
-            <div class="warehouse-name">${esc(wh.name) || 'Без названия'}${wh.id === primaryWarehouseId ? '<span class="primary-badge">⭐ Главный</span>' : ''}</div>
+            <div class="warehouse-name">${esc(wh.name) || 'Без названия'}${wh.id === primaryWarehouseId ? '<span class="primary-badge">⭐ Главный</span>' : ''}${pauseBadge ? '<span class="wh-paused-badge">' + pauseBadge + '</span>' : ''}</div>
             <div class="warehouse-address">${esc(wh.address)}</div>
           </div>
         </div>
@@ -981,6 +1127,7 @@ function renderWarehouses() {
           </div>
         </div>
         <div class="warehouse-actions">
+          <button class="btn-pause-wh${ownPaused ? ' paused' : ''}" onclick="toggleSingleWarehousePause('${wh.id}')">${ownPaused ? '▶ Вкл' : '⏸ Пауза'}</button>
           <button class="btn-primary-wh ${wh.id === primaryWarehouseId ? 'active' : ''}" onclick="setPrimaryWarehouse('${wh.id}')">${wh.id === primaryWarehouseId ? '⭐ Главный' : '☆ Сделать главным'}</button>
           <button class="btn-view" onclick="openStockModal('${wh.id}')">📋 Остатки</button>
           <button class="btn-transfer" onclick="openTransferModal('${wh.id}')">🔄 Перемещение</button>
@@ -1161,6 +1308,12 @@ function openStockModal(warehouseId) {
   if (qtyDirEl) qtyDirEl.value = '';
   const qtyValEl = document.getElementById('stockQtyVal');
   if (qtyValEl) qtyValEl.value = '';
+  // Заполняем фильтр категорий
+  const catSelect = document.getElementById('stockCategoryFilter');
+  if (catSelect) {
+    const cats = [...new Set(products.filter(p => !p.blocked && p.category).map(p => p.category))].sort();
+    catSelect.innerHTML = '<option value="">Все категории</option>' + cats.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
+  }
   renderStockProducts();
   document.getElementById('stockModal').classList.add('active');
 }
@@ -1178,9 +1331,15 @@ function renderStockProducts(filter = '') {
   
   let filtered = products.filter(p => !p.blocked);
   
+  // Фильтр по категории
+  const catFilter = document.getElementById('stockCategoryFilter') ? document.getElementById('stockCategoryFilter').value : '';
+  if (catFilter) {
+    filtered = filtered.filter(p => p.category === catFilter);
+  }
+  
   if (filter) {
     const q = filter.toLowerCase();
-    filtered = filtered.filter(p => (p.title || '').toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q));
+    filtered = filtered.filter(p => (p.title || '').toLowerCase().includes(q));
   }
 
   if (hideZero) {
@@ -1216,9 +1375,9 @@ function renderStockProducts(filter = '') {
   let html = `<table class="stock-table">
     <thead>
       <tr>
-        <th style="width:50%">Товар</th>
-        <th style="width:25%; text-align:center;">Общий</th>
-        <th style="width:25%; text-align:center;">На складе</th>
+        <th style="width:35%">Товар</th>
+        <th style="width:15%; text-align:center;">На скл.</th>
+        <th style="width:50%; text-align:center;">Приход / Расход</th>
       </tr>
     </thead>
     <tbody>`;
@@ -1228,8 +1387,6 @@ function renderStockProducts(filter = '') {
     const originalStock = ws[warehouseId] || 0;
     const hasChange = stockChanges.hasOwnProperty(p.id);
     const displayStock = hasChange ? stockChanges[p.id] : originalStock;
-    const totalStock = typeof p.stock === 'number' ? p.stock : Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-    const adjustedTotal = hasChange ? totalStock - originalStock + displayStock : totalStock;
     
     html += `
       <tr>
@@ -1237,18 +1394,16 @@ function renderStockProducts(filter = '') {
           <div style="font-weight:600; font-size:13px;">${esc(p.title) || 'Без названия'}</div>
           <div style="font-size:11px; color:#999;">${esc(p.category)}</div>
         </td>
-        <td style="text-align:center; font-weight:600; color:#666;">${adjustedTotal}</td>
         <td style="text-align:center;">
-          <input type="number" class="stock-input" 
-            value="${displayStock}" 
-            min="0" 
-            inputmode="numeric"
-            data-product-id="${p.id}"
-            data-original="${originalStock}"
-            onfocus="if(this.value==='0')this.value=''"
-            onblur="if(this.value===''){this.value='0';onStockChange(this,'${p.id}')}"
-            onchange="onStockChange(this, '${p.id}')"
-            style="${hasChange ? 'background:#e8f5e9; font-weight:700;' : ''}">
+          <span id="stockVal_${p.id}" style="font-weight:700; font-size:15px; color:${displayStock > 0 ? '#1a237e' : '#999'};">${displayStock}</span>
+          ${hasChange ? '<div style="font-size:10px; color:#888;">было: ' + originalStock + '</div>' : ''}
+        </td>
+        <td style="text-align:center;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:3px;">
+            <button class="stock-btn-in" onclick="stockMovement('${p.id}', 'in')" title="Приход">+</button>
+            <input type="number" class="stock-move-input" id="stockMove_${p.id}" min="1" value="1" inputmode="numeric">
+            <button class="stock-btn-out" onclick="stockMovement('${p.id}', 'out')" title="Расход">&minus;</button>
+          </div>
         </td>
       </tr>
     `;
@@ -1276,6 +1431,54 @@ function onStockChange(input, productId) {
     input.style.background = '';
     input.style.fontWeight = '600';
   }
+}
+
+function stockMovement(productId, direction) {
+  const moveInput = document.getElementById('stockMove_' + productId);
+  const moveQty = parseInt(moveInput ? moveInput.value : 0) || 0;
+  if (moveQty <= 0) return;
+  
+  const warehouseId = currentStockWarehouseId;
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+  
+  const ws = product.warehouseStock || {};
+  const originalStock = ws[warehouseId] || 0;
+  const currentStock = stockChanges.hasOwnProperty(productId) ? stockChanges[productId] : originalStock;
+  
+  let newStock;
+  if (direction === 'in') {
+    newStock = currentStock + moveQty;
+  } else {
+    newStock = Math.max(0, currentStock - moveQty);
+  }
+  
+  stockChanges[productId] = newStock;
+  
+  // Обновляем отображение без перерисовки всей таблицы
+  const valSpan = document.getElementById('stockVal_' + productId);
+  if (valSpan) {
+    valSpan.textContent = newStock;
+    valSpan.style.color = newStock > 0 ? '#1a237e' : '#999';
+    // Показываем изменение
+    const diff = newStock - originalStock;
+    let infoDiv = valSpan.nextElementSibling;
+    if (!infoDiv || !infoDiv.classList.contains('stock-change-info')) {
+      infoDiv = document.createElement('div');
+      infoDiv.className = 'stock-change-info';
+      infoDiv.style.cssText = 'font-size:10px; margin-top:1px;';
+      valSpan.parentNode.appendChild(infoDiv);
+    }
+    if (diff !== 0) {
+      infoDiv.style.color = diff > 0 ? '#4CAF50' : '#ef5350';
+      infoDiv.textContent = (diff > 0 ? '+' : '') + diff + ' (было: ' + originalStock + ')';
+    } else {
+      infoDiv.textContent = '';
+    }
+  }
+  
+  // Сбрасываем поле ввода на 1
+  if (moveInput) moveInput.value = '1';
 }
 
 async function saveStockChanges() {
@@ -1365,140 +1568,181 @@ async function saveStockChanges() {
 }
 
 // ==================== ПЕРЕМЕЩЕНИЕ МЕЖДУ СКЛАДАМИ ====================
+// Кэш товаров для модалки перемещения
+let _transferProducts = [];
+let _transferSelected = {}; // { productId: qty }
+
 function openTransferModal(fromWarehouseId) {
-  // Заполняем список товаров
-  const productSelect = document.getElementById('transferProduct');
-  productSelect.innerHTML = '<option value="">Выберите товар</option>';
-  products.filter(p => !p.blocked).sort((a, b) => (a.title || '').localeCompare(b.title || '')).forEach(p => {
-    productSelect.innerHTML += `<option value="${esc(p.id)}">${esc(p.title) || 'Без названия'}</option>`;
-  });
+  _transferProducts = products.filter(p => !p.blocked).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  _transferSelected = {};
+
+  document.getElementById('transferProductSearch').value = '';
+  filterTransferProducts();
   
-  // Заполняем склады
-  const fromSelect = document.getElementById('transferFrom');
-  const toSelect = document.getElementById('transferTo');
-  fromSelect.innerHTML = '<option value="">Выберите склад</option>';
-  toSelect.innerHTML = '<option value="">Выберите склад</option>';
-  
+  let fromHtml = '<option value="">Выберите склад</option>';
+  let toHtml = '<option value="">Выберите склад</option>';
   warehouses.forEach(wh => {
-    fromSelect.innerHTML += `<option value="${esc(wh.id)}" ${wh.id === fromWarehouseId ? 'selected' : ''}>${esc(wh.name)}</option>`;
-    toSelect.innerHTML += `<option value="${esc(wh.id)}">${esc(wh.name)}</option>`;
+    fromHtml += `<option value="${esc(wh.id)}" ${wh.id === fromWarehouseId ? 'selected' : ''}>${esc(wh.name)}</option>`;
+    toHtml += `<option value="${esc(wh.id)}">${esc(wh.name)}</option>`;
   });
+  document.getElementById('transferFrom').innerHTML = fromHtml;
+  document.getElementById('transferTo').innerHTML = toHtml;
   
-  document.getElementById('transferQty').value = '';
-  document.getElementById('transferProductInfo').innerHTML = '';
-  document.getElementById('transferAvailable').innerHTML = '';
+  renderTransferSelected();
   document.getElementById('transferModal').classList.add('active');
+}
+
+function filterTransferProducts() {
+  const raw = (document.getElementById('transferProductSearch').value || '').toLowerCase().replace(/ё/g, 'е');
+  const list = document.getElementById('transferProductList');
+  const onlyInStock = document.getElementById('transferOnlyInStock') && document.getElementById('transferOnlyInStock').checked;
+  const fromId = document.getElementById('transferFrom').value;
+  let filtered = _transferProducts;
+  if (raw) {
+    filtered = filtered.filter(p => (p.title || '').toLowerCase().replace(/ё/g, 'е').includes(raw));
+  }
+  // Скрываем уже добавленные
+  filtered = filtered.filter(p => !_transferSelected.hasOwnProperty(p.id));
+  // Фильтр: только товары с остатком на складе-источнике
+  if (onlyInStock && fromId) {
+    filtered = filtered.filter(p => ((p.warehouseStock || {})[fromId] || 0) > 0);
+  }
+  let html = '';
+  filtered.forEach(p => {
+    const avail = fromId ? ((p.warehouseStock || {})[fromId] || 0) : '';
+    html += `<div onclick="addTransferProduct('${p.id}')" style="padding:10px 12px; cursor:pointer; border-bottom:1px solid #f0f0f0; font-size:13px; display:flex; justify-content:space-between; align-items:center;" onpointerover="this.style.background='#f5f5f5'" onpointerout="this.style.background=''">`;
+    html += `<span>${esc(p.title) || 'Без названия'}</span>`;
+    if (fromId) html += `<span style="font-size:11px; color:#888; white-space:nowrap; margin-left:8px;">${avail} шт</span>`;
+    html += `</div>`;
+  });
+  if (!html) html = '<div style="padding:12px; color:#999; text-align:center;">' + (raw ? 'Ничего не найдено' : 'Все товары добавлены') + '</div>';
+  list.innerHTML = html;
+}
+
+function addTransferProduct(id) {
+  const fromId = document.getElementById('transferFrom').value;
+  const p = _transferProducts.find(x => x.id === id);
+  const avail = fromId && p ? ((p.warehouseStock || {})[fromId] || 0) : 0;
+  _transferSelected[id] = avail > 0 ? avail : 1;
+  renderTransferSelected();
+  filterTransferProducts();
+}
+
+function removeTransferProduct(id) {
+  delete _transferSelected[id];
+  renderTransferSelected();
+  filterTransferProducts();
+}
+
+function updateTransferQty(id, val) {
+  const n = parseInt(val) || 0;
+  if (n <= 0) { delete _transferSelected[id]; renderTransferSelected(); filterTransferProducts(); return; }
+  _transferSelected[id] = n;
+}
+
+function updateTransferSelected() {
+  renderTransferSelected();
+  filterTransferProducts();
+}
+
+function renderTransferSelected() {
+  const container = document.getElementById('transferSelectedList');
+  const fromId = document.getElementById('transferFrom').value;
+  const ids = Object.keys(_transferSelected);
+  if (ids.length === 0) { container.innerHTML = '<div style="color:#999; font-size:13px; text-align:center; padding:8px;">Выберите товары из списка ниже</div>'; return; }
+  let html = '<div style="font-size:12px; color:#666; margin-bottom:4px; font-weight:600;">Выбрано: ' + ids.length + '</div>';
+  ids.forEach(id => {
+    const p = _transferProducts.find(x => x.id === id);
+    const title = p ? (p.title || 'Без названия') : id;
+    const avail = fromId && p ? ((p.warehouseStock || {})[fromId] || 0) : null;
+    html += `<div style="display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid #f0f0f0;">`;
+    html += `<span style="flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(title)}</span>`;
+    if (avail !== null) html += `<span style="font-size:11px; color:#888; white-space:nowrap;">из ${avail}</span>`;
+    html += `<input type="number" value="${_transferSelected[id]}" min="1" ${avail ? 'max="'+avail+'"' : ''} inputmode="numeric" onchange="updateTransferQty('${id}', this.value)" style="width:60px; padding:6px 4px; border:1px solid #ddd; border-radius:6px; text-align:center; font-size:14px; font-weight:600;">`;
+    html += `<button onclick="removeTransferProduct('${id}')" style="padding:4px 8px; border:none; background:#ffebee; color:#c62828; border-radius:6px; cursor:pointer; font-size:16px; line-height:1;">×</button>`;
+    html += `</div>`;
+  });
+  container.innerHTML = html;
 }
 
 function closeTransferModal() {
   document.getElementById('transferModal').classList.remove('active');
-}
-
-function updateTransferInfo() {
-  const productId = document.getElementById('transferProduct').value;
-  const fromId = document.getElementById('transferFrom').value;
-  
-  if (!productId || !fromId) {
-    document.getElementById('transferProductInfo').innerHTML = '';
-    document.getElementById('transferAvailable').innerHTML = '';
-    return;
-  }
-  
-  const product = products.find(p => p.id === productId);
-  if (!product) return;
-  
-  const ws = product.warehouseStock || {};
-  const available = ws[fromId] || 0;
-  
-  // Показываем остатки по всем складам
-  let info = '<div style="margin-top:8px;">';
-  warehouses.forEach(wh => {
-    const qty = ws[wh.id] || 0;
-    const isCurrent = wh.id === fromId;
-    info += `<span class="product-warehouse-badge ${qty === 0 ? 'zero' : ''}" style="${isCurrent ? 'border:2px solid #1a237e;' : ''}">${esc(wh.name)}: ${qty}</span> `;
-  });
-  info += '</div>';
-  
-  document.getElementById('transferProductInfo').innerHTML = info;
-  document.getElementById('transferAvailable').innerHTML = `Доступно для перемещения: <b>${available}</b> шт`;
-  document.getElementById('transferQty').max = available;
+  _transferSelected = {};
 }
 
 async function executeTransfer() {
-  const productId = document.getElementById('transferProduct').value;
   const fromId = document.getElementById('transferFrom').value;
   const toId = document.getElementById('transferTo').value;
-  const qty = parseInt(document.getElementById('transferQty').value) || 0;
+  const ids = Object.keys(_transferSelected);
   
-  if (!productId) { Swal.fire('Ошибка', 'Выберите товар', 'warning'); return; }
   if (!fromId) { Swal.fire('Ошибка', 'Выберите склад-источник', 'warning'); return; }
   if (!toId) { Swal.fire('Ошибка', 'Выберите склад-назначение', 'warning'); return; }
   if (fromId === toId) { Swal.fire('Ошибка', 'Склады должны быть разными', 'warning'); return; }
-  if (qty <= 0) { Swal.fire('Ошибка', 'Введите количество', 'warning'); return; }
-  
-  const product = products.find(p => p.id === productId);
-  if (!product) { Swal.fire('Ошибка', 'Товар не найден', 'error'); return; }
-  
-  const ws = product.warehouseStock || {};
-  const available = ws[fromId] || 0;
-  
-  if (qty > available) {
-    Swal.fire('Ошибка', `На складе только ${available} шт`, 'warning');
-    return;
+  if (ids.length === 0) { Swal.fire('Ошибка', 'Добавьте товары', 'warning'); return; }
+
+  const errors = [];
+  const items = [];
+  for (const id of ids) {
+    const qty = parseInt(_transferSelected[id]) || 0;
+    if (qty <= 0) continue;
+    const p = products.find(x => x.id === id);
+    if (!p) continue;
+    const avail = (p.warehouseStock || {})[fromId] || 0;
+    if (qty > avail) {
+      errors.push(`${p.title}: доступно ${avail}, запрошено ${qty}`);
+      continue;
+    }
+    items.push({ id, qty, product: p });
   }
-  
+  if (errors.length > 0) { Swal.fire('Ошибка', errors.join('<br>'), 'warning'); return; }
+  if (items.length === 0) { Swal.fire('Ошибка', 'Нет товаров для перемещения', 'warning'); return; }
+
   const fromWh = warehouses.find(w => w.id === fromId);
   const toWh = warehouses.find(w => w.id === toId);
   
+  let confirmHtml = `<b>${esc(fromWh ? fromWh.name : '')}</b> → <b>${esc(toWh ? toWh.name : '')}</b><br><br>`;
+  items.forEach(it => { confirmHtml += `${esc(it.product.title)}: <b>${it.qty}</b> шт<br>`; });
+
   const result = await Swal.fire({
     title: 'Подтвердите перемещение',
-    html: `
-      <b>${esc(product.title)}</b><br><br>
-      ${esc(fromWh ? fromWh.name : 'Склад')} → ${esc(toWh ? toWh.name : 'Склад')}<br>
-      Количество: <b>${qty}</b> шт
-    `,
+    html: confirmHtml,
     icon: 'question',
     showCancelButton: true,
     confirmButtonText: 'Переместить',
     cancelButtonText: 'Отмена'
   });
-  
   if (!result.isConfirmed) return;
-  
+
   try {
     Swal.fire({ title: 'Перемещение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
-    // Обновляем остатки
-    ws[fromId] = (ws[fromId] || 0) - qty;
-    ws[toId] = (ws[toId] || 0) + qty;
-    
-    // Убираем нулевые значения
-    if (ws[fromId] <= 0) ws[fromId] = 0;
-    
     const transferBatch = db.batch();
     
-    // Общий stock не меняется при перемещении
-    const productRef = db.collection('products').doc(productId);
-    transferBatch.update(productRef, { warehouseStock: ws });
-    
-    // Записываем движение в тот же batch
-    const movRef = db.collection('warehouseMovements').doc();
-    transferBatch.set(movRef, {
-      productId,
-      productTitle: product.title || '',
-      type: 'transfer',
-      fromWarehouseId: fromId,
-      fromWarehouseName: fromWh ? fromWh.name : '',
-      toWarehouseId: toId,
-      toWarehouseName: toWh ? toWh.name : '',
-      qty,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      note: `Перемещение: ${fromWh ? fromWh.name : ''} → ${toWh ? toWh.name : ''}`
-    });
+    for (const it of items) {
+      const ws = it.product.warehouseStock || {};
+      ws[fromId] = Math.max(0, (ws[fromId] || 0) - it.qty);
+      ws[toId] = (ws[toId] || 0) + it.qty;
+      
+      transferBatch.update(db.collection('products').doc(it.id), { warehouseStock: ws });
+      
+      const movRef = db.collection('warehouseMovements').doc();
+      transferBatch.set(movRef, {
+        productId: it.id,
+        productTitle: it.product.title || '',
+        type: 'transfer',
+        fromWarehouseId: fromId,
+        fromWarehouseName: fromWh ? fromWh.name : '',
+        toWarehouseId: toId,
+        toWarehouseName: toWh ? toWh.name : '',
+        qty: it.qty,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        note: `Перемещение: ${fromWh ? fromWh.name : ''} → ${toWh ? toWh.name : ''}`
+      });
+    }
     
     await transferBatch.commit();
     
-    Swal.fire({ icon: 'success', title: 'Товар перемещён!', timer: 1500, showConfirmButton: false });
+    Swal.fire({ icon: 'success', title: `Перемещено ${items.length} товаров!`, timer: 1500, showConfirmButton: false });
     
     closeTransferModal();
     await loadProducts();
