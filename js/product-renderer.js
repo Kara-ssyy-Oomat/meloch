@@ -597,8 +597,8 @@ function loadMoreProducts() {
     card.className = 'product-card' + (isBulkSelectMode && bulkSelectedProducts.has(p.id) ? ' bulk-selected' : '');
     card.setAttribute('data-product-id', p.id);
     
-    const hasStock = typeof p.stock === 'number' && isFinite(p.stock);
-    const stock = hasStock ? Math.max(0, Math.floor(p.stock)) : null;
+    const stock = getEffectiveStock(p);
+    const hasStock = stock !== null;
     const outOfStock = stock !== null && stock <= 0;
     const unitLabel = p.isPack ? 'пачка' : 'шт';
     let packInfoHtml = '';
