@@ -314,6 +314,20 @@ document.addEventListener('DOMContentLoaded', function() {
       0%, 100% { transform: scale(0.7); opacity: 0.4; }
       50% { transform: scale(1); opacity: 1; }
     }
+    @keyframes slideUpBulk {
+      from { transform: translateY(100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .bulk-checkbox {
+      position: absolute; top: 8px; right: 8px; z-index: 5;
+      width: 28px; height: 28px; cursor: pointer;
+      accent-color: #9c27b0;
+    }
+    .product-card.bulk-selected {
+      outline: 3px solid #9c27b0;
+      outline-offset: -3px;
+      box-shadow: 0 0 12px rgba(156, 39, 176, 0.4);
+    }
     .splash-loader-text {
       font-size: 0.8rem; color: rgba(255,255,255,0.75);
     }
@@ -579,10 +593,27 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Кнопка редактора (скрыта по умолчанию, видна только админу) -->
-  <div id="editorBtnContainer" style="display:none; justify-content:center; padding:8px 10px 0;">
+  <div id="editorBtnContainer" style="display:none; justify-content:center; padding:8px 10px 0; gap:8px;">
     <button id="editorModeBtn" onclick="toggleEditorMode()" style="padding:10px 20px; background:linear-gradient(135deg,#6c757d,#495057); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px;">
       ✏️ Редактор
     </button>
+    <button id="bulkSelectBtn" onclick="toggleBulkSelectMode()" style="display:none; padding:10px 20px; background:linear-gradient(135deg,#9c27b0,#7b1fa2); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; align-items:center; gap:6px;">
+      ☑️ Выделить
+    </button>
+  </div>
+
+  <!-- Панель массовых действий -->
+  <div id="bulkActionBar" style="display:none; position:fixed; bottom:56px; left:0; right:0; background:linear-gradient(135deg,#9c27b0,#7b1fa2); color:white; padding:12px 16px; z-index:8000; box-shadow:0 -4px 20px rgba(0,0,0,0.3); animation:slideUpBulk 0.3s ease;">
+    <div style="max-width:600px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span id="bulkSelectedCount" style="font-size:16px; font-weight:700;">0 выбрано</span>
+        <button onclick="selectAllVisibleProducts()" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:15px; cursor:pointer; font-size:12px; font-weight:600;">Все</button>
+        <button onclick="deselectAllProducts()" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:15px; cursor:pointer; font-size:12px; font-weight:600;">Сброс</button>
+      </div>
+      <button onclick="showBulkMoveCategoryModal()" style="background:white; color:#7b1fa2; border:none; padding:10px 20px; border-radius:20px; cursor:pointer; font-size:14px; font-weight:700; display:flex; align-items:center; gap:6px;">
+        📁 Переместить
+      </button>
+    </div>
   </div>
 
   <!-- Расширенный поиск с фильтрами -->
@@ -804,6 +835,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let products = [];
     let isAdmin = false;
     let isEditorMode = false;
+    let isBulkSelectMode = false;
+    let bulkSelectedProducts = new Set();
     let currentSeller = null;
     let cachedSellerCategories = [];
     let boxPurchaseMode = false;
@@ -842,14 +875,15 @@ document.addEventListener('DOMContentLoaded', function() {
   <script src="js/cart.js"></script>
   <script src="js/favorites.js"></script>
   <script src="js/quantity.js?v=2"></script>
+
   <script src="js/app-init.js?v=3"></script>
   <script src="js/filters.js?v=2"></script>
-  <script src="js/bottom-nav.js?v=28"></script>
+  <script src="js/bottom-nav.js?v=29"></script>
   <script src="js/scroll-buttons.js"></script>
 
   <!-- ОТЛОЖЕННЫЕ модули: defer — загружаются параллельно, выполняются после DOM -->
   <script defer src="js/advanced-search.js"></script>
-  <script defer src="js/product-editor.js"></script>
+  <script defer src="js/product-editor.js?v=2"></script>
   <script defer src="js/order-submit.js"></script>
   <script defer src="js/complaint-suggestion.js"></script>
   <script defer src="js/admin-ui.js"></script>

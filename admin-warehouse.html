@@ -732,7 +732,7 @@
   <!-- Таб 2: Товары по складам -->
   <div id="tab-products" class="content tab-content" style="display:none;">
     <div class="search-bar" style="padding:0 0 12px;">
-      <input type="text" class="search-input" id="productSearch" placeholder="🔍 Поиск товара..." oninput="filterProducts()">
+      <input type="text" class="search-input" id="productSearch" placeholder="🔍 Поиск товара..." oninput="filterProducts()" autocomplete="off" name="product-search-nofill">
     </div>
     <div class="filter-row" id="warehouseFilter"></div>
     <div id="productsStockList" class="loader">
@@ -786,7 +786,7 @@
       </div>
       <div class="modal-body" style="padding: 10px;">
         <div class="search-bar" style="padding:0 0 8px;">
-          <input type="text" class="search-input" id="stockProductSearch" placeholder="🔍 Поиск товара..." oninput="filterStockProducts()">
+          <input type="text" class="search-input" id="stockProductSearch" placeholder="🔍 Поиск товара..." oninput="filterStockProducts()" autocomplete="off" name="stock-search-nofill">
         </div>
         <div class="stock-filters-row" style="padding:0 0 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <select id="stockCategoryFilter" onchange="filterStockProducts()" style="padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px; color:#555; background:#fff; cursor:pointer;">
@@ -838,7 +838,7 @@
 
         <label style="margin-top:10px;">Добавить товары</label>
         <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
-          <input type="text" id="transferProductSearch" placeholder="🔍 Поиск товара..." oninput="filterTransferProducts()" style="flex:1; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+          <input type="text" id="transferProductSearch" placeholder="🔍 Поиск товара..." oninput="filterTransferProducts()" autocomplete="off" name="transfer-search-nofill" style="flex:1; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
           <label style="display:flex; align-items:center; gap:4px; font-size:12px; white-space:nowrap; margin:0; cursor:pointer; user-select:none;"><input type="checkbox" id="transferOnlyInStock" onchange="filterTransferProducts()" checked> На складе</label>
         </div>
         <div id="transferProductList" style="max-height:180px; overflow-y:auto; border:1px solid #eee; border-radius:8px; background:#fafafa; -webkit-overflow-scrolling:touch;"></div>
