@@ -288,6 +288,8 @@
     let cart = JSON.parse(localStorage.getItem('cart') || '[]');
     let products = [];
     let primaryWarehouseId = '';
+    let warehousePaused = false;
+    let pausedWarehouseIds = new Set();
     
     // Функция исправления URL (https/ -> https://)
     function fixCartImageUrl(url) {
@@ -330,8 +332,15 @@
         products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         if (settingsDoc.exists) {
           primaryWarehouseId = settingsDoc.data().primaryWarehouseId || '';
+          warehousePaused = settingsDoc.data().paused === true;
         }
       } catch (e) { console.error(e); }
+      // Загружаем приостановленные склады отдельно (коллекция может не существовать)
+      try {
+        const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
+        pausedWarehouseIds = new Set();
+        whSnap.forEach(d => pausedWarehouseIds.add(d.id));
+      } catch (e) { pausedWarehouseIds = new Set(); }
       renderCart();
     }
     
@@ -731,14 +740,22 @@
             problems.deleted.push(cartItem.title);
           } else if (product.blocked) {
             problems.blocked.push(cartItem.title);
-          } else if (typeof product.stock === 'number' && isFinite(product.stock)) {
-            const stock = Math.max(0, Math.floor(product.stock));
+          } else if (!warehousePaused && typeof product.stock === 'number' && isFinite(product.stock)) {
+            // Проверяем остаток только если склад не на паузе
+            const ws = product.warehouseStock;
+            const onPausedWh = ws && typeof ws === 'object' && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId));
+            if (onPausedWh) {
+              // Товар на приостановленном складе — безлимит
+              validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
+            } else {
+              const stock = Math.max(0, Math.floor(product.stock));
             if (stock <= 0) {
               problems.outOfStock.push(`${cartItem.title} (нет в наличии)`);
             } else if ((cartItem.qty || 0) > stock) {
               problems.outOfStock.push(`${cartItem.title} (доступно ${stock} шт)`);
             } else {
               validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
+            }
             }
           } else {
             validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
@@ -795,20 +812,25 @@
         const orderRef = db.collection('orders').doc();
         const batch = db.batch();
         const warehouseDeductions = {};
+        let stockDeducted = false;
 
         for (const item of cart) {
           const localProduct = products.find(p => p.id === item.id);
           const hasLocalStock = localProduct && typeof localProduct.stock === 'number' && isFinite(localProduct.stock);
           if (!hasLocalStock) continue;
+          // Если склад приостановлен — не списываем
+          if (warehousePaused) continue;
+          const ws = localProduct.warehouseStock;
+          if (ws && typeof ws === 'object' && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId))) continue;
           const need = Math.max(0, Math.floor(item.qty || 0));
           if (need <= 0) throw new Error(`Некорректное количество: ${item.title}`);
           const localStock = Math.max(0, Math.floor(localProduct.stock));
           if (localStock < need) throw new Error(`Недостаточно остатка: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
           
+          stockDeducted = true;
           const productRef = db.collection('products').doc(item.id);
 
           // Списание со складов
-          const ws = localProduct.warehouseStock;
           if (ws && typeof ws === 'object') {
             let remaining = need;
             const updatedWs = { ...ws };
@@ -858,6 +880,7 @@
           })),
           total, timestamp: Date.now(), time: currentTime, status: 'pending',
           partner: partner || null, referredBy: referredBy || null,
+          stockDeducted,
           warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
         });
 
