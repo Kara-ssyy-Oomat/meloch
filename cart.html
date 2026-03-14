@@ -465,6 +465,25 @@
     window.addEventListener('storage', e => {
       if (e.key === 'cart') { cart = JSON.parse(e.newValue || '[]'); renderCart(); }
     });
+
+    // bfcache: страница восстановлена из кэша браузера (кнопка "Назад")
+    window.addEventListener('pageshow', function(event) {
+      if (event.persisted) {
+        cart = JSON.parse(localStorage.getItem('cart') || '[]');
+        renderCart();
+      }
+    });
+
+    // Возврат на вкладку/приложение из фона
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        const stored = JSON.parse(localStorage.getItem('cart') || '[]');
+        if (JSON.stringify(cart) !== JSON.stringify(stored)) {
+          cart = stored;
+          renderCart();
+        }
+      }
+    });
     
     // Получение данных клиента из профиля / localStorage
     function getCustomerData() {
