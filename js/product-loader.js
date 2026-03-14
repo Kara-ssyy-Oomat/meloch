@@ -36,7 +36,7 @@ async function loadWarehousePausedFlag() {
       primaryWarehouseId = doc.data().primaryWarehouseId;
     }
     try { localStorage.setItem(LS_WH_PAUSED_KEY, warehousePaused ? '1' : '0'); } catch(e) {}
-  } catch(e) { warehousePaused = false; }
+  } catch(e) { /* при ошибке сети оставляем значение из localStorage */ }
   // Загружаем индивидуально приостановленные склады
   try {
     const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
@@ -96,8 +96,16 @@ async function loadProducts() {
       productsReady = true;
       renderProducts();
       hideSplashScreen();
-      // Обновляем флаг с сервера в фоне (для следующей загрузки)
-      loadWarehousePausedFlag();
+      // Обновляем флаг с сервера в фоне и перерисовываем если изменился
+      const pausedBefore = warehousePaused;
+      const pausedIdsBefore = new Set(pausedWarehouseIds);
+      loadWarehousePausedFlag().then(() => {
+        if (pausedBefore !== warehousePaused ||
+            pausedIdsBefore.size !== pausedWarehouseIds.size ||
+            [...pausedWarehouseIds].some(id => !pausedIdsBefore.has(id))) {
+          renderProducts();
+        }
+      });
       return;
     }
     

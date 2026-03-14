@@ -252,6 +252,9 @@ document.getElementById('submitOrder').onclick = async () => {
       const hasLocalStock = localProduct && typeof localProduct.stock === 'number' && isFinite(localProduct.stock);
       if (!hasLocalStock) continue;
 
+      // Если склад приостановлен — не списываем остатки
+      if (getEffectiveStock(localProduct) === null) continue;
+
       // Если склад не настроен (stock=0, нет warehouseStock) — пропускаем списание
       const hasWarehouseSetup = localProduct.warehouseStock && typeof localProduct.warehouseStock === 'object' && Object.keys(localProduct.warehouseStock).length > 0;
       const localStock = Math.max(0, Math.floor(localProduct.stock));
