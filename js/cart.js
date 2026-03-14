@@ -549,3 +549,38 @@ function clearCart() {
     }
   });
 }
+
+// === СИНХРОНИЗАЦИЯ КОРЗИНЫ (bfcache, переключение вкладок/приложений) ===
+// При возврате через "Назад" или переключении приложений — в памяти может быть
+// старая корзина, а в localStorage уже пустая (после заказа). Синхронизируем.
+function syncCartFromLocalStorage() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('cart') || '[]');
+    if (JSON.stringify(cart) !== JSON.stringify(stored)) {
+      cart.length = 0;
+      cart.push(...stored);
+      updateCart();
+    }
+  } catch(e) {}
+}
+
+// bfcache: страница восстановлена из кэша браузера (кнопка "Назад" на телефоне)
+window.addEventListener('pageshow', function(event) {
+  if (event.persisted) {
+    syncCartFromLocalStorage();
+  }
+});
+
+// Возврат на вкладку или в приложение из фона (Android/iOS)
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) {
+    syncCartFromLocalStorage();
+  }
+});
+
+// Изменение localStorage в другой вкладке
+window.addEventListener('storage', function(e) {
+  if (e.key === 'cart') {
+    syncCartFromLocalStorage();
+  }
+});
