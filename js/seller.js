@@ -486,37 +486,92 @@ async function loadSellerCategories() {
     // Очищаем контейнер
     container.innerHTML = '';
     
-    // Получаем уникальные категории из товаров
+    // Загружаем настройки стандартных категорий (иконки, порядок, блокировка)
+    let stdSettings = {};
+    try {
+      const settingsDoc = await db.collection('settings').doc('categories').get();
+      stdSettings = settingsDoc.exists ? (settingsDoc.data().standard || {}) : {};
+    } catch(e) {}
+    
+    // Обновляем стандартные кнопки: иконки и скрытие заблокированных
     const existingCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
-    const sellerCategories = new Set();
+    const stdIconMap = {
+      'все': '🛍️', 'ножницы': '✂️', 'скотч': '📦', 'нож': '🔪',
+      'корейские': '🇰🇷', 'часы': '⌚', 'электроника': '🔌', 'бытовые': '🏠'
+    };
+    
+    // Собираем стандартные с порядком
+    const stdEntries = existingCategories.map(name => ({
+      name,
+      icon: (stdSettings[name] && stdSettings[name].icon) || stdIconMap[name] || '📂',
+      order: (stdSettings[name] && typeof stdSettings[name].order === 'number') ? stdSettings[name].order : existingCategories.indexOf(name),
+      blocked: stdSettings[name] && stdSettings[name].blocked === true
+    }));
+    stdEntries.sort((a, b) => a.order - b.order);
+    
+    // Перестраиваем стандартные кнопки с иконками и порядком
+    const otherContainer = document.getElementById('otherCategoriesContainer');
+    if (otherContainer) {
+      // Удаляем все стандартные кнопки категорий (кроме sellerCategoriesContainer)
+      const existingBtns = otherContainer.querySelectorAll('button.category-btn[data-category]');
+      existingBtns.forEach(btn => btn.remove());
+      
+      // Добавляем в правильном порядке, перед sellerCategoriesContainer
+      const sellerContainer = document.getElementById('sellerCategoriesContainer');
+      stdEntries.forEach(cat => {
+        if (cat.name === 'все') return; // "Все товары" остаётся сверху
+        if (cat.blocked) return; // Скрываем заблокированные
+        
+        const btn = document.createElement('button');
+        btn.className = 'category-btn';
+        btn.setAttribute('data-category', cat.name);
+        btn.onclick = () => filterByCategory(cat.name);
+        const labelMap = { 'ножницы': 'Ножницы', 'скотч': 'Скотч', 'нож': 'Нож', 'корейские': 'Корейские товары', 'часы': 'Часы', 'электроника': 'Электроника', 'бытовые': 'Бытовые техники' };
+        btn.innerHTML = `${cat.icon} ${labelMap[cat.name] || cat.name}`;
+        otherContainer.insertBefore(btn, sellerContainer);
+      });
+    }
+    
+    const sellerCategories = new Map(); // name -> {icon, order, blocked}
     
     // Собираем категории из товаров продавцов
     products.forEach(p => {
       if (p.category && p.sellerId && !existingCategories.includes(p.category.toLowerCase())) {
-        sellerCategories.add(p.category.toLowerCase());
+        if (!sellerCategories.has(p.category.toLowerCase())) {
+          sellerCategories.set(p.category.toLowerCase(), { icon: '🏪', order: 9999, blocked: false });
+        }
       }
     });
     
-    // Также загружаем из коллекции seller_categories
+    // Загружаем из коллекции seller_categories (иконки, порядок, блокировка)
     try {
       const snapshot = await db.collection('seller_categories').get();
       snapshot.forEach(doc => {
         const cat = doc.data();
         if (cat.name && !existingCategories.includes(cat.name.toLowerCase())) {
-          sellerCategories.add(cat.name.toLowerCase());
+          sellerCategories.set(cat.name.toLowerCase(), {
+            icon: cat.icon || '🏪',
+            order: typeof cat.order === 'number' ? cat.order : 9999,
+            blocked: cat.blocked === true
+          });
         }
       });
     } catch (e) {
       console.log('Коллекция seller_categories не найдена или пуста');
     }
     
-    // Создаём кнопки для каждой категории продавца
-    sellerCategories.forEach(catName => {
+    // Сортируем по порядку и создаём кнопки
+    const sortedCategories = [...sellerCategories.entries()]
+      .sort((a, b) => a[1].order - b[1].order);
+    
+    sortedCategories.forEach(([catName, catData]) => {
+      if (catData.blocked) return; // Скрываем заблокированные
+      
       const btn = document.createElement('button');
       btn.className = 'category-btn';
       btn.setAttribute('data-category', catName);
       btn.onclick = () => filterByCategory(catName);
-      btn.innerHTML = `🏪 ${catName.charAt(0).toUpperCase() + catName.slice(1)}`;
+      btn.innerHTML = `${catData.icon} ${catName.charAt(0).toUpperCase() + catName.slice(1)}`;
       container.appendChild(btn);
     });
     

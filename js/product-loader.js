@@ -17,6 +17,9 @@ const LS_WH_PAUSED_KEY = 'warehousePaused';
 let pausedWarehouseIds = new Set();
 const LS_PAUSED_WH_IDS_KEY = 'pausedWarehouseIds';
 
+// ID главного склада (для отображения остатков на карточках)
+let primaryWarehouseId = '';
+
 // Загрузка флага паузы складов (кэшируется в localStorage для мгновенного чтения)
 function loadWarehousePausedFromLS() {
   try { warehousePaused = localStorage.getItem(LS_WH_PAUSED_KEY) === '1'; } catch(e) {}
@@ -29,6 +32,9 @@ async function loadWarehousePausedFlag() {
   try {
     const doc = await db.collection('settings').doc('warehouse').get();
     warehousePaused = doc.exists && doc.data().paused === true;
+    if (doc.exists && doc.data().primaryWarehouseId) {
+      primaryWarehouseId = doc.data().primaryWarehouseId;
+    }
     try { localStorage.setItem(LS_WH_PAUSED_KEY, warehousePaused ? '1' : '0'); } catch(e) {}
   } catch(e) { warehousePaused = false; }
   // Загружаем индивидуально приостановленные склады

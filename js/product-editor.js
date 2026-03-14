@@ -74,6 +74,34 @@ async function openEditProductModal(productId) {
       </div>
     </div>
     
+    <!-- Остаток на главном складе -->
+    ${_editPrimaryWhId ? (() => {
+      const primaryWh = _editWarehouses.find(w => w.id === _editPrimaryWhId);
+      const primaryWhName = primaryWh ? (primaryWh.name || 'Главный склад').replace(/</g, '&lt;') : 'Главный склад';
+      const primaryStock = (p.warehouseStock || {})[_editPrimaryWhId];
+      const hasPrimaryStock = typeof primaryStock === 'number';
+      const allWhStocks = _editWarehouses.map(wh => {
+        const qty = (p.warehouseStock || {})[wh.id];
+        const whName = (wh.name || 'Без названия').replace(/</g, '&lt;');
+        const isPrim = wh.id === _editPrimaryWhId;
+        return typeof qty === 'number'
+          ? '<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #e8eaf6;' + (isPrim ? ' font-weight:700; color:#1a237e;' : '') + '"><span>' + (isPrim ? '⭐ ' : '') + whName + '</span><span>' + qty + ' шт</span></div>'
+          : '';
+      }).filter(Boolean).join('');
+      return '<div style="background:linear-gradient(135deg,#e8eaf6,#c5cae9); border:2px solid #3f51b5; border-radius:10px; padding:14px; margin-bottom:12px;">'
+        + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
+        + '<span style="font-size:13px; font-weight:700; color:#1a237e;">🏭 Остатки по складам</span>'
+        + '<span style="font-size:12px; color:#666;">Общий: <b>' + (typeof p.stock === 'number' ? p.stock + ' шт' : '∞') + '</b></span>'
+        + '</div>'
+        + (allWhStocks || '<div style="color:#888; font-size:12px;">Нет данных по складам</div>')
+        + '<div style="margin-top:8px; padding-top:8px; border-top:2px solid #3f51b5; display:flex; justify-content:space-between; align-items:center;">'
+        + '<span style="font-size:14px; font-weight:700; color:#1a237e;">⭐ ' + primaryWhName + ':</span>'
+        + '<span style="font-size:20px; font-weight:900; color:' + (hasPrimaryStock && primaryStock <= 0 ? '#c62828' : hasPrimaryStock && primaryStock <= 10 ? '#e65100' : '#2e7d32') + ';">'
+        + (hasPrimaryStock ? primaryStock + ' шт' : '—') + '</span>'
+        + '</div>'
+        + '</div>';
+    })() : ''}
+
     <!-- Остаток -->
     <div style="margin-bottom:12px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">

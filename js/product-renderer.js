@@ -392,9 +392,15 @@ function renderProductsCore() {
           <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
             <span style="font-size:16px; font-weight:700; color:#e53935;">${p.price||0} сом</span>
           </div>
-          <div style="font-size:12px; color:#666; margin-bottom:8px;">
+          <div style="font-size:12px; color:#666; margin-bottom:4px;">
             ${stock !== null ? `📦 Остаток: ${stock}` : '📦 Без лимита'} ${p.isPack ? '| 📦 Пачка' : ''}
           </div>
+          ${primaryWarehouseId && p.warehouseStock ? ((whQty) => {
+            const has = typeof whQty === 'number';
+            const clr = !has ? '#888' : whQty <= 0 ? '#c62828' : whQty <= 10 ? '#e65100' : '#2e7d32';
+            const bg = !has ? '#f5f5f5' : whQty <= 0 ? '#ffebee' : whQty <= 10 ? '#fff3e0' : '#e8f5e9';
+            return '<div style="font-size:12px;font-weight:700;color:' + clr + ';background:' + bg + ';padding:4px 8px;border-radius:6px;margin-bottom:8px;">🏭 Гл. склад: ' + (has ? whQty + ' шт' : '—') + '</div>';
+          })(p.warehouseStock[primaryWarehouseId]) : ''}
           <button onclick="openEditProductModal('${p.id}')" style="width:100%; background:linear-gradient(135deg,#007bff,#0056b3); color:white; border:none; padding:12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;">✏️ Редактировать</button>
         ` : `
           <div class="card-title"><div>${p.title||''}</div></div>
@@ -638,9 +644,15 @@ function loadMoreProducts() {
           <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
             <span style="font-size:16px; font-weight:700; color:#e53935;">${p.price||0} сом</span>
           </div>
-          <div style="font-size:12px; color:#666; margin-bottom:8px;">
+          <div style="font-size:12px; color:#666; margin-bottom:4px;">
             ${stock !== null ? `📦 Остаток: ${stock}` : '📦 Без лимита'} ${p.isPack ? '| 📦 Пачка' : ''}
           </div>
+          ${primaryWarehouseId && p.warehouseStock ? ((whQty) => {
+            const has = typeof whQty === 'number';
+            const clr = !has ? '#888' : whQty <= 0 ? '#c62828' : whQty <= 10 ? '#e65100' : '#2e7d32';
+            const bg = !has ? '#f5f5f5' : whQty <= 0 ? '#ffebee' : whQty <= 10 ? '#fff3e0' : '#e8f5e9';
+            return '<div style="font-size:12px;font-weight:700;color:' + clr + ';background:' + bg + ';padding:4px 8px;border-radius:6px;margin-bottom:8px;">🏭 Гл. склад: ' + (has ? whQty + ' шт' : '—') + '</div>';
+          })(p.warehouseStock[primaryWarehouseId]) : ''}
           <button onclick="openEditProductModal('${p.id}')" style="width:100%; background:linear-gradient(135deg,#007bff,#0056b3); color:white; border:none; padding:12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;">✏️ Редактировать</button>
         ` : `
         <div class="card-title"><div>${p.title||''}</div></div>
