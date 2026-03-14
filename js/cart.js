@@ -203,11 +203,15 @@ function addToCart(id, title, price, image, btn) {
 
 function updateCart() {
   // Проверяем и удаляем заблокированные/удалённые товары из корзины
+  // НО только если товары уже загружены (иначе удалим всё из корзины по ошибке)
   const initialLength = cart.length;
   const adjustedTitles = [];
   const validCart = [];
 
+  const canValidate = typeof productsReady !== 'undefined' && productsReady && products && products.length > 0;
+
   for (const item of cart) {
+    if (!canValidate) { validCart.push(item); continue; }
     const product = products.find(p => p.id === item.id);
     if (!product || product.blocked) continue;
 

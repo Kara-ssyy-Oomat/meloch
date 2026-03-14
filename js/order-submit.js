@@ -246,6 +246,8 @@ document.getElementById('submitOrder').onclick = async () => {
 
     const orderRef = db.collection('orders').doc();
     const batch = db.batch();
+    let stockDeducted = false;
+    const warehouseDeductions = {};
 
     for (const item of cart) {
       const localProduct = products.find(p => p.id === item.id);
@@ -270,6 +272,7 @@ document.getElementById('submitOrder').onclick = async () => {
         throw new Error(`Недостаточно остатка для товара: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
       }
 
+      stockDeducted = true;
       const productRef = db.collection('products').doc(item.id);
       batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(-need) });
 
@@ -282,13 +285,18 @@ document.getElementById('submitOrder').onclick = async () => {
           .sort((a, b) => b[1] - a[1]);
         
         const updatedWs = { ...ws };
+        const itemDeductions = {};
         for (const [whId, whQty] of sortedWarehouses) {
           if (remaining <= 0) break;
           const deduct = Math.min(remaining, whQty);
           updatedWs[whId] = whQty - deduct;
           remaining -= deduct;
+          itemDeductions[whId] = deduct;
         }
         
+        if (Object.keys(itemDeductions).length > 0) {
+          warehouseDeductions[item.id] = itemDeductions;
+        }
         batch.update(productRef, { warehouseStock: updatedWs });
       }
     }
@@ -315,7 +323,9 @@ document.getElementById('submitOrder').onclick = async () => {
       time: currentTime,
       status: 'pending',
       partner: partner || null,
-      referredBy: referredBy || null
+      referredBy: referredBy || null,
+      stockDeducted,
+      warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
     });
 
     await batch.commit();
