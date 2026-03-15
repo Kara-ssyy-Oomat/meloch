@@ -556,8 +556,10 @@
       .warehouse-stat .ws-value { font-size: 14px; }
       .warehouse-stat .ws-label { font-size: 9px; }
 
-      .warehouse-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 8px; }
-      .warehouse-actions button { padding: 7px 4px; font-size: 11px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .warehouse-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+      .warehouse-actions button { padding: 8px 6px; font-size: 11px; min-width: 0; white-space: nowrap; flex: 1 1 calc(50% - 3px); box-sizing: border-box; }
+      .warehouse-actions .btn-edit,
+      .warehouse-actions .btn-delete { flex: 0 0 auto; min-width: 40px; }
 
       /* Модальные окна */
       .modal-overlay { padding: 0; align-items: flex-end; }
@@ -642,7 +644,7 @@
         overflow-y: auto;
       }
       #transferModal .modal-footer {
-        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + 60px);
       }
 
       /* Трансфер */
@@ -660,8 +662,10 @@
       .warehouse-stats { grid-template-columns: repeat(2, 1fr); gap: 6px; }
       .warehouse-stat .ws-value { font-size: 14px; }
 
-      .warehouse-actions { grid-template-columns: repeat(3, 1fr); gap: 4px; }
-      .warehouse-actions button { font-size: 10px; padding: 6px 3px; }
+      .warehouse-actions { gap: 4px; }
+      .warehouse-actions button { font-size: 10px; padding: 6px 4px; }
+      .warehouse-actions .btn-edit,
+      .warehouse-actions .btn-delete { min-width: 36px; }
 
       .stock-move-input { width: 32px; font-size: 11px; }
       .stock-btn-in, .stock-btn-out { padding: 4px 6px; font-size: 13px; min-width: 26px; }
