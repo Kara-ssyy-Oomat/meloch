@@ -84,30 +84,34 @@ async function subscribeToPush() {
 async function saveTokenToFirestore(token) {
   if (typeof db === 'undefined') return;
 
-  const cId = localStorage.getItem('chatClientId');
+  // Генерируем clientId если ещё нет
+  let cId = localStorage.getItem('chatClientId');
+  if (!cId) {
+    cId = 'client_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('chatClientId', cId);
+  }
   const cName = localStorage.getItem('chatClientName') || 'Клиент';
 
   try {
     // Сохраняем в коллекцию pushTokens
     await db.collection('pushTokens').doc(token).set({
       token: token,
-      clientId: cId || 'anonymous',
+      clientId: cId,
       clientName: cName,
       platform: getPlatformInfo(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    // Обновляем токен в chatClients если есть clientId
-    if (cId) {
-      await db.collection('chatClients').doc(cId).set({
-        pushToken: token,
-        pushEnabled: true,
-        lastTokenUpdate: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-    }
+    // Обновляем токен в chatClients
+    await db.collection('chatClients').doc(cId).set({
+      pushToken: token,
+      pushEnabled: true,
+      name: cName,
+      lastTokenUpdate: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
 
-    console.log('🔔 Токен сохранён в Firestore');
+    console.log('🔔 Токен сохранён в Firestore для:', cId);
   } catch (error) {
     console.error('🔔 Ошибка сохранения токена:', error);
   }
