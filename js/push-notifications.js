@@ -10,10 +10,20 @@ const VAPID_KEY = 'BCdA8I-AhgwdmbQmyCcvh_oAJ4KyMTMG5niUHMlJzZPhv3VWeDKfexWDpfL5L
 let _messaging = null;
 let _pushToken = null;
 
+// Проверка iOS
+const _isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) && !window.MSStream;
+const _isStandalone = window.navigator.standalone === true || 
+  window.matchMedia('(display-mode: standalone)').matches;
+
 // Инициализация Firebase Messaging
 function initPushNotifications() {
   if (!('Notification' in window)) {
-    console.log('🔔 Браузер не поддерживает уведомления');
+    // iOS Safari без PWA не поддерживает push
+    if (_isIOS && !_isStandalone) {
+      console.log('🔔 iOS: для push-уведомлений нужно установить приложение на Домой экран');
+    } else {
+      console.log('🔔 Браузер не поддерживает уведомления');
+    }
     return;
   }
 
@@ -238,6 +248,21 @@ async function unsubscribeFromPush() {
 
 // UI: Кнопка подписки/отписки с анимацией
 async function togglePushNotifications() {
+  // iOS без установки PWA — показываем инструкцию
+  if (_isIOS && !_isStandalone) {
+    Swal.fire({
+      icon: 'info',
+      title: '📲 Установите приложение',
+      html: 'На iPhone уведомления работают только если приложение установлено:<br><br>' +
+        '<b>1.</b> Нажмите <b>⬆️ Поделиться</b> внизу экрана<br>' +
+        '<b>2.</b> Выберите <b>➕ На экран «Домой»</b><br>' +
+        '<b>3.</b> Нажмите <b>Добавить</b><br><br>' +
+        'После этого откройте приложение с главного экрана и включите уведомления',
+      confirmButtonText: 'Понятно'
+    });
+    return;
+  }
+
   if (Notification.permission === 'denied') {
     Swal.fire({
       icon: 'warning',
