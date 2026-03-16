@@ -858,6 +858,24 @@ document.addEventListener('DOMContentLoaded', function() {
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
 </button>
 
+  <!-- iOS: Баннер установки PWA (только для iPhone/iPad в Safari) -->
+  <div id="iosInstallBanner" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:10000; background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%); color:#fff; padding:18px 22px; border-radius:18px; box-shadow:0 8px 32px rgba(0,0,0,0.4); max-width:370px; width:92%; animation:slideUpBanner 0.4s ease-out;">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+      <span style="font-size:28px;">📲</span>
+      <div>
+        <div style="font-weight:800; font-size:16px;">Установите приложение</div>
+        <div style="font-size:12px; opacity:0.8;">Чтобы уведомления приходили когда сайт закрыт</div>
+      </div>
+      <button onclick="document.getElementById('iosInstallBanner').style.display='none'; localStorage.setItem('iosInstallDismissed', Date.now());" style="background:rgba(255,255,255,0.15); color:#fff; border:none; width:28px; height:28px; border-radius:50%; cursor:pointer; font-size:16px; flex-shrink:0;">×</button>
+    </div>
+    <div style="background:rgba(255,255,255,0.1); border-radius:12px; padding:12px; font-size:13px; line-height:1.6;">
+      <div style="margin-bottom:6px;"><b>Шаг 1:</b> Нажмите <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:6px;">⬆️ Поделиться</span> внизу экрана</div>
+      <div style="margin-bottom:6px;"><b>Шаг 2:</b> Прокрутите вниз и нажмите <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:6px;">➕ На экран «Домой»</span></div>
+      <div><b>Шаг 3:</b> Нажмите <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:6px;">Добавить</span></div>
+    </div>
+    <div style="text-align:center; margin-top:10px; font-size:11px; opacity:0.6;">После установки уведомления будут приходить как в WhatsApp</div>
+  </div>
+
   <!-- Кнопка включения уведомлений -->
   <div id="pushNotifBanner" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:9999; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; padding:14px 22px; border-radius:16px; box-shadow:0 6px 24px rgba(0,0,0,0.3); max-width:360px; width:90%; text-align:center; animation:slideUpBanner 0.4s ease-out;">
     <div style="font-weight:700; font-size:16px; margin-bottom:6px;">🔔 Не пропустите важное!</div>
@@ -873,6 +891,10 @@ document.addEventListener('DOMContentLoaded', function() {
   <script>
     // Показываем баннер подписки на push если ещё не подписан
     function showPushBannerIfNeeded() {
+      var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) && !window.MSStream;
+      var isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+      // На iOS без PWA — не показываем push-баннер (покажем iOS install баннер)
+      if (isIOS && !isStandalone) return;
       if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
       if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
       if (localStorage.getItem('pushBannerDismissed')) return;
