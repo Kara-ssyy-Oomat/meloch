@@ -64,20 +64,22 @@ self.addEventListener('notificationclick', (event) => {
   
   // Клик на уведомление или кнопку "Открыть"
   event.notification.close();
-  const url = event.notification.data?.url || './index.html';
+  
+  // Определяем URL — для клиента всегда главная, для админа — admin-chat
+  const notifType = event.notification.data?.type || 'general';
+  const targetUrl = (notifType === 'admin_chat') ? './admin-chat.html' : './index.html';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // Ищем уже открытую вкладку
+      // Ищем уже открытую вкладку сайта
       for (const client of windowClients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
-          // Отправляем сообщение на страницу чтобы открыть чат
-          client.postMessage({ type: 'notification-click', url: url });
+          // Просто фокусируем существующую вкладку — НЕ открываем чат автоматически
           return client.focus();
         }
       }
-      // Если нет открытой — открываем новую
-      return self.clients.openWindow(url);
+      // Если нет открытой — открываем главную
+      return self.clients.openWindow(targetUrl);
     })
   );
 });
