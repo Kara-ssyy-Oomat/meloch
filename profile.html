@@ -1346,6 +1346,17 @@
             </div>
           </div>
           
+          <div class="menu-item" id="pushToggleMenuItem" onclick="togglePushFromProfile()" style="cursor:pointer;">
+            <div class="menu-item-left">
+              <span class="menu-icon">🔔</span>
+              <span class="menu-text" id="pushMenuText">Уведомления</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="menu-badge" id="pushMenuBadge" style="background:#4CAF50; color:white;">Проверяем...</span>
+              <span class="menu-arrow">›</span>
+            </div>
+          </div>
+          
           ${(isAdmin || isAgent) ? `
           <div class="menu-item" onclick="navigateTop('agent-profit.html')">
             <div class="menu-item-left">
@@ -2692,6 +2703,52 @@
     window.addEventListener('storage', (e) => {
       if (e.key === 'cart') updateCartBadge();
     });
+    
+    // ==================== PUSH-УВЕДОМЛЕНИЯ ====================
+    function togglePushFromProfile() {
+      // Вызываем функцию из родительского окна (index.html)
+      if (window.parent && window.parent.togglePushNotifications) {
+        window.parent.togglePushNotifications();
+      } else if (typeof togglePushNotifications === 'function') {
+        togglePushNotifications();
+      } else {
+        // Fallback: просим разрешение напрямую
+        if (!('Notification' in window)) {
+          Swal.fire('Не поддерживается', 'Ваш браузер не поддерживает уведомления', 'warning');
+          return;
+        }
+        Notification.requestPermission().then(function(perm) {
+          if (perm === 'granted') {
+            Swal.fire({ icon: 'success', title: 'Уведомления включены!', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
+            updatePushBadge();
+          }
+        });
+      }
+      setTimeout(updatePushBadge, 1000);
+    }
+    
+    function updatePushBadge() {
+      var badge = document.getElementById('pushMenuBadge');
+      if (!badge) return;
+      if (!('Notification' in window)) {
+        badge.textContent = 'Не поддерж.';
+        badge.style.background = '#999';
+        return;
+      }
+      if (Notification.permission === 'granted') {
+        badge.textContent = 'ВКЛ';
+        badge.style.background = '#4CAF50';
+      } else if (Notification.permission === 'denied') {
+        badge.textContent = 'Заблокировано';
+        badge.style.background = '#f44336';
+      } else {
+        badge.textContent = 'ВЫКЛ';
+        badge.style.background = '#ff9800';
+      }
+    }
+    
+    // Обновляем бейдж при загрузке
+    setTimeout(updatePushBadge, 500);
   </script>
 <script src="js/bottom-nav.js?v=28"></script>
 </body>

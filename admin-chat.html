@@ -459,6 +459,7 @@
       </div>
       <div class="header-actions">
         <button class="action-btn" onclick="refreshClients()">🔄 Обновить</button>
+        <button class="action-btn" onclick="showBroadcastDialog()" style="background:linear-gradient(135deg,#667eea,#764ba2)">📢 Рассылка</button>
         <button class="action-btn danger" onclick="clearAllMessages()">🗑️ Очистить всё</button>
       </div>
     </div>
@@ -930,6 +931,18 @@
         
         console.log('✅ Сообщение отправлено клиенту:', selectedClientName);
         
+        // Push-уведомление клиенту
+        try {
+          await db.collection('notificationQueue').add({
+            type: 'chat',
+            targetClientId: selectedClientId,
+            title: 'Кербен',
+            body: text.length > 100 ? text.substring(0, 100) + '...' : text,
+            status: 'pending',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (e) { console.log('Push queue error:', e); }
+        
       } catch (error) {
         console.error('Ошибка отправки:', error);
         Swal.fire({
@@ -1105,6 +1118,46 @@
     
     function formatTime(date) {
       return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    }
+    
+    // ==================== BROADCAST УВЕДОМЛЕНИЯ ====================
+    async function showBroadcastDialog() {
+      const { value: formValues } = await Swal.fire({
+        title: '📢 Рассылка уведомлений',
+        html:
+          '<input id="swal-notif-title" class="swal2-input" placeholder="Заголовок" style="font-size:14px">' +
+          '<textarea id="swal-notif-body" class="swal2-textarea" placeholder="Текст уведомления" style="font-size:14px;height:100px"></textarea>',
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Отправить всем 📤',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#667eea',
+        preConfirm: () => {
+          const title = document.getElementById('swal-notif-title').value.trim();
+          const body = document.getElementById('swal-notif-body').value.trim();
+          if (!title || !body) {
+            Swal.showValidationMessage('Заполните все поля');
+            return false;
+          }
+          return { title, body };
+        }
+      });
+
+      if (formValues) {
+        try {
+          await db.collection('notificationQueue').add({
+            type: 'broadcast',
+            title: formValues.title,
+            body: formValues.body,
+            status: 'pending',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          Swal.fire({ icon: 'success', title: 'Уведомление отправлено!', text: 'Все подписанные пользователи получат уведомление', toast: true, position: 'top-end', timer: 3000, showConfirmButton: false });
+        } catch (error) {
+          console.error('Ошибка отправки broadcast:', error);
+          Swal.fire('Ошибка', 'Не удалось отправить уведомление', 'error');
+        }
+      }
     }
   </script>
 <script src="js/bottom-nav.js?v=28"></script>

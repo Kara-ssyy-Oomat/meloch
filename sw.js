@@ -1,7 +1,67 @@
 // Service Worker для PWA приложения "Кербен"
-// Обеспечивает кэширование и автоматическое обновление
+// Обеспечивает кэширование, push-уведомления и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v4.0.9-zindex-fix'; // Исправление z-index иерархии навигации
+// ==================== FIREBASE MESSAGING (Push) ====================
+importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+  authDomain: "svoysayet.firebaseapp.com",
+  projectId: "svoysayet",
+  storageBucket: "svoysayet.firebasestorage.app",
+  messagingSenderId: "450143000217",
+  appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+  measurementId: "G-Y8VG9E29FY"
+});
+
+const messaging = firebase.messaging();
+
+// Обработка push-уведомлений в ФОНЕ (сайт закрыт / свёрнут)
+messaging.onBackgroundMessage((payload) => {
+  console.log('[SW] 🔔 Push в фоне:', payload);
+
+  const data = payload.notification || payload.data || {};
+  const title = data.title || 'Кербен';
+  const body = data.body || 'Новое уведомление';
+
+  return self.registration.showNotification(title, {
+    body: body,
+    icon: './icon-kerben.jpg',
+    badge: './icon-kerben.jpg',
+    vibrate: [200, 100, 200, 100, 200],
+    tag: data.tag || 'kerben-notification',
+    renotify: true,
+    data: {
+      url: data.url || './index.html',
+      type: data.type || 'general'
+    }
+  });
+});
+
+// Клик по уведомлению — открыть сайт
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const url = event.notification.data?.url || './index.html';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Ищем уже открытую вкладку
+      for (const client of windowClients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Если нет открытой — открываем новую
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
+// ==================== КЭШИРОВАНИЕ ====================
+
+const CACHE_VERSION = 'kerben-v4.1.0-push'; // Добавлены push-уведомления
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -51,7 +111,8 @@ const STATIC_CACHE_URLS = [
   './js/profit-report.js',
   './js/expenses.js',
   './js/agents.js',
-  './js/bottom-nav.js'
+  './js/bottom-nav.js',
+  './js/push-notifications.js'
 ];
 
 // Установка Service Worker
