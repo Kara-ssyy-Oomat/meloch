@@ -56,17 +56,40 @@ exports.processNotificationQueue = functions.firestore
 
 // ==================== ОТПРАВКА ЧАТ-УВЕДОМЛЕНИЯ ====================
 async function sendChatNotification(notif) {
-  // Находим FCM токен клиента
+  let token = null;
+
+  // 1. Ищем токен в chatClients
   const clientDoc = await db.collection('chatClients')
     .doc(notif.targetClientId)
     .get();
 
-  if (!clientDoc.exists || !clientDoc.data().pushToken) {
+  if (clientDoc.exists && clientDoc.data().pushToken) {
+    token = clientDoc.data().pushToken;
+  }
+
+  // 2. Если в chatClients нет — ищем в pushTokens по clientId
+  if (!token) {
+    const tokensQuery = await db.collection('pushTokens')
+      .where('clientId', '==', notif.targetClientId)
+      .limit(1)
+      .get();
+
+    if (!tokensQuery.empty) {
+      token = tokensQuery.docs[0].data().token;
+      // Сохраняем в chatClients для будущих запросов
+      await db.collection('chatClients').doc(notif.targetClientId).set({
+        pushToken: token,
+        pushEnabled: true
+      }, { merge: true });
+    }
+  }
+
+  if (!token) {
     console.log('Клиент не подписан на push:', notif.targetClientId);
     return;
   }
 
-  const token = clientDoc.data().pushToken;
+  console.log('Отправляем push клиенту:', notif.targetClientId, 'token:', token.substring(0, 20) + '...');
 
   const message = {
     token: token,
