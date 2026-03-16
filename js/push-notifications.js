@@ -92,16 +92,49 @@ async function saveTokenToFirestore(token) {
   }
   const cName = localStorage.getItem('chatClientName') || 'Клиент';
 
+  // Проверяем — это админ или обычный клиент?
+  let isAdmin = false;
+  try {
+    const customerData = localStorage.getItem('customerData');
+    const sellerData = localStorage.getItem('sellerData');
+    if (customerData) {
+      const c = JSON.parse(customerData);
+      if (c.isAdmin === true) isAdmin = true;
+    }
+    if (!isAdmin && sellerData) {
+      const s = JSON.parse(sellerData);
+      if (s.isAdmin === true || s.role === 'admin') isAdmin = true;
+    }
+  } catch (e) {}
+
   try {
     // Сохраняем в коллекцию pushTokens
-    await db.collection('pushTokens').doc(token).set({
+    const tokenData = {
       token: token,
       clientId: cId,
       clientName: cName,
       platform: getPlatformInfo(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    };
+
+    // Если админ — добавляем роль
+    if (isAdmin) {
+      tokenData.role = 'admin';
+    }
+
+    await db.collection('pushTokens').doc(token).set(tokenData, { merge: true });
+
+    // Если админ — сохраняем ещё в adminPushTokens
+    if (isAdmin) {
+      await db.collection('adminPushTokens').doc(token).set({
+        token: token,
+        clientId: cId,
+        clientName: cName,
+        platform: getPlatformInfo(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
 
     // Обновляем токен в chatClients
     await db.collection('chatClients').doc(cId).set({
@@ -111,7 +144,7 @@ async function saveTokenToFirestore(token) {
       lastTokenUpdate: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    console.log('🔔 Токен сохранён в Firestore для:', cId);
+    console.log('🔔 Токен сохранён в Firestore для:', cId, isAdmin ? '(ADMIN)' : '');
   } catch (error) {
     console.error('🔔 Ошибка сохранения токена:', error);
   }

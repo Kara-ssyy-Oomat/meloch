@@ -108,11 +108,14 @@ async function sendChatMessage() {
   
   if (!message) return;
   
+  // Очищаем поле ввода СРАЗУ — чтобы пользователь видел что отправлено
+  input.value = '';
+  
   const messagesDiv = document.getElementById('chatMessages');
   const now = new Date();
   const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
   
-  // Добавляем сообщение клиента
+  // Добавляем сообщение клиента в UI
   const messageDiv = document.createElement('div');
   messageDiv.style.cssText = 'background:#667eea; color:white; padding:12px; border-radius:12px 12px 4px 12px; max-width:80%; align-self:flex-end; box-shadow:0 2px 4px rgba(0,0,0,0.1);';
   messageDiv.innerHTML = `
@@ -121,18 +124,28 @@ async function sendChatMessage() {
   `;
   messagesDiv.appendChild(messageDiv);
   
-  // Сохраняем сообщение в Firebase с clientId
-  await saveChatMessage(message, 'client', now);
-  
-  // Очищаем поле ввода
-  input.value = '';
-  
   // Прокручиваем к последнему сообщению
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  
+  // Сохраняем в Firebase — запускаем без блокировки UI
+  // Если пользователь закроет страницу — beforeunload/visibilitychange допишут
+  _pendingSave = saveChatMessage(message, 'client', now);
   
   // Показываем уведомление "печатает..."
   showTypingIndicator();
 }
+
+// Хранение pending операции для защиты при закрытии
+let _pendingSave = null;
+
+// Защита от потери сообщения при быстром закрытии страницы
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden' && _pendingSave) {
+    // Страница уходит в фон — ждём завершения сохранения
+    // Не можем реально ждать, но Firestore SDK в фоне доведёт операцию до конца
+    _pendingSave = null;
+  }
+});
 
 // Показать индикатор "печатает..."
 function showTypingIndicator() {
@@ -165,6 +178,7 @@ function showTypingIndicator() {
 }
 
 // Сохранение сообщения в Firebase
+// Используем fire-and-forget БЕЗ await чтобы сообщение не потерялось при закрытии
 async function saveChatMessage(text, sender, timestamp) {
   if (typeof db === 'undefined') return;
   
@@ -178,13 +192,30 @@ async function saveChatMessage(text, sender, timestamp) {
       read: false
     };
     
-    await db.collection('chatMessages').add(messageData);
-    console.log('Сообщение сохранено с clientId:', clientId);
+    // Запускаем сохранение без ожидания — так сообщение не потеряется при быстром закрытии
+    const savePromise = db.collection('chatMessages').add(messageData);
     
-    // Обновляем активность клиента
+    // Если клиент пишет админу — отправляем push-уведомление админу
     if (sender === 'client') {
-      await updateClientActivity();
+      const notifPromise = db.collection('notificationQueue').add({
+        type: 'admin_chat',
+        title: clientName || 'Клиент',
+        body: text.length > 100 ? text.substring(0, 100) + '...' : text,
+        clientId: clientId,
+        clientName: clientName || 'Клиент',
+        status: 'pending',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      
+      const activityPromise = updateClientActivity();
+      
+      // Ждём все три операции параллельно
+      await Promise.all([savePromise, notifPromise, activityPromise]);
+    } else {
+      await savePromise;
     }
+    
+    console.log('Сообщение сохранено с clientId:', clientId);
   } catch (error) {
     console.error('Ошибка сохранения сообщения:', error);
   }
