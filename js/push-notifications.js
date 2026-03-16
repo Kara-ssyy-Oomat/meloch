@@ -123,12 +123,30 @@ function getPlatformInfo() {
 }
 
 // Показ уведомления когда сайт открыт (foreground)
+// Показываем СИСТЕМНОЕ уведомление + SweetAlert на странице
 function showForegroundNotification(payload) {
-  const data = payload.notification || payload.data || {};
+  const data = payload.data || payload.notification || {};
   const title = data.title || 'Кербен';
   const body = data.body || 'Новое уведомление';
 
-  // Показываем красивое SweetAlert уведомление
+  // 1. СИСТЕМНОЕ уведомление (чтобы было видно на панели телефона)
+  if (Notification.permission === 'granted' && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then(function(reg) {
+      reg.showNotification(title, {
+        body: body,
+        icon: './icon-kerben.jpg',
+        badge: './icon-kerben.jpg',
+        vibrate: [300, 150, 300, 150, 300],
+        tag: data.tag || 'kerben-foreground',
+        renotify: true,
+        requireInteraction: true,
+        silent: false,
+        data: { url: data.url || './index.html', type: data.type || 'general' }
+      });
+    });
+  }
+
+  // 2. SweetAlert на странице
   if (typeof Swal !== 'undefined') {
     Swal.fire({
       title: title,
@@ -143,7 +161,7 @@ function showForegroundNotification(payload) {
     });
   }
 
-  // Обновляем badge на иконке чата
+  // 3. Обновляем badge на иконке чата
   const badge = document.getElementById('navChatBadge');
   if (badge && data.type === 'chat') {
     const current = parseInt(badge.textContent) || 0;
