@@ -33,6 +33,9 @@ exports.processNotificationQueue = functions.firestore
       if (notif.type === 'chat') {
         // Уведомление конкретному клиенту (ответ в чате)
         await sendChatNotification(notif);
+      } else if (notif.type === 'admin_chat') {
+        // Клиент написал админу — уведомляем всех админов
+        await sendAdminNotification(notif);
       } else if (notif.type === 'broadcast') {
         // Рассылка всем подписчикам
         await sendBroadcastNotification(notif);
@@ -180,6 +183,116 @@ async function sendChatNotification(notif) {
     }
     throw error;
   }
+}
+
+// ==================== УВЕДОМЛЕНИЕ АДМИНУ (клиент написал) ====================
+async function sendAdminNotification(notif) {
+  // Ищем все токены админов в коллекции pushTokens
+  const adminTokens = await db.collection('pushTokens')
+    .where('role', '==', 'admin')
+    .get();
+
+  // Также ищем админов в adminPushTokens (специальная коллекция)
+  const adminTokens2 = await db.collection('adminPushTokens').get();
+
+  const tokens = [];
+  adminTokens.forEach(doc => {
+    if (doc.data().token) tokens.push(doc.data().token);
+  });
+  adminTokens2.forEach(doc => {
+    if (doc.data().token && !tokens.includes(doc.data().token)) {
+      tokens.push(doc.data().token);
+    }
+  });
+
+  if (tokens.length === 0) {
+    console.log('Нет админ-токенов для push');
+    return;
+  }
+
+  const clientName = notif.clientName || 'Клиент';
+  const title = '💬 ' + clientName;
+  const body = notif.body || 'Новое сообщение';
+
+  const message = {
+    data: {
+      title: title,
+      body: body,
+      type: 'admin_chat',
+      clientId: notif.clientId || '',
+      url: './admin-chat.html',
+      tag: 'admin-chat-' + (notif.clientId || 'default'),
+      timestamp: Date.now().toString()
+    },
+    android: {
+      priority: 'high',
+      notification: {
+        title: title,
+        body: body,
+        channelId: 'kerben_messages',
+        priority: 'max',
+        visibility: 'public',
+        defaultSound: true,
+        defaultVibrateTimings: true
+      }
+    },
+    apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'alert'
+      },
+      payload: {
+        aps: {
+          alert: { title: title, body: body },
+          sound: 'default',
+          badge: 1
+        }
+      }
+    },
+    webpush: {
+      headers: { Urgency: 'high', TTL: '86400' },
+      notification: {
+        title: title,
+        body: body,
+        icon: './icon-kerben.jpg',
+        badge: './icon-kerben.jpg',
+        vibrate: [300, 150, 300, 150, 300],
+        tag: 'admin-chat',
+        renotify: true,
+        requireInteraction: true,
+        actions: [
+          { action: 'open', title: '📖 Открыть' },
+          { action: 'close', title: '✕ Закрыть' }
+        ]
+      },
+      fcmOptions: { link: './admin-chat.html' }
+    }
+  };
+
+  // Отправляем всем админам
+  const invalidTokens = [];
+  for (const token of tokens) {
+    try {
+      await admin.messaging().send({ ...message, token: token });
+      console.log('✅ Push админу отправлен:', token.substring(0, 20) + '...');
+    } catch (error) {
+      if (error.code === 'messaging/invalid-registration-token' ||
+          error.code === 'messaging/registration-token-not-registered') {
+        invalidTokens.push(token);
+      }
+      console.error('Ошибка push админу:', error.code);
+    }
+  }
+
+  // Удаляем невалидные токены
+  for (const t of invalidTokens) {
+    try {
+      await db.collection('adminPushTokens').doc(t).delete();
+      await db.collection('pushTokens').doc(t).delete();
+    } catch (e) {}
+  }
+
+  console.log(`Admin push: отправлено ${tokens.length - invalidTokens.length} из ${tokens.length}`);
 }
 
 // ==================== РАССЫЛКА ВСЕМ ====================
