@@ -70,22 +70,70 @@ async function sendChatNotification(notif) {
 
   const message = {
     token: token,
-    notification: {
-      title: notif.title || 'Кербен',
-      body: notif.body || 'Новое сообщение'
-    },
+    // НЕ используем notification — только data!
+    // Иначе Android сам обрабатывает уведомление тихо
     data: {
+      title: notif.title || 'Кербен',
+      body: notif.body || 'Новое сообщение',
       type: 'chat',
-      clientId: notif.targetClientId,
-      url: './index.html'
+      clientId: notif.targetClientId || '',
+      url: './index.html',
+      tag: 'chat-' + (notif.targetClientId || 'default'),
+      timestamp: Date.now().toString()
     },
-    webpush: {
+    // Android: максимальный приоритет = heads-up уведомление сверху
+    android: {
+      priority: 'high',
       notification: {
+        title: notif.title || 'Кербен',
+        body: notif.body || 'Новое сообщение',
+        icon: 'icon_kerben',
+        channelId: 'kerben_messages',
+        priority: 'max',
+        visibility: 'public',
+        defaultSound: true,
+        defaultVibrateTimings: true,
+        notificationCount: 1
+      }
+    },
+    // iOS (Apple) — максимальный приоритет
+    apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'alert'
+      },
+      payload: {
+        aps: {
+          alert: {
+            title: notif.title || 'Кербен',
+            body: notif.body || 'Новое сообщение'
+          },
+          sound: 'default',
+          badge: 1,
+          'mutable-content': 1,
+          'content-available': 1
+        }
+      }
+    },
+    // Web Push: громкий с вибрацией
+    webpush: {
+      headers: {
+        Urgency: 'high',
+        TTL: '86400'
+      },
+      notification: {
+        title: notif.title || 'Кербен',
+        body: notif.body || 'Новое сообщение',
         icon: './icon-kerben.jpg',
         badge: './icon-kerben.jpg',
-        vibrate: [200, 100, 200],
-        tag: 'chat-' + notif.targetClientId,
-        renotify: true
+        vibrate: [300, 150, 300, 150, 300],
+        tag: 'chat-' + (notif.targetClientId || 'default'),
+        renotify: true,
+        requireInteraction: true,
+        actions: [
+          { action: 'open', title: '📖 Открыть' },
+          { action: 'close', title: '✕ Закрыть' }
+        ]
       },
       fcmOptions: {
         link: './index.html'
@@ -132,21 +180,63 @@ async function sendBroadcastNotification(notif) {
   if (tokens.length === 0) return;
 
   const message = {
-    notification: {
-      title: notif.title || 'Кербен',
-      body: notif.body || 'Новое уведомление'
-    },
     data: {
+      title: notif.title || 'Кербен',
+      body: notif.body || 'Новое уведомление',
       type: 'broadcast',
-      url: './index.html'
+      url: './index.html',
+      tag: 'broadcast',
+      timestamp: Date.now().toString()
+    },
+    android: {
+      priority: 'high',
+      notification: {
+        title: notif.title || 'Кербен',
+        body: notif.body || 'Новое уведомление',
+        icon: 'icon_kerben',
+        channelId: 'kerben_messages',
+        priority: 'max',
+        visibility: 'public',
+        defaultSound: true,
+        defaultVibrateTimings: true
+      }
+    },
+    apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'alert'
+      },
+      payload: {
+        aps: {
+          alert: {
+            title: notif.title || 'Кербен',
+            body: notif.body || 'Новое уведомление'
+          },
+          sound: 'default',
+          badge: 1,
+          'mutable-content': 1,
+          'content-available': 1
+        }
+      }
     },
     webpush: {
+      headers: {
+        Urgency: 'high',
+        TTL: '86400'
+      },
       notification: {
+        title: notif.title || 'Кербен',
+        body: notif.body || 'Новое уведомление',
         icon: './icon-kerben.jpg',
         badge: './icon-kerben.jpg',
-        vibrate: [200, 100, 200],
+        vibrate: [300, 150, 300, 150, 300],
         tag: 'broadcast',
-        renotify: true
+        renotify: true,
+        requireInteraction: true,
+        actions: [
+          { action: 'open', title: '📖 Открыть' },
+          { action: 'close', title: '✕ Закрыть' }
+        ]
       },
       fcmOptions: {
         link: './index.html'
