@@ -18,31 +18,92 @@ firebase.initializeApp({
 const messaging = firebase.messaging();
 
 // Обработка push-уведомлений в ФОНЕ (сайт закрыт / свёрнут)
+// Как WhatsApp — громко, с вибрацией, баннер сверху
 messaging.onBackgroundMessage((payload) => {
   console.log('[SW] 🔔 Push в фоне:', payload);
 
-  const data = payload.notification || payload.data || {};
+  const data = payload.data || payload.notification || {};
   const title = data.title || 'Кербен';
   const body = data.body || 'Новое уведомление';
 
-  return self.registration.showNotification(title, {
+  const options = {
     body: body,
     icon: './icon-kerben.jpg',
     badge: './icon-kerben.jpg',
-    vibrate: [200, 100, 200, 100, 200],
+    // Сильная вибрация как у мессенджера
+    vibrate: [300, 150, 300, 150, 300, 150, 300],
     tag: data.tag || 'kerben-notification',
     renotify: true,
+    // НЕ исчезает автоматически — пользователь должен нажать
+    requireInteraction: true,
+    // Кнопки действий
+    actions: [
+      { action: 'open', title: '📖 Открыть' },
+      { action: 'close', title: '✕ Закрыть' }
+    ],
+    // Звук (для поддерживающих браузеров)
+    silent: false,
     data: {
       url: data.url || './index.html',
       type: data.type || 'general'
     }
-  });
+  };
+
+  return self.registration.showNotification(title, options);
+});
+
+// Обработка действий (кнопок) в уведомлении
+self.addEventListener('push', (event) => {
+  // Fallback если onBackgroundMessage не сработал
+  if (!event.data) return;
+  
+  try {
+    const payload = event.data.json();
+    const data = payload.data || payload.notification || {};
+    
+    // Если уведомление уже показано через onBackgroundMessage — пропускаем
+    if (payload.notification) return;
+    
+    const title = data.title || 'Кербен';
+    const body = data.body || 'Новое уведомление';
+    
+    event.waitUntil(
+      self.registration.showNotification(title, {
+        body: body,
+        icon: './icon-kerben.jpg',
+        badge: './icon-kerben.jpg',
+        vibrate: [300, 150, 300, 150, 300, 150, 300],
+        tag: data.tag || 'kerben-push',
+        renotify: true,
+        requireInteraction: true,
+        silent: false,
+        actions: [
+          { action: 'open', title: '📖 Открыть' },
+          { action: 'close', title: '✕ Закрыть' }
+        ],
+        data: {
+          url: data.url || './index.html',
+          type: data.type || 'general'
+        }
+      })
+    );
+  } catch (e) {
+    console.log('[SW] Push parse error:', e);
+  }
 });
 
 // Клик по уведомлению — открыть сайт
 self.addEventListener('notificationclick', (event) => {
+  const action = event.action;
+  
+  // Если нажали "Закрыть" — просто закрываем
+  if (action === 'close') {
+    event.notification.close();
+    return;
+  }
+  
+  // Клик на уведомление или кнопку "Открыть"
   event.notification.close();
-
   const url = event.notification.data?.url || './index.html';
 
   event.waitUntil(
@@ -50,6 +111,8 @@ self.addEventListener('notificationclick', (event) => {
       // Ищем уже открытую вкладку
       for (const client of windowClients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
+          // Отправляем сообщение на страницу чтобы открыть чат
+          client.postMessage({ type: 'notification-click', url: url });
           return client.focus();
         }
       }
