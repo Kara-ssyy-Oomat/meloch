@@ -43,8 +43,9 @@ exports.processNotificationQueue = functions.firestore
     return null;
   });
 
-// Создаём web-push сообщение — ТОЛЬКО data, без notification
-// Так SW получает полный контроль через onBackgroundMessage
+// Создаём web-push сообщение
+// webpush.notification — браузер ГАРАНТИРОВАННО покажет уведомление
+// data — для обработки в foreground (onMessage) и клика
 function buildWebPushMessage(token, title, body, extraData) {
   return {
     token: token,
@@ -58,6 +59,17 @@ function buildWebPushMessage(token, title, body, extraData) {
       headers: {
         Urgency: 'high',
         TTL: '86400'
+      },
+      notification: {
+        title: title,
+        body: body,
+        icon: '/icon-kerben.jpg',
+        badge: '/icon-kerben.jpg',
+        vibrate: [300, 150, 300, 150, 300],
+        tag: extraData.tag || 'kerben',
+        renotify: true,
+        requireInteraction: true,
+        data: extraData
       }
     }
   };
