@@ -930,7 +930,7 @@
       let contentHtml = '';
       if (fileUrl) {
         if (fileType && fileType.startsWith('image/')) {
-          contentHtml = `<div class="message-file"><img src="${fileUrl}" style="max-width:100%; max-height:300px; border-radius:8px; cursor:pointer;" onclick="window.open('${fileUrl}','_blank')"></div>`;
+          contentHtml = `<div class="message-file"><img src="${fileUrl}" style="max-width:100%; max-height:300px; border-radius:8px; cursor:pointer;" onclick="openChatImagePreview(this.src)"></div>`;
         } else {
           const icon = (fileType && fileType.includes('pdf')) ? '📄' : '📁';
           contentHtml = `<div class="message-file" style="margin-bottom:8px;"><a href="${fileUrl}" target="_blank" style="color:${isAdmin ? 'white' : '#667eea'}; text-decoration:none; display:flex; align-items:center; gap:8px; padding:8px 12px; background:${isAdmin ? 'rgba(255,255,255,0.15)' : '#f0f0ff'}; border-radius:8px;">${icon} <span style="flex:1; word-break:break-all;">${escapeHtml(fileName || 'Файл')}</span> ⬇️</a></div>`;
@@ -1534,6 +1534,18 @@
       } catch (e) {
         console.error('Ошибка создания клиента для чата:', e);
       }
+    }
+
+    // ==================== ПРОСМОТР ФОТО В ЧАТЕ ====================
+    function openChatImagePreview(src) {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+      overlay.innerHTML = `
+        <span style="position:absolute;top:15px;right:20px;color:white;font-size:36px;cursor:pointer;z-index:100000;">&times;</span>
+        <img src="${src}" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:8px;">
+      `;
+      overlay.onclick = function() { overlay.remove(); };
+      document.body.appendChild(overlay);
     }
 
     // ==================== ЗАГРУЗКА ФАЙЛОВ ====================
