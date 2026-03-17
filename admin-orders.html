@@ -1080,7 +1080,14 @@ function buildOrderItemsDetailTableHTML(orderId, items) {
               min="0"
               oninput="updateOrderItemQtyManagement('${orderId}', ${idx}, this.value)"
               style="width:50px; padding:4px; border:1px solid #ddd; border-radius:4px; text-align:center; font-size:13px;">
-            <span style="color:#666; font-size:12px;" data-price="${item.price}" data-product-id="${item.id || ''}">× ${item.price}</span>
+            <span style="color:#666; font-size:12px; display:flex; align-items:center; gap:2px;" data-price="${item.price}" data-product-id="${item.id || ''}">
+              × <input type="number"
+                id="itemPrice_${orderId}_${idx}"
+                value="${item.price}"
+                min="0"
+                oninput="updateOrderItemPrice('${orderId}', ${idx}, this.value)"
+                style="width:60px; padding:3px 4px; border:1px solid #ddd; border-radius:4px; text-align:center; font-size:12px; color:#333;">
+            </span>
             <div style="margin-left:auto; font-weight:700; color:#007bff; font-size:15px;" id="itemSum_${orderId}_${idx}">${itemTotal.toFixed(0)} сом</div>
           </div>
         </div>
@@ -1184,6 +1191,77 @@ function closeOrderItemsDetailModal() {
 // Обновить количество товара в заказе
 // Дебаунс для предотвращения частых запросов
 let updateQtyTimeout = null;
+let updatePriceTimeout = null;
+
+// Редактирование цены товара ТОЛЬКО в этом заказе (цены на сайте не меняются)
+async function updateOrderItemPrice(orderId, itemIndex, newPrice) {
+  const price = parseFloat(newPrice) || 0;
+
+  // Моментально обновляем UI
+  const qtyEl = document.getElementById(`itemQty_${orderId}_${itemIndex}`);
+  const sumEl = document.getElementById(`itemSum_${orderId}_${itemIndex}`);
+  const qty = qtyEl ? (parseInt(qtyEl.value) || 0) : 0;
+
+  if (sumEl) {
+    sumEl.textContent = (price * qty).toFixed(0) + ' сом';
+  }
+
+  // Обновляем data-price на span
+  const priceSpan = document.getElementById(`itemPrice_${orderId}_${itemIndex}`)?.closest('[data-price]');
+  if (priceSpan) priceSpan.dataset.price = price;
+
+  // Пересчитываем общий итог
+  let grandTotal = 0;
+  document.querySelectorAll('[id^="itemSum_"]').forEach(el => {
+    const match = el.textContent.match(/(\d+\.?\d*)/);
+    if (match) grandTotal += parseFloat(match[1]);
+  });
+  const totalDiv = document.getElementById('orderItemsDetailTotal');
+  if (totalDiv) {
+    totalDiv.innerHTML = `
+      <div style="font-weight:700; color:#333;">Итого</div>
+      <div style="font-size:18px; font-weight:800; color:#28a745; white-space:nowrap;">${grandTotal.toFixed(2)} сом</div>
+    `;
+  }
+
+  // Дебаунс — сохраняем в Firebase через 600мс
+  clearTimeout(updatePriceTimeout);
+  updatePriceTimeout = setTimeout(async () => {
+    try {
+      const orderDoc = await db.collection('orders').doc(orderId).get();
+      if (!orderDoc.exists) return;
+
+      const orderData = orderDoc.data();
+      const items = orderData.items || [];
+
+      if (items[itemIndex]) {
+        // Сохраняем оригинальную цену для справки (если ещё не сохранена)
+        if (items[itemIndex].originalPrice === undefined) {
+          items[itemIndex].originalPrice = items[itemIndex].price;
+        }
+        items[itemIndex].price = price;
+
+        const total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
+
+        // Обновляем ТОЛЬКО заказ — цены на сайте НЕ трогаем
+        await db.collection('orders').doc(orderId).update({ items, total });
+
+        // Обновляем локальный кэш
+        if (Array.isArray(ordersManagementAllOrders)) {
+          const order = ordersManagementAllOrders.find(o => o.id === orderId);
+          if (order) {
+            order.items = items;
+            order.total = total;
+          }
+        }
+        renderOrdersManagementFromCache();
+      }
+    } catch (error) {
+      console.error('Ошибка обновления цены в заказе:', error);
+      Swal.fire('Ошибка', 'Не удалось обновить цену', 'error');
+    }
+  }, 600);
+}
 
 async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
   const qty = parseInt(newQty) || 0;
@@ -1197,22 +1275,10 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
     if (priceEl && sumEl) {
       let price = parseInt(priceEl.dataset.price) || 0;
       
-      // Проверяем оптовую цену из Firebase товара
-      const itemId = priceEl.dataset.productId;
-      if (itemId) {
-        try {
-          const prodDoc = await db.collection('products').doc(itemId).get();
-          if (prodDoc.exists) {
-            const prod = prodDoc.data();
-            if (prod.optQty && qty >= prod.optQty && prod.optPrice) {
-              price = prod.optPrice;
-            } else {
-              price = prod.price || price;
-            }
-            priceEl.dataset.price = price;
-            priceEl.textContent = '× ' + price;
-          }
-        } catch(e) { /* используем текущую цену */ }
+      // Проверяем была ли цена изменена вручную — если да, не перезаписываем
+      const priceInput = document.getElementById(`itemPrice_${orderId}_${itemIndex}`);
+      if (priceInput) {
+        price = parseFloat(priceInput.value) || 0;
       }
       
       const itemTotal = price * qty;
@@ -1250,20 +1316,11 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
         const oldQty = items[itemIndex].qty || 0;
         items[itemIndex].qty = qty;
         
-        // Пересчитываем цену с учётом оптовой
-        const itemId = items[itemIndex].id;
-        if (itemId) {
-          try {
-            const prodDoc = await db.collection('products').doc(itemId).get();
-            if (prodDoc.exists) {
-              const prod = prodDoc.data();
-              if (prod.optQty && qty >= prod.optQty && prod.optPrice) {
-                items[itemIndex].price = prod.optPrice;
-              } else {
-                items[itemIndex].price = prod.price || items[itemIndex].price;
-              }
-            }
-          } catch(e) { /* оставляем текущую цену */ }
+        // Цену не трогаем — она может быть изменена вручную
+        // Берём цену из поля ввода если есть
+        const priceInput = document.getElementById(`itemPrice_${orderId}_${itemIndex}`);
+        if (priceInput) {
+          items[itemIndex].price = parseFloat(priceInput.value) || items[itemIndex].price;
         }
       
         const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -1272,6 +1329,7 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
         await db.collection('orders').doc(orderId).update({ items, total });
 
         // Потом корректируем склад (функция сама обновит warehouseDeductions)
+        const itemId = items[itemIndex].id;
         const diff = qty - oldQty;
         if (diff > 0 && itemId) {
           await deductStockForItem(orderId, itemId, diff);
