@@ -443,6 +443,7 @@
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
   
   <!-- SweetAlert2 -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -459,6 +460,7 @@
       </div>
       <div class="header-actions">
         <button class="action-btn" onclick="refreshClients()">🔄 Обновить</button>
+        <button class="action-btn" onclick="testPushNotification()" style="background:#4CAF50">🔔 Тест Push</button>
         <button class="action-btn" onclick="showBroadcastDialog()" style="background:linear-gradient(135deg,#667eea,#764ba2)">📢 Рассылка</button>
         <button class="action-btn danger" onclick="clearAllMessages()">🗑️ Очистить всё</button>
       </div>
@@ -512,8 +514,9 @@
       authDomain: "svoysayet.firebaseapp.com",
       projectId: "svoysayet",
       storageBucket: "svoysayet.firebasestorage.app",
-      messagingSenderId: "785840370498",
-      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
+      messagingSenderId: "450143000217",
+      appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+      measurementId: "G-Y8VG9E29FY"
     };
     
     // Инициализация Firebase
@@ -591,20 +594,54 @@
       `;
       
       try {
-        const snapshot = await db.collection('chatClients').get();
+        // Загружаем из ОБЕИХ коллекций: chatClients + customers
+        const [chatSnap, customersSnap] = await Promise.all([
+          db.collection('chatClients').get(),
+          db.collection('customers').get()
+        ]);
         
         allClients = [];
-        snapshot.forEach(doc => {
+        const addedIds = new Set();
+        
+        // 1. Сначала chatClients (те кто писал в чат)
+        chatSnap.forEach(doc => {
+          addedIds.add(doc.id);
           allClients.push({
             id: doc.id,
             ...doc.data()
           });
         });
         
+        // 2. Добавляем зарегистрированных из customers (кого ещё нет)
+        customersSnap.forEach(doc => {
+          const data = doc.data();
+          // Пропускаем админов
+          if (data.isAdmin === true) return;
+          
+          // Если у клиента есть chatClientId и он уже в списке — пропускаем
+          if (data.chatClientId && addedIds.has(data.chatClientId)) return;
+          
+          // Определяем ID для чата
+          const chatId = data.chatClientId || ('cust_' + doc.id);
+          if (addedIds.has(chatId)) return;
+          
+          addedIds.add(chatId);
+          allClients.push({
+            id: chatId,
+            name: data.name || data.phone || 'Клиент',
+            phone: data.phone || '',
+            lastActive: data.createdAt ? { toDate: () => new Date(data.createdAt) } : null,
+            hasUnread: false,
+            lastMessage: '',
+            isRegistered: true,
+            customerId: doc.id
+          });
+        });
+        
         // Сортируем по lastActive (новые первыми)
         allClients.sort((a, b) => {
-          const timeA = a.lastActive ? a.lastActive.toDate().getTime() : 0;
-          const timeB = b.lastActive ? b.lastActive.toDate().getTime() : 0;
+          const timeA = a.lastActive ? (typeof a.lastActive.toDate === 'function' ? a.lastActive.toDate().getTime() : 0) : 0;
+          const timeB = b.lastActive ? (typeof b.lastActive.toDate === 'function' ? b.lastActive.toDate().getTime() : 0) : 0;
           return timeB - timeA;
         });
         
@@ -644,11 +681,11 @@
         card.className = 'client-card' + (client.hasUnread ? ' has-unread' : '') + (client.id === selectedClientId ? ' active' : '');
         card.onclick = () => selectClient(client);
         
-        const lastActive = client.lastActive ? formatDate(client.lastActive.toDate()) : 'Давно';
+        const lastActive = client.lastActive && typeof client.lastActive.toDate === 'function' ? formatDate(client.lastActive.toDate()) : (client.isRegistered ? '📋 Зарег.' : 'Давно');
         
         card.innerHTML = `
           <div class="client-name">${escapeHtml(client.name || 'Клиент')}</div>
-          <div class="client-meta">${lastActive}</div>
+          <div class="client-meta">${client.phone ? client.phone + ' • ' : ''}${lastActive}</div>
           ${client.lastMessage ? `<div class="client-last-msg">${escapeHtml(client.lastMessage)}</div>` : ''}
         `;
         
@@ -667,6 +704,7 @@
       
       const filtered = allClients.filter(c => 
         (c.name && c.name.toLowerCase().includes(query)) ||
+        (c.phone && c.phone.includes(query)) ||
         (c.id && c.id.toLowerCase().includes(query)) ||
         (c.lastMessage && c.lastMessage.toLowerCase().includes(query))
       );
@@ -1120,16 +1158,252 @@
       return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     }
     
-    // ==================== BROADCAST УВЕДОМЛЕНИЯ ====================
+    // ==================== ТЕСТ PUSH-УВЕДОМЛЕНИЙ ====================
+    async function testPushNotification() {
+      // 1. Проверяем разрешение
+      if (!('Notification' in window)) {
+        Swal.fire({icon:'error', title:'Браузер не поддерживает уведомления'});
+        return;
+      }
+      
+      const perm = Notification.permission;
+      if (perm === 'denied') {
+        Swal.fire({icon:'error', title:'Уведомления заблокированы', text:'Разблокируйте в настройках браузера: 🔒 → Настройки сайта → Уведомления → Разрешить'});
+        return;
+      }
+      
+      if (perm === 'default') {
+        const result = await Notification.requestPermission();
+        if (result !== 'granted') {
+          Swal.fire({icon:'warning', title:'Нужно разрешить уведомления'});
+          return;
+        }
+      }
+      
+      // 2. Локальный тест — показываем уведомление прямо на устройстве
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification('🔔 Тест — Кербен', {
+          body: 'Если видите это — уведомления работают на вашем устройстве!',
+          icon: './icon-kerben.jpg',
+          badge: './icon-kerben.jpg',
+          vibrate: [300, 150, 300, 150, 300],
+          tag: 'test-local',
+          renotify: true,
+          requireInteraction: true,
+          silent: false
+        });
+        
+        Swal.fire({
+          icon: 'success',
+          title: '✅ Локальное уведомление отправлено!',
+          html: 'Проверьте панель уведомлений на телефоне.<br><br>Если НЕ появилось:<br>1. Откройте <b>Настройки → Приложения → Chrome → Уведомления</b><br>2. Включите уведомления<br>3. Убедитесь что <b>"Не беспокоить"</b> выключен',
+          confirmButtonText: '📤 Отправить через FCM тоже',
+          showCancelButton: true,
+          cancelButtonText: 'Только локальный тест'
+        }).then(async (result) => {
+          if (result.isConfirmed) {
+            // 3. Тест через Cloud Function
+            await db.collection('notificationQueue').add({
+              type: 'admin_chat',
+              title: 'Тест FCM',
+              body: 'Push через Cloud Function работает! ' + new Date().toLocaleTimeString(),
+              clientId: 'test',
+              clientName: 'Тест FCM',
+              status: 'pending',
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            Swal.fire({icon:'info', title:'FCM тест отправлен', text:'Push через Cloud Function → подождите 5 сек', toast:true, position:'top-end', timer:3000, showConfirmButton:false});
+          }
+        });
+      } catch (error) {
+        Swal.fire({icon:'error', title:'Ошибка', text: error.message});
+      }
+    }
+
+    // ==================== BROADCAST УВЕДОМЛЕНИЯ И РАССЫЛКА В ЧАТ ====================
     async function showBroadcastDialog() {
+      const { value: mode } = await Swal.fire({
+        title: '📢 Рассылка',
+        text: 'Что хотите отправить?',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: '💬 Сообщение в чат',
+        denyButtonText: '🔔 Push-уведомление',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#667eea',
+        denyButtonColor: '#ff9800'
+      });
+
+      if (mode === true) {
+        // Сообщение в чат всем клиентам
+        await showBroadcastChatDialog();
+      } else if (mode === false) {
+        // Push-уведомление
+        await showBroadcastPushDialog();
+      }
+    }
+
+    // Рассылка СООБЩЕНИЯ В ЧАТ всем клиентам
+    async function showBroadcastChatDialog() {
+      const { value: message } = await Swal.fire({
+        title: '💬 Сообщение всем клиентам',
+        html: '<textarea id="swal-broadcast-msg" class="swal2-textarea" placeholder="Введите сообщение для всех клиентов..." style="font-size:14px;height:120px;"></textarea>' +
+          '<div style="font-size:12px; color:#666; margin-top:8px;">Сообщение появится в чате у каждого клиента</div>',
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: '📤 Отправить всем',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#667eea',
+        preConfirm: () => {
+          const msg = document.getElementById('swal-broadcast-msg').value.trim();
+          if (!msg) {
+            Swal.showValidationMessage('Введите текст сообщения');
+            return false;
+          }
+          return msg;
+        }
+      });
+
+      if (!message) return;
+
+      try {
+        Swal.fire({ title: '📤 Отправка...', html: 'Загрузка списка клиентов...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+        // Загружаем клиентов из ОБЕИХ коллекций: chatClients + customers
+        const [chatSnap, customersSnap] = await Promise.all([
+          db.collection('chatClients').get(),
+          db.collection('customers').get()
+        ]);
+
+        // Собираем всех из chatClients (множество ID)
+        const chatClientIds = new Set();
+        const clientsMap = new Map();
+        chatSnap.forEach(doc => {
+          chatClientIds.add(doc.id);
+          clientsMap.set(doc.id, { id: doc.id, name: doc.data().name || 'Клиент', source: 'chat' });
+        });
+
+        // Добавляем зарегистрированных клиентов из customers
+        customersSnap.forEach(doc => {
+          const data = doc.data();
+          // Пропускаем админов
+          if (data.isAdmin === true) return;
+          
+          // Если у клиента есть chatClientId и он уже в chatClients — пропускаем
+          if (data.chatClientId && chatClientIds.has(data.chatClientId)) return;
+          
+          // Если есть chatClientId — используем его
+          if (data.chatClientId) {
+            clientsMap.set(data.chatClientId, { 
+              id: data.chatClientId, 
+              name: data.name || data.phone || 'Клиент',
+              source: 'customers'
+            });
+            return;
+          }
+          
+          // Нет chatClientId — создаём запись с ID на основе customer doc
+          const custClientId = 'cust_' + doc.id;
+          if (!clientsMap.has(custClientId)) {
+            clientsMap.set(custClientId, { 
+              id: custClientId, 
+              name: data.name || data.phone || 'Клиент',
+              source: 'customers'
+            });
+          }
+        });
+
+        const clients = Array.from(clientsMap.values());
+
+        if (clients.length === 0) {
+          Swal.fire('Нет клиентов', 'В базе ещё нет клиентов для рассылки', 'info');
+          return;
+        }
+
+        Swal.update({ html: `Найдено ${clients.length} клиентов. Отправка...` });
+
+        const now = firebase.firestore.Timestamp.now();
+        let sent = 0;
+        let errors = 0;
+
+        // Отправляем пакетами (Firestore batch лимит 500, используем 200 т.к. 2 операции на клиента)
+        const batchSize = 200;
+        for (let i = 0; i < clients.length; i += batchSize) {
+          const chunk = clients.slice(i, i + batchSize);
+          const batch = db.batch();
+
+          for (const client of chunk) {
+            // Добавляем сообщение в chatMessages
+            const msgRef = db.collection('chatMessages').doc();
+            batch.set(msgRef, {
+              text: message,
+              sender: 'admin',
+              clientId: client.id,
+              clientName: client.name || 'Клиент',
+              timestamp: now,
+              read: false,
+              isBroadcast: true
+            });
+
+            // Создаём/обновляем запись в chatClients (чтобы клиент увидел сообщение)
+            const clientRef = db.collection('chatClients').doc(client.id);
+            batch.set(clientRef, {
+              name: client.name || 'Клиент',
+              hasUnread: false,
+              lastMessage: message.length > 50 ? message.substring(0, 50) + '...' : message,
+              lastActive: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+          }
+
+          try {
+            await batch.commit();
+            sent += chunk.length;
+          } catch (e) {
+            console.error('Ошибка batch:', e);
+            errors += chunk.length;
+          }
+
+          Swal.update({ html: `Отправлено: ${sent} из ${clients.length}...` });
+        }
+
+        // Push-уведомление всем
+        try {
+          await db.collection('notificationQueue').add({
+            type: 'broadcast',
+            title: 'Кербен',
+            body: message.length > 100 ? message.substring(0, 100) + '...' : message,
+            status: 'pending',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        } catch (e) { console.log('Push broadcast error:', e); }
+
+        Swal.fire({
+          icon: 'success',
+          title: '✅ Рассылка завершена!',
+          html: `Сообщение отправлено <b>${sent}</b> клиентам` + (errors > 0 ? `<br><span style="color:red">Ошибок: ${errors}</span>` : ''),
+          confirmButtonColor: '#667eea'
+        });
+
+        // Обновляем список клиентов
+        loadClients();
+
+      } catch (error) {
+        console.error('Ошибка рассылки:', error);
+        Swal.fire('Ошибка', 'Не удалось отправить рассылку: ' + error.message, 'error');
+      }
+    }
+
+    // Push-уведомление без сообщения в чат
+    async function showBroadcastPushDialog() {
       const { value: formValues } = await Swal.fire({
-        title: '📢 Рассылка уведомлений',
+        title: '🔔 Push-уведомление всем',
         html:
           '<input id="swal-notif-title" class="swal2-input" placeholder="Заголовок" style="font-size:14px">' +
           '<textarea id="swal-notif-body" class="swal2-textarea" placeholder="Текст уведомления" style="font-size:14px;height:100px"></textarea>',
         focusConfirm: false,
         showCancelButton: true,
-        confirmButtonText: 'Отправить всем 📤',
+        confirmButtonText: 'Отправить 📤',
         cancelButtonText: 'Отмена',
         confirmButtonColor: '#667eea',
         preConfirm: () => {
@@ -1160,6 +1434,8 @@
       }
     }
   </script>
+<script defer src="js/sw-register.js"></script>
+<script defer src="js/push-notifications.js"></script>
 <script src="js/bottom-nav.js?v=28"></script>
 </body>
 </html>

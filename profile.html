@@ -346,6 +346,7 @@
   
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при экспорте заказа -->
@@ -610,8 +611,9 @@
       authDomain: "svoysayet.firebaseapp.com",
       projectId: "svoysayet",
       storageBucket: "svoysayet.firebasestorage.app",
-      messagingSenderId: "785840370498",
-      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
+      messagingSenderId: "450143000217",
+      appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+      measurementId: "G-Y8VG9E29FY"
     };
     
     // Telegram Bot для уведомлений
@@ -2751,5 +2753,7 @@
     setTimeout(updatePushBadge, 500);
   </script>
 <script src="js/bottom-nav.js?v=28"></script>
+<script defer src="js/push-notifications.js"></script>
+<script defer src="js/sw-register.js"></script>
 </body>
 </html>

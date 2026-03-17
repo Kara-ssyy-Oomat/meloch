@@ -157,6 +157,7 @@
   
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 
@@ -203,8 +204,9 @@
       authDomain: "svoysayet.firebaseapp.com",
       projectId: "svoysayet",
       storageBucket: "svoysayet.firebasestorage.app",
-      messagingSenderId: "785840370498",
-      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
+      messagingSenderId: "450143000217",
+      appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+      measurementId: "G-Y8VG9E29FY"
     };
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
@@ -447,7 +449,7 @@
       try {
         console.log('Отправка сообщения в Firebase...', { clientId, text });
         
-        const msgRef = await db.collection('chatMessages').add({
+        const savePromise = db.collection('chatMessages').add({
           text: text,
           sender: 'client',
           clientId: clientId,
@@ -456,16 +458,27 @@
           read: false
         });
         
-        console.log('Сообщение сохранено, ID:', msgRef.id);
+        // Push-уведомление админу
+        const notifPromise = db.collection('notificationQueue').add({
+          type: 'admin_chat',
+          title: clientName || 'Клиент',
+          body: text.length > 100 ? text.substring(0, 100) + '...' : text,
+          clientId: clientId,
+          clientName: clientName || 'Клиент',
+          status: 'pending',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
         
-        await db.collection('chatClients').doc(clientId).set({
+        const activityPromise = db.collection('chatClients').doc(clientId).set({
           name: clientName || 'Клиент',
           lastActive: firebase.firestore.FieldValue.serverTimestamp(),
           lastMessage: text,
           hasUnread: true
         }, { merge: true });
         
-        console.log('Клиент обновлён в chatClients');
+        await Promise.all([savePromise, notifPromise, activityPromise]);
+        
+        console.log('Сообщение и уведомление отправлены');
         
       } catch (error) {
         console.error('Ошибка отправки:', error);
@@ -485,5 +498,7 @@
     document.addEventListener('DOMContentLoaded', init);
   </script>
 <script src="js/bottom-nav.js?v=28"></script>
+<script defer src="js/push-notifications.js"></script>
+<script defer src="js/sw-register.js"></script>
 </body>
 </html>
