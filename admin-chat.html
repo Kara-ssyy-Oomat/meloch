@@ -638,7 +638,7 @@
           });
         });
         
-        // Сортируем по lastActive (новые первыми)
+        // Сортируем по lastActive — последние переписки всегда сверху
         allClients.sort((a, b) => {
           const timeA = a.lastActive ? (typeof a.lastActive.toDate === 'function' ? a.lastActive.toDate().getTime() : 0) : 0;
           const timeB = b.lastActive ? (typeof b.lastActive.toDate === 'function' ? b.lastActive.toDate().getTime() : 0) : 0;
@@ -653,6 +653,9 @@
         
         // Подписка на непрочитанные сообщения для badge
         subscribeToUnreadMessages();
+        
+        // Проверяем URL-параметры для автооткрытия чата с клиентом
+        checkUrlParamsAndOpenChat();
         
       } catch (error) {
         console.error('Ошибка загрузки клиентов:', error);
@@ -734,7 +737,7 @@
               allClients.unshift(clientData);
             }
             
-            // Пересортируем
+            // Пересортируем по lastActive — последние переписки сверху
             allClients.sort((a, b) => {
               const timeA = a.lastActive ? a.lastActive.toDate().getTime() : 0;
               const timeB = b.lastActive ? b.lastActive.toDate().getTime() : 0;
@@ -1431,6 +1434,88 @@
           console.error('Ошибка отправки broadcast:', error);
           Swal.fire('Ошибка', 'Не удалось отправить уведомление', 'error');
         }
+      }
+    }
+    // ==================== АВТООТКРЫТИЕ ЧАТА ИЗ URL ====================
+    function checkUrlParamsAndOpenChat() {
+      const params = new URLSearchParams(window.location.search);
+      const clientName = params.get('clientName');
+      const clientPhone = params.get('clientPhone');
+      
+      if (!clientName && !clientPhone) return;
+      
+      // Ищем клиента по имени или телефону
+      const found = allClients.find(c => {
+        if (clientPhone && c.phone && c.phone.includes(clientPhone)) return true;
+        if (clientName && c.name && c.name.toLowerCase() === clientName.toLowerCase()) return true;
+        return false;
+      });
+      
+      if (found) {
+        // Нашли — открываем чат
+        const card = document.querySelector('.client-card');
+        selectClientDirect(found);
+      } else {
+        // Не нашли — создаём нового клиента в chatClients и открываем чат
+        createAndOpenChat(clientName || 'Клиент', clientPhone || '');
+      }
+      
+      // Очищаем URL параметры
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    
+    // Выбор клиента программно (без event)
+    async function selectClientDirect(client) {
+      selectedClientId = client.id;
+      selectedClientName = client.name || 'Клиент';
+      
+      // Обновляем UI списка
+      document.querySelectorAll('.client-card').forEach(card => {
+        if (card.querySelector('.client-name') && card.querySelector('.client-name').textContent === (client.name || 'Клиент')) {
+          card.classList.add('active');
+          card.classList.remove('has-unread');
+        } else {
+          card.classList.remove('active');
+        }
+      });
+      
+      // Показываем шапку и поле ввода
+      document.getElementById('messagesHeader').classList.add('visible');
+      document.getElementById('inputArea').classList.add('visible');
+      document.getElementById('chatClientName').textContent = '💬 ' + selectedClientName;
+      document.getElementById('chatClientId').textContent = 'ID: ' + client.id;
+      document.getElementById('messageInput').placeholder = 'Ответить ' + selectedClientName + '...';
+      
+      // Показываем панель сообщений, скрываем список клиентов
+      document.getElementById('clientsPanel').classList.add('hidden');
+      document.getElementById('messagesPanel').classList.add('visible');
+      
+      // Убираем метку непрочитанного
+      try {
+        await db.collection('chatClients').doc(client.id).update({ hasUnread: false });
+      } catch (e) {}
+      
+      loadMessages(client.id);
+    }
+    
+    // Создать нового клиента и открыть чат
+    async function createAndOpenChat(name, phone) {
+      try {
+        const clientId = 'order_' + Date.now();
+        await db.collection('chatClients').doc(clientId).set({
+          name: name,
+          phone: phone,
+          hasUnread: false,
+          lastActive: firebase.firestore.FieldValue.serverTimestamp(),
+          lastMessage: ''
+        });
+        
+        const newClient = { id: clientId, name: name, phone: phone, hasUnread: false };
+        allClients.unshift(newClient);
+        renderClients(allClients);
+        selectClientDirect(newClient);
+      } catch (e) {
+        console.error('Ошибка создания клиента для чата:', e);
       }
     }
   </script>
