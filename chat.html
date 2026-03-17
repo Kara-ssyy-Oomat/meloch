@@ -323,10 +323,25 @@
             doc.ref.update({ read: true });
           }
           
+          let contentHtml = '';
+          if (msg.fileUrl) {
+            if (msg.fileType && msg.fileType.startsWith('image/')) {
+              contentHtml = `<div style="margin-bottom:6px;"><img src="${msg.fileUrl}" style="max-width:100%; max-height:250px; border-radius:8px; cursor:pointer;" onclick="window.open('${msg.fileUrl}','_blank')"></div>`;
+            } else {
+              const icon = (msg.fileType && msg.fileType.includes('pdf')) ? '📄' : '📁';
+              const linkColor = isSent ? 'white' : '#667eea';
+              const bgColor = isSent ? 'rgba(255,255,255,0.15)' : '#f0f0ff';
+              contentHtml = `<div style="margin-bottom:6px;"><a href="${msg.fileUrl}" target="_blank" style="color:${linkColor}; text-decoration:none; display:flex; align-items:center; gap:8px; padding:8px 12px; background:${bgColor}; border-radius:8px;">${icon} <span style="flex:1; word-break:break-all;">${escapeHtml(msg.fileName || 'Файл')}</span> ⬇️</a></div>`;
+            }
+          }
+          if (msg.text) {
+            contentHtml += `<div class="message-text" style="white-space:pre-wrap;">${escapeHtml(msg.text)}</div>`;
+          }
+          
           const div = document.createElement('div');
           div.className = `message ${isSent ? 'sent' : 'received'}`;
           div.innerHTML = `
-            <div class="message-text">${escapeHtml(msg.text)}</div>
+            ${contentHtml}
             <div class="message-time">${isSent ? 'Вы' : 'Продавец'} • ${time}</div>
           `;
           messagesDiv.appendChild(div);
@@ -358,7 +373,7 @@
               
               // Показываем только сообщения от админа
               if (msg.sender === 'admin') {
-                addMessageToUI(msg.text, 'received', new Date(msg.timestamp?.seconds * 1000 || Date.now()));
+                addMessageToUI(msg.text, 'received', new Date(msg.timestamp?.seconds * 1000 || Date.now()), msg.fileUrl, msg.fileType, msg.fileName);
                 showNewMessageNotification('Новое сообщение от продавца');
                 if (!msg.read) {
                   change.doc.ref.update({ read: true });
@@ -423,14 +438,30 @@
       Notification.requestPermission();
     }
     
-    function addMessageToUI(text, type, timestamp) {
+    function addMessageToUI(text, type, timestamp, fileUrl, fileType, fileName) {
       const messagesDiv = document.getElementById('chatMessages');
       const time = timestamp.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       
       const div = document.createElement('div');
       div.className = `message ${type === 'sent' ? 'sent' : 'received'}`;
+      
+      let contentHtml = '';
+      if (fileUrl) {
+        if (fileType && fileType.startsWith('image/')) {
+          contentHtml = `<div style="margin-bottom:6px;"><img src="${fileUrl}" style="max-width:100%; max-height:250px; border-radius:8px; cursor:pointer;" onclick="window.open('${fileUrl}','_blank')"></div>`;
+        } else {
+          const icon = (fileType && fileType.includes('pdf')) ? '📄' : '📁';
+          const linkColor = type === 'sent' ? 'white' : '#667eea';
+          const bgColor = type === 'sent' ? 'rgba(255,255,255,0.15)' : '#f0f0ff';
+          contentHtml = `<div style="margin-bottom:6px;"><a href="${fileUrl}" target="_blank" style="color:${linkColor}; text-decoration:none; display:flex; align-items:center; gap:8px; padding:8px 12px; background:${bgColor}; border-radius:8px;">${icon} <span style="flex:1; word-break:break-all;">${escapeHtml(fileName || 'Файл')}</span> ⬇️</a></div>`;
+        }
+      }
+      if (text) {
+        contentHtml += `<div class="message-text" style="white-space:pre-wrap;">${escapeHtml(text)}</div>`;
+      }
+      
       div.innerHTML = `
-        <div class="message-text">${escapeHtml(text)}</div>
+        ${contentHtml}
         <div class="message-time">${type === 'sent' ? 'Вы' : 'Продавец'} • ${time}</div>
       `;
       messagesDiv.appendChild(div);

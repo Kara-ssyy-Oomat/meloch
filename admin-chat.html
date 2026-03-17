@@ -326,6 +326,7 @@
       font-size: 15px;
       line-height: 1.4;
       word-wrap: break-word;
+      white-space: pre-wrap;
     }
     
     .message-time {
@@ -501,6 +502,9 @@
         </div>
       </div>
       <div class="input-area" id="inputArea">
+        <input type="file" id="fileInput" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style="display:none" onchange="handleFileUpload(this)">
+        <button class="send-btn" onclick="document.getElementById('fileInput').click()" style="background:#17a2b8; width:42px; height:42px; font-size:18px;" title="Прикрепить файл">📎</button>
+        <button class="send-btn" onclick="sendOrderListToClient()" style="background:#ff9800; width:42px; height:42px; font-size:18px;" title="Отправить список заказа">📋</button>
         <input type="text" id="messageInput" placeholder="Введите сообщение..." onkeypress="if(event.key==='Enter') sendMessage()">
         <button class="send-btn" onclick="sendMessage()">➤</button>
       </div>
@@ -856,7 +860,7 @@
           
           // Отрисовываем сообщения
           messages.forEach(msg => {
-            addMessageToUI(msg.text, msg.sender, msg.timestamp ? msg.timestamp.toDate() : new Date());
+            addMessageToUI(msg.text, msg.sender, msg.timestamp ? msg.timestamp.toDate() : new Date(), msg.fileUrl, msg.fileType, msg.fileName);
           });
           
           // Прокручиваем вниз
@@ -898,7 +902,7 @@
               });
               
               if (!isDuplicate && msg.sender === 'client' && selectedClientId === clientId) {
-                addMessageToUI(msg.text, msg.sender, msg.timestamp ? msg.timestamp.toDate() : new Date());
+                addMessageToUI(msg.text, msg.sender, msg.timestamp ? msg.timestamp.toDate() : new Date(), msg.fileUrl, msg.fileType, msg.fileName);
                 messagesArea.scrollTop = messagesArea.scrollHeight;
                 showNewMessageNotification('Новое сообщение от клиента: ' + (msg.clientName || 'Клиент'));
               }
@@ -908,7 +912,7 @@
     }
     
     // Добавление сообщения в UI
-    function addMessageToUI(text, sender, timestamp) {
+    function addMessageToUI(text, sender, timestamp, fileUrl, fileType, fileName) {
       const messagesArea = document.getElementById('messagesArea');
       
       // Удаляем placeholder если есть
@@ -918,14 +922,27 @@
       const isAdmin = sender === 'admin';
       const div = document.createElement('div');
       div.className = 'message ' + (isAdmin ? 'from-admin' : 'from-client');
-      div.dataset.text = text;
+      div.dataset.text = text || fileName || '';
       
       const time = formatTime(timestamp);
       const date = formatDateShort(timestamp);
       
+      let contentHtml = '';
+      if (fileUrl) {
+        if (fileType && fileType.startsWith('image/')) {
+          contentHtml = `<div class="message-file"><img src="${fileUrl}" style="max-width:100%; max-height:300px; border-radius:8px; cursor:pointer;" onclick="window.open('${fileUrl}','_blank')"></div>`;
+        } else {
+          const icon = (fileType && fileType.includes('pdf')) ? '📄' : '📁';
+          contentHtml = `<div class="message-file" style="margin-bottom:8px;"><a href="${fileUrl}" target="_blank" style="color:${isAdmin ? 'white' : '#667eea'}; text-decoration:none; display:flex; align-items:center; gap:8px; padding:8px 12px; background:${isAdmin ? 'rgba(255,255,255,0.15)' : '#f0f0ff'}; border-radius:8px;">${icon} <span style="flex:1; word-break:break-all;">${escapeHtml(fileName || 'Файл')}</span> ⬇️</a></div>`;
+        }
+      }
+      if (text) {
+        contentHtml += `<div class="message-text">${escapeHtml(text)}</div>`;
+      }
+      
       div.innerHTML = `
         <div class="message-sender">${isAdmin ? '✅ Вы' : '👤 ' + selectedClientName}</div>
-        <div class="message-text">${escapeHtml(text)}</div>
+        ${contentHtml}
         <div class="message-time">${date} ${time}</div>
       `;
       
@@ -1516,6 +1533,217 @@
         selectClientDirect(newClient);
       } catch (e) {
         console.error('Ошибка создания клиента для чата:', e);
+      }
+    }
+
+    // ==================== ЗАГРУЗКА ФАЙЛОВ ====================
+    function compressImage(file, maxWidth, quality) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let w = img.width, h = img.height;
+            if (w > maxWidth) { h = h * maxWidth / w; w = maxWidth; }
+            canvas.width = w;
+            canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handleFileUpload(input) {
+      if (!selectedClientId) {
+        Swal.fire('Ошибка', 'Сначала выберите клиента', 'warning');
+        input.value = '';
+        return;
+      }
+
+      const file = input.files[0];
+      if (!file) return;
+
+      // Лимит 5MB
+      if (file.size > 5 * 1024 * 1024) {
+        Swal.fire('Ошибка', 'Файл слишком большой (макс 5 МБ)', 'error');
+        input.value = '';
+        return;
+      }
+
+      const now = new Date();
+      const fileName = file.name;
+      const fileType = file.type;
+
+      try {
+        Swal.fire({ title: '📤 Обработка файла...', html: fileName, allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+        let fileUrl;
+        if (fileType.startsWith('image/')) {
+          // Сжимаем изображение
+          fileUrl = await compressImage(file, 800, 0.7);
+        } else {
+          // PDF и другие файлы — base64
+          fileUrl = await fileToBase64(file);
+        }
+
+        // Проверяем размер base64 (Firestore лимит ~1MB на документ)
+        if (fileUrl.length > 900000) {
+          Swal.fire('Ошибка', 'Файл слишком большой после обработки. Попробуйте файл поменьше.', 'error');
+          input.value = '';
+          return;
+        }
+
+        // Добавляем в UI
+        addMessageToUI('', 'admin', now, fileUrl, fileType, fileName);
+
+        // Сохраняем в Firestore
+        await db.collection('chatMessages').add({
+          text: '',
+          sender: 'admin',
+          clientId: selectedClientId,
+          clientName: selectedClientName,
+          timestamp: firebase.firestore.Timestamp.fromDate(now),
+          read: false,
+          fileUrl: fileUrl,
+          fileType: fileType,
+          fileName: fileName
+        });
+
+        // Прокрутка
+        const messagesArea = document.getElementById('messagesArea');
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+
+        Swal.fire({ icon: 'success', title: 'Файл отправлен!', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
+
+      } catch (error) {
+        console.error('Ошибка загрузки файла:', error);
+        Swal.fire('Ошибка', 'Не удалось отправить файл: ' + error.message, 'error');
+      }
+
+      input.value = '';
+    }
+
+    // ==================== ОТПРАВИТЬ СПИСОК ЗАКАЗА КЛИЕНТУ ====================
+    async function sendOrderListToClient() {
+      if (!selectedClientId) {
+        Swal.fire('Ошибка', 'Сначала выберите клиента', 'warning');
+        return;
+      }
+
+      try {
+        Swal.fire({ title: '📋 Поиск заказов...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+        // Ищем заказы клиента по имени или телефону
+        const clientInfo = allClients.find(c => c.id === selectedClientId);
+        const clientName = clientInfo ? (clientInfo.name || '') : (selectedClientName || '');
+        const clientPhone = clientInfo ? (clientInfo.phone || '') : '';
+
+        let orders = [];
+
+        // Поиск по имени
+        if (clientName) {
+          const byName = await db.collection('orders').where('name', '==', clientName).get();
+          byName.forEach(doc => orders.push({ id: doc.id, ...doc.data() }));
+        }
+
+        // Поиск по телефону
+        if (clientPhone) {
+          const byPhone = await db.collection('orders').where('phone', '==', clientPhone).get();
+          byPhone.forEach(doc => {
+            if (!orders.find(o => o.id === doc.id)) {
+              orders.push({ id: doc.id, ...doc.data() });
+            }
+          });
+        }
+
+        Swal.close();
+
+        if (orders.length === 0) {
+          Swal.fire('Нет заказов', `У клиента ${clientName} не найдено заказов`, 'info');
+          return;
+        }
+
+        // Сортируем по дате (новые первыми)
+        orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        // Предлагаем выбрать заказ
+        const orderOptions = orders.map((o, i) => {
+          const date = new Date(o.timestamp || 0).toLocaleDateString('ru-RU');
+          const total = (o.items || []).reduce((s, item) => s + (item.price * item.qty), 0);
+          const statusMap = { pending: 'Новый', preparing: 'Готовится', logistics: 'Логистика', driver: 'Доставка', completed: 'Готов', cancelled: 'Отменён' };
+          const st = statusMap[o.status] || o.status || 'Новый';
+          return `<option value="${i}">${date} — ${total.toLocaleString()} сом — ${st}</option>`;
+        }).join('');
+
+        const { value: selectedIdx } = await Swal.fire({
+          title: '📋 Выбрать заказ',
+          html: `
+            <p style="margin-bottom:10px; color:#666;">Найдено ${orders.length} заказ(ов) для ${clientName}</p>
+            <select id="swal-order-select" class="swal2-select" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+              ${orderOptions}
+            </select>
+          `,
+          showCancelButton: true,
+          confirmButtonText: '📤 Отправить список',
+          cancelButtonText: 'Отмена',
+          confirmButtonColor: '#667eea',
+          preConfirm: () => document.getElementById('swal-order-select').value
+        });
+
+        if (selectedIdx === undefined || selectedIdx === null) return;
+
+        const order = orders[parseInt(selectedIdx)];
+        const items = order.items || [];
+        const grandTotal = items.reduce((s, item) => s + (item.price * item.qty), 0);
+        const orderDate = new Date(order.timestamp || 0).toLocaleDateString('ru-RU');
+
+        // Формируем красивый текст списка
+        let listText = `📋 Ваш заказ от ${orderDate}\n`;
+        listText += `━━━━━━━━━━━━━━━━━━\n`;
+        items.forEach((item, i) => {
+          listText += `${i + 1}. ${item.title || 'Товар'}\n`;
+          listText += `   ${item.qty} шт × ${item.price.toLocaleString()} = ${(item.qty * item.price).toLocaleString()} сом\n`;
+        });
+        listText += `━━━━━━━━━━━━━━━━━━\n`;
+        listText += `💰 Итого: ${grandTotal.toLocaleString()} сом`;
+        if (order.address) listText += `\n📍 Адрес: ${order.address}`;
+
+        const now = new Date();
+
+        // Добавляем в UI
+        addMessageToUI(listText, 'admin', now);
+
+        // Сохраняем в Firebase
+        await db.collection('chatMessages').add({
+          text: listText,
+          sender: 'admin',
+          clientId: selectedClientId,
+          clientName: selectedClientName,
+          timestamp: firebase.firestore.Timestamp.fromDate(now),
+          read: false
+        });
+
+        const messagesArea = document.getElementById('messagesArea');
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+
+        Swal.fire({ icon: 'success', title: 'Список отправлен!', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
+
+      } catch (error) {
+        console.error('Ошибка отправки списка:', error);
+        Swal.fire('Ошибка', 'Не удалось отправить список: ' + error.message, 'error');
       }
     }
   </script>
