@@ -1,17 +1,6 @@
 // ===================================================================
 // КЕРБЕН B2B Market — Cloud Functions для push-уведомлений
 // ===================================================================
-//
-// УСТАНОВКА И ДЕПЛОЙ:
-// 1. Установите Firebase CLI: npm install -g firebase-tools
-// 2. firebase login
-// 3. cd в папку проекта
-// 4. firebase init functions (выберите JavaScript)
-// 5. Скопируйте этот файл в functions/index.js
-// 6. cd functions && npm install firebase-admin firebase-functions
-// 7. firebase deploy --only functions
-//
-// ===================================================================
 
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
@@ -21,7 +10,6 @@ admin.initializeApp();
 const db = admin.firestore();
 
 // ==================== ОБРАБОТКА ОЧЕРЕДИ УВЕДОМЛЕНИЙ ====================
-// Слушаем новые документы в коллекции notificationQueue
 exports.processNotificationQueue = functions.firestore
   .document('notificationQueue/{notifId}')
   .onCreate(async (snap, context) => {
@@ -30,24 +18,22 @@ exports.processNotificationQueue = functions.firestore
     if (notif.status !== 'pending') return null;
 
     try {
+      console.log('📨 Новое уведомление:', notif.type);
+
       if (notif.type === 'chat') {
-        // Уведомление конкретному клиенту (ответ в чате)
         await sendChatNotification(notif);
       } else if (notif.type === 'admin_chat') {
-        // Клиент написал админу — уведомляем всех админов
         await sendAdminNotification(notif);
       } else if (notif.type === 'broadcast') {
-        // Рассылка всем подписчикам
         await sendBroadcastNotification(notif);
       }
 
-      // Помечаем как отправленное
       await snap.ref.update({
         status: 'sent',
         sentAt: admin.firestore.FieldValue.serverTimestamp()
       });
     } catch (error) {
-      console.error('Ошибка отправки уведомления:', error);
+      console.error('❌ Ошибка отправки:', error.message);
       await snap.ref.update({
         status: 'error',
         error: error.message
@@ -57,334 +43,162 @@ exports.processNotificationQueue = functions.firestore
     return null;
   });
 
-// ==================== ОТПРАВКА ЧАТ-УВЕДОМЛЕНИЯ ====================
+// Создаём web-push сообщение — ТОЛЬКО data, без notification
+// Так SW получает полный контроль через onBackgroundMessage
+function buildWebPushMessage(token, title, body, extraData) {
+  return {
+    token: token,
+    data: {
+      title: title,
+      body: body,
+      ...extraData,
+      timestamp: Date.now().toString()
+    },
+    webpush: {
+      headers: {
+        Urgency: 'high',
+        TTL: '86400'
+      }
+    }
+  };
+}
+
+// ==================== ЧАТ-УВЕДОМЛЕНИЕ КЛИЕНТУ ====================
 async function sendChatNotification(notif) {
   let token = null;
 
-  // 1. Ищем токен в chatClients
   const clientDoc = await db.collection('chatClients')
-    .doc(notif.targetClientId)
-    .get();
+    .doc(notif.targetClientId).get();
 
   if (clientDoc.exists && clientDoc.data().pushToken) {
     token = clientDoc.data().pushToken;
   }
 
-  // 2. Если в chatClients нет — ищем в pushTokens по clientId
   if (!token) {
     const tokensQuery = await db.collection('pushTokens')
       .where('clientId', '==', notif.targetClientId)
-      .limit(1)
-      .get();
+      .limit(1).get();
 
     if (!tokensQuery.empty) {
       token = tokensQuery.docs[0].data().token;
-      // Сохраняем в chatClients для будущих запросов
       await db.collection('chatClients').doc(notif.targetClientId).set({
-        pushToken: token,
-        pushEnabled: true
+        pushToken: token, pushEnabled: true
       }, { merge: true });
     }
   }
 
   if (!token) {
-    console.log('Клиент не подписан на push:', notif.targetClientId);
+    console.log('⚠️ Клиент не подписан:', notif.targetClientId);
     return;
   }
 
-  console.log('Отправляем push клиенту:', notif.targetClientId, 'token:', token.substring(0, 20) + '...');
+  const title = notif.title || 'Кербен';
+  const body = notif.body || 'Новое сообщение';
 
-  const message = {
-    token: token,
-    // НЕ используем notification — только data!
-    // Иначе Android сам обрабатывает уведомление тихо
-    data: {
-      title: notif.title || 'Кербен',
-      body: notif.body || 'Новое сообщение',
-      type: 'chat',
-      clientId: notif.targetClientId || '',
-      url: './index.html',
-      tag: 'chat-' + (notif.targetClientId || 'default'),
-      timestamp: Date.now().toString()
-    },
-    // Android: максимальный приоритет = heads-up уведомление сверху
-    android: {
-      priority: 'high',
-      notification: {
-        title: notif.title || 'Кербен',
-        body: notif.body || 'Новое сообщение',
-        icon: 'icon_kerben',
-        channelId: 'kerben_messages',
-        priority: 'max',
-        visibility: 'public',
-        defaultSound: true,
-        defaultVibrateTimings: true,
-        notificationCount: 1
-      }
-    },
-    // iOS (Apple) — максимальный приоритет
-    apns: {
-      headers: {
-        'apns-priority': '10',
-        'apns-push-type': 'alert'
-      },
-      payload: {
-        aps: {
-          alert: {
-            title: notif.title || 'Кербен',
-            body: notif.body || 'Новое сообщение'
-          },
-          sound: 'default',
-          badge: 1,
-          'mutable-content': 1,
-          'content-available': 1
-        }
-      }
-    },
-    // Web Push: громкий с вибрацией
-    webpush: {
-      headers: {
-        Urgency: 'high',
-        TTL: '86400'
-      },
-      notification: {
-        title: notif.title || 'Кербен',
-        body: notif.body || 'Новое сообщение',
-        icon: './icon-kerben.jpg',
-        badge: './icon-kerben.jpg',
-        vibrate: [300, 150, 300, 150, 300],
-        tag: 'chat-' + (notif.targetClientId || 'default'),
-        renotify: true,
-        requireInteraction: true,
-        actions: [
-          { action: 'open', title: '📖 Открыть' },
-          { action: 'close', title: '✕ Закрыть' }
-        ]
-      },
-      fcmOptions: {
-        link: './index.html'
-      }
-    }
-  };
+  console.log('📤 Push клиенту:', notif.targetClientId, 'token:', token.substring(0, 20) + '...');
+
+  const message = buildWebPushMessage(token, title, body, {
+    type: 'chat',
+    clientId: notif.targetClientId || '',
+    url: '/index.html',
+    tag: 'chat-' + (notif.targetClientId || 'default')
+  });
 
   try {
-    await admin.messaging().send(message);
-    console.log('Push отправлен клиенту:', notif.targetClientId);
+    const msgId = await admin.messaging().send(message);
+    console.log('✅ Push клиенту отправлен, ID:', msgId);
   } catch (error) {
-    // Если токен невалидный — удаляем его
+    console.error('❌ Ошибка push клиенту:', error.code, error.message);
     if (error.code === 'messaging/invalid-registration-token' ||
         error.code === 'messaging/registration-token-not-registered') {
-      console.log('Удаляем невалидный токен для:', notif.targetClientId);
+      console.log('🗑️ Удаляем невалидный токен');
       await db.collection('chatClients').doc(notif.targetClientId).update({
         pushToken: admin.firestore.FieldValue.delete(),
         pushEnabled: false
-      });
-      await db.collection('pushTokens').doc(token).delete();
+      }).catch(() => {});
+      await db.collection('pushTokens').doc(token).delete().catch(() => {});
     }
     throw error;
   }
 }
 
-// ==================== УВЕДОМЛЕНИЕ АДМИНУ (клиент написал) ====================
+// ==================== УВЕДОМЛЕНИЕ АДМИНУ ====================
 async function sendAdminNotification(notif) {
-  // Ищем все токены админов в коллекции pushTokens
   const adminTokens = await db.collection('pushTokens')
-    .where('role', '==', 'admin')
-    .get();
-
-  // Также ищем админов в adminPushTokens (специальная коллекция)
+    .where('role', '==', 'admin').get();
   const adminTokens2 = await db.collection('adminPushTokens').get();
 
-  const tokens = [];
+  const tokens = new Set();
   adminTokens.forEach(doc => {
-    if (doc.data().token) tokens.push(doc.data().token);
+    if (doc.data().token) tokens.add(doc.data().token);
   });
   adminTokens2.forEach(doc => {
-    if (doc.data().token && !tokens.includes(doc.data().token)) {
-      tokens.push(doc.data().token);
-    }
+    if (doc.data().token) tokens.add(doc.data().token);
   });
 
-  if (tokens.length === 0) {
-    console.log('Нет админ-токенов для push');
+  const tokenArray = [...tokens];
+  if (tokenArray.length === 0) {
+    console.log('⚠️ Нет админ-токенов');
     return;
   }
+
+  console.log('📤 Отправка', tokenArray.length, 'админам');
 
   const clientName = notif.clientName || 'Клиент';
   const title = '💬 ' + clientName;
   const body = notif.body || 'Новое сообщение';
 
-  const message = {
-    data: {
-      title: title,
-      body: body,
+  const invalidTokens = [];
+  for (const token of tokenArray) {
+    const message = buildWebPushMessage(token, title, body, {
       type: 'admin_chat',
       clientId: notif.clientId || '',
-      url: './admin-chat.html',
-      tag: 'admin-chat-' + (notif.clientId || 'default'),
-      timestamp: Date.now().toString()
-    },
-    android: {
-      priority: 'high',
-      notification: {
-        title: title,
-        body: body,
-        channelId: 'kerben_messages',
-        priority: 'max',
-        visibility: 'public',
-        defaultSound: true,
-        defaultVibrateTimings: true
-      }
-    },
-    apns: {
-      headers: {
-        'apns-priority': '10',
-        'apns-push-type': 'alert'
-      },
-      payload: {
-        aps: {
-          alert: { title: title, body: body },
-          sound: 'default',
-          badge: 1
-        }
-      }
-    },
-    webpush: {
-      headers: { Urgency: 'high', TTL: '86400' },
-      notification: {
-        title: title,
-        body: body,
-        icon: './icon-kerben.jpg',
-        badge: './icon-kerben.jpg',
-        vibrate: [300, 150, 300, 150, 300],
-        tag: 'admin-chat',
-        renotify: true,
-        requireInteraction: true,
-        actions: [
-          { action: 'open', title: '📖 Открыть' },
-          { action: 'close', title: '✕ Закрыть' }
-        ]
-      },
-      fcmOptions: { link: './admin-chat.html' }
-    }
-  };
+      url: '/admin-chat.html',
+      tag: 'admin-chat-' + (notif.clientId || 'default')
+    });
 
-  // Отправляем всем админам
-  const invalidTokens = [];
-  for (const token of tokens) {
     try {
-      await admin.messaging().send({ ...message, token: token });
-      console.log('✅ Push админу отправлен:', token.substring(0, 20) + '...');
+      const msgId = await admin.messaging().send(message);
+      console.log('✅ Push админу:', token.substring(0, 20) + '... ID:', msgId);
     } catch (error) {
+      console.error('❌ Push админу ошибка:', token.substring(0, 20) + '...', error.code);
       if (error.code === 'messaging/invalid-registration-token' ||
           error.code === 'messaging/registration-token-not-registered') {
         invalidTokens.push(token);
       }
-      console.error('Ошибка push админу:', error.code);
     }
   }
 
-  // Удаляем невалидные токены
   for (const t of invalidTokens) {
-    try {
-      await db.collection('adminPushTokens').doc(t).delete();
-      await db.collection('pushTokens').doc(t).delete();
-    } catch (e) {}
+    await db.collection('adminPushTokens').doc(t).delete().catch(() => {});
+    await db.collection('pushTokens').doc(t).delete().catch(() => {});
   }
 
-  console.log(`Admin push: отправлено ${tokens.length - invalidTokens.length} из ${tokens.length}`);
+  console.log(`Admin push: ${tokenArray.length - invalidTokens.length}/${tokenArray.length} OK`);
 }
 
 // ==================== РАССЫЛКА ВСЕМ ====================
 async function sendBroadcastNotification(notif) {
-  // Получаем все активные токены
   const tokensSnapshot = await db.collection('pushTokens').get();
 
   if (tokensSnapshot.empty) {
-    console.log('Нет подписчиков для broadcast');
+    console.log('⚠️ Нет подписчиков');
     return;
   }
 
   const tokens = [];
   tokensSnapshot.forEach(doc => {
-    const data = doc.data();
-    if (data.token) {
-      tokens.push(data.token);
-    }
+    if (doc.data().token) tokens.push(doc.data().token);
   });
 
   if (tokens.length === 0) return;
 
-  const message = {
-    data: {
-      title: notif.title || 'Кербен',
-      body: notif.body || 'Новое уведомление',
-      type: 'broadcast',
-      url: './index.html',
-      tag: 'broadcast',
-      timestamp: Date.now().toString()
-    },
-    android: {
-      priority: 'high',
-      notification: {
-        title: notif.title || 'Кербен',
-        body: notif.body || 'Новое уведомление',
-        icon: 'icon_kerben',
-        channelId: 'kerben_messages',
-        priority: 'max',
-        visibility: 'public',
-        defaultSound: true,
-        defaultVibrateTimings: true
-      }
-    },
-    apns: {
-      headers: {
-        'apns-priority': '10',
-        'apns-push-type': 'alert'
-      },
-      payload: {
-        aps: {
-          alert: {
-            title: notif.title || 'Кербен',
-            body: notif.body || 'Новое уведомление'
-          },
-          sound: 'default',
-          badge: 1,
-          'mutable-content': 1,
-          'content-available': 1
-        }
-      }
-    },
-    webpush: {
-      headers: {
-        Urgency: 'high',
-        TTL: '86400'
-      },
-      notification: {
-        title: notif.title || 'Кербен',
-        body: notif.body || 'Новое уведомление',
-        icon: './icon-kerben.jpg',
-        badge: './icon-kerben.jpg',
-        vibrate: [300, 150, 300, 150, 300],
-        tag: 'broadcast',
-        renotify: true,
-        requireInteraction: true,
-        actions: [
-          { action: 'open', title: '📖 Открыть' },
-          { action: 'close', title: '✕ Закрыть' }
-        ]
-      },
-      fcmOptions: {
-        link: './index.html'
-      }
-    }
-  };
+  const title = notif.title || 'Кербен';
+  const body = notif.body || 'Новое уведомление';
 
-  // Отправляем пакетами по 500 (лимит FCM)
   const batches = [];
   for (let i = 0; i < tokens.length; i += 500) {
-    const batch = tokens.slice(i, i + 500);
-    batches.push(batch);
+    batches.push(tokens.slice(i, i + 500));
   }
 
   let successCount = 0;
@@ -392,34 +206,42 @@ async function sendBroadcastNotification(notif) {
   const invalidTokens = [];
 
   for (const batch of batches) {
-    const response = await admin.messaging().sendEachForMulticast({
-      ...message,
+    const message = {
+      data: {
+        title: title,
+        body: body,
+        type: 'broadcast',
+        url: '/index.html',
+        tag: 'broadcast',
+        timestamp: Date.now().toString()
+      },
+      webpush: {
+        headers: { Urgency: 'high', TTL: '86400' }
+      },
       tokens: batch
-    });
+    };
 
+    const response = await admin.messaging().sendEachForMulticast(message);
     successCount += response.successCount;
     failCount += response.failureCount;
 
-    // Собираем невалидные токены для удаления
     response.responses.forEach((resp, idx) => {
       if (!resp.success) {
-        const errorCode = resp.error?.code;
-        if (errorCode === 'messaging/invalid-registration-token' ||
-            errorCode === 'messaging/registration-token-not-registered') {
+        const code = resp.error?.code;
+        if (code === 'messaging/invalid-registration-token' ||
+            code === 'messaging/registration-token-not-registered') {
           invalidTokens.push(batch[idx]);
         }
       }
     });
   }
 
-  // Удаляем невалидные токены
   if (invalidTokens.length > 0) {
-    const deletePromises = invalidTokens.map(token =>
-      db.collection('pushTokens').doc(token).delete()
-    );
-    await Promise.all(deletePromises);
-    console.log('Удалено невалидных токенов:', invalidTokens.length);
+    await Promise.all(invalidTokens.map(t =>
+      db.collection('pushTokens').doc(t).delete().catch(() => {})
+    ));
+    console.log('🗑️ Удалено невалидных:', invalidTokens.length);
   }
 
-  console.log(`Broadcast: отправлено ${successCount}, ошибок ${failCount}`);
+  console.log(`Broadcast: ${successCount} OK, ${failCount} ошибок`);
 }
