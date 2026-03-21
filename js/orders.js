@@ -20,7 +20,7 @@ function compressImageForPDF(base64Data, maxDim, quality) {
       c.getContext('2d').drawImage(img, 0, 0, w, h);
       resolve({ data: c.toDataURL('image/jpeg', quality), width: w, height: h });
     };
-    img.onerror = function() { resolve(null); };
+    img.onerror = function() { console.error('compressImageForPDF: ошибка загрузки изображения'); resolve(null); };
     img.src = base64Data;
   });
 }
@@ -28,9 +28,13 @@ function compressImageForPDF(base64Data, maxDim, quality) {
 // Оптимизация URL Cloudinary — запрос маленького изображения с сервера
 function getSmallImageUrl(url, width) {
   width = width || 200;
-  if (url && url.includes('cloudinary.com') && url.includes('/upload/')) {
-    return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
-  }
+  try {
+    var parsed = new URL(url);
+    var h = parsed.hostname;
+    if ((h === 'cloudinary.com' || h.endsWith('.cloudinary.com')) && url.includes('/upload/')) {
+      return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
+    }
+  } catch (e) {}
   return url;
 }
 

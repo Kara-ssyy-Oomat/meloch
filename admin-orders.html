@@ -1940,7 +1940,7 @@ function compressImageForPDF(base64Data, maxDim, quality) {
       c.getContext('2d').drawImage(img, 0, 0, w, h);
       resolve({ data: c.toDataURL('image/jpeg', quality), width: w, height: h });
     };
-    img.onerror = function() { resolve(null); };
+    img.onerror = function() { console.error('compressImageForPDF: ошибка загрузки изображения'); resolve(null); };
     img.src = base64Data;
   });
 }
@@ -1948,9 +1948,13 @@ function compressImageForPDF(base64Data, maxDim, quality) {
 // Оптимизация URL Cloudinary — запрос маленького изображения с сервера
 function getSmallImageUrl(url, width) {
   width = width || 200;
-  if (url && url.includes('cloudinary.com') && url.includes('/upload/')) {
-    return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
-  }
+  try {
+    var parsed = new URL(url);
+    var h = parsed.hostname;
+    if ((h === 'cloudinary.com' || h.endsWith('.cloudinary.com')) && url.includes('/upload/')) {
+      return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
+    }
+  } catch (e) {}
   return url;
 }
 
@@ -2392,7 +2396,7 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
             photoHeight = compressed.height;
           }
           
-          console.log('✓ Фото сжато для PDF:', item.title, photoWidth + 'x' + photoHeight);
+          console.log('✓ Фото сжато для PDF:', item.title, `${photoWidth}x${photoHeight}`);
         } catch (err) {
           console.error('✗ Ошибка фото:', item.title, err);
         }
@@ -2543,11 +2547,12 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     
     // Проверяем размер перед отправкой (Telegram лимит 50MB)
     if (pdf2Blob.size > 49 * 1024 * 1024) {
-      console.error('PDF с фото слишком большой:', Math.round(pdf2Blob.size / 1024 / 1024), 'MB');
+      const sizeMB = Math.round(pdf2Blob.size / 1024 / 1024);
+      console.error('PDF с фото слишком большой:', sizeMB, 'MB');
       Swal.fire({
         icon: 'warning',
         title: 'Частично отправлено',
-        html: `📊 Excel и 📄 PDF для печати отправлены.<br>📷 PDF с фото слишком большой (${Math.round(pdf2Blob.size / 1024 / 1024)} MB).<br>Telegram не поддерживает файлы больше 50 MB.`,
+        html: `📊 Excel и 📄 PDF для печати отправлены.<br>📷 PDF с фото слишком большой (${sizeMB} MB).<br>Telegram не поддерживает файлы больше 50 MB.`,
         confirmButtonText: 'Понятно'
       });
       return;
