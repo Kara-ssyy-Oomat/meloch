@@ -1920,6 +1920,40 @@ async function askQtyAndAddProduct(productId, productName, productPrice, product
 // ===== ЭКСПОРТ ЗАКАЗА В TELEGRAM (3 файла: Excel + 2 PDF через Canvas) =====
 // Копия оригинального кода из orders.js с поддержкой пач/шт и коробок
 
+// Сжатие изображения для встраивания в PDF (маленький размер, JPEG)
+function compressImageForPDF(base64Data, maxDim, quality) {
+  maxDim = maxDim || 200;
+  quality = quality || 0.6;
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width;
+      var h = img.height;
+      if (w > maxDim || h > maxDim) {
+        var s = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * s);
+        h = Math.round(h * s);
+      }
+      var c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve({ data: c.toDataURL('image/jpeg', quality), width: w, height: h });
+    };
+    img.onerror = function() { resolve(null); };
+    img.src = base64Data;
+  });
+}
+
+// Оптимизация URL Cloudinary — запрос маленького изображения с сервера
+function getSmallImageUrl(url, width) {
+  width = width || 200;
+  if (url && url.includes('cloudinary.com') && url.includes('/upload/')) {
+    return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
+  }
+  return url;
+}
+
 async function exportOrderToExcel(orderId, clientName, clientPhone) {
   console.log('exportOrderToExcel вызвана, orderId:', orderId);
   
@@ -2230,8 +2264,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     header2Ctx.textAlign = 'center';
     header2Ctx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
     
-    const header2Image = header2Canvas.toDataURL('image/png');
-    doc2.addImage(header2Image, 'PNG', 20, yPosition, 170, 15);
+    const header2Image = header2Canvas.toDataURL('image/jpeg', 0.85);
+    doc2.addImage(header2Image, 'JPEG', 20, yPosition, 170, 15);
     yPosition += 20;
     
     // Информация о заказе в рамке
@@ -2259,9 +2293,9 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       info2Ctx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
     }
     
-    const info2Image = info2Canvas.toDataURL('image/png');
+    const info2Image = info2Canvas.toDataURL('image/jpeg', 0.85);
     const info2ImageHeight = hasDriver ? 42 : 30;
-    doc2.addImage(info2Image, 'PNG', 20, yPosition, 170, info2ImageHeight);
+    doc2.addImage(info2Image, 'JPEG', 20, yPosition, 170, info2ImageHeight);
     yPosition += info2ImageHeight + 5;
     
     // Заголовок таблицы с колонкой ФОТО
@@ -2292,8 +2326,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     th2Ctx.fillText('ЦЕНА', 445, 32);
     th2Ctx.fillText('СУММА', 515, 32);
     
-    const th2Image = th2Canvas.toDataURL('image/png');
-    doc2.addImage(th2Image, 'PNG', 20, yPosition, 170, 12);
+    const th2Image = th2Canvas.toDataURL('image/jpeg', 0.85);
+    doc2.addImage(th2Image, 'JPEG', 20, yPosition, 170, 12);
     yPosition += 12;
     
     // Товары С ФОТОГРАФИЯМИ
@@ -2339,7 +2373,9 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       
       if (imageUrl && imageUrl.startsWith('http')) {
         try {
-          const response = await fetch(imageUrl);
+          // Оптимизация: загружаем уменьшенное изображение с сервера
+          const optimizedUrl = getSmallImageUrl(imageUrl, 200);
+          const response = await fetch(optimizedUrl);
           const blob = await response.blob();
           
           const reader = new FileReader();
@@ -2348,30 +2384,15 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
             reader.readAsDataURL(blob);
           });
           
-          photoData = base64;
-          
-          const img = new Image();
-          await new Promise((resolve) => {
-            img.onload = resolve;
-            img.src = base64;
-          });
-          
-          const maxPhotoWidth = 100;
-          const maxPhotoHeight = 100;
-          
-          let finalWidth = img.width;
-          let finalHeight = img.height;
-          
-          if (finalWidth > maxPhotoWidth || finalHeight > maxPhotoHeight) {
-            const imgScale = Math.min(maxPhotoWidth / finalWidth, maxPhotoHeight / finalHeight);
-            finalWidth = finalWidth * imgScale;
-            finalHeight = finalHeight * imgScale;
+          // Сжимаем изображение для PDF (макс 200px, JPEG 0.6)
+          const compressed = await compressImageForPDF(base64, 200, 0.6);
+          if (compressed) {
+            photoData = compressed.data;
+            photoWidth = compressed.width;
+            photoHeight = compressed.height;
           }
           
-          photoWidth = finalWidth;
-          photoHeight = finalHeight;
-          
-          console.log('✓ Фото загружено:', item.title);
+          console.log('✓ Фото сжато для PDF:', item.title, photoWidth + 'x' + photoHeight);
         } catch (err) {
           console.error('✗ Ошибка фото:', item.title, err);
         }
@@ -2445,9 +2466,9 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       row2Ctx.font = '11px Arial';
       row2Ctx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
       
-      const row2Image = row2Canvas.toDataURL('image/png');
+      const row2Image = row2Canvas.toDataURL('image/jpeg', 0.85);
       const rowPdfHeight = rowHeight * 170 / totalWidth;
-      doc2.addImage(row2Image, 'PNG', 20, yPosition, 170, rowPdfHeight);
+      doc2.addImage(row2Image, 'JPEG', 20, yPosition, 170, rowPdfHeight);
       
       // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
       if (photoData) {
@@ -2488,10 +2509,11 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     total2Ctx.font = '14px Arial';
     total2Ctx.fillText('сом', 510, 48);
     
-    const total2Image = total2Canvas.toDataURL('image/png');
-    doc2.addImage(total2Image, 'PNG', 20, yPosition, 170, 15);
+    const total2Image = total2Canvas.toDataURL('image/jpeg', 0.85);
+    doc2.addImage(total2Image, 'JPEG', 20, yPosition, 170, 15);
     
     const pdf2Blob = doc2.output('blob');
+    console.log('PDF с фото размер:', Math.round(pdf2Blob.size / 1024), 'KB');
     
     // ===== Отправка в Telegram (3 файла) =====
     Swal.update({ title: 'Отправка в Telegram...', html: 'Отправка Excel...' });
@@ -2519,6 +2541,18 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     
     Swal.update({ html: 'Отправка PDF с фото...' });
     
+    // Проверяем размер перед отправкой (Telegram лимит 50MB)
+    if (pdf2Blob.size > 49 * 1024 * 1024) {
+      console.error('PDF с фото слишком большой:', Math.round(pdf2Blob.size / 1024 / 1024), 'MB');
+      Swal.fire({
+        icon: 'warning',
+        title: 'Частично отправлено',
+        html: `📊 Excel и 📄 PDF для печати отправлены.<br>📷 PDF с фото слишком большой (${Math.round(pdf2Blob.size / 1024 / 1024)} MB).<br>Telegram не поддерживает файлы больше 50 MB.`,
+        confirmButtonText: 'Понятно'
+      });
+      return;
+    }
+
     // Отправляем PDF #2 (с фото)
     const form3 = new FormData();
     form3.append('document', pdf2Blob, `${baseFileName}_с_фото.pdf`);

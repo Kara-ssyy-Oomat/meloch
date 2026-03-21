@@ -1,5 +1,39 @@
 // ==================== МОДУЛЬ ЗАКАЗОВ ====================
 
+// Сжатие изображения для встраивания в PDF (маленький размер, JPEG)
+function compressImageForPDF(base64Data, maxDim, quality) {
+  maxDim = maxDim || 200;
+  quality = quality || 0.6;
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload = function() {
+      var w = img.width;
+      var h = img.height;
+      if (w > maxDim || h > maxDim) {
+        var s = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * s);
+        h = Math.round(h * s);
+      }
+      var c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve({ data: c.toDataURL('image/jpeg', quality), width: w, height: h });
+    };
+    img.onerror = function() { resolve(null); };
+    img.src = base64Data;
+  });
+}
+
+// Оптимизация URL Cloudinary — запрос маленького изображения с сервера
+function getSmallImageUrl(url, width) {
+  width = width || 200;
+  if (url && url.includes('cloudinary.com') && url.includes('/upload/')) {
+    return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
+  }
+  return url;
+}
+
 // Функция отправки заказа как PDF файл в Telegram
 async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, cartItems, total, time) {
   try {
@@ -23,8 +57,8 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
     headerCtx.textAlign = 'center';
     headerCtx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
     
-    const headerImage = headerCanvas.toDataURL('image/png');
-    doc.addImage(headerImage, 'PNG', 20, yPosition, 170, 15);
+    const headerImage = headerCanvas.toDataURL('image/jpeg', 0.85);
+    doc.addImage(headerImage, 'JPEG', 20, yPosition, 170, 15);
     
     yPosition += 20;
     
@@ -59,9 +93,9 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
       infoCtx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
     }
     
-    const infoImage = infoCanvas.toDataURL('image/png');
+    const infoImage = infoCanvas.toDataURL('image/jpeg', 0.85);
     const infoImageHeight = hasDriver ? 42 : 30;
-    doc.addImage(infoImage, 'PNG', 20, yPosition, 170, infoImageHeight);
+    doc.addImage(infoImage, 'JPEG', 20, yPosition, 170, infoImageHeight);
     
     yPosition += infoImageHeight + 5;
     
@@ -102,8 +136,8 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
     thCtx.fillText('ЦЕНА', 445, 32);
     thCtx.fillText('СУММА', 515, 32);
     
-    const tableHeaderImage = tableHeaderCanvas.toDataURL('image/png');
-    doc.addImage(tableHeaderImage, 'PNG', 20, yPosition, 170, 12);
+    const tableHeaderImage = tableHeaderCanvas.toDataURL('image/jpeg', 0.85);
+    doc.addImage(tableHeaderImage, 'JPEG', 20, yPosition, 170, 12);
     
     yPosition += 12;
     
@@ -124,46 +158,26 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
       
       if (item.image && item.image.startsWith('http')) {
         try {
-          const response = await fetch(item.image);
+          // Оптимизация: загружаем уменьшенное изображение с сервера
+          const optimizedUrl = getSmallImageUrl(item.image, 200);
+          const response = await fetch(optimizedUrl);
           const blob = await response.blob();
-          
-          // ИСПРАВЛЯЕМ ОРИЕНТАЦИЮ ФОТО ДЛЯ PDF
-          const file = new File([blob], 'image.jpg', { type: blob.type });
-          const fixedFile = await fixImageOrientation(file);
           
           const reader = new FileReader();
           const base64 = await new Promise((resolve) => {
             reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(fixedFile);
+            reader.readAsDataURL(blob);
           });
           
-          photoData = base64;
-          
-          // Определяем размеры фото
-          const img = new Image();
-          await new Promise((resolve) => {
-            img.onload = resolve;
-            img.src = base64;
-          });
-          
-          // Рассчитываем размеры фото чтобы влезло в ячейку, сохраняя пропорции
-          const maxPhotoWidth = 100;
-          const maxPhotoHeight = 100;
-          
-          let finalWidth = img.width;
-          let finalHeight = img.height;
-          
-          // Масштабируем если фото слишком большое
-          if (finalWidth > maxPhotoWidth || finalHeight > maxPhotoHeight) {
-            const scale = Math.min(maxPhotoWidth / finalWidth, maxPhotoHeight / finalHeight);
-            finalWidth = finalWidth * scale;
-            finalHeight = finalHeight * scale;
+          // Сжимаем изображение для PDF (макс 200px, JPEG 0.6)
+          const compressed = await compressImageForPDF(base64, 200, 0.6);
+          if (compressed) {
+            photoData = compressed.data;
+            photoWidth = compressed.width;
+            photoHeight = compressed.height;
           }
           
-          photoWidth = finalWidth;
-          photoHeight = finalHeight;
-          
-          console.log('✓ Фото загружено:', item.title, `Размер: ${photoWidth.toFixed(0)}x${photoHeight.toFixed(0)}`);
+          console.log('✓ Фото сжато для PDF:', item.title, `${photoWidth}x${photoHeight}`);
         } catch (err) {
           console.error('✗ Ошибка фото:', item.title, err);
           photoWidth = 90;
@@ -275,9 +289,9 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
       rowCtx.font = '11px Arial';
       rowCtx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
       
-      const rowImage = rowCanvas.toDataURL('image/png');
+      const rowImage = rowCanvas.toDataURL('image/jpeg', 0.85);
       const rowPdfHeight = rowHeight * 170 / totalWidth; // Пропорционально
-      doc.addImage(rowImage, 'PNG', 20, yPosition, 170, rowPdfHeight);
+      doc.addImage(rowImage, 'JPEG', 20, yPosition, 170, rowPdfHeight);
       
       // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
       if (photoData) {
@@ -323,16 +337,22 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
     totalCtx.font = '14px Arial';
     totalCtx.fillText('сом', 510, 48);
     
-    const totalImage = totalCanvas.toDataURL('image/png');
-    doc.addImage(totalImage, 'PNG', 20, yPosition, 170, 15);
+    const totalImage = totalCanvas.toDataURL('image/jpeg', 0.85);
+    doc.addImage(totalImage, 'JPEG', 20, yPosition, 170, 15);
     
     console.log('Генерируем PDF файл...');
     
     // Генерируем PDF как blob
     const pdfBlob = doc.output('blob');
     
-    console.log('PDF файл сгенерирован, размер:', pdfBlob.size, 'байт');
+    console.log('PDF файл сгенерирован, размер:', Math.round(pdfBlob.size / 1024), 'KB');
     
+    // Проверяем размер перед отправкой (Telegram лимит 50MB)
+    if (pdfBlob.size > 49 * 1024 * 1024) {
+      console.error('PDF слишком большой для Telegram:', Math.round(pdfBlob.size / 1024 / 1024), 'MB');
+      throw new Error('PDF файл слишком большой (' + Math.round(pdfBlob.size / 1024 / 1024) + ' MB). Попробуйте уменьшить количество товаров.');
+    }
+
     // Отправляем в Telegram
     const formData = new FormData();
     formData.append('chat_id', '5567924440');
