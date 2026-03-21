@@ -32,7 +32,7 @@ function getSmallImageUrl(url, width) {
     var parsed = new URL(url);
     var h = parsed.hostname;
     if ((h === 'cloudinary.com' || h.endsWith('.cloudinary.com')) && url.includes('/upload/')) {
-      return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
+      return url.replace('/upload/', '/upload/w_' + width + ',q_80,f_jpg/');
     }
   } catch (e) {}
   return url;
@@ -156,14 +156,14 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
       }
       
       // Загружаем фото и определяем его размеры
-      let photoWidth = 90;  // По умолчанию
-      let photoHeight = 90;
+      let photoWidth = 50;  // По умолчанию
+      let photoHeight = 50;
       let photoData = null;
       
       if (item.image && item.image.startsWith('http')) {
         try {
-          // Оптимизация: загружаем уменьшенное изображение с сервера
-          const optimizedUrl = getSmallImageUrl(item.image, 200);
+          // Оптимизация: загружаем уменьшенное изображение с сервера (100px для запаса качества при сжатии до 80px)
+          const optimizedUrl = getSmallImageUrl(item.image, 100);
           const response = await fetch(optimizedUrl);
           const blob = await response.blob();
           
@@ -173,8 +173,8 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
             reader.readAsDataURL(blob);
           });
           
-          // Сжимаем изображение для PDF (макс 200px, JPEG 0.6)
-          const compressed = await compressImageForPDF(base64, 200, 0.6);
+          // Сжимаем изображение для PDF (макс 80px, JPEG 0.75)
+          const compressed = await compressImageForPDF(base64, 80, 0.75);
           if (compressed) {
             photoData = compressed.data;
             photoWidth = compressed.width;
@@ -184,18 +184,18 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
           console.log('✓ Фото сжато для PDF:', item.title, `${photoWidth}x${photoHeight}`);
         } catch (err) {
           console.error('✗ Ошибка фото:', item.title, err);
-          photoWidth = 90;
-          photoHeight = 90;
+          photoWidth = 50;
+          photoHeight = 50;
         }
       }
       
       // Высота строки = высота фото + отступы
-      const rowHeight = Math.max(photoHeight + 10, 100);
+      const rowHeight = Math.max(photoHeight + 5, 60);
       
       // Создаем строку таблицы с динамической шириной
       const rowCanvas = document.createElement('canvas');
       const rowCtx = rowCanvas.getContext('2d');
-      const photoColumnWidth = Math.max(photoWidth + 10, 70); // Ширина колонки фото
+      const photoColumnWidth = Math.max(photoWidth + 5, 50); // Ширина колонки фото
       const totalWidth = photoColumnWidth + 480; // фото + остальные колонки
       rowCanvas.width = totalWidth;
       rowCanvas.height = rowHeight;

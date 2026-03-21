@@ -1952,7 +1952,7 @@ function getSmallImageUrl(url, width) {
     var parsed = new URL(url);
     var h = parsed.hostname;
     if ((h === 'cloudinary.com' || h.endsWith('.cloudinary.com')) && url.includes('/upload/')) {
-      return url.replace('/upload/', '/upload/w_' + width + ',q_70,f_jpg/');
+      return url.replace('/upload/', '/upload/w_' + width + ',q_80,f_jpg/');
     }
   } catch (e) {}
   return url;
@@ -2368,8 +2368,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       }
       
       // Загружаем фото товара
-      let photoWidth = 90;
-      let photoHeight = 90;
+      let photoWidth = 50;
+      let photoHeight = 50;
       let photoData = null;
       
       // Берём фото из item.image или из productsMap
@@ -2377,8 +2377,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       
       if (imageUrl && imageUrl.startsWith('http')) {
         try {
-          // Оптимизация: загружаем уменьшенное изображение с сервера
-          const optimizedUrl = getSmallImageUrl(imageUrl, 200);
+          // Оптимизация: загружаем уменьшенное изображение с сервера (100px для запаса качества при сжатии до 80px)
+          const optimizedUrl = getSmallImageUrl(imageUrl, 100);
           const response = await fetch(optimizedUrl);
           const blob = await response.blob();
           
@@ -2388,8 +2388,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
             reader.readAsDataURL(blob);
           });
           
-          // Сжимаем изображение для PDF (макс 200px, JPEG 0.6)
-          const compressed = await compressImageForPDF(base64, 200, 0.6);
+          // Сжимаем изображение для PDF (макс 80px, JPEG 0.75)
+          const compressed = await compressImageForPDF(base64, 80, 0.75);
           if (compressed) {
             photoData = compressed.data;
             photoWidth = compressed.width;
@@ -2403,8 +2403,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       }
       
       // Высота строки = высота фото + отступы
-      const rowHeight = Math.max(photoHeight + 10, 100);
-      const photoColumnWidth = Math.max(photoWidth + 10, 70);
+      const rowHeight = Math.max(photoHeight + 5, 60);
+      const photoColumnWidth = Math.max(photoWidth + 5, 50);
       const totalWidth = photoColumnWidth + 480;
       
       const row2Canvas = document.createElement('canvas');
