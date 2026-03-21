@@ -162,7 +162,7 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
       
       if (item.image && item.image.startsWith('http')) {
         try {
-          // Оптимизация: загружаем уменьшенное изображение с сервера
+          // Оптимизация: загружаем уменьшенное изображение с сервера (100px для запаса качества при сжатии до 80px)
           const optimizedUrl = getSmallImageUrl(item.image, 100);
           const response = await fetch(optimizedUrl);
           const blob = await response.blob();

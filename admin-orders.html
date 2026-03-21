@@ -2377,7 +2377,7 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       
       if (imageUrl && imageUrl.startsWith('http')) {
         try {
-          // Оптимизация: загружаем уменьшенное изображение с сервера
+          // Оптимизация: загружаем уменьшенное изображение с сервера (100px для запаса качества при сжатии до 80px)
           const optimizedUrl = getSmallImageUrl(imageUrl, 100);
           const response = await fetch(optimizedUrl);
           const blob = await response.blob();
