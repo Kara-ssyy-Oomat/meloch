@@ -1946,13 +1946,14 @@ function compressImageForPDF(base64Data, maxDim, quality) {
 }
 
 // Оптимизация URL Cloudinary — запрос маленького изображения с сервера
-function getSmallImageUrl(url, width) {
+function getSmallImageUrl(url, width, quality) {
   width = width || 200;
+  quality = quality || 95;
   try {
     var parsed = new URL(url);
     var h = parsed.hostname;
     if ((h === 'cloudinary.com' || h.endsWith('.cloudinary.com')) && url.includes('/upload/')) {
-      return url.replace('/upload/', '/upload/w_' + width + ',q_80,f_jpg/');
+      return url.replace('/upload/', '/upload/w_' + width + ',q_' + quality + ',f_jpg/');
     }
   } catch (e) {}
   return url;
@@ -2250,273 +2251,308 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     const pdf1Blob = doc1.output('blob');
     
     // ===== 3. Создаем PDF #2 (С ФОТОГРАФИЯМИ ТОВАРОВ) =====
-    Swal.update({ html: 'Создание PDF с фото (3/3)' });
+    Swal.update({ html: 'Загрузка фото товаров...' });
     
-    const doc2 = new jsPDF();
-    yPosition = 20;
+    const MAX_PDF_SIZE = 40 * 1024 * 1024; // 40 MB лимит
     
-    // Заголовок
-    const header2Canvas = document.createElement('canvas');
-    const header2Ctx = header2Canvas.getContext('2d');
-    header2Canvas.width = 600;
-    header2Canvas.height = 50;
-    
-    header2Ctx.fillStyle = 'white';
-    header2Ctx.fillRect(0, 0, 600, 50);
-    header2Ctx.fillStyle = 'black';
-    header2Ctx.font = 'bold 24px Arial';
-    header2Ctx.textAlign = 'center';
-    header2Ctx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
-    
-    const header2Image = header2Canvas.toDataURL('image/jpeg', 0.85);
-    doc2.addImage(header2Image, 'JPEG', 20, yPosition, 170, 15);
-    yPosition += 20;
-    
-    // Информация о заказе в рамке
-    const info2Height = hasDriver ? 170 : 120;
-    const info2Canvas = document.createElement('canvas');
-    const info2Ctx = info2Canvas.getContext('2d');
-    info2Canvas.width = 700;
-    info2Canvas.height = info2Height;
-    
-    info2Ctx.fillStyle = 'white';
-    info2Ctx.fillRect(0, 0, 700, info2Height);
-    info2Ctx.strokeStyle = 'black';
-    info2Ctx.lineWidth = 2;
-    info2Ctx.strokeRect(0, 0, 700, info2Height);
-    
-    info2Ctx.fillStyle = 'black';
-    info2Ctx.font = '16px Arial';
-    info2Ctx.fillText(`Дата/Время: ${dateStr}`, 15, 30);
-    info2Ctx.fillText(`Имя клиента: ${clientName}`, 15, 55);
-    info2Ctx.fillText(`Телефон: ${clientPhone}`, 15, 80);
-    info2Ctx.fillText(`Адрес: ${address}`, 15, 105);
-    
-    if (hasDriver) {
-      info2Ctx.fillText(`Водитель: ${driverName || '-'}`, 15, 130);
-      info2Ctx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
-    }
-    
-    const info2Image = info2Canvas.toDataURL('image/jpeg', 0.85);
-    const info2ImageHeight = hasDriver ? 42 : 30;
-    doc2.addImage(info2Image, 'JPEG', 20, yPosition, 170, info2ImageHeight);
-    yPosition += info2ImageHeight + 5;
-    
-    // Заголовок таблицы с колонкой ФОТО
-    const th2Canvas = document.createElement('canvas');
-    const th2Ctx = th2Canvas.getContext('2d');
-    th2Canvas.width = 550;
-    th2Canvas.height = 50;
-    
-    th2Ctx.fillStyle = '#e0e0e0';
-    th2Ctx.fillRect(0, 0, 550, 50);
-    th2Ctx.strokeStyle = 'black';
-    th2Ctx.lineWidth = 2;
-    th2Ctx.strokeRect(0, 0, 550, 50);
-    
-    th2Ctx.beginPath();
-    th2Ctx.moveTo(70, 0); th2Ctx.lineTo(70, 50);
-    th2Ctx.moveTo(270, 0); th2Ctx.lineTo(270, 50);
-    th2Ctx.moveTo(410, 0); th2Ctx.lineTo(410, 50);
-    th2Ctx.moveTo(480, 0); th2Ctx.lineTo(480, 50);
-    th2Ctx.stroke();
-    
-    th2Ctx.fillStyle = 'black';
-    th2Ctx.font = 'bold 14px Arial';
-    th2Ctx.textAlign = 'center';
-    th2Ctx.fillText('ФОТО', 35, 32);
-    th2Ctx.fillText('НАЗВАНИЕ', 170, 32);
-    th2Ctx.fillText('КОЛ-ВО', 340, 32);
-    th2Ctx.fillText('ЦЕНА', 445, 32);
-    th2Ctx.fillText('СУММА', 515, 32);
-    
-    const th2Image = th2Canvas.toDataURL('image/jpeg', 0.85);
-    doc2.addImage(th2Image, 'JPEG', 20, yPosition, 170, 12);
-    yPosition += 12;
-    
-    // Товары С ФОТОГРАФИЯМИ
+    // Шаг 1: Предварительная загрузка всех изображений в высоком качестве
+    const preloadedImages = [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      
-      if (yPosition > 240) {
-        doc2.addPage();
-        yPosition = 20;
-      }
-      
-      // Получаем данные продукта
       const product = productsMap[item.id] || productsMap[item.productId] || {};
-      const isPack = item.isPack || product.isPack || false;
-      const unitLabel = isPack ? 'пач' : 'шт';
-      const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
-      
-      // Рассчитываем количество коробок
-      const boxCount = Math.floor(item.qty / unitsPerBox);
-      const remainingUnits = item.qty % unitsPerBox;
-      
-      // Формируем строку количества в коробках (короткий формат)
-      let qtyLine1 = '';
-      let qtyLine2 = '';
-      if (boxCount > 0 && remainingUnits === 0) {
-        qtyLine1 = `${boxCount} кор`;
-        qtyLine2 = `(${unitsPerBox} ${unitLabel})`;
-      } else if (boxCount > 0 && remainingUnits > 0) {
-        qtyLine1 = `${boxCount} кор`;
-        qtyLine2 = `+${remainingUnits} ${unitLabel}`;
-      } else {
-        qtyLine1 = `${item.qty} ${unitLabel}`;
-        qtyLine2 = '';
-      }
-      
-      // Загружаем фото товара
-      let photoWidth = 50;
-      let photoHeight = 50;
-      let photoData = null;
-      
-      // Берём фото из item.image или из productsMap
       let imageUrl = item.image || product.image;
       
       if (imageUrl && imageUrl.startsWith('http')) {
         try {
-          // Оптимизация: загружаем уменьшенное изображение с сервера (100px для запаса качества при сжатии до 80px)
-          const optimizedUrl = getSmallImageUrl(imageUrl, 100);
+          const optimizedUrl = getSmallImageUrl(imageUrl, 400, 95);
           const response = await fetch(optimizedUrl);
           const blob = await response.blob();
-          
           const reader = new FileReader();
           const base64 = await new Promise((resolve) => {
             reader.onloadend = () => resolve(reader.result);
             reader.readAsDataURL(blob);
           });
-          
-          // Сжимаем изображение для PDF (макс 80px, JPEG 0.75)
-          const compressed = await compressImageForPDF(base64, 80, 0.75);
-          if (compressed) {
-            photoData = compressed.data;
-            photoWidth = compressed.width;
-            photoHeight = compressed.height;
-          }
-          
-          console.log('✓ Фото сжато для PDF:', item.title, `${photoWidth}x${photoHeight}`);
+          preloadedImages[i] = base64;
         } catch (err) {
-          console.error('✗ Ошибка фото:', item.title, err);
+          console.error('✗ Ошибка загрузки фото:', item.title, err);
+          preloadedImages[i] = null;
         }
-      }
-      
-      // Высота строки = высота фото + отступы
-      const rowHeight = Math.max(photoHeight + 5, 60);
-      const photoColumnWidth = Math.max(photoWidth + 5, 50);
-      const totalWidth = photoColumnWidth + 480;
-      
-      const row2Canvas = document.createElement('canvas');
-      const row2Ctx = row2Canvas.getContext('2d');
-      row2Canvas.width = totalWidth;
-      row2Canvas.height = rowHeight;
-      
-      row2Ctx.fillStyle = 'white';
-      row2Ctx.fillRect(0, 0, totalWidth, rowHeight);
-      row2Ctx.strokeStyle = 'black';
-      row2Ctx.lineWidth = 2;
-      row2Ctx.strokeRect(0, 0, totalWidth, rowHeight);
-      
-      // Вертикальные линии
-      const col2 = photoColumnWidth;
-      const col3 = photoColumnWidth + 200;
-      const col4 = photoColumnWidth + 340;
-      const col5 = photoColumnWidth + 410;
-      
-      row2Ctx.beginPath();
-      row2Ctx.moveTo(col2, 0); row2Ctx.lineTo(col2, rowHeight);
-      row2Ctx.moveTo(col3, 0); row2Ctx.lineTo(col3, rowHeight);
-      row2Ctx.moveTo(col4, 0); row2Ctx.lineTo(col4, rowHeight);
-      row2Ctx.moveTo(col5, 0); row2Ctx.lineTo(col5, rowHeight);
-      row2Ctx.stroke();
-      
-      row2Ctx.fillStyle = 'black';
-      row2Ctx.font = '13px Arial';
-      
-      const midY = rowHeight / 2;
-      
-      // Название (с переносом если длинное) + вариант
-      row2Ctx.textAlign = 'left';
-      const title = item.title || 'Товар';
-      const variantText = item.variantName ? ` [${item.variantName}]` : '';
-      const fullTitle = title + variantText;
-      
-      if (fullTitle.length > 28) {
-        row2Ctx.fillText(fullTitle.substring(0, 28), col2 + 5, midY - 5);
-        row2Ctx.fillText(fullTitle.substring(28), col2 + 5, midY + 10);
       } else {
-        row2Ctx.fillText(fullTitle, col2 + 5, midY);
+        preloadedImages[i] = null;
       }
-      
-      // Количество (в коробках, две строки)
-      row2Ctx.textAlign = 'center';
-      row2Ctx.font = 'bold 12px Arial';
-      row2Ctx.fillText(qtyLine1, (col3 + col4) / 2, midY - 5);
-      if (qtyLine2) {
-        row2Ctx.font = '11px Arial';
-        row2Ctx.fillText(qtyLine2, (col3 + col4) / 2, midY + 10);
-      }
-      row2Ctx.font = '13px Arial';
-      
-      // Цена
-      row2Ctx.fillText(`${item.price}`, (col4 + col5) / 2, midY - 5);
-      row2Ctx.font = '11px Arial';
-      row2Ctx.fillText('сом', (col4 + col5) / 2, midY + 8);
-      
-      // Сумма
-      row2Ctx.font = 'bold 13px Arial';
-      row2Ctx.fillText(`${item.qty * item.price}`, (col5 + totalWidth) / 2, midY - 5);
-      row2Ctx.font = '11px Arial';
-      row2Ctx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
-      
-      const row2Image = row2Canvas.toDataURL('image/jpeg', 0.85);
-      const rowPdfHeight = rowHeight * 170 / totalWidth;
-      doc2.addImage(row2Image, 'JPEG', 20, yPosition, 170, rowPdfHeight);
-      
-      // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
-      if (photoData) {
-        const photoWidthPdf = photoWidth * 170 / totalWidth;
-        const photoHeightPdf = photoHeight * 170 / totalWidth;
-        const xPos = 22 + (photoColumnWidth * 170 / totalWidth - photoWidthPdf) / 2;
-        const yPos = yPosition + (rowPdfHeight - photoHeightPdf) / 2;
-        doc2.addImage(photoData, 'JPEG', xPos, yPos, photoWidthPdf, photoHeightPdf);
-      }
-      
-      yPosition += rowPdfHeight;
     }
     
-    // Строка ИТОГО с сеткой
-    const total2Canvas = document.createElement('canvas');
-    const total2Ctx = total2Canvas.getContext('2d');
-    total2Canvas.width = 550;
-    total2Canvas.height = 60;
+    // Шаг 2: Адаптивное качество — сначала максимальное, снижаем если PDF > 40 MB
+    const qualityLevels = [
+      { maxDim: 200, quality: 0.92 },
+      { maxDim: 150, quality: 0.75 },
+      { maxDim: 120, quality: 0.6 },
+      { maxDim: 80, quality: 0.45 }
+    ];
     
-    total2Ctx.fillStyle = '#fff9c4';
-    total2Ctx.fillRect(0, 0, 550, 60);
-    total2Ctx.strokeStyle = 'black';
-    total2Ctx.lineWidth = 3;
-    total2Ctx.strokeRect(0, 0, 550, 60);
+    let pdf2Blob = null;
     
-    total2Ctx.beginPath();
-    total2Ctx.moveTo(470, 0);
-    total2Ctx.lineTo(470, 60);
-    total2Ctx.stroke();
+    for (const level of qualityLevels) {
+      Swal.update({ html: `Создание PDF с фото (качество: ${Math.round(level.quality * 100)}%)` });
+      
+      const doc2 = new jsPDF();
+      yPosition = 20;
+      
+      // Заголовок
+      const header2Canvas = document.createElement('canvas');
+      const header2Ctx = header2Canvas.getContext('2d');
+      header2Canvas.width = 600;
+      header2Canvas.height = 50;
+      
+      header2Ctx.fillStyle = 'white';
+      header2Ctx.fillRect(0, 0, 600, 50);
+      header2Ctx.fillStyle = 'black';
+      header2Ctx.font = 'bold 24px Arial';
+      header2Ctx.textAlign = 'center';
+      header2Ctx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
+      
+      const header2Image = header2Canvas.toDataURL('image/jpeg', 0.85);
+      doc2.addImage(header2Image, 'JPEG', 20, yPosition, 170, 15);
+      yPosition += 20;
+      
+      // Информация о заказе в рамке
+      const info2Height = hasDriver ? 170 : 120;
+      const info2Canvas = document.createElement('canvas');
+      const info2Ctx = info2Canvas.getContext('2d');
+      info2Canvas.width = 700;
+      info2Canvas.height = info2Height;
+      
+      info2Ctx.fillStyle = 'white';
+      info2Ctx.fillRect(0, 0, 700, info2Height);
+      info2Ctx.strokeStyle = 'black';
+      info2Ctx.lineWidth = 2;
+      info2Ctx.strokeRect(0, 0, 700, info2Height);
+      
+      info2Ctx.fillStyle = 'black';
+      info2Ctx.font = '16px Arial';
+      info2Ctx.fillText(`Дата/Время: ${dateStr}`, 15, 30);
+      info2Ctx.fillText(`Имя клиента: ${clientName}`, 15, 55);
+      info2Ctx.fillText(`Телефон: ${clientPhone}`, 15, 80);
+      info2Ctx.fillText(`Адрес: ${address}`, 15, 105);
+      
+      if (hasDriver) {
+        info2Ctx.fillText(`Водитель: ${driverName || '-'}`, 15, 130);
+        info2Ctx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
+      }
+      
+      const info2Image = info2Canvas.toDataURL('image/jpeg', 0.85);
+      const info2ImageHeight = hasDriver ? 42 : 30;
+      doc2.addImage(info2Image, 'JPEG', 20, yPosition, 170, info2ImageHeight);
+      yPosition += info2ImageHeight + 5;
+      
+      // Заголовок таблицы с колонкой ФОТО
+      const th2Canvas = document.createElement('canvas');
+      const th2Ctx = th2Canvas.getContext('2d');
+      th2Canvas.width = 550;
+      th2Canvas.height = 50;
+      
+      th2Ctx.fillStyle = '#e0e0e0';
+      th2Ctx.fillRect(0, 0, 550, 50);
+      th2Ctx.strokeStyle = 'black';
+      th2Ctx.lineWidth = 2;
+      th2Ctx.strokeRect(0, 0, 550, 50);
+      
+      th2Ctx.beginPath();
+      th2Ctx.moveTo(70, 0); th2Ctx.lineTo(70, 50);
+      th2Ctx.moveTo(270, 0); th2Ctx.lineTo(270, 50);
+      th2Ctx.moveTo(410, 0); th2Ctx.lineTo(410, 50);
+      th2Ctx.moveTo(480, 0); th2Ctx.lineTo(480, 50);
+      th2Ctx.stroke();
+      
+      th2Ctx.fillStyle = 'black';
+      th2Ctx.font = 'bold 14px Arial';
+      th2Ctx.textAlign = 'center';
+      th2Ctx.fillText('ФОТО', 35, 32);
+      th2Ctx.fillText('НАЗВАНИЕ', 170, 32);
+      th2Ctx.fillText('КОЛ-ВО', 340, 32);
+      th2Ctx.fillText('ЦЕНА', 445, 32);
+      th2Ctx.fillText('СУММА', 515, 32);
+      
+      const th2Image = th2Canvas.toDataURL('image/jpeg', 0.85);
+      doc2.addImage(th2Image, 'JPEG', 20, yPosition, 170, 12);
+      yPosition += 12;
+      
+      // Товары С ФОТОГРАФИЯМИ
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        
+        if (yPosition > 240) {
+          doc2.addPage();
+          yPosition = 20;
+        }
+        
+        // Получаем данные продукта
+        const product = productsMap[item.id] || productsMap[item.productId] || {};
+        const isPack = item.isPack || product.isPack || false;
+        const unitLabel = isPack ? 'пач' : 'шт';
+        const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
+        
+        // Рассчитываем количество коробок
+        const boxCount = Math.floor(item.qty / unitsPerBox);
+        const remainingUnits = item.qty % unitsPerBox;
+        
+        // Формируем строку количества в коробках (короткий формат)
+        let qtyLine1 = '';
+        let qtyLine2 = '';
+        if (boxCount > 0 && remainingUnits === 0) {
+          qtyLine1 = `${boxCount} кор`;
+          qtyLine2 = `(${unitsPerBox} ${unitLabel})`;
+        } else if (boxCount > 0 && remainingUnits > 0) {
+          qtyLine1 = `${boxCount} кор`;
+          qtyLine2 = `+${remainingUnits} ${unitLabel}`;
+        } else {
+          qtyLine1 = `${item.qty} ${unitLabel}`;
+          qtyLine2 = '';
+        }
+        
+        // Сжимаем предзагруженное фото с заданным уровнем качества
+        let photoWidth = 50;
+        let photoHeight = 50;
+        let photoData = null;
+        
+        if (preloadedImages[i]) {
+          try {
+            const compressed = await compressImageForPDF(preloadedImages[i], level.maxDim, level.quality);
+            if (compressed) {
+              photoData = compressed.data;
+              photoWidth = compressed.width;
+              photoHeight = compressed.height;
+            }
+          } catch (err) {
+            console.error('✗ Ошибка сжатия фото:', item.title, err);
+          }
+        }
+        
+        // Высота строки = высота фото + отступы
+        const rowHeight = Math.max(photoHeight + 5, 60);
+        const photoColumnWidth = Math.max(photoWidth + 5, 50);
+        const totalWidth = photoColumnWidth + 480;
+        
+        const row2Canvas = document.createElement('canvas');
+        const row2Ctx = row2Canvas.getContext('2d');
+        row2Canvas.width = totalWidth;
+        row2Canvas.height = rowHeight;
+        
+        row2Ctx.fillStyle = 'white';
+        row2Ctx.fillRect(0, 0, totalWidth, rowHeight);
+        row2Ctx.strokeStyle = 'black';
+        row2Ctx.lineWidth = 2;
+        row2Ctx.strokeRect(0, 0, totalWidth, rowHeight);
+        
+        // Вертикальные линии
+        const col2 = photoColumnWidth;
+        const col3 = photoColumnWidth + 200;
+        const col4 = photoColumnWidth + 340;
+        const col5 = photoColumnWidth + 410;
+        
+        row2Ctx.beginPath();
+        row2Ctx.moveTo(col2, 0); row2Ctx.lineTo(col2, rowHeight);
+        row2Ctx.moveTo(col3, 0); row2Ctx.lineTo(col3, rowHeight);
+        row2Ctx.moveTo(col4, 0); row2Ctx.lineTo(col4, rowHeight);
+        row2Ctx.moveTo(col5, 0); row2Ctx.lineTo(col5, rowHeight);
+        row2Ctx.stroke();
+        
+        row2Ctx.fillStyle = 'black';
+        row2Ctx.font = '13px Arial';
+        
+        const midY = rowHeight / 2;
+        
+        // Название (с переносом если длинное) + вариант
+        row2Ctx.textAlign = 'left';
+        const title = item.title || 'Товар';
+        const variantText = item.variantName ? ` [${item.variantName}]` : '';
+        const fullTitle = title + variantText;
+        
+        if (fullTitle.length > 28) {
+          row2Ctx.fillText(fullTitle.substring(0, 28), col2 + 5, midY - 5);
+          row2Ctx.fillText(fullTitle.substring(28), col2 + 5, midY + 10);
+        } else {
+          row2Ctx.fillText(fullTitle, col2 + 5, midY);
+        }
+        
+        // Количество (в коробках, две строки)
+        row2Ctx.textAlign = 'center';
+        row2Ctx.font = 'bold 12px Arial';
+        row2Ctx.fillText(qtyLine1, (col3 + col4) / 2, midY - 5);
+        if (qtyLine2) {
+          row2Ctx.font = '11px Arial';
+          row2Ctx.fillText(qtyLine2, (col3 + col4) / 2, midY + 10);
+        }
+        row2Ctx.font = '13px Arial';
+        
+        // Цена
+        row2Ctx.fillText(`${item.price}`, (col4 + col5) / 2, midY - 5);
+        row2Ctx.font = '11px Arial';
+        row2Ctx.fillText('сом', (col4 + col5) / 2, midY + 8);
+        
+        // Сумма
+        row2Ctx.font = 'bold 13px Arial';
+        row2Ctx.fillText(`${item.qty * item.price}`, (col5 + totalWidth) / 2, midY - 5);
+        row2Ctx.font = '11px Arial';
+        row2Ctx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
+        
+        const row2Image = row2Canvas.toDataURL('image/jpeg', 0.85);
+        const rowPdfHeight = rowHeight * 170 / totalWidth;
+        doc2.addImage(row2Image, 'JPEG', 20, yPosition, 170, rowPdfHeight);
+        
+        // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
+        if (photoData) {
+          const photoWidthPdf = photoWidth * 170 / totalWidth;
+          const photoHeightPdf = photoHeight * 170 / totalWidth;
+          const xPos = 22 + (photoColumnWidth * 170 / totalWidth - photoWidthPdf) / 2;
+          const yPos = yPosition + (rowPdfHeight - photoHeightPdf) / 2;
+          doc2.addImage(photoData, 'JPEG', xPos, yPos, photoWidthPdf, photoHeightPdf);
+        }
+        
+        yPosition += rowPdfHeight;
+      }
+      
+      // Строка ИТОГО с сеткой
+      const total2Canvas = document.createElement('canvas');
+      const total2Ctx = total2Canvas.getContext('2d');
+      total2Canvas.width = 550;
+      total2Canvas.height = 60;
+      
+      total2Ctx.fillStyle = '#fff9c4';
+      total2Ctx.fillRect(0, 0, 550, 60);
+      total2Ctx.strokeStyle = 'black';
+      total2Ctx.lineWidth = 3;
+      total2Ctx.strokeRect(0, 0, 550, 60);
+      
+      total2Ctx.beginPath();
+      total2Ctx.moveTo(470, 0);
+      total2Ctx.lineTo(470, 60);
+      total2Ctx.stroke();
+      
+      total2Ctx.fillStyle = 'black';
+      total2Ctx.font = 'bold 18px Arial';
+      total2Ctx.textAlign = 'right';
+      total2Ctx.fillText('ИТОГО:', 450, 38);
+      
+      total2Ctx.textAlign = 'center';
+      total2Ctx.fillText(`${totalAmount}`, 510, 32);
+      total2Ctx.font = '14px Arial';
+      total2Ctx.fillText('сом', 510, 48);
+      
+      const total2Image = total2Canvas.toDataURL('image/jpeg', 0.85);
+      doc2.addImage(total2Image, 'JPEG', 20, yPosition, 170, 15);
+      
+      pdf2Blob = doc2.output('blob');
+      const sizeMB = Math.round(pdf2Blob.size / 1024 / 1024 * 10) / 10;
+      console.log(`PDF с фото (качество ${level.quality}): ${sizeMB} MB`);
+      
+      if (pdf2Blob.size <= MAX_PDF_SIZE) {
+        console.log('✓ PDF подходит по размеру, качество:', level.quality);
+        break;
+      }
+      console.log('PDF > 40 MB, пробуем меньшее качество...');
+    }
     
-    total2Ctx.fillStyle = 'black';
-    total2Ctx.font = 'bold 18px Arial';
-    total2Ctx.textAlign = 'right';
-    total2Ctx.fillText('ИТОГО:', 450, 38);
-    
-    total2Ctx.textAlign = 'center';
-    total2Ctx.fillText(`${totalAmount}`, 510, 32);
-    total2Ctx.font = '14px Arial';
-    total2Ctx.fillText('сом', 510, 48);
-    
-    const total2Image = total2Canvas.toDataURL('image/jpeg', 0.85);
-    doc2.addImage(total2Image, 'JPEG', 20, yPosition, 170, 15);
-    
-    const pdf2Blob = doc2.output('blob');
     console.log('PDF с фото размер:', Math.round(pdf2Blob.size / 1024), 'KB');
     
     // ===== Отправка в Telegram (3 файла) =====
@@ -2545,14 +2581,14 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     
     Swal.update({ html: 'Отправка PDF с фото...' });
     
-    // Проверяем размер перед отправкой (Telegram лимит 50MB)
-    if (pdf2Blob.size > 49 * 1024 * 1024) {
+    // Проверяем размер перед отправкой (лимит 40MB)
+    if (pdf2Blob.size > MAX_PDF_SIZE) {
       const sizeMB = Math.round(pdf2Blob.size / 1024 / 1024);
       console.error('PDF с фото слишком большой:', sizeMB, 'MB');
       Swal.fire({
         icon: 'warning',
         title: 'Частично отправлено',
-        html: `📊 Excel и 📄 PDF для печати отправлены.<br>📷 PDF с фото слишком большой (${sizeMB} MB).<br>Telegram не поддерживает файлы больше 50 MB.`,
+        html: `📊 Excel и 📄 PDF для печати отправлены.<br>📷 PDF с фото слишком большой (${sizeMB} MB).<br>Попробуйте уменьшить количество товаров.`,
         confirmButtonText: 'Понятно'
       });
       return;
