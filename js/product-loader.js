@@ -20,6 +20,11 @@ const LS_PAUSED_WH_IDS_KEY = 'pausedWarehouseIds';
 // ID главного склада (для отображения остатков на карточках)
 let primaryWarehouseId = '';
 
+// Минимальная сумма заказа
+let minOrderAmount = 0;
+let minOrderEnabled = false;
+const LS_MIN_ORDER_KEY = 'minOrderSettings';
+
 // Загрузка флага паузы складов (кэшируется в localStorage для мгновенного чтения)
 function loadWarehousePausedFromLS() {
   try { warehousePaused = localStorage.getItem(LS_WH_PAUSED_KEY) === '1'; } catch(e) {}
@@ -27,6 +32,11 @@ function loadWarehousePausedFromLS() {
     const raw = localStorage.getItem(LS_PAUSED_WH_IDS_KEY);
     pausedWarehouseIds = raw ? new Set(JSON.parse(raw)) : new Set();
   } catch(e) { pausedWarehouseIds = new Set(); }
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_MIN_ORDER_KEY) || '{}');
+    minOrderAmount = cached.amount || 0;
+    minOrderEnabled = cached.enabled === true;
+  } catch(e) {}
 }
 async function loadWarehousePausedFlag() {
   try {
@@ -44,6 +54,28 @@ async function loadWarehousePausedFlag() {
     whSnap.forEach(d => pausedWarehouseIds.add(d.id));
     try { localStorage.setItem(LS_PAUSED_WH_IDS_KEY, JSON.stringify([...pausedWarehouseIds])); } catch(e) {}
   } catch(e) { pausedWarehouseIds = new Set(); }
+  // Загружаем минимальную сумму заказа
+  try {
+    const moDoc = await db.collection('settings').doc('minOrder').get();
+    if (moDoc.exists) {
+      const moData = moDoc.data();
+      minOrderAmount = moData.amount || 0;
+      minOrderEnabled = moData.enabled === true;
+      console.log('[MinOrder] Загружено из Firebase:', { amount: minOrderAmount, enabled: minOrderEnabled });
+    } else {
+      minOrderAmount = 0;
+      minOrderEnabled = false;
+      console.log('[MinOrder] Документ не найден в Firebase — ограничение выключено');
+    }
+    try { localStorage.setItem(LS_MIN_ORDER_KEY, JSON.stringify({ amount: minOrderAmount, enabled: minOrderEnabled })); } catch(e) {}
+  } catch(e) {
+    // При ошибке сети — загружаем из localStorage
+    try {
+      const cached = JSON.parse(localStorage.getItem(LS_MIN_ORDER_KEY) || '{}');
+      minOrderAmount = cached.amount || 0;
+      minOrderEnabled = cached.enabled === true;
+    } catch(e2) {}
+  }
 }
 
 // Эффективный остаток товара (исключая приостановленные склады)
@@ -99,11 +131,17 @@ async function loadProducts() {
       // Обновляем флаг с сервера в фоне и перерисовываем если изменился
       const pausedBefore = warehousePaused;
       const pausedIdsBefore = new Set(pausedWarehouseIds);
+      const minOrderBefore = minOrderEnabled;
+      const minOrderAmountBefore = minOrderAmount;
       loadWarehousePausedFlag().then(() => {
         if (pausedBefore !== warehousePaused ||
             pausedIdsBefore.size !== pausedWarehouseIds.size ||
             [...pausedWarehouseIds].some(id => !pausedIdsBefore.has(id))) {
           renderProducts();
+        }
+        // Обновляем корзину если настройки минимальной суммы изменились
+        if (minOrderBefore !== minOrderEnabled || minOrderAmountBefore !== minOrderAmount) {
+          if (typeof updateCart === 'function') updateCart();
         }
       });
       return;
@@ -192,6 +230,9 @@ async function loadProducts() {
     } else {
       renderProducts();
     }
+    
+    // Обновляем корзину после загрузки настроек (минимальная сумма заказа)
+    if (typeof updateCart === 'function') updateCart();
     
     // Скрываем splash если ещё не скрыт (для случая без кэша)
     hideSplashScreen();

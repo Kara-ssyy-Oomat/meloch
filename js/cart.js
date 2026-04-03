@@ -309,6 +309,31 @@ function updateCart() {
     if (totalSum) totalSum.textContent = total + ' сом';
   }
 
+  // Проверка минимальной суммы заказа (index.html)
+  const minOrderTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+  const submitBtn = document.getElementById('submitOrder');
+  const minOrderWarn = document.getElementById('minOrderWarningIndex');
+  console.log('[MinOrder] Проверка:', { enabled: minOrderEnabled, amount: minOrderAmount, cartTotal: minOrderTotal });
+  if (typeof minOrderEnabled !== 'undefined' && minOrderEnabled && minOrderAmount > 0 && minOrderTotal < minOrderAmount) {
+    const deficit = minOrderAmount - minOrderTotal;
+    if (minOrderWarn) {
+      minOrderWarn.style.display = 'block';
+      minOrderWarn.innerHTML = '⚠️ Минимальная сумма заказа: <b>' + minOrderAmount.toLocaleString() + ' сом</b>. Добавьте ещё на <b>' + deficit.toLocaleString() + ' сом</b>';
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.5';
+      submitBtn.style.cursor = 'not-allowed';
+    }
+  } else {
+    if (minOrderWarn) minOrderWarn.style.display = 'none';
+    if (submitBtn && cart.length > 0) {
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '1';
+      submitBtn.style.cursor = 'pointer';
+    }
+  }
+
   // Если открыта страница корзины, обновим её
   if (document.getElementById('cartPage') && document.getElementById('cartPage').style.display !== 'none') {
     renderCartPage();
@@ -579,6 +604,8 @@ window.addEventListener('pageshow', function(event) {
 document.addEventListener('visibilitychange', function() {
   if (!document.hidden) {
     syncCartFromLocalStorage();
+    // Проверяем заблокированные товары из Firebase
+    refreshBlockedProducts();
   }
 });
 
@@ -588,3 +615,56 @@ window.addEventListener('storage', function(e) {
     syncCartFromLocalStorage();
   }
 });
+
+// Фоновая проверка: подгружает свежий статус blocked из Firebase
+// и удаляет заблокированные/удалённые товары из корзины
+let _lastBlockedCheck = 0;
+async function refreshBlockedProducts() {
+  if (cart.length === 0) return;
+  if (typeof db === 'undefined') return;
+  // Не чаще чем раз в 30 секунд
+  const now = Date.now();
+  if (now - _lastBlockedCheck < 30000) return;
+  _lastBlockedCheck = now;
+
+  try {
+    const ids = [...new Set(cart.map(item => item.id))];
+    const blockedIds = new Set();
+    // Firestore 'in' поддерживает до 10 значений за раз
+    for (let i = 0; i < ids.length; i += 10) {
+      const batch = ids.slice(i, i + 10);
+      const snap = await db.collection('products').where(firebase.firestore.FieldPath.documentId(), 'in', batch).get();
+      const found = {};
+      snap.forEach(doc => { found[doc.id] = doc.data(); });
+      for (const id of batch) {
+        if (!found[id] || found[id].blocked) blockedIds.add(id);
+      }
+    }
+    if (blockedIds.size > 0) {
+      const removedTitles = cart.filter(item => blockedIds.has(item.id)).map(item => item.title);
+      const filtered = cart.filter(item => !blockedIds.has(item.id));
+      cart.length = 0;
+      cart.push(...filtered);
+      localStorage.setItem('cart', JSON.stringify(cart));
+      // Обновляем RAM-кэш products
+      if (typeof products !== 'undefined' && products.length > 0) {
+        blockedIds.forEach(id => {
+          const p = products.find(pp => pp.id === id);
+          if (p) p.blocked = true;
+        });
+      }
+      updateCart();
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'info',
+          title: 'Товары удалены из корзины',
+          html: '<b>Заблокированы или удалены:</b><br>' + removedTitles.join('<br>'),
+          timer: 4000,
+          showConfirmButton: false
+        });
+      }
+    }
+  } catch(e) {
+    console.log('[BlockedCheck] Ошибка:', e);
+  }
+}

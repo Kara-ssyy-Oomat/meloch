@@ -74,6 +74,28 @@ document.getElementById('submitOrder').onclick = async () => {
     return;
   }
 
+  // Проверка минимальной суммы заказа
+  try {
+    const minOrderDoc = await db.collection('settings').doc('minOrder').get();
+    console.log('[OrderSubmit MinOrder] doc.exists:', minOrderDoc.exists, minOrderDoc.exists ? minOrderDoc.data() : 'N/A');
+    if (minOrderDoc.exists) {
+      const moData = minOrderDoc.data();
+      if (moData.enabled && moData.amount > 0) {
+        const cartTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+        console.log('[OrderSubmit MinOrder] Проверка:', { limit: moData.amount, cartTotal });
+        if (cartTotal < moData.amount) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Минимальная сумма заказа',
+            html: `Минимальная сумма заказа: <b>${moData.amount.toLocaleString()} сом</b>.<br>Сейчас в корзине: <b>${cartTotal.toLocaleString()} сом</b>.<br><br>Добавьте ещё товаров на <b>${(moData.amount - cartTotal).toLocaleString()} сом</b>.`,
+            confirmButtonText: 'Понятно'
+          });
+          return;
+        }
+      }
+    }
+  } catch(e) { console.error('Min order check error:', e); }
+
   // Блокируем кнопку
   submitBtn.disabled = true;
   submitBtn.style.opacity = '0.5';
