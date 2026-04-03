@@ -713,6 +713,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     <button id="submitOrder">Отправить заказ</button>
     
+    <div id="minOrderWarningIndex" style="display:none; background:#fff3cd; color:#856404; padding:10px 14px; border-radius:8px; font-size:13px; margin-top:10px; text-align:center;"></div>
+    
     <button type="button" onclick="openTrackOrderModal()" style="width:100%; padding:14px; margin-top:10px; background:linear-gradient(135deg, #17a2b8 0%, #138496 100%); color:white; border:none; border-radius:10px; cursor:pointer; font-size:16px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:10px;">
       📦 Отслеживать мой заказ
     </button>
@@ -927,9 +929,9 @@ document.addEventListener('DOMContentLoaded', function() {
   <script src="js/image-proxy.js"></script>
   <script src="js/client-identity.js"></script>
   <script src="js/helpers.js?v=2"></script>
-  <script src="js/product-loader.js"></script>
+  <script src="js/product-loader.js?v=2"></script>
   <script src="js/product-renderer.js?v=5"></script>
-  <script src="js/cart.js"></script>
+  <script src="js/cart.js?v=3"></script>
   <script src="js/favorites.js"></script>
   <script src="js/quantity.js?v=2"></script>
 
@@ -941,7 +943,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <!-- ОТЛОЖЕННЫЕ модули: defer — загружаются параллельно, выполняются после DOM -->
   <script defer src="js/advanced-search.js"></script>
   <script defer src="js/product-editor.js?v=2"></script>
-  <script defer src="js/order-submit.js"></script>
+  <script defer src="js/order-submit.js?v=2"></script>
   <script defer src="js/complaint-suggestion.js"></script>
   <script defer src="js/admin-ui.js"></script>
   <script defer src="js/image-optimizer.js"></script>

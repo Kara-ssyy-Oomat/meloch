@@ -805,6 +805,8 @@ async function loadOrderProfitReport() {
       const data = doc.data();
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       if (orderDate >= startDate) {
+        // Пропускаем отменённые заказы — они не считаются в прибыли
+        if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
         orders.push({ id: doc.id, ...data, orderDate });
       }
     });
@@ -953,6 +955,9 @@ async function loadAgentsProfitReport() {
         ordersSkippedByDate++;
         return;
       }
+      
+      // Пропускаем отменённые заказы — не считаем прибыль агенту
+      if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
       
       // Ищем агента по разным полям: partner, agentId, referredBy
       let agent = null;

@@ -595,6 +595,74 @@
       }
     }
     
+    // ============ Минимальная сумма заказа ============
+    async function openMinOrderSettings() {
+      try {
+        const doc = await db.collection('settings').doc('minOrder').get();
+        const data = doc.exists ? doc.data() : {};
+        const currentAmount = data.amount || 5000;
+        const currentEnabled = data.enabled !== false;
+
+        const result = await Swal.fire({
+          title: '💵 Минимальная сумма заказа',
+          html: `
+            <div style="text-align:left; padding:10px 0;">
+              <div style="margin-bottom:16px;">
+                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:16px;">
+                  <input type="checkbox" id="swal-min-order-enabled" ${currentEnabled ? 'checked' : ''} style="width:20px; height:20px; cursor:pointer;">
+                  <span style="font-weight:600;">Включить минимальную сумму</span>
+                </label>
+                <div style="font-size:12px; color:#888; margin-top:4px; margin-left:30px;">Если включено — клиент не сможет заказать на сумму ниже указанной</div>
+              </div>
+              <div style="margin-bottom:12px;">
+                <label style="display:block; margin-bottom:6px; font-weight:600; color:#333;">Минимальная сумма (сом):</label>
+                <input type="number" id="swal-min-order-amount" value="${currentAmount}" min="0" step="500" placeholder="Например: 5000" style="width:100%; padding:14px; border:2px solid #4CAF50; border-radius:10px; font-size:18px; font-weight:700; text-align:center; box-sizing:border-box;">
+              </div>
+              <div style="background:#fff3cd; padding:12px; border-radius:8px; font-size:13px; color:#856404;">
+                ⚠️ Клиенты не смогут оформить заказ, если итоговая сумма корзины меньше указанной. Вы можете временно отключить это ограничение.
+              </div>
+            </div>
+          `,
+          showCancelButton: true,
+          confirmButtonText: '💾 Сохранить',
+          cancelButtonText: 'Отмена',
+          confirmButtonColor: '#4CAF50',
+          preConfirm: () => {
+            const amount = parseInt(document.getElementById('swal-min-order-amount').value) || 0;
+            const enabled = document.getElementById('swal-min-order-enabled').checked;
+            if (enabled && amount <= 0) {
+              Swal.showValidationMessage('Укажите сумму больше 0');
+              return false;
+            }
+            return { amount, enabled };
+          }
+        });
+
+        if (!result.isConfirmed) return;
+
+        console.log('[MinOrder Admin] Сохраняю:', result.value);
+        await db.collection('settings').doc('minOrder').set({
+          amount: result.value.amount,
+          enabled: result.value.enabled,
+          updatedAt: Date.now()
+        });
+        console.log('[MinOrder Admin] Сохранено успешно!');
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Сохранено!',
+          html: result.value.enabled
+            ? `Минимальная сумма заказа: <b>${result.value.amount.toLocaleString()} сом</b>`
+            : 'Минимальная сумма заказа <b>отключена</b>',
+          timer: 2500,
+          showConfirmButton: false
+        });
+      } catch (e) {
+        console.error('Min order settings error:', e);
+        Swal.fire('Ошибка', 'Не удалось загрузить/сохранить настройку', 'error');
+      }
+    }
+
     // Переход на полную страницу (admin/agent) — открывает в родительском окне
     function navigateTop(url) {
       if (window.parent !== window) {
@@ -1255,6 +1323,14 @@
               <div class="menu-item-left">
                 <span class="menu-icon">🏭</span>
                 <span class="menu-text">Управление складами</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
+            <div class="menu-item admin-menu-item" onclick="openMinOrderSettings()">
+              <div class="menu-item-left">
+                <span class="menu-icon">💵</span>
+                <span class="menu-text">Минимальная сумма заказа</span>
               </div>
               <span class="menu-arrow">›</span>
             </div>

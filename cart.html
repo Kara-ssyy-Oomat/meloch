@@ -253,6 +253,7 @@
       <span class="cart-summary-total" id="cartTotal">0 сом</span>
     </div>
     <div class="cart-summary-info" id="cartSummary"></div>
+    <div id="minOrderWarning" style="display:none; background:#fff3cd; color:#856404; padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:10px; text-align:center;"></div>
     <button class="checkout-btn" id="submitOrderBtn" onclick="submitOrderFromCart()">📦 Отправить заказ</button>
   </div>
   
@@ -290,6 +291,8 @@
     let primaryWarehouseId = '';
     let warehousePaused = false;
     let pausedWarehouseIds = new Set();
+    let minOrderAmount = 0;
+    let minOrderEnabled = false;
     
     // Функция исправления URL (https/ -> https://)
     function fixCartImageUrl(url) {
@@ -325,14 +328,23 @@
     
     async function loadProducts() {
       try {
-        const [snapshot, settingsDoc] = await Promise.all([
+        const [snapshot, settingsDoc, minOrderDoc] = await Promise.all([
           db.collection('products').get(),
-          db.collection('settings').doc('warehouse').get()
+          db.collection('settings').doc('warehouse').get(),
+          db.collection('settings').doc('minOrder').get()
         ]);
         products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         if (settingsDoc.exists) {
           primaryWarehouseId = settingsDoc.data().primaryWarehouseId || '';
           warehousePaused = settingsDoc.data().paused === true;
+        }
+        if (minOrderDoc.exists) {
+          const moData = minOrderDoc.data();
+          minOrderAmount = moData.amount || 0;
+          minOrderEnabled = moData.enabled === true;
+          console.log('[Cart MinOrder] Загружено:', { amount: minOrderAmount, enabled: minOrderEnabled });
+        } else {
+          console.log('[Cart MinOrder] Документ settings/minOrder НЕ найден в Firebase');
         }
       } catch (e) { console.error(e); }
       // Загружаем приостановленные склады отдельно (коллекция может не существовать)
@@ -348,6 +360,31 @@
       const content = document.getElementById('cartContent');
       const footer = document.getElementById('cartFooter');
       const clearBtn = document.querySelector('.clear-btn');
+      
+      // Удаляем заблокированные/удалённые товары из корзины
+      if (products.length > 0) {
+        const removedTitles = [];
+        const validCart = cart.filter(item => {
+          const product = products.find(p => p.id === item.id);
+          if (!product || product.blocked) {
+            removedTitles.push(item.title);
+            return false;
+          }
+          return true;
+        });
+        if (removedTitles.length > 0) {
+          cart.length = 0;
+          cart.push(...validCart);
+          saveCart();
+          Swal.fire({
+            icon: 'info',
+            title: 'Товары удалены из корзины',
+            html: '<b>Заблокированы или удалены:</b><br>' + removedTitles.join('<br>'),
+            timer: 4000,
+            showConfirmButton: false
+          });
+        }
+      }
       
       if (cart.length === 0) {
         content.innerHTML = `
@@ -406,6 +443,30 @@
       let summary = `${cart.length} ${posWord}, ${totalItems} товаров`;
       if (packCount > 0) summary += ` (${packCount} пачек)`;
       document.getElementById('cartSummary').textContent = summary;
+      
+      // Проверка минимальной суммы заказа
+      const submitBtn = document.getElementById('submitOrderBtn');
+      const minOrderWarning = document.getElementById('minOrderWarning');
+      if (minOrderEnabled && minOrderAmount > 0 && total < minOrderAmount) {
+        const deficit = minOrderAmount - total;
+        if (minOrderWarning) {
+          minOrderWarning.style.display = 'block';
+          minOrderWarning.innerHTML = `⚠️ Минимальная сумма заказа: <b>${minOrderAmount.toLocaleString()} сом</b>. Добавьте товаров ещё на <b>${deficit.toLocaleString()} сом</b>`;
+        }
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.style.opacity = '0.5';
+          submitBtn.style.cursor = 'not-allowed';
+        }
+      } else {
+        if (minOrderWarning) minOrderWarning.style.display = 'none';
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.style.opacity = '1';
+          submitBtn.style.cursor = 'pointer';
+        }
+      }
+      
       updateNavBadge();
     }
     
@@ -575,6 +636,20 @@
       if (cart.length === 0) {
         Swal.fire('Ошибка', 'Корзина пуста', 'warning');
         return;
+      }
+
+      // Проверка минимальной суммы заказа
+      if (minOrderEnabled && minOrderAmount > 0) {
+        const cartTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+        if (cartTotal < minOrderAmount) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Минимальная сумма заказа',
+            html: `Минимальная сумма заказа: <b>${minOrderAmount.toLocaleString()} сом</b>.<br>Сейчас в корзине: <b>${cartTotal.toLocaleString()} сом</b>.<br><br>Добавьте ещё товаров на <b>${(minOrderAmount - cartTotal).toLocaleString()} сом</b>.`,
+            confirmButtonText: 'Понятно'
+          });
+          return;
+        }
       }
 
       // Антиспам

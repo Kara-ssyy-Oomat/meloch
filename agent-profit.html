@@ -950,11 +950,11 @@
           <span class="filter-divider">|</span>
           <select id="statusFilter" class="filter-select" onchange="filterOrders()">
             <option value="all">🏷️ Все</option>
-            <option value="Новый">🆕 Новый</option>
-            <option value="В обработке">⏳ В обработке</option>
-            <option value="Доставляется">🚚 Доставляется</option>
-            <option value="Доставлен">✅ Доставлен</option>
-            <option value="Отменён">❌ Отменён</option>
+            <option value="pending">🆕 Новый</option>
+            <option value="preparing">⏳ В обработке</option>
+            <option value="logistics">🚚 Доставляется</option>
+            <option value="completed">✅ Доставлен</option>
+            <option value="cancelled">❌ Отменён</option>
           </select>
         </div>
         
@@ -1501,20 +1501,28 @@
       
       const statusColors = {
         'Новый': '#17a2b8',
+        'pending': '#17a2b8',
         'В обработке': '#ffc107',
+        'preparing': '#ffc107',
         'Доставляется': '#007bff',
+        'logistics': '#007bff',
+        'driver': '#007bff',
         'Доставлен': '#28a745',
-        'Отменён': '#dc3545'
+        'completed': '#28a745',
+        'Отменён': '#dc3545',
+        'cancelled': '#dc3545'
       };
       
-      listEl.innerHTML = filteredOrders.map(order => {
-        const profit = Math.round((order.total || 0) * 0.02);
+      listEl.innerHTML = filteredOrders.map(order => {\n        const isCancelled = order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен';\n        const profit = isCancelled ? 0 : Math.round((order.total || 0) * 0.02);
         const date = order.time || new Date(order.timestamp).toLocaleString();
         const statusColor = statusColors[order.status] || '#666';
         const isRecent = (order.timestamp || 0) > oneDayAgo;
         
         const itemsCount = order.items ? order.items.length : 0;
         const totalQty = order.items ? order.items.reduce((s, i) => s + (i.qty || 0), 0) : 0;
+        
+        const statusTexts = { pending: 'Новый', preparing: 'Готовится', logistics: 'Логистика', driver: 'Доставка', completed: 'Доставлен', cancelled: 'Отменён' };
+        const statusText = statusTexts[order.status] || order.status || 'Новый';
         
         return `
           <div class="order-card ${isRecent ? 'recent' : ''}" style="border-left-color:${statusColor};">
@@ -1529,7 +1537,7 @@
               </div>
               <div class="order-meta">
                 <div class="order-date">${date}</div>
-                <div class="order-status" style="background:${statusColor};">${order.status || 'Новый'}</div>
+                <div class="order-status" style="background:${statusColor};">${statusText}</div>
               </div>
             </div>
             <div class="order-footer">
@@ -1799,11 +1807,14 @@
     // Обновление статистики
     async function updateStats() {
       let totalSum = 0;
-      let totalOrders = filteredOrders.length;
+      let totalOrders = 0;
       const uniqueClients = new Set();
       
       filteredOrders.forEach(order => {
+        // Отменённые заказы не считаются в прибыль
+        if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
         totalSum += order.total || 0;
+        totalOrders++;
         if (order.phone) uniqueClients.add(order.phone);
       });
       
@@ -1845,6 +1856,8 @@
       // Группируем по дням
       const dailyData = {};
       filteredOrders.forEach(order => {
+        // Отменённые заказы не считаются в графике
+        if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
         const timestamp = order.timestamp || order.createdAt || order.date;
         if (!timestamp) return;
         
@@ -1931,6 +1944,8 @@
       const clientsMap = new Map();
       
       filteredOrders.forEach(order => {
+        // Отменённые заказы не считаются в прибыль клиента
+        if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
         const phone = order.phone;
         if (phone) {
           if (!clientsMap.has(phone)) {
@@ -1992,7 +2007,8 @@
         const address = (order.address || '').replace(/,/g, ' ');
         const status = order.status || 'Новый';
         const total = order.total || 0;
-        const profit = Math.round(total * 0.02);
+        const isCancelled = status === 'cancelled' || status === 'Отменён' || status === 'Отменен';
+        const profit = isCancelled ? 0 : Math.round(total * 0.02);
         
         csv += `"${date}","${name}","${phone}","${address}","${status}",${total},${profit}\n`;
       });
