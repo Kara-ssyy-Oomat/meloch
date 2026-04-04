@@ -2023,17 +2023,19 @@ async function askQtyAndAddProduct(productId, productName, productPrice, product
 // ===== ЭКСПОРТ ЗАКАЗА В TELEGRAM (3 файла: Excel + 2 PDF через Canvas) =====
 // Копия оригинального кода из orders.js с поддержкой пач/шт и коробок
 
-// Сжатие изображения для встраивания в PDF (маленький размер, JPEG)
-function compressImageForPDF(base64Data, maxDim, quality) {
-  maxDim = maxDim || 200;
-  quality = quality || 0.6;
+// Сжатие изображения для встраивания в PDF
+// renderDim = разрешение рендера (пиксели), displayDim = размер ячейки в макете
+function compressImageForPDF(base64Data, renderDim, quality) {
+  renderDim = renderDim || 400;
+  quality = quality || 0.9;
   return new Promise(function(resolve) {
     var img = new Image();
     img.onload = function() {
       var w = img.width;
       var h = img.height;
-      if (w > maxDim || h > maxDim) {
-        var s = Math.min(maxDim / w, maxDim / h);
+      // Масштабируем до renderDim для высокого качества
+      if (w > renderDim || h > renderDim) {
+        var s = Math.min(renderDim / w, renderDim / h);
         w = Math.round(w * s);
         h = Math.round(h * s);
       }
@@ -2043,7 +2045,7 @@ function compressImageForPDF(base64Data, maxDim, quality) {
       c.getContext('2d').drawImage(img, 0, 0, w, h);
       resolve({ data: c.toDataURL('image/jpeg', quality), width: w, height: h });
     };
-    img.onerror = function() { console.error('compressImageForPDF: ошибка загрузки изображения'); resolve(null); };
+    img.onerror = function() { console.error('compressImageForPDF: ошибка загрузки'); resolve(null); };
     img.src = base64Data;
   });
 }
@@ -2052,14 +2054,74 @@ function compressImageForPDF(base64Data, maxDim, quality) {
 function getSmallImageUrl(url, width, quality) {
   width = width || 200;
   quality = quality || 95;
+  if (!url || typeof url !== 'string') return url;
   try {
-    var parsed = new URL(url);
-    var h = parsed.hostname;
-    if ((h === 'cloudinary.com' || h.endsWith('.cloudinary.com')) && url.includes('/upload/')) {
-      return url.replace('/upload/', '/upload/w_' + width + ',q_' + quality + ',f_jpg/');
+    // Убираем существующие трансформации перед добавлением новых
+    if (url.includes('cloudinary.com') && url.includes('/upload/')) {
+      // Ищем /upload/ и следующий за ним блок трансформаций (w_xxx,q_xxx,...)
+      var cleanUrl = url.replace(/\/upload\/[a-z][a-z0-9_,]+\//, '/upload/');
+      return cleanUrl.replace('/upload/', '/upload/w_' + width + ',q_' + quality + ',f_jpg/');
     }
   } catch (e) {}
   return url;
+}
+
+// Надёжная загрузка изображения как base64 через Image элемент (не fetch)
+function loadImageToBase64(url, timeoutMs) {
+  timeoutMs = timeoutMs || 10000;
+  return new Promise(function(resolve) {
+    var done = false;
+    var timer = setTimeout(function() {
+      if (!done) { done = true; resolve(null); }
+    }, timeoutMs);
+
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        var c = document.createElement('canvas');
+        c.width = img.naturalWidth || img.width;
+        c.height = img.naturalHeight || img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        resolve(c.toDataURL('image/jpeg', 0.95));
+      } catch(e) {
+        console.warn('Canvas tainted, trying proxy:', url);
+        resolve(null);
+      }
+    };
+    img.onerror = function() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
+// Загрузка фото с несколькими попытками (Cloudinary → прокси → оригинал)
+async function loadProductPhoto(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) return null;
+
+  // Попытка 1: Cloudinary с трансформацией
+  var smallUrl = getSmallImageUrl(imageUrl, 600, 95);
+  var result = await loadImageToBase64(smallUrl, 8000);
+  if (result) return result;
+
+  // Попытка 2: прокси wsrv.nl
+  var proxyUrl = 'https://wsrv.nl/?url=' + encodeURIComponent(imageUrl) + '&w=600&q=95&output=jpg';
+  result = await loadImageToBase64(proxyUrl, 8000);
+  if (result) return result;
+
+  // Попытка 3: оригинальный URL напрямую
+  result = await loadImageToBase64(imageUrl, 8000);
+  if (result) return result;
+
+  console.warn('Все попытки загрузки фото не удались:', imageUrl.substring(0, 60));
+  return null;
 }
 
 async function exportOrderToExcel(orderId, clientName, clientPhone) {
@@ -2358,27 +2420,22 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     
     const MAX_PDF_SIZE = 40 * 1024 * 1024; // 40 MB лимит
     
-    // Шаг 1: Предварительная загрузка всех изображений в высоком качестве
+    // Шаг 1: Предварительная загрузка всех изображений через Image элемент
     const preloadedImages = [];
+    let loadedCount = 0;
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const product = productsMap[item.id] || productsMap[item.productId] || {};
       let imageUrl = item.image || product.image;
       
+      Swal.update({ html: `Загрузка фото ${++loadedCount}/${items.length}...` });
+      
       if (imageUrl && imageUrl.startsWith('http')) {
-        try {
-          const optimizedUrl = getSmallImageUrl(imageUrl, 400, 95);
-          const response = await fetch(optimizedUrl);
-          const blob = await response.blob();
-          const reader = new FileReader();
-          const base64 = await new Promise((resolve) => {
-            reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-          });
-          preloadedImages[i] = base64;
-        } catch (err) {
-          console.error('✗ Ошибка загрузки фото:', item.title, err);
-          preloadedImages[i] = null;
+        preloadedImages[i] = await loadProductPhoto(imageUrl);
+        if (preloadedImages[i]) {
+          console.log('✓ Фото загружено:', (item.title || '').substring(0, 30));
+        } else {
+          console.warn('✗ Фото не загружено:', (item.title || '').substring(0, 30), imageUrl.substring(0, 60));
         }
       } else {
         preloadedImages[i] = null;
@@ -2387,10 +2444,10 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     
     // Шаг 2: Адаптивное качество — сначала максимальное, снижаем если PDF > 40 MB
     const qualityLevels = [
-      { maxDim: 200, quality: 0.92 },
-      { maxDim: 150, quality: 0.75 },
-      { maxDim: 120, quality: 0.6 },
-      { maxDim: 80, quality: 0.45 }
+      { renderDim: 400, quality: 0.95 },
+      { renderDim: 300, quality: 0.85 },
+      { renderDim: 200, quality: 0.7 },
+      { renderDim: 150, quality: 0.55 }
     ];
     
     let pdf2Blob = null;
@@ -2514,17 +2571,26 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
         }
         
         // Сжимаем предзагруженное фото с заданным уровнем качества
-        let photoWidth = 50;
-        let photoHeight = 50;
+        // Фиксированный размер ячейки 80x80, но рендерим в высоком разрешении
+        const PHOTO_CELL = 120;
+        let photoWidth = PHOTO_CELL;
+        let photoHeight = PHOTO_CELL;
         let photoData = null;
         
         if (preloadedImages[i]) {
           try {
-            const compressed = await compressImageForPDF(preloadedImages[i], level.maxDim, level.quality);
+            const compressed = await compressImageForPDF(preloadedImages[i], level.renderDim, level.quality);
             if (compressed) {
               photoData = compressed.data;
-              photoWidth = compressed.width;
-              photoHeight = compressed.height;
+              // Размер ячейки фиксирован, не зависит от разрешения
+              const aspect = compressed.width / compressed.height;
+              if (aspect >= 1) {
+                photoWidth = PHOTO_CELL;
+                photoHeight = Math.round(PHOTO_CELL / aspect);
+              } else {
+                photoHeight = PHOTO_CELL;
+                photoWidth = Math.round(PHOTO_CELL * aspect);
+              }
             }
           } catch (err) {
             console.error('✗ Ошибка сжатия фото:', item.title, err);
