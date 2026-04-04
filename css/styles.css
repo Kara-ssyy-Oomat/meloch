@@ -1258,8 +1258,7 @@ button.delete-item:hover {
   }
   
   .product-card .card-image {
-    aspect-ratio: 1/1;
-    max-height: none;
+    aspect-ratio: 4/3;
   }
   
   .card-actions .card-qty-input { 
