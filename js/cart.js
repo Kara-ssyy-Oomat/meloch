@@ -313,8 +313,22 @@ function updateCart() {
   const minOrderTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
   const submitBtn = document.getElementById('submitOrder');
   const minOrderWarn = document.getElementById('minOrderWarningIndex');
-  console.log('[MinOrder] Проверка:', { enabled: minOrderEnabled, amount: minOrderAmount, cartTotal: minOrderTotal });
-  if (typeof minOrderEnabled !== 'undefined' && minOrderEnabled && minOrderAmount > 0 && minOrderTotal < minOrderAmount) {
+  
+  // Проверяем обход минимума: если клиент уже заказывал сегодня >= минимума
+  let minOrderBypassed = false;
+  try {
+    const bypass = localStorage.getItem('minOrderBypass');
+    if (bypass) {
+      const bp = JSON.parse(bypass);
+      const phoneEl = document.getElementById('phone');
+      const currentPhone = phoneEl ? phoneEl.value.trim() : '';
+      if (bp.until > Date.now() && (!currentPhone || bp.phone === currentPhone)) {
+        minOrderBypassed = true;
+      }
+    }
+  } catch(e) {}
+  
+  if (!minOrderBypassed && typeof minOrderEnabled !== 'undefined' && minOrderEnabled && minOrderAmount > 0 && minOrderTotal < minOrderAmount) {
     const deficit = minOrderAmount - minOrderTotal;
     if (minOrderWarn) {
       minOrderWarn.style.display = 'block';

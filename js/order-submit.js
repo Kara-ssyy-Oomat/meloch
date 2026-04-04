@@ -77,20 +77,44 @@ document.getElementById('submitOrder').onclick = async () => {
   // Проверка минимальной суммы заказа
   try {
     const minOrderDoc = await db.collection('settings').doc('minOrder').get();
-    console.log('[OrderSubmit MinOrder] doc.exists:', minOrderDoc.exists, minOrderDoc.exists ? minOrderDoc.data() : 'N/A');
     if (minOrderDoc.exists) {
       const moData = minOrderDoc.data();
       if (moData.enabled && moData.amount > 0) {
         const cartTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
-        console.log('[OrderSubmit MinOrder] Проверка:', { limit: moData.amount, cartTotal });
         if (cartTotal < moData.amount) {
-          Swal.fire({
-            icon: 'warning',
-            title: 'Минимальная сумма заказа',
-            html: `Минимальная сумма заказа: <b>${moData.amount.toLocaleString()} сом</b>.<br>Сейчас в корзине: <b>${cartTotal.toLocaleString()} сом</b>.<br><br>Добавьте ещё товаров на <b>${(moData.amount - cartTotal).toLocaleString()} сом</b>.`,
-            confirmButtonText: 'Понятно'
-          });
-          return;
+          // Проверяем: есть ли у клиента заказ за сутки >= минимума
+          let hasTodayBigOrder = false;
+          try {
+            const bypass = localStorage.getItem('minOrderBypass');
+            if (bypass) {
+              const bp = JSON.parse(bypass);
+              if (bp.phone === phone && bp.until > Date.now()) hasTodayBigOrder = true;
+            }
+          } catch(e) {}
+          // Если локального флага нет — проверяем через Firebase
+          if (!hasTodayBigOrder && phone) {
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const snap = await db.collection('orders')
+              .where('phone', '==', phone)
+              .where('timestamp', '>=', todayStart.getTime())
+              .limit(20).get();
+            snap.forEach(doc => {
+              const d = doc.data();
+              if (!d.deleted && d.status !== 'cancelled' && (d.total || 0) >= moData.amount) {
+                hasTodayBigOrder = true;
+              }
+            });
+          }
+          if (!hasTodayBigOrder) {
+            Swal.fire({
+              icon: 'warning',
+              title: 'Минимальная сумма заказа',
+              html: `Минимальная сумма заказа: <b>${moData.amount.toLocaleString()} сом</b>.<br>Сейчас в корзине: <b>${cartTotal.toLocaleString()} сом</b>.<br><br>Добавьте ещё товаров на <b>${(moData.amount - cartTotal).toLocaleString()} сом</b>.`,
+              confirmButtonText: 'Понятно'
+            });
+            return;
+          }
         }
       }
     }
@@ -381,6 +405,18 @@ document.getElementById('submitOrder').onclick = async () => {
       time: currentTime,
       status: 'pending'
     });
+    
+    // Если заказ >= минимума, сохраняем флаг обхода на сутки
+    try {
+      if (typeof minOrderAmount !== 'undefined' && minOrderEnabled && total >= minOrderAmount) {
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+        localStorage.setItem('minOrderBypass', JSON.stringify({
+          phone: phone,
+          until: endOfDay.getTime()
+        }));
+      }
+    } catch(e) {}
     
     // Разблокируем кнопку после показа успеха
     submitBtn.disabled = false;
