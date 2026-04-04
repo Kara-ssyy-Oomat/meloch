@@ -383,7 +383,7 @@ function renderProductsCore() {
         ${favoriteHtml}
         ${p.createdAt && (Date.now() - p.createdAt) < 4 * 24 * 60 * 60 * 1000 ? `<div class="new-badge">NEW</div>` : ''}
         ${isEditorMode ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,123,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;z-index:1;">#${idx + 1}</div>` : ''}
-        ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
+        ${p.image ? `<img referrerpolicy="no-referrer" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
       </div>
       <div class="card-body"
         ${showEditorCard ? `
@@ -482,33 +482,7 @@ function renderProductsCore() {
   
   // Улучшенная ленивая загрузка изображений
   // ВАЖНО: Используем ОДИН глобальный наблюдатель вместо создания нового каждый раз
-  if ('IntersectionObserver' in window) {
-    // Создаем наблюдатель только если его еще нет
-    if (!globalImageObserver) {
-      globalImageObserver = new IntersectionObserver((entries, observer) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            const img = entry.target;
-            if (!img.classList.contains('loaded')) {
-              // Изображение уже загружается браузером благодаря loading="lazy"
-              // Просто добавляем класс для плавного появления
-              if (img.complete) {
-                img.classList.add('loaded');
-              }
-            }
-            observer.unobserve(img);
-          }
-        });
-      }, {
-        rootMargin: '50px' // Начинаем загрузку за 50px до появления в зоне видимости
-      });
-    }
-    
-    // Наблюдаем за всеми изображениями товаров
-    container.querySelectorAll('.card-image img').forEach(img => {
-      globalImageObserver.observe(img);
-    });
-  }
+  // Браузер сам управляет загрузкой через loading="lazy"
 
   // ПАГИНАЦИЯ: добавляем "Загрузить ещё" если есть ещё товары
   if (_allFilteredProducts.length > PRODUCTS_PER_PAGE * _currentPage) {
@@ -636,7 +610,7 @@ function loadMoreProducts() {
         ${blockedBadgeHtml}${packBadgeHtml}${galleryBadgeHtml}${favoriteHtml}
         ${p.createdAt && (Date.now() - p.createdAt) < 4 * 24 * 60 * 60 * 1000 ? `<div class="new-badge">NEW</div>` : ''}
         ${isEditorMode ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,123,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;z-index:1;">#${idx + 1}</div>` : ''}
-        ${p.image ? `<img referrerpolicy="no-referrer" loading="lazy" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onload="this.classList.add('loaded')" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
+        ${p.image ? `<img referrerpolicy="no-referrer" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
       </div>
       <div class="card-body"
         ${showEditorCard ? `
@@ -683,12 +657,6 @@ function loadMoreProducts() {
   container.appendChild(fragment);
   
   // Наблюдаем за новыми изображениями
-  if (globalImageObserver) {
-    container.querySelectorAll('.card-image img:not(.loaded)').forEach(img => {
-      globalImageObserver.observe(img);
-    });
-  }
-  
   // Обновляем пачки/количество
   nextBatch.forEach(p => {
     if (p.isPack && typeof updatePackDisplay === 'function') updatePackDisplay(p.id);
