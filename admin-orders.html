@@ -145,6 +145,7 @@
           <option value="driver|all">🚗 Доставка</option>
           <option value="completed|all">✓ Готовы</option>
           <option value="cancelled|all">✕ Отменены</option>
+          <option value="deleted|all">🗑️ Удалённые</option>
         </select>
         <button onclick="openMergeOrdersModal()" style="padding:8px 12px; background:#667eea; color:white; border:none; border-radius:8px; cursor:pointer; font-size:13px;">🔗</button>
         <button onclick="loadOrdersManagement(true)" style="padding:8px 12px; background:#28a745; color:white; border:none; border-radius:8px; cursor:pointer; font-size:13px;">🔄</button>
@@ -345,6 +346,9 @@ function applyOrdersCombinedFilter() {
   if (!combo) return;
   const [status, date] = combo.value.split('|');
   
+  // Сохраняем выбранный фильтр
+  try { localStorage.setItem('ordersFilterValue', combo.value); } catch(e) {}
+  
   const statusEl = document.getElementById('ordersFilterStatus');
   const dateEl = document.getElementById('ordersFilterDate');
   if (statusEl) statusEl.value = status;
@@ -433,7 +437,16 @@ function renderOrdersManagementFromCache() {
     }
 
     const status = normalizeStatus(order.status);
-    const statusMatch = statusFilter === 'all' || status === statusFilter;
+    const isDeleted = order.deleted === true;
+    
+    // Для фильтра "Удалённые" показываем только удалённые; для остальных — скрываем удалённые
+    if (statusFilter === 'deleted') {
+      if (!isDeleted) return false;
+    } else {
+      if (isDeleted) return false;
+      if (statusFilter !== 'all' && status !== statusFilter) return false;
+    }
+    const statusMatch = true;
 
     const name = (order.name || '').toLowerCase();
     const phone = (order.phone || '').toLowerCase();
@@ -469,13 +482,14 @@ async function loadOrdersManagement(forceRefresh = false) {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка заказов...</div>';
 
   try {
-    // Загружаем последние 200 заказов + отдельно ВСЕ pending (чтобы старые pending не терялись)
-    const [recentSnapshot, pendingSnapshot] = await Promise.all([
+    // Загружаем последние 200 заказов + отдельно ВСЕ pending + удалённые
+    const [recentSnapshot, pendingSnapshot, deletedSnapshot] = await Promise.all([
       db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(),
-      db.collection('orders').where('status', '==', 'pending').get()
+      db.collection('orders').where('status', '==', 'pending').get(),
+      db.collection('orders').where('deleted', '==', true).get()
     ]);
 
-    if (recentSnapshot.empty && pendingSnapshot.empty) {
+    if (recentSnapshot.empty && pendingSnapshot.empty && deletedSnapshot.empty) {
       ordersManagementAllOrders = [];
       listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:60px; font-size:16px;">📭 Заказов пока нет</div>';
       return;
@@ -488,6 +502,13 @@ async function loadOrdersManagement(forceRefresh = false) {
     });
     // Добавляем pending-заказы, которые могли не попасть в limit(200)
     pendingSnapshot.forEach(doc => {
+      if (!allMap[doc.id]) {
+        const data = doc.data();
+        allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
+      }
+    });
+    // Добавляем удалённые заказы
+    deletedSnapshot.forEach(doc => {
       if (!allMap[doc.id]) {
         const data = doc.data();
         allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
@@ -568,6 +589,15 @@ function createOrderCard(order, index) {
         </div>
         
         <!-- Действия -->
+        ${order.deleted ? `
+        <div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:8px; text-align:center;">
+          <div style="color:#e65100; font-size:13px; font-weight:600; margin-bottom:8px;">🗑️ Удалён ${order.deletedAt ? new Date(order.deletedAt).toLocaleString('ru-RU') : ''}</div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="restoreOrder('${order.id}')" style="flex:1; padding:10px; background:#28a745; color:#fff; border:none; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;">✅ Восстановить</button>
+            <button onclick="permanentDeleteOrder('${order.id}')" style="flex:1; padding:10px; background:#dc3545; color:#fff; border:none; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;">🗑️ Удалить навсегда</button>
+          </div>
+        </div>
+        ` : `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
           <select onchange="updateOrderStatus('${order.id}', this.value); this.blur();" style="padding:8px 10px; border:1px solid #e0e0e0; border-radius:6px; font-size:12px; background:#fff; cursor:pointer; color:#333;">
             <option value="pending" ${status === 'pending' ? 'selected' : ''}>🕐 Новый</option>
@@ -586,6 +616,7 @@ function createOrderCard(order, index) {
             <button onclick="deleteOrder('${order.id}')" style="flex:1; padding:8px 12px; background:#f44336; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">🗑️</button>
           </div>
         </div>
+        `}
         
         ${order.partner || order.referredBy ? `<div style="margin-top:8px;"><span style="font-size:11px; background:#e3f2fd; color:#1976d2; padding:3px 8px; border-radius:4px;">🤝 ${order.partner || order.referredBy}</span></div>` : ''}
       </div>
@@ -1009,13 +1040,13 @@ async function returnStockFromOrder(orderData) {
   await batch.commit();
 }
 
-// Удалить заказ
+// Мягкое удаление заказа (перемещение в архив)
 async function deleteOrder(orderId) {
   console.log('deleteOrder вызвана, orderId:', orderId);
   
   const result = await Swal.fire({
     title: 'Удалить заказ?',
-    html: 'Вы действительно хотите удалить весь заказ?<br><small style="color:#dc3545;">⚠️ Это действие нельзя отменить!</small>',
+    html: 'Заказ будет перемещён в архив удалённых.<br><small style="color:#17a2b8;">💡 Вы сможете восстановить его позже.</small>',
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#dc3545',
@@ -1024,12 +1055,10 @@ async function deleteOrder(orderId) {
     cancelButtonText: 'Отмена'
   });
   
-  console.log('Результат Swal:', result);
-  
   if (!result.isConfirmed) return;
   
   try {
-    // Возвращаем товары на склад перед удалением, если заказ не был отменён
+    // Возвращаем товары на склад, если заказ не был отменён
     const orderDoc = await db.collection('orders').doc(orderId).get();
     if (orderDoc.exists) {
       const orderData = orderDoc.data();
@@ -1038,19 +1067,27 @@ async function deleteOrder(orderId) {
       }
     }
 
-    await db.collection('orders').doc(orderId).delete();
+    // Мягкое удаление: помечаем заказ как удалённый
+    await db.collection('orders').doc(orderId).update({
+      deleted: true,
+      deletedAt: Date.now(),
+      statusBeforeDelete: orderDoc.exists ? orderDoc.data().status : null
+    });
     
     if (Array.isArray(ordersManagementAllOrders)) {
-      const index = ordersManagementAllOrders.findIndex(o => o.id === orderId);
-      if (index !== -1) {
-        ordersManagementAllOrders.splice(index, 1);
+      const order = ordersManagementAllOrders.find(o => o.id === orderId);
+      if (order) {
+        order.deleted = true;
+        order.deletedAt = Date.now();
+        order.statusBeforeDelete = order.status;
       }
     }
     
     Swal.fire({
       icon: 'success',
-      title: 'Заказ удален!',
-      timer: 1500,
+      title: 'Заказ удалён!',
+      text: 'Перемещён в архив. Можно восстановить.',
+      timer: 2000,
       showConfirmButton: false
     });
     
@@ -1058,6 +1095,72 @@ async function deleteOrder(orderId) {
     
   } catch (error) {
     console.error('Ошибка удаления заказа:', error);
+    Swal.fire('Ошибка', 'Не удалось удалить заказ', 'error');
+  }
+}
+
+// Восстановить заказ из архива
+async function restoreOrder(orderId) {
+  const result = await Swal.fire({
+    title: 'Восстановить заказ?',
+    text: 'Заказ вернётся в список активных заказов.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonColor: '#28a745',
+    confirmButtonText: '✅ Восстановить',
+    cancelButtonText: 'Отмена'
+  });
+  if (!result.isConfirmed) return;
+  
+  try {
+    await db.collection('orders').doc(orderId).update({
+      deleted: firebase.firestore.FieldValue.delete(),
+      deletedAt: firebase.firestore.FieldValue.delete(),
+      statusBeforeDelete: firebase.firestore.FieldValue.delete()
+    });
+    
+    if (Array.isArray(ordersManagementAllOrders)) {
+      const order = ordersManagementAllOrders.find(o => o.id === orderId);
+      if (order) {
+        delete order.deleted;
+        delete order.deletedAt;
+        delete order.statusBeforeDelete;
+      }
+    }
+    
+    Swal.fire({ icon: 'success', title: 'Заказ восстановлен!', timer: 1500, showConfirmButton: false });
+    renderOrdersManagementFromCache();
+  } catch (error) {
+    console.error('Ошибка восстановления:', error);
+    Swal.fire('Ошибка', 'Не удалось восстановить заказ', 'error');
+  }
+}
+
+// Окончательное удаление из архива (безвозвратно)
+async function permanentDeleteOrder(orderId) {
+  const result = await Swal.fire({
+    title: 'Удалить навсегда?',
+    html: '<b style="color:#dc3545;">⚠️ Это действие нельзя отменить!</b><br>Заказ будет стёрт из базы навсегда.',
+    icon: 'error',
+    showCancelButton: true,
+    confirmButtonColor: '#dc3545',
+    confirmButtonText: '🗑️ Удалить навсегда',
+    cancelButtonText: 'Отмена'
+  });
+  if (!result.isConfirmed) return;
+  
+  try {
+    await db.collection('orders').doc(orderId).delete();
+    
+    if (Array.isArray(ordersManagementAllOrders)) {
+      const index = ordersManagementAllOrders.findIndex(o => o.id === orderId);
+      if (index !== -1) ordersManagementAllOrders.splice(index, 1);
+    }
+    
+    Swal.fire({ icon: 'success', title: 'Удалено навсегда!', timer: 1500, showConfirmButton: false });
+    renderOrdersManagementFromCache();
+  } catch (error) {
+    console.error('Ошибка окончательного удаления:', error);
     Swal.fire('Ошибка', 'Не удалось удалить заказ', 'error');
   }
 }
@@ -2627,6 +2730,18 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
 
 // ============ ИНИЦИАЛИЗАЦИЯ ============
 document.addEventListener('DOMContentLoaded', function() {
+  // Восстанавливаем сохранённый фильтр
+  try {
+    const savedFilter = localStorage.getItem('ordersFilterValue');
+    if (savedFilter) {
+      const combo = document.getElementById('ordersFilterCombined');
+      if (combo) {
+        combo.value = savedFilter;
+        applyOrdersCombinedFilter();
+      }
+    }
+  } catch(e) {}
+  
   if (initFirebase()) {
     loadOrdersManagement(true);
   }

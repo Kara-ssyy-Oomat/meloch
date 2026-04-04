@@ -447,7 +447,18 @@
       // Проверка минимальной суммы заказа
       const submitBtn = document.getElementById('submitOrderBtn');
       const minOrderWarning = document.getElementById('minOrderWarning');
-      if (minOrderEnabled && minOrderAmount > 0 && total < minOrderAmount) {
+      
+      // Проверяем обход минимума: клиент уже заказывал сегодня >= минимума
+      let minOrderBypassed = false;
+      try {
+        const bypass = localStorage.getItem('minOrderBypass');
+        if (bypass) {
+          const bp = JSON.parse(bypass);
+          if (bp.until > Date.now()) minOrderBypassed = true;
+        }
+      } catch(e) {}
+      
+      if (!minOrderBypassed && minOrderEnabled && minOrderAmount > 0 && total < minOrderAmount) {
         const deficit = minOrderAmount - total;
         if (minOrderWarning) {
           minOrderWarning.style.display = 'block';
@@ -642,13 +653,21 @@
       if (minOrderEnabled && minOrderAmount > 0) {
         const cartTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
         if (cartTotal < minOrderAmount) {
-          Swal.fire({
-            icon: 'warning',
-            title: 'Минимальная сумма заказа',
-            html: `Минимальная сумма заказа: <b>${minOrderAmount.toLocaleString()} сом</b>.<br>Сейчас в корзине: <b>${cartTotal.toLocaleString()} сом</b>.<br><br>Добавьте ещё товаров на <b>${(minOrderAmount - cartTotal).toLocaleString()} сом</b>.`,
-            confirmButtonText: 'Понятно'
-          });
-          return;
+          // Проверяем обход: клиент уже заказывал сегодня >= минимума
+          let bypassed = false;
+          try {
+            const bp = JSON.parse(localStorage.getItem('minOrderBypass') || 'null');
+            if (bp && bp.until > Date.now()) bypassed = true;
+          } catch(e) {}
+          if (!bypassed) {
+            Swal.fire({
+              icon: 'warning',
+              title: 'Минимальная сумма заказа',
+              html: `Минимальная сумма заказа: <b>${minOrderAmount.toLocaleString()} сом</b>.<br>Сейчас в корзине: <b>${cartTotal.toLocaleString()} сом</b>.<br><br>Добавьте ещё товаров на <b>${(minOrderAmount - cartTotal).toLocaleString()} сом</b>.`,
+              confirmButtonText: 'Понятно'
+            });
+            return;
+          }
         }
       }
 
@@ -971,6 +990,18 @@
           name, phone, address, driverName: driverName || null, driverPhone: driverPhone || null,
           items: [...cart], total, timestamp: Date.now(), time: currentTime, status: 'pending'
         });
+
+        // Если заказ >= минимума, сохраняем флаг обхода на сутки
+        try {
+          if (minOrderEnabled && minOrderAmount > 0 && total >= minOrderAmount) {
+            const endOfDay = new Date();
+            endOfDay.setHours(23, 59, 59, 999);
+            localStorage.setItem('minOrderBypass', JSON.stringify({
+              phone: phone,
+              until: endOfDay.getTime()
+            }));
+          }
+        } catch(e) {}
 
         // Авторегистрация клиента
         let _autoCustomerId = null;

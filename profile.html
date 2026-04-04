@@ -727,7 +727,11 @@
       _unsubOrders = db.collection('orders')
         .where('status', '==', 'pending')
         .onSnapshot(snapshot => {
-          _badgeCounts.orders = snapshot.size;
+          let count = 0;
+          snapshot.forEach(doc => {
+            if (!doc.data().deleted) count++;
+          });
+          _badgeCounts.orders = count;
           applyBadgeCounts();
         }, error => {
           console.log('Ошибка подписки на заказы:', error.message);
