@@ -2127,6 +2127,56 @@ async function loadProductPhoto(imageUrl) {
 async function exportOrderToExcel(orderId, clientName, clientPhone) {
   console.log('exportOrderToExcel вызвана, orderId:', orderId);
   
+  // ===== СРАЗУ показываем диалог выбора файлов =====
+  const fileChoice = await Swal.fire({
+    title: '📎 Выберите файлы для отправки',
+    html: `
+      <div style="text-align:left; padding:10px 0;">
+        <p style="margin-bottom:15px; color:#666;">Отметьте, какие файлы отправить в Telegram:</p>
+        <label style="display:flex; align-items:center; gap:10px; padding:12px; margin-bottom:8px; background:#f8f9fa; border-radius:8px; cursor:pointer;">
+          <input type="checkbox" id="swal-file-excel" checked style="width:20px; height:20px; cursor:pointer;">
+          <div>
+            <strong style="color:#217346;">📊 Excel файл</strong>
+            <div style="font-size:12px; color:#888;">Таблица с заказом</div>
+          </div>
+        </label>
+        <label style="display:flex; align-items:center; gap:10px; padding:12px; margin-bottom:8px; background:#f8f9fa; border-radius:8px; cursor:pointer;">
+          <input type="checkbox" id="swal-file-print" checked style="width:20px; height:20px; cursor:pointer;">
+          <div>
+            <strong style="color:#d32f2f;">🖨️ PDF для печати</strong>
+            <div style="font-size:12px; color:#888;">Без фото товаров</div>
+          </div>
+        </label>
+        <label style="display:flex; align-items:center; gap:10px; padding:12px; margin-bottom:8px; background:#f8f9fa; border-radius:8px; cursor:pointer;">
+          <input type="checkbox" id="swal-file-photo" checked style="width:20px; height:20px; cursor:pointer;">
+          <div>
+            <strong style="color:#1565c0;">📷 PDF с фото</strong>
+            <div style="font-size:12px; color:#888;">С фотографиями товаров</div>
+          </div>
+        </label>
+      </div>
+    `,
+    confirmButtonText: '📤 Отправить выбранные',
+    confirmButtonColor: '#28a745',
+    showCancelButton: true,
+    cancelButtonText: '❌ Отмена',
+    cancelButtonColor: '#6c757d',
+    preConfirm: () => {
+      const sendExcel = document.getElementById('swal-file-excel').checked;
+      const sendPrint = document.getElementById('swal-file-print').checked;
+      const sendPhoto = document.getElementById('swal-file-photo').checked;
+      if (!sendExcel && !sendPrint && !sendPhoto) {
+        Swal.showValidationMessage('Выберите хотя бы один файл');
+        return false;
+      }
+      return { sendExcel, sendPrint, sendPhoto };
+    }
+  });
+
+  if (!fileChoice.isConfirmed || !fileChoice.value) return;
+
+  const { sendExcel, sendPrint, sendPhoto } = fileChoice.value;
+
   Swal.fire({
     title: 'Подготовка заказа...',
     html: 'Загрузка данных...',
@@ -2175,8 +2225,13 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     const driverPhone = order.driverPhone || '';
     const hasDriver = driverName || driverPhone;
     
-    // ===== 1. Создаем Excel файл =====
-    Swal.update({ html: 'Создание Excel файла (1/3)' });
+    const { jsPDF } = window.jspdf;
+    let yPosition;
+    
+    // ===== 1. Создаем Excel файл (если выбран) =====
+    let excelBlob = null;
+    if (sendExcel) {
+    Swal.update({ html: 'Создание Excel файла...' });
     
     const excelData = [
       ['ЗАКАЗ КЛИЕНТА'],
@@ -2234,15 +2289,17 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     XLSX.utils.book_append_sheet(wb, ws, 'Заказ');
     
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    const excelBlob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    excelBlob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    } // end if sendExcel
     
-    // ===== 2. Создаем PDF #1 (Заказ для печати БЕЗ ФОТО) =====
-    Swal.update({ html: 'Создание PDF для печати (2/3)' });
+    // ===== 2. Создаем PDF #1 (Заказ для печати БЕЗ ФОТО, если выбран) =====
+    let pdf1Blob = null;
+    if (sendPrint) {
+    Swal.update({ html: 'Создание PDF для печати...' });
     
-    const { jsPDF } = window.jspdf;
     const doc1 = new jsPDF();
     const scale = 1.5;
-    let yPosition = 2;
+    yPosition = 2;
     
     // Заголовок
     const headerCanvas = document.createElement('canvas');
@@ -2413,12 +2470,14 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     const totalImage = totalCanvas.toDataURL('image/png');
     doc1.addImage(totalImage, 'PNG', 20, yPosition, 170, 14);
     
-    const pdf1Blob = doc1.output('blob');
+    pdf1Blob = doc1.output('blob');
+    } // end if sendPrint
     
-    // ===== 3. Создаем PDF #2 (С ФОТОГРАФИЯМИ ТОВАРОВ) =====
-    Swal.update({ html: 'Загрузка фото товаров...' });
-    
+    // ===== 3. Создаем PDF #2 (С ФОТОГРАФИЯМИ ТОВАРОВ, если выбран) =====
+    let pdf2Blob = null;
     const MAX_PDF_SIZE = 40 * 1024 * 1024; // 40 MB лимит
+    if (sendPhoto) {
+    Swal.update({ html: 'Загрузка фото товаров...' });
     
     // Шаг 1: Предварительная загрузка всех изображений через Image элемент
     const preloadedImages = [];
@@ -2450,7 +2509,7 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       { renderDim: 150, quality: 0.55 }
     ];
     
-    let pdf2Blob = null;
+    pdf2Blob = null;
     
     for (const level of qualityLevels) {
       Swal.update({ html: `Создание PDF с фото (качество: ${Math.round(level.quality * 100)}%)` });
@@ -2723,66 +2782,81 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     }
     
     console.log('PDF с фото размер:', Math.round(pdf2Blob.size / 1024), 'KB');
+    } // end if sendPhoto
     
-    // ===== Отправка в Telegram (3 файла) =====
-    Swal.update({ title: 'Отправка в Telegram...', html: 'Отправка Excel...' });
-    
+    // ===== Отправка выбранных файлов в Telegram =====
+    Swal.update({ title: 'Отправка в Telegram...', html: 'Подготовка...' });
+
     const botToken = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
     const chatId = '5567924440';
     const apiUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
     const baseFileName = `Заказ_${clientName.replace(/\s+/g, '_')}_${Date.now()}`;
-    
-    // Отправляем Excel
-    const form1 = new FormData();
-    form1.append('document', excelBlob, `${baseFileName}.xlsx`);
-    form1.append('chat_id', chatId);
-    form1.append('caption', `📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`);
-    await fetch(apiUrl, { method: 'POST', body: form1 });
-    
-    Swal.update({ html: 'Отправка PDF для печати...' });
-    
-    // Отправляем PDF #1
-    const form2 = new FormData();
-    form2.append('document', pdf1Blob, `${baseFileName}_печать.pdf`);
-    form2.append('chat_id', chatId);
-    form2.append('caption', `📄 Заказ для печати: ${clientName}`);
-    await fetch(apiUrl, { method: 'POST', body: form2 });
-    
-    Swal.update({ html: 'Отправка PDF с фото...' });
-    
-    // Проверяем размер перед отправкой (лимит 40MB)
-    if (pdf2Blob.size > MAX_PDF_SIZE) {
-      const sizeMB = Math.round(pdf2Blob.size / 1024 / 1024);
-      console.error('PDF с фото слишком большой:', sizeMB, 'MB');
-      Swal.fire({
-        icon: 'warning',
-        title: 'Частично отправлено',
-        html: `📊 Excel и 📄 PDF для печати отправлены.<br>📷 PDF с фото слишком большой (${sizeMB} MB).<br>Попробуйте уменьшить количество товаров.`,
-        confirmButtonText: 'Понятно'
-      });
-      return;
+    let sentCount = 0;
+    const sentFiles = [];
+
+    // Отправляем Excel (если выбран)
+    if (sendExcel) {
+      Swal.update({ html: 'Отправка Excel...' });
+      const form1 = new FormData();
+      form1.append('document', excelBlob, `${baseFileName}.xlsx`);
+      form1.append('chat_id', chatId);
+      form1.append('caption', `📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`);
+      await fetch(apiUrl, { method: 'POST', body: form1 });
+      sentCount++;
+      sentFiles.push('📊 Excel');
     }
 
-    // Отправляем PDF #2 (с фото)
-    const form3 = new FormData();
-    form3.append('document', pdf2Blob, `${baseFileName}_с_фото.pdf`);
-    form3.append('chat_id', chatId);
-    form3.append('caption', `📷 Заказ с фото: ${clientName}`);
-    const response = await fetch(apiUrl, { method: 'POST', body: form3 });
-    
-    const result = await response.json();
-    
-    if (result.ok) {
-      Swal.fire({
-        icon: 'success',
-        title: 'Отправлено!',
-        html: `<b>3 файла</b> отправлены в Telegram<br>📊 Excel + 📄 PDF печать + 📷 PDF с фото<br><strong>${clientName}</strong>`,
-        timer: 2500,
-        showConfirmButton: false
-      });
-    } else {
-      throw new Error(result.description || 'Ошибка отправки');
+    // Отправляем PDF для печати (если выбран)
+    if (sendPrint) {
+      Swal.update({ html: 'Отправка PDF для печати...' });
+      const form2 = new FormData();
+      form2.append('document', pdf1Blob, `${baseFileName}_печать.pdf`);
+      form2.append('chat_id', chatId);
+      form2.append('caption', `📄 Заказ для печати: ${clientName}`);
+      await fetch(apiUrl, { method: 'POST', body: form2 });
+      sentCount++;
+      sentFiles.push('📄 PDF печать');
     }
+
+    // Отправляем PDF с фото (если выбран)
+    if (sendPhoto) {
+      Swal.update({ html: 'Отправка PDF с фото...' });
+      if (pdf2Blob.size > MAX_PDF_SIZE) {
+        const sizeMB = Math.round(pdf2Blob.size / 1024 / 1024);
+        console.error('PDF с фото слишком большой:', sizeMB, 'MB');
+        if (sentCount > 0) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Частично отправлено',
+            html: `${sentFiles.join(' + ')} отправлены.<br>📷 PDF с фото слишком большой (${sizeMB} MB).<br>Попробуйте уменьшить количество товаров.`,
+            confirmButtonText: 'Понятно'
+          });
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'Ошибка',
+            html: `📷 PDF с фото слишком большой (${sizeMB} MB).<br>Попробуйте уменьшить количество товаров.`,
+            confirmButtonText: 'Понятно'
+          });
+        }
+        return;
+      }
+      const form3 = new FormData();
+      form3.append('document', pdf2Blob, `${baseFileName}_с_фото.pdf`);
+      form3.append('chat_id', chatId);
+      form3.append('caption', `📷 Заказ с фото: ${clientName}`);
+      await fetch(apiUrl, { method: 'POST', body: form3 });
+      sentCount++;
+      sentFiles.push('📷 PDF с фото');
+    }
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Отправлено!',
+      html: `<b>${sentCount} ${sentCount === 1 ? 'файл' : sentCount < 5 ? 'файла' : 'файлов'}</b> отправлено в Telegram<br>${sentFiles.join(' + ')}<br><strong>${clientName}</strong>`,
+      timer: 2500,
+      showConfirmButton: false
+    });
     
   } catch (error) {
     console.error('Ошибка экспорта:', error);
