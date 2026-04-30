@@ -10,6 +10,31 @@
       window.stop(); // Остановить загрузку
     }
   </script>
+
+  <script>
+    // Проверка домена - БЛОКИРУЕМ копию сайта
+    const ALLOWED_DOMAINS = ['kara-ssyy-oomat.github.io'];
+    const currentDomain = window.location.hostname;
+    
+    if (!ALLOWED_DOMAINS.includes(currentDomain)) {
+      // Блокируем всё - показываем ошибку доступа
+      document.documentElement.innerHTML = `
+        <html>
+          <head><title>⛔ Доступ запрещён</title></head>
+          <body style="display:flex; align-items:center; justify-content:center; height:100vh; background:linear-gradient(135deg, #667eea, #764ba2); font-family:Arial; margin:0;">
+            <div style="text-align:center; background:white; padding:40px; border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.3); max-width:500px;">
+              <div style="font-size:60px; margin-bottom:20px;">🔒</div>
+              <h1 style="color:#333; margin:0 0 15px; font-size:24px;">Несанкционированный доступ</h1>
+              <p style="color:#666; margin:0 0 20px; font-size:14px;">Этот сайт может быть открыт только с оригинального домена:<br><strong>https://kara-ssyy-oomat.github.io/meloch/</strong></p>
+              <p style="color:#999; font-size:12px; margin:0;">Ваш домен: ${currentDomain}</p>
+            </div>
+          </body>
+        </html>
+      `;
+      throw new Error('Unauthorized domain detected: ' + currentDomain);
+    }
+  </script>
+
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
