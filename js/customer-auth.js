@@ -6,12 +6,21 @@
 let currentCustomer = null;
 
 // ==================== ДАННЫЕ АДМИНИСТРАТОРА ====================
-// Измените эти данные на свои для получения прав админа
+// Пароль не хранится в открытом виде. В коде лежит только SHA-256-хеш.
+// При входе введённый пароль хешируется и сравнивается с этим значением.
 const ADMIN_CUSTOMER_DATA = {
-  phone: '0559009860',  // Ваш номер телефона
-  password: '13082007',       // Ваш пароль
-  name: 'Адахамжон'     // Ваше имя
+  phone: '0559009860',
+  // SHA-256 от настоящего пароля (сам пароль в коде не появляется)
+  passwordHash: '974f80606b985a1f8428d58d3eb6df3ba98277734d7bed5263d00256ece33f93',
+  name: 'Адахамжон'
 };
+
+async function _sha256(text) {
+  const buf = new TextEncoder().encode(text || '');
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
 // ===============================================================
 
 // Инициализация при загрузке страницы
@@ -158,12 +167,13 @@ function activateAdminMode() {
   console.log('🔐 Режим администратора активирован');
 }
 
-// Проверить, является ли клиент администратором
-function checkIfAdmin(phone, password) {
+// Проверить, является ли клиент администратором (телефон + хеш пароля)
+async function checkIfAdmin(phone, password) {
   const normalizedPhone = normalizePhone(phone);
   const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-  
-  return normalizedPhone === adminPhone && password === ADMIN_CUSTOMER_DATA.password;
+  if (normalizedPhone !== adminPhone) return false;
+  const hash = await _sha256(password || '');
+  return hash === ADMIN_CUSTOMER_DATA.passwordHash;
 }
 
 // Открыть окно авторизации/личного кабинета
@@ -328,7 +338,7 @@ async function loginCustomer(phone, password) {
     const normalizedPhone = normalizePhone(phone);
     
     // Проверяем, является ли это админом
-    const isAdminLogin = checkIfAdmin(phone, password);
+    const isAdminLogin = await checkIfAdmin(phone, password);
     
     // Ищем клиента в базе
     const snapshot = await db.collection('customers')
@@ -426,7 +436,7 @@ async function registerCustomer(data) {
     }
     
     // Проверяем, является ли это админом
-    const isAdminRegister = checkIfAdmin(data.phone, data.password);
+    const isAdminRegister = await checkIfAdmin(data.phone, data.password);
     
     // Создаём клиента
     const customerRef = await db.collection('customers').add({
@@ -553,7 +563,7 @@ async function autoRegisterAfterOrder(name, phone, address) {
     const autoPassword = normalizedPhone.slice(-4);
     
     // Проверяем, является ли это админом
-    const isAdminRegister = checkIfAdmin(normalizedPhone, autoPassword);
+    const isAdminRegister = await checkIfAdmin(normalizedPhone, autoPassword);
     
     // Создаём нового клиента
     const customerRef = await db.collection('customers').add({
@@ -967,12 +977,13 @@ function openAdminLoginFromProfile() {
       }
       return password;
     }
-  }).then((result) => {
+  }).then(async (result) => {
     if (result.isConfirmed) {
       const password = result.value;
       
-      // Проверяем пароль
-      if (password === ADMIN_CUSTOMER_DATA.password) {
+      // Проверяем пароль через SHA-256 хеш (открытого пароля в коде нет)
+      const inputHash = await _sha256(password);
+      if (inputHash === ADMIN_CUSTOMER_DATA.passwordHash) {
         // Проверяем, совпадает ли телефон текущего пользователя с телефоном админа
         if (!currentCustomer) {
           Swal.fire({
