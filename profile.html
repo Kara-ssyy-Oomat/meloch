@@ -688,12 +688,19 @@
     const TELEGRAM_BOT_TOKEN = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
     const TELEGRAM_CHAT_ID = '5567924440';
     
-    // Данные администратора
+    // Данные администратора. Открытого пароля в коде нет — только SHA-256 хеш.
     const ADMIN_CUSTOMER_DATA = {
       phone: '0559009860',
-      password: '13082007',
+      passwordHash: '974f80606b985a1f8428d58d3eb6df3ba98277734d7bed5263d00256ece33f93',
       name: 'Адахамжон'
     };
+
+    async function _sha256(text) {
+      const buf = new TextEncoder().encode(text || '');
+      const hash = await crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(hash))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    }
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
@@ -1067,9 +1074,10 @@
           return;
         }
         
-        // Проверяем, является ли это админом
+        // Проверяем, является ли это админом (телефон + хеш пароля)
         const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-        const isAdminLogin = normalizedPhone === adminPhone && password === ADMIN_CUSTOMER_DATA.password;
+        const _inputHashLogin = await _sha256(password);
+        const isAdminLogin = normalizedPhone === adminPhone && _inputHashLogin === ADMIN_CUSTOMER_DATA.passwordHash;
         
         currentCustomer = { id: doc.id, ...data, isAdmin: isAdminLogin };
         isAdmin = isAdminLogin;
@@ -1104,9 +1112,10 @@
           return;
         }
         
-        // Проверяем, является ли это админом
+        // Проверяем, является ли это админом (телефон + хеш пароля)
         const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-        const isAdminRegister = normalizedPhone === adminPhone && data.password === ADMIN_CUSTOMER_DATA.password;
+        const _inputHashReg = await _sha256(data.password);
+        const isAdminRegister = normalizedPhone === adminPhone && _inputHashReg === ADMIN_CUSTOMER_DATA.passwordHash;
         
         const ref = await db.collection('customers').add({
           name: data.name,
@@ -1578,7 +1587,8 @@
       });
       
       if (password) {
-        if (password === ADMIN_CUSTOMER_DATA.password) {
+        const _adminInputHash = await _sha256(password);
+        if (_adminInputHash === ADMIN_CUSTOMER_DATA.passwordHash) {
           // Проверяем телефон
           const userPhone = normalizePhone(currentCustomer.phone);
           const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
