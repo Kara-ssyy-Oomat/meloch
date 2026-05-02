@@ -11,30 +11,6 @@
     }
   </script>
 
-  <script>
-    // Проверка домена - БЛОКИРУЕМ копию сайта
-    const ALLOWED_DOMAINS = ['kara-ssyy-oomat.github.io'];
-    const currentDomain = window.location.hostname;
-    
-    if (!ALLOWED_DOMAINS.includes(currentDomain)) {
-      // Блокируем всё - показываем ошибку доступа
-      document.documentElement.innerHTML = `
-        <html>
-          <head><title>⛔ Доступ запрещён</title></head>
-          <body style="display:flex; align-items:center; justify-content:center; height:100vh; background:linear-gradient(135deg, #667eea, #764ba2); font-family:Arial; margin:0;">
-            <div style="text-align:center; background:white; padding:40px; border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.3); max-width:500px;">
-              <div style="font-size:60px; margin-bottom:20px;">🔒</div>
-              <h1 style="color:#333; margin:0 0 15px; font-size:24px;">Несанкционированный доступ</h1>
-              <p style="color:#666; margin:0 0 20px; font-size:14px;">Этот сайт может быть открыт только с оригинального домена:<br><strong>https://kara-ssyy-oomat.github.io/meloch/</strong></p>
-              <p style="color:#999; font-size:12px; margin:0;">Ваш домен: ${currentDomain}</p>
-            </div>
-          </body>
-        </html>
-      `;
-      throw new Error('Unauthorized domain detected: ' + currentDomain);
-    }
-  </script>
-
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
@@ -619,12 +595,15 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Кнопка редактора (скрыта по умолчанию, видна только админу) -->
-  <div id="editorBtnContainer" style="display:none; justify-content:center; padding:8px 10px 0; gap:8px;">
+  <div id="editorBtnContainer" style="display:none; justify-content:center; padding:8px 10px 0; gap:8px; flex-wrap:wrap;">
     <button id="editorModeBtn" onclick="toggleEditorMode()" style="padding:10px 20px; background:linear-gradient(135deg,#6c757d,#495057); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px;">
       ✏️ Редактор
     </button>
     <button id="bulkSelectBtn" onclick="toggleBulkSelectMode()" style="display:none; padding:10px 20px; background:linear-gradient(135deg,#9c27b0,#7b1fa2); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; align-items:center; gap:6px;">
       ☑️ Выделить
+    </button>
+    <button id="blockClientsBtn" onclick="openBlockedClientsManager()" style="padding:10px 20px; background:linear-gradient(135deg,#dc3545,#a71d2a); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px;">
+      🚫 Блокировки
     </button>
   </div>
 
@@ -953,6 +932,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <script src="js/firebase-config.js"></script>
   <script src="js/image-proxy.js?v=3"></script>
   <script src="js/client-identity.js"></script>
+  <script src="js/block-protection.js?v=1"></script>
   <script src="js/helpers.js?v=2"></script>
   <script src="js/product-loader.js?v=2"></script>
   <script src="js/product-renderer.js?v=8"></script>
