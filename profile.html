@@ -1069,15 +1069,24 @@
         const doc = snapshot.docs[0];
         const data = doc.data();
         
-        if (data.password !== password) {
-          Swal.fire({ icon: 'error', title: 'Неверный пароль' });
-          return;
-        }
-        
         // Проверяем, является ли это админом (телефон + хеш пароля)
         const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
         const _inputHashLogin = await _sha256(password);
         const isAdminLogin = normalizedPhone === adminPhone && _inputHashLogin === ADMIN_CUSTOMER_DATA.passwordHash;
+        const _isAdminPhoneAttempt = normalizedPhone === adminPhone;
+
+        // Проверка пароля:
+        // - для админ-телефона авторитет — хеш (isAdminLogin)
+        // - для обычных клиентов — пароль из Firestore
+        if (_isAdminPhoneAttempt) {
+          if (!isAdminLogin) {
+            Swal.fire({ icon: 'error', title: 'Неверный пароль' });
+            return;
+          }
+        } else if (data.password !== password) {
+          Swal.fire({ icon: 'error', title: 'Неверный пароль' });
+          return;
+        }
         
         currentCustomer = { id: doc.id, ...data, isAdmin: isAdminLogin };
         isAdmin = isAdminLogin;
