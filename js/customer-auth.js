@@ -359,8 +359,23 @@ async function loginCustomer(phone, password) {
     const customerDoc = snapshot.docs[0];
     const customerData = customerDoc.data();
     
-    // Проверяем пароль (простое сравнение, для production нужен хеш)
-    if (customerData.password !== password) {
+    // Проверяем пароль:
+    // - для админ-телефона авторитетом является SHA-256 хеш (см. checkIfAdmin)
+    // - для обычных клиентов — пароль, сохранённый в Firestore
+    const _adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+    const _isAdminPhoneAttempt = normalizedPhone === _adminPhone;
+    if (_isAdminPhoneAttempt) {
+      if (!isAdminLogin) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Неверный пароль',
+          text: 'Попробуйте ещё раз',
+          confirmButtonColor: '#4CAF50'
+        });
+        return;
+      }
+      // Хеш совпал — пропускаем дальше без проверки Firestore-пароля
+    } else if (customerData.password !== password) {
       Swal.fire({
         icon: 'error',
         title: 'Неверный пароль',
