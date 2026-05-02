@@ -44,10 +44,26 @@
     return (typeof isAdmin !== 'undefined' && isAdmin) || window.isAdmin === true;
   }
 
+  // Админский телефон — никогда не должен попадать в блок-лист
+  const _ADMIN_PHONE_VARIANTS = new Set([
+    '0559009860', '+996559009860', '996559009860', '559009860'
+  ]);
+
+  function _isAdminPhone(phone) {
+    if (!phone) return false;
+    const variants = _phoneVariants(phone);
+    return variants.some(v => _ADMIN_PHONE_VARIANTS.has(v));
+  }
+
   // ============== БЛОКИРОВКА КЛИЕНТА (админ) ==============
   async function blockClient(phone, reason) {
     if (!_isAdmin()) {
       Swal.fire('Ошибка', 'Только админ может блокировать клиентов', 'error');
+      return false;
+    }
+    // Защита: нельзя заблокировать самого админа
+    if (_isAdminPhone(phone)) {
+      Swal.fire('Ошибка', 'Нельзя заблокировать админский номер', 'error');
       return false;
     }
     const variants = _phoneVariants(phone);
@@ -120,16 +136,26 @@
 
       // Собираем все возможные телефоны текущего пользователя
       const phones = [];
+      let mainPhone = '';
       try {
         const cust = JSON.parse(localStorage.getItem('customerData') || 'null');
-        if (cust && cust.phone) phones.push(...(_phoneVariants(cust.phone) || []));
+        if (cust && cust.phone) {
+          mainPhone = cust.phone;
+          phones.push(...(_phoneVariants(cust.phone) || []));
+        }
       } catch (e) {}
       try {
         const ud = JSON.parse(localStorage.getItem('userData') || 'null');
-        if (ud && ud.phone) phones.push(...(_phoneVariants(ud.phone) || []));
+        if (ud && ud.phone) {
+          if (!mainPhone) mainPhone = ud.phone;
+          phones.push(...(_phoneVariants(ud.phone) || []));
+        }
       } catch (e) {}
 
       if (phones.length === 0) return;
+
+      // Админ никогда не может быть заблокирован
+      if (_isAdminPhone(mainPhone)) return;
 
       const ids = [...new Set(phones)].slice(0, 10);
 
