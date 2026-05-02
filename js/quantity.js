@@ -252,6 +252,9 @@ function setPackQty(productId, inputElement) {
   const rawValue = inputElement.tagName === 'INPUT' ? inputElement.value : inputElement.textContent;
   let newQty = parseInt(rawValue) || 0;
   if (newQty < 0) newQty = 0;
+  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества пачек
+  const _maxQty = (typeof MAX_QTY_PER_ITEM !== 'undefined') ? MAX_QTY_PER_ITEM : 10000;
+  if (newQty > _maxQty) newQty = _maxQty;
   
   // Функция для установки значения
   function setValue(val) {
@@ -328,6 +331,9 @@ function setQtyInput(productId, inputElement) {
   const rawValue = inputElement.tagName === 'INPUT' ? inputElement.value : inputElement.textContent;
   let newQty = parseInt(rawValue) || 0;
   if (newQty < 0) newQty = 0;
+  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества штук
+  const _maxQty = (typeof MAX_QTY_PER_ITEM !== 'undefined') ? MAX_QTY_PER_ITEM : 10000;
+  if (newQty > _maxQty) newQty = _maxQty;
   
   // Функция для установки значения
   function setValue(val) {

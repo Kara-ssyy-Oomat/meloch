@@ -4,6 +4,10 @@
 
 // Флаг productsReady объявлен в index.html (глобальная переменная)
 
+// Лимиты против саботажа (синхронизированы с firestore.rules)
+const MAX_QTY_PER_ITEM = 10000;   // максимум одной позиции (шт/пачек)
+const MAX_CART_ITEMS = 200;       // максимум разных позиций в корзине
+
 // Безопасные обёртки для кликов по карточкам.
 // Не передаём title/price/image в inline onclick, чтобы кавычки/символы в данных товара не ломали HTML.
 function addToCartById(id, btn) {
@@ -98,6 +102,18 @@ function addToCart(id, title, price, image, btn) {
     qty = parseInt(rawValue, 10) || (product.minQty || 1);
   }
 
+  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества за один раз
+  if (qty > MAX_QTY_PER_ITEM) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Слишком большое количество',
+      html: `Максимум <b>${MAX_QTY_PER_ITEM.toLocaleString()}</b> единиц одного товара за раз.<br>Если нужно больше — оформите несколько заказов.`,
+      confirmButtonText: 'Понятно'
+    });
+    if (qtyInput) qtyInput.value = MAX_QTY_PER_ITEM;
+    qty = MAX_QTY_PER_ITEM;
+  }
+
   // ПРОВЕРКА минимального количества покупки
   const minQty = product.minQty || 1;
   if (qty < minQty) {
@@ -168,7 +184,15 @@ function addToCart(id, title, price, image, btn) {
     // Обновляем unitsPerBox (могло измениться)
     cart[existingIndex].unitsPerBox = product.unitsPerBox || 72;
   } else {
-    // Новый товар
+    // Новый товар: проверяем лимит количества разных позиций
+    if (cart.length >= MAX_CART_ITEMS) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Корзина переполнена',
+        text: `В корзине не может быть больше ${MAX_CART_ITEMS} разных товаров.`
+      });
+      return;
+    }
     cart.push({
       id: id,
       title: title,
@@ -521,7 +545,21 @@ function changeCartItemQty(index, delta) {
   if (product && product.isPack) step = 1; // Для пачек всегда шаг 1
   
   const newQty = item.qty + (delta * step);
-  
+
+  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества
+  if (newQty > MAX_QTY_PER_ITEM) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Ограничение',
+      text: `Максимум ${MAX_QTY_PER_ITEM.toLocaleString()} единиц одного товара`,
+      toast: true,
+      position: 'bottom',
+      timer: 2000,
+      showConfirmButton: false
+    });
+    return;
+  }
+
   // Проверяем остаток
   if (product) {
     const stock = getEffectiveStock(product);
