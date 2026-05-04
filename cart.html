@@ -980,7 +980,14 @@
 
         await batch.commit();
 
-        Swal.fire('Успех! ✅', 'Ваш заказ принят!', 'success');
+        // Сразу показываем клиенту успех — отправка в Telegram идёт в фоне
+        Swal.fire({
+          icon: 'success',
+          title: 'Заказ принят! ✅',
+          text: 'Ваш заказ успешно отправлен.',
+          timer: 2200,
+          showConfirmButton: false
+        });
 
         // Сохраняем данные пользователя
         localStorage.setItem('userData', JSON.stringify({ name, phone, address, driverName, driverPhone }));
@@ -1043,30 +1050,25 @@
           console.log('[Cart] ✅ Профиль клиента сохранён для profile.html');
         } catch(e) { console.log('Customer update error:', e); }
 
-        // Отправка уведомления в Telegram (фоново — текстовое сообщение)
+        // Отправка уведомления в Telegram (фоново — без блокировки UI)
         const driverInfoText = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
         const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfoText}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
-        // Загружаем XLSX/jsPDF если ещё не загружены (нужны для Excel/PDF файлов)
-        await loadCartExportLibs();
-
-        // Отправляем Excel, PDF для печати, PDF с фото — фоново
         const orderData = { name, phone, address, driverName, driverPhone, cart: [...cart], total, currentTime };
 
-        if (typeof sendOrderAsExcelFile === 'function') {
-          sendOrderAsExcelFile(name, phone, address, driverName, driverPhone, orderData.cart, total, currentTime).catch(e => console.error('Excel error:', e));
-        }
-        if (typeof sendOrderAsPrintPDF === 'function') {
-          sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone, orderData.cart, total, currentTime).catch(e => console.error('PDF print error:', e));
-        }
-        if (typeof sendOrderAsPDF === 'function') {
-          sendOrderAsPDF(name, phone, address, driverName, driverPhone, orderData.cart, total, currentTime).catch(e => console.error('PDF photo error:', e));
-        }
-
-        // Очищаем корзину
+        // Очищаем корзину СРАЗУ, чтобы клиент видел чистую корзину
         cart.length = 0;
         saveCart();
         renderCart();
+
+        // Фоновая отправка PDF с фото — клиент уже видит "Заказ принят"
+        loadCartExportLibs().then(() => {
+          if (typeof sendOrderAsPDF === 'function') {
+            sendOrderAsPDF(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
+              .then(() => console.log('PDF с фото отправлен'))
+              .catch(e => console.error('PDF photo error:', e));
+          }
+        }).catch(e => console.error('loadCartExportLibs error:', e));
 
       } catch (error) {
         console.error('Order error:', error);
