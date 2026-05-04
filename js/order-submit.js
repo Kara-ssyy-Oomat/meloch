@@ -379,12 +379,18 @@ document.getElementById('submitOrder').onclick = async () => {
     const driverInfo = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
     const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfo}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
-    // СРАЗУ показываем успех клиенту и ЖДЁМ закрытия
-    await Swal.fire('Успех!', 'Ваш заказ принят и отправляется!', 'success');
-    
-    // Автоматическая регистрация/вход после первого заказа (после закрытия Успех! диалога)
+    // Сразу показываем успех клиенту — отправка в Telegram идёт в фоне
+    Swal.fire({
+      icon: 'success',
+      title: 'Заказ принят! ✅',
+      text: 'Ваш заказ успешно отправлен.',
+      timer: 2500,
+      showConfirmButton: false
+    });
+
+    // Автоматическая регистрация/вход после первого заказа
     if (typeof autoRegisterAfterOrder === 'function') {
-      await autoRegisterAfterOrder(name, phone, address);
+      autoRegisterAfterOrder(name, phone, address).catch(e => console.error('autoRegister error:', e));
     }
     
     // Обновляем статистику клиента если он авторизован
@@ -464,21 +470,17 @@ document.getElementById('submitOrder').onclick = async () => {
       driverPhone
     }));
     
-    // Отправка файлов в фоновом режиме (без await)
-    // 1. Excel файл
-    sendOrderAsExcelFile(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
-      .then(() => console.log('Excel файл отправлен успешно'))
-      .catch(err => console.error('Ошибка отправки Excel:', err));
-    
-    // 2. PDF для печати (без фото)
-    sendOrderAsPrintPDF(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
-      .then(() => console.log('PDF для печати отправлен успешно'))
-      .catch(err => console.error('Ошибка отправки PDF для печати:', err));
-    
-    // 3. PDF с фото
-    sendOrderAsPDF(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
-      .then(() => console.log('PDF с фото отправлен успешно'))
-      .catch(err => console.error('Ошибка отправки PDF с фото:', err));
+    // Отправка файлов в Telegram: ТОЛЬКО PDF с фото (большие фото товаров).
+    // В ФОНЕ — клиент уже видит "Заказ принят", не блокируем UI.
+    if (typeof sendOrderAsPDF === 'function') {
+      sendOrderAsPDF(
+        orderData.name, orderData.phone, orderData.address,
+        orderData.driverName, orderData.driverPhone,
+        orderData.cart, orderData.total, orderData.currentTime
+      )
+        .then(() => console.log('PDF с фото отправлен'))
+        .catch(err => console.error('Ошибка отправки PDF с фото:', err));
+    }
 
   } catch (error) {
     console.error('Error submitting order:', error);

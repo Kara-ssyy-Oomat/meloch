@@ -153,34 +153,39 @@ async function buildPhotoPDFBlob(name, phone, address, driverName, driverPhone, 
       yPosition = 20;
     }
     
-    // Сжимаем предзагруженное фото с заданным уровнем качества
-    let photoWidth = 50;
-    let photoHeight = 50;
+    // Размер ячейки фото фиксирован (как в админском PDF) — ~34 мм в PDF
+    const PHOTO_CELL = 120;
+    let photoWidth = PHOTO_CELL;
+    let photoHeight = PHOTO_CELL;
     let photoData = null;
-    
+
     if (preloadedImages[i]) {
       try {
         const compressed = await compressImageForPDF(preloadedImages[i], compressionLevel.maxDim, compressionLevel.quality);
         if (compressed) {
           photoData = compressed.data;
-          photoWidth = compressed.width;
-          photoHeight = compressed.height;
+          // Ячейка фиксирована, фото внутри — с сохранением пропорций
+          const aspect = compressed.width / compressed.height;
+          if (aspect >= 1) {
+            photoWidth = PHOTO_CELL;
+            photoHeight = Math.round(PHOTO_CELL / aspect);
+          } else {
+            photoHeight = PHOTO_CELL;
+            photoWidth = Math.round(PHOTO_CELL * aspect);
+          }
         }
       } catch (err) {
         console.error('✗ Ошибка сжатия фото:', item.title, err);
-        photoWidth = 50;
-        photoHeight = 50;
       }
     }
-    
-    // Высота строки = высота фото + отступы
-    const rowHeight = Math.max(photoHeight + 5, 60);
-    
-    // Создаем строку таблицы с динамической шириной
+
+    // Высота строки и ширина колонки фото — фиксированные
+    const rowHeight = Math.max(PHOTO_CELL + 5, 60);
+
     const rowCanvas = document.createElement('canvas');
     const rowCtx = rowCanvas.getContext('2d');
-    const photoColumnWidth = Math.max(photoWidth + 5, 50); // Ширина колонки фото
-    const totalWidth = photoColumnWidth + 480; // фото + остальные колонки
+    const photoColumnWidth = Math.max(PHOTO_CELL + 5, 50);
+    const totalWidth = photoColumnWidth + 480;
     rowCanvas.width = totalWidth;
     rowCanvas.height = rowHeight;
     
@@ -331,39 +336,131 @@ async function buildPhotoPDFBlob(name, phone, address, driverName, driverPhone, 
   return doc.output('blob');
 }
 
+// ===== Устойчивая загрузка картинки через <img> элемент (а не fetch — обходит CORS) =====
+function _loadImageAsBase64Img(url, timeoutMs) {
+  timeoutMs = timeoutMs || 12000;
+  return new Promise(function(resolve) {
+    var done = false;
+    var timer = setTimeout(function() {
+      if (!done) { done = true; resolve(null); }
+    }, timeoutMs);
+
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        var c = document.createElement('canvas');
+        c.width = img.naturalWidth || img.width;
+        c.height = img.naturalHeight || img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        resolve(c.toDataURL('image/jpeg', 0.95));
+      } catch (e) {
+        resolve(null);
+      }
+    };
+    img.onerror = function() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
+// Загрузка фото с несколькими попытками (Cloudinary → прокси → оригинал)
+async function _loadProductPhotoSafe(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) return null;
+
+  var smallUrl = getSmallImageUrl(imageUrl, 600, 95);
+  var result = await _loadImageAsBase64Img(smallUrl, 8000);
+  if (result) return result;
+
+  var proxyUrl = 'https://wsrv.nl/?url=' + encodeURIComponent(imageUrl) + '&w=600&q=95&output=jpg';
+  result = await _loadImageAsBase64Img(proxyUrl, 8000);
+  if (result) return result;
+
+  result = await _loadImageAsBase64Img(imageUrl, 8000);
+  if (result) return result;
+
+  console.warn('Все попытки загрузки фото не удались:', imageUrl.substring(0, 60));
+  return null;
+}
+
+// ===== Отправка одного файла в Telegram с retry при 429 (Too Many Requests) =====
+async function _sendDocToTelegram(chatId, fileBlob, fileName, caption, maxRetries) {
+  maxRetries = maxRetries || 4;
+  const apiUrl = 'https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument';
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const fd = new FormData();
+      fd.append('chat_id', chatId);
+      fd.append('document', fileBlob, fileName);
+      fd.append('caption', caption);
+
+      const resp = await fetch(apiUrl, { method: 'POST', body: fd });
+      const data = await resp.json().catch(() => null);
+
+      if (resp.ok && data && data.ok) {
+        console.log(`✓ Telegram chat ${chatId}: файл отправлен (попытка ${attempt})`);
+        return true;
+      }
+
+      // Rate limit — ждём и повторяем
+      if (resp.status === 429) {
+        const retryAfter = (data && data.parameters && data.parameters.retry_after) || 3;
+        const waitMs = (retryAfter + 1) * 1000;
+        console.warn(`⏳ Telegram chat ${chatId}: 429 rate limit, ждём ${waitMs}мс (попытка ${attempt}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+
+      // Сетевые ошибки 5xx — повторяем
+      if (resp.status >= 500 && resp.status < 600) {
+        console.warn(`⏳ Telegram chat ${chatId}: HTTP ${resp.status} (попытка ${attempt}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+        continue;
+      }
+
+      // Другие ошибки (4xx) — не повторяем, логируем и выходим
+      console.error(`✗ Telegram chat ${chatId} ошибка ${resp.status}:`, data && data.description);
+      return false;
+    } catch (err) {
+      console.warn(`⚠️ Telegram chat ${chatId} сетевая ошибка (попытка ${attempt}/${maxRetries}):`, err);
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
+    }
+  }
+
+  console.error(`✗ Telegram chat ${chatId}: все ${maxRetries} попыток исчерпаны`);
+  return false;
+}
+
 // Функция отправки заказа как PDF файл в Telegram
 async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, cartItems, total, time) {
   try {
     console.log('=== Начало создания PDF файла ===');
-    
+
     const MAX_PDF_SIZE = 40 * 1024 * 1024; // 40 MB лимит
-    
-    // Шаг 1: Предварительная загрузка всех изображений в высоком качестве
+
+    // Шаг 1: Предварительная загрузка всех изображений (через <img>, устойчиво к CORS)
     console.log('Загрузка изображений в высоком качестве...');
     const preloadedImages = [];
     for (let i = 0; i < cartItems.length; i++) {
       const item = cartItems[i];
-      if (item.image && item.image.startsWith('http')) {
-        try {
-          const optimizedUrl = getSmallImageUrl(item.image, 400, 95);
-          const response = await fetch(optimizedUrl);
-          const blob = await response.blob();
-          const reader = new FileReader();
-          const base64 = await new Promise((resolve) => {
-            reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-          });
-          preloadedImages[i] = base64;
-          console.log('✓ Фото загружено:', item.title);
-        } catch (err) {
-          console.error('✗ Ошибка загрузки фото:', item.title, err);
-          preloadedImages[i] = null;
-        }
-      } else {
-        preloadedImages[i] = null;
+      preloadedImages[i] = await _loadProductPhotoSafe(item.image);
+      if (preloadedImages[i]) {
+        console.log('✓ Фото загружено:', (item.title || '').substring(0, 30));
+      } else if (item.image && item.image.startsWith('http')) {
+        console.warn('✗ Фото не загружено:', (item.title || '').substring(0, 30));
       }
     }
-    
+
     // Шаг 2: Адаптивное качество — сначала максимальное, снижаем если PDF > 40 MB
     const qualityLevels = [
       { maxDim: 200, quality: 0.92 },
@@ -371,67 +468,47 @@ async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, car
       { maxDim: 120, quality: 0.6 },
       { maxDim: 80, quality: 0.45 }
     ];
-    
+
     let pdfBlob = null;
-    
+
     for (const level of qualityLevels) {
       console.log(`Генерируем PDF (качество: ${level.quality}, размер фото: ${level.maxDim}px)...`);
       pdfBlob = await buildPhotoPDFBlob(name, phone, address, driverName, driverPhone, cartItems, total, time, preloadedImages, level);
-      
+
       const sizeMB = Math.round(pdfBlob.size / 1024 / 1024 * 10) / 10;
       console.log(`PDF размер: ${sizeMB} MB`);
-      
+
       if (pdfBlob.size <= MAX_PDF_SIZE) {
         console.log('✓ PDF подходит по размеру, качество:', level.quality);
         break;
       }
       console.log('PDF > 40 MB, пробуем меньшее качество...');
     }
-    
+
     if (pdfBlob.size > MAX_PDF_SIZE) {
       console.error('PDF слишком большой даже при минимальном качестве:', Math.round(pdfBlob.size / 1024 / 1024), 'MB');
       throw new Error('PDF файл слишком большой (' + Math.round(pdfBlob.size / 1024 / 1024) + ' MB). Попробуйте уменьшить количество товаров.');
     }
-    
+
     console.log('PDF файл сгенерирован, размер:', Math.round(pdfBlob.size / 1024), 'KB');
 
-    // Отправляем в Telegram
-    const formData = new FormData();
-    formData.append('chat_id', '5567924440');
-    formData.append('document', pdfBlob, `Заказ_${name}_${Date.now()}.pdf`);
-    formData.append('caption', `📷 Заказ с фото от ${name}`);
+    // Отправляем в оба чата ПАРАЛЛЕЛЬНО и НЕЗАВИСИМО — ошибка одного не блокирует другой
+    const fileName = `Заказ_${name}_${Date.now()}.pdf`;
+    const caption = `📷 Заказ с фото от ${name}`;
+    const ts = Date.now();
 
-    const tgResp1 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
-      method: 'POST',
-      body: formData
-    });
+    const results = await Promise.allSettled([
+      _sendDocToTelegram('5567924440', pdfBlob, fileName, caption),
+      _sendDocToTelegram('246421345', pdfBlob, `Заказ_${name}_${ts}.pdf`, caption)
+    ]);
 
-    const tgData1 = await tgResp1.json().catch(() => null);
-    if (!tgResp1.ok || tgData1?.ok === false) {
-      console.error('Telegram sendDocument error (chat 5567924440):', tgResp1.status, tgData1);
-      throw new Error(tgData1?.description || `Telegram HTTP ${tgResp1.status}`);
-    }
+    const okCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+    console.log(`PDF файл: отправлено в ${okCount}/2 чата`);
 
-    // Отправляем второму пользователю
-    const formData2 = new FormData();
-    formData2.append('chat_id', '246421345');
-    formData2.append('document', pdfBlob, `Заказ_${name}_${Date.now()}.pdf`);
-    formData2.append('caption', `📷 Заказ с фото от ${name}`);
-
-    const tgResp2 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
-      method: 'POST',
-      body: formData2
-    });
-
-    const tgData2 = await tgResp2.json().catch(() => null);
-    if (!tgResp2.ok || tgData2?.ok === false) {
-      console.error('Telegram sendDocument error (chat 246421345):', tgResp2.status, tgData2);
-      throw new Error(tgData2?.description || `Telegram HTTP ${tgResp2.status}`);
-    }
-
-    console.log('PDF файл отправлен в Telegram');
+    return okCount > 0;
   } catch (error) {
     console.error('Ошибка отправки PDF:', error);
+    return false;
   }
 }
 
