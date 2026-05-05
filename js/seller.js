@@ -129,15 +129,11 @@ async function registerSeller() {
       `⏳ *Статус:* Ожидает одобрения\n` +
       `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
     
-    fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: '5567924440',
-        text: message,
-        parse_mode: 'Markdown'
-      })
-    });
+    tgSendMessage({
+      chat_id: '5567924440',
+      text: message,
+      parse_mode: 'Markdown'
+    }).catch(err => console.error('Ошибка отправки заявки продавца в Telegram:', err));
     
     document.getElementById('sellerLoader').style.display = 'none';
     document.getElementById('sellerSubmitBtn').disabled = false;
@@ -327,34 +323,26 @@ async function openSellerSettingsWindow() {
       // Отправляем тестовое сообщение если указан ID
       if (formValues.telegramId) {
         try {
-          const testResponse = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: formValues.telegramId,
-              text: `✅ Настройки сохранены!\n\n🏪 ${currentSeller.name}, теперь вы будете получать уведомления о заказах ваших товаров на этот аккаунт Telegram.`,
-              parse_mode: 'Markdown'
-            })
+          await tgSendMessage({
+            chat_id: formValues.telegramId,
+            text: `✅ Настройки сохранены!\n\n🏪 ${currentSeller.name}, теперь вы будете получать уведомления о заказах ваших товаров на этот аккаунт Telegram.`,
+            parse_mode: 'Markdown'
           });
-          
-          const testData = await testResponse.json();
-          if (testData.ok) {
-            Swal.fire({
-              icon: 'success',
-              title: 'Настройки сохранены!',
-              html: 'Тестовое сообщение отправлено в ваш Telegram.<br>Проверьте, что оно пришло.',
-              confirmButtonText: 'Отлично!'
-            });
-          } else {
-            Swal.fire({
-              icon: 'warning',
-              title: 'Настройки сохранены',
-              html: `Но не удалось отправить тестовое сообщение.<br><br>Проверьте правильность ID и убедитесь, что вы начали диалог с ботом.<br><br>Ошибка: ${testData.description || 'неизвестная'}`,
-              confirmButtonText: 'Понятно'
-            });
-          }
+
+          Swal.fire({
+            icon: 'success',
+            title: 'Настройки сохранены!',
+            html: 'Тестовое сообщение отправлено в ваш Telegram.<br>Проверьте, что оно пришло.',
+            confirmButtonText: 'Отлично!'
+          });
         } catch (err) {
-          Swal.fire('Сохранено', 'Настройки сохранены, но не удалось отправить тестовое сообщение', 'warning');
+          const desc = (err && err.body && (err.body.description || err.body.error)) || (err && err.message) || 'неизвестная';
+          Swal.fire({
+            icon: 'warning',
+            title: 'Настройки сохранены',
+            html: `Но не удалось отправить тестовое сообщение.<br><br>Проверьте правильность ID и убедитесь, что вы начали диалог с ботом.<br><br>Ошибка: ${desc}`,
+            confirmButtonText: 'Понятно'
+          });
         }
       } else {
         Swal.fire('Сохранено', 'Telegram ID удалён. Вы не будете получать уведомления о заказах.', 'info');

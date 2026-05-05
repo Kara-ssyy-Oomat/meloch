@@ -391,45 +391,45 @@ async function _loadProductPhotoSafe(imageUrl) {
 }
 
 // ===== Отправка одного файла в Telegram с retry при 429 (Too Many Requests) =====
+// Идёт через Cloud Function telegramProxy (см. js/telegram-client.js).
+// Токен бота на бэкенде, в коде сайта его нет.
 async function _sendDocToTelegram(chatId, fileBlob, fileName, caption, maxRetries) {
   maxRetries = maxRetries || 4;
-  const apiUrl = 'https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument';
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const fd = new FormData();
-      fd.append('chat_id', chatId);
-      fd.append('document', fileBlob, fileName);
-      fd.append('caption', caption);
+      await tgSendDocument({
+        chat_id: chatId,
+        blob: fileBlob,
+        file_name: fileName,
+        file_mime: fileBlob.type || 'application/pdf',
+        caption: caption
+      });
+      console.log(`✓ Telegram chat ${chatId}: файл отправлен (попытка ${attempt})`);
+      return true;
+    } catch (err) {
+      const status = err && err.status;
+      const body = err && err.body;
 
-      const resp = await fetch(apiUrl, { method: 'POST', body: fd });
-      const data = await resp.json().catch(() => null);
-
-      if (resp.ok && data && data.ok) {
-        console.log(`✓ Telegram chat ${chatId}: файл отправлен (попытка ${attempt})`);
-        return true;
-      }
-
-      // Rate limit — ждём и повторяем
-      if (resp.status === 429) {
-        const retryAfter = (data && data.parameters && data.parameters.retry_after) || 3;
+      if (status === 429) {
+        const retryAfter = (body && body.parameters && body.parameters.retry_after) || 3;
         const waitMs = (retryAfter + 1) * 1000;
         console.warn(`⏳ Telegram chat ${chatId}: 429 rate limit, ждём ${waitMs}мс (попытка ${attempt}/${maxRetries})`);
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }
 
-      // Сетевые ошибки 5xx — повторяем
-      if (resp.status >= 500 && resp.status < 600) {
-        console.warn(`⏳ Telegram chat ${chatId}: HTTP ${resp.status} (попытка ${attempt}/${maxRetries})`);
+      if (status >= 500 && status < 600) {
+        console.warn(`⏳ Telegram chat ${chatId}: HTTP ${status} (попытка ${attempt}/${maxRetries})`);
         await new Promise(r => setTimeout(r, 2000 * attempt));
         continue;
       }
 
-      // Другие ошибки (4xx) — не повторяем, логируем и выходим
-      console.error(`✗ Telegram chat ${chatId} ошибка ${resp.status}:`, data && data.description);
-      return false;
-    } catch (err) {
+      if (status && status >= 400 && status < 500) {
+        console.error(`✗ Telegram chat ${chatId} ошибка ${status}:`, body && body.description);
+        return false;
+      }
+
       console.warn(`⚠️ Telegram chat ${chatId} сетевая ошибка (попытка ${attempt}/${maxRetries}):`, err);
       if (attempt < maxRetries) {
         await new Promise(r => setTimeout(r, 2000 * attempt));
@@ -724,39 +724,24 @@ async function sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone
     
     console.log('PDF файл без фото сгенерирован, размер:', pdfBlob.size, 'байт');
     
-    // Отправляем в Telegram
-    const formData = new FormData();
-    formData.append('chat_id', '5567924440');
-    formData.append('document', pdfBlob, `Заказ_печать_${name}_${Date.now()}.pdf`);
-    formData.append('caption', `📄 Заказ для печати от ${name}`);
+    const fileName = `Заказ_печать_${name}_${Date.now()}.pdf`;
+    const caption = `📄 Заказ для печати от ${name}`;
 
-    const tgResp1 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
-      method: 'POST',
-      body: formData
+    await tgSendDocument({
+      chat_id: '5567924440',
+      blob: pdfBlob,
+      file_name: fileName,
+      file_mime: 'application/pdf',
+      caption: caption
     });
 
-    const tgData1 = await tgResp1.json().catch(() => null);
-    if (!tgResp1.ok || tgData1?.ok === false) {
-      console.error('Telegram sendDocument error (chat 5567924440):', tgResp1.status, tgData1);
-      throw new Error(tgData1?.description || `Telegram HTTP ${tgResp1.status}`);
-    }
-
-    // Отправляем второму пользователю
-    const formData2 = new FormData();
-    formData2.append('chat_id', '246421345');
-    formData2.append('document', pdfBlob, `Заказ_печать_${name}_${Date.now()}.pdf`);
-    formData2.append('caption', `📄 Заказ для печати от ${name}`);
-
-    const tgResp2 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
-      method: 'POST',
-      body: formData2
+    await tgSendDocument({
+      chat_id: '246421345',
+      blob: pdfBlob,
+      file_name: fileName,
+      file_mime: 'application/pdf',
+      caption: caption
     });
-
-    const tgData2 = await tgResp2.json().catch(() => null);
-    if (!tgResp2.ok || tgData2?.ok === false) {
-      console.error('Telegram sendDocument error (chat 246421345):', tgResp2.status, tgData2);
-      throw new Error(tgData2?.description || `Telegram HTTP ${tgResp2.status}`);
-    }
 
     console.log('PDF файл без фото отправлен в Telegram');
     
@@ -863,39 +848,25 @@ async function sendOrderAsExcelFile(name, phone, address, driverName, driverPhon
     
     console.log('Excel файл сгенерирован, размер:', blob.size, 'байт');
     
-    // Отправляем в Telegram через FormData
-    const formData = new FormData();
-    formData.append('chat_id', '5567924440');
-    formData.append('document', blob, `Заказ_${name}_${Date.now()}.xlsx`);
-    formData.append('caption', `📊 Excel заказ от ${name}`);
+    const xlsxName = `Заказ_${name}_${Date.now()}.xlsx`;
+    const xlsxCaption = `📊 Excel заказ от ${name}`;
+    const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-    const tgResp1 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
-      method: 'POST',
-      body: formData
+    await tgSendDocument({
+      chat_id: '5567924440',
+      blob: blob,
+      file_name: xlsxName,
+      file_mime: xlsxMime,
+      caption: xlsxCaption
     });
 
-    const tgData1 = await tgResp1.json().catch(() => null);
-    if (!tgResp1.ok || tgData1?.ok === false) {
-      console.error('Telegram sendDocument error (chat 5567924440):', tgResp1.status, tgData1);
-      throw new Error(tgData1?.description || `Telegram HTTP ${tgResp1.status}`);
-    }
-
-    // Отправляем второму пользователю
-    const formData2 = new FormData();
-    formData2.append('chat_id', '246421345');
-    formData2.append('document', blob, `Заказ_${name}_${Date.now()}.xlsx`);
-    formData2.append('caption', `📊 Excel заказ от ${name}`);
-
-    const tgResp2 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
-      method: 'POST',
-      body: formData2
+    await tgSendDocument({
+      chat_id: '246421345',
+      blob: blob,
+      file_name: xlsxName,
+      file_mime: xlsxMime,
+      caption: xlsxCaption
     });
-
-    const tgData2 = await tgResp2.json().catch(() => null);
-    if (!tgResp2.ok || tgData2?.ok === false) {
-      console.error('Telegram sendDocument error (chat 246421345):', tgResp2.status, tgData2);
-      throw new Error(tgData2?.description || `Telegram HTTP ${tgResp2.status}`);
-    }
 
     console.log('Excel файл отправлен в Telegram');
     
@@ -976,24 +947,13 @@ async function sendNotificationsToSellers(customerName, customerPhone, customerA
         `💰 *Сумма за ваши товары:* ${sellerTotal} сом\n` +
         `📊 *Общая сумма заказа:* ${total} сом`;
       
-      // Отправляем в Telegram продавцу
       try {
-        const response = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: seller.telegramId,
-            text: message,
-            parse_mode: 'Markdown'
-          })
+        await tgSendMessage({
+          chat_id: seller.telegramId,
+          text: message,
+          parse_mode: 'Markdown'
         });
-        
-        const data = await response.json();
-        if (data.ok) {
-          console.log(`Уведомление отправлено продавцу ${seller.name} (ID: ${seller.telegramId})`);
-        } else {
-          console.error(`Ошибка отправки продавцу ${seller.name}:`, data.description);
-        }
+        console.log(`Уведомление отправлено продавцу ${seller.name} (ID: ${seller.telegramId})`);
       } catch (err) {
         console.error(`Ошибка отправки продавцу ${seller.name}:`, err);
       }
@@ -1121,28 +1081,9 @@ async function sendSeparatedOrderToAdmin(customerName, customerPhone, customerAd
     
     message += `\n💵 *ОБЩАЯ СУММА ЗАКАЗА:* ${total} сом`;
     
-    // Отправляем админу
-    await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: '5567924440',
-        text: message,
-        parse_mode: 'Markdown'
-      })
-    });
-    
-    // Отправляем второму админу
-    await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: '246421345',
-        text: message,
-        parse_mode: 'Markdown'
-      })
-    });
-    
+    await tgSendMessage({ chat_id: '5567924440', text: message, parse_mode: 'Markdown' });
+    await tgSendMessage({ chat_id: '246421345', text: message, parse_mode: 'Markdown' });
+
     console.log('Раздельное уведомление отправлено админам');
     
   } catch (error) {

@@ -25,7 +25,11 @@ function initFirebase() {
     db = firebase.firestore();
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
-    
+
+    if (typeof kerbenStartAppCheckSetup === 'function') {
+      kerbenStartAppCheckSetup(db);
+    }
+
     // Подписка на новые сообщения в чате
     subscribeToNewChatMessages();
     
