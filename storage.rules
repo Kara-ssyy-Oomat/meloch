@@ -1,0 +1,65 @@
+rules_version = '2';
+
+// =====================================================================
+// КЕРБЕН B2B Market — Firebase Storage Security Rules
+//
+// Что делают эти правила:
+//   • Чтение картинок — публичное (нужно сайту для каталога).
+//   • Запись (загрузка) — только изображения до 5 МБ.
+//   • Запрещают загрузку любых других типов файлов (.exe, .zip, .pdf и т.п.)
+//     чтобы хакеры не могли использовать ваш Storage как файлопомойку.
+//   • Запрещают писать в папки кроме разрешённых.
+// =====================================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ----------------- ХЕЛПЕРЫ -----------------
+
+    function isImage() {
+      return request.resource != null
+          && request.resource.contentType != null
+          && request.resource.contentType.matches('image/.*');
+    }
+
+    function reasonableSize() {
+      // Максимум 5 МБ за раз. Превью (~200 КБ) и фото товара
+      // после сжатия в upload.js (~300-800 КБ) укладываются спокойно.
+      return request.resource != null
+          && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // ----------------- ТОВАРЫ -----------------
+    // products/ — основная папка для фото товаров (см. upload.js).
+    // Чтение — открытое (каталог должен быть виден всем посетителям).
+    // Запись — только картинки до 5 МБ.
+    match /products/{file=**} {
+      allow read: if true;
+      allow write: if isImage() && reasonableSize();
+    }
+
+    // ----------------- АВАТАРЫ / ЛОГОТИПЫ -----------------
+    match /avatars/{file=**} {
+      allow read: if true;
+      allow write: if isImage() && reasonableSize();
+    }
+
+    match /sellers/{file=**} {
+      allow read: if true;
+      allow write: if isImage() && reasonableSize();
+    }
+
+    // ----------------- ЧАТ-ВЛОЖЕНИЯ -----------------
+    // Если в чате будут картинки — лежат тут.
+    match /chat/{file=**} {
+      allow read: if true;
+      allow write: if isImage() && reasonableSize();
+    }
+
+    // ----------------- ОБЩАЯ ПАПКА -----------------
+    // Любой неизвестный путь — закрываем.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

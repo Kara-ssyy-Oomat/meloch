@@ -126,6 +126,8 @@ const STATIC_CACHE_URLS = [
   './js/variants.js',
   './js/quantity.js',
   './js/orders.js',
+  './js/app-check.js',
+  './js/telegram-client.js',
   './js/customer-auth.js',
   './js/persist-profile.js',
   './js/chat.js',

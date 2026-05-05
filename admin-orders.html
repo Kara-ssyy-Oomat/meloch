@@ -10,6 +10,9 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
+  <script src="js/app-check.js?v=2"></script>
+  <script src="js/telegram-client.js?v=2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -290,6 +293,7 @@ function initFirebase() {
       firebase.initializeApp(firebaseConfig);
     }
     db = firebase.firestore();
+    if (typeof kerbenStartAppCheckSetup === 'function') kerbenStartAppCheckSetup(db);
     console.log('Firebase инициализирован успешно');
     return true;
   } catch (error) {
@@ -3210,41 +3214,40 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       console.log('PDF компакт размер:', Math.round(pdf3Blob.size / 1024), 'KB');
     } // end if sendCompact
 
-    // ===== Отправка выбранных файлов в Telegram =====
+    // ===== Отправка выбранных файлов в Telegram (через Cloud Function) =====
     Swal.update({ title: 'Отправка в Telegram...', html: 'Подготовка...' });
 
-    const botToken = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
     const chatId = '5567924440';
-    const apiUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
     const baseFileName = `Заказ_${clientName.replace(/\s+/g, '_')}_${Date.now()}`;
     let sentCount = 0;
     const sentFiles = [];
 
-    // Отправляем Excel (если выбран)
     if (sendExcel) {
       Swal.update({ html: 'Отправка Excel...' });
-      const form1 = new FormData();
-      form1.append('document', excelBlob, `${baseFileName}.xlsx`);
-      form1.append('chat_id', chatId);
-      form1.append('caption', `📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`);
-      await fetch(apiUrl, { method: 'POST', body: form1 });
+      await tgSendDocument({
+        chat_id: chatId,
+        blob: excelBlob,
+        file_name: `${baseFileName}.xlsx`,
+        file_mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        caption: `📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`
+      });
       sentCount++;
       sentFiles.push('📊 Excel');
     }
 
-    // Отправляем PDF для печати (если выбран)
     if (sendPrint) {
       Swal.update({ html: 'Отправка PDF для печати...' });
-      const form2 = new FormData();
-      form2.append('document', pdf1Blob, `${baseFileName}_печать.pdf`);
-      form2.append('chat_id', chatId);
-      form2.append('caption', `📄 Заказ для печати: ${clientName}`);
-      await fetch(apiUrl, { method: 'POST', body: form2 });
+      await tgSendDocument({
+        chat_id: chatId,
+        blob: pdf1Blob,
+        file_name: `${baseFileName}_печать.pdf`,
+        file_mime: 'application/pdf',
+        caption: `📄 Заказ для печати: ${clientName}`
+      });
       sentCount++;
       sentFiles.push('📄 PDF печать');
     }
 
-    // Отправляем PDF с фото (если выбран)
     if (sendPhoto) {
       Swal.update({ html: 'Отправка PDF с фото...' });
       if (pdf2Blob.size > MAX_PDF_SIZE) {
@@ -3267,16 +3270,17 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
         }
         return;
       }
-      const form3 = new FormData();
-      form3.append('document', pdf2Blob, `${baseFileName}_с_фото.pdf`);
-      form3.append('chat_id', chatId);
-      form3.append('caption', `📷 Заказ с фото: ${clientName}`);
-      await fetch(apiUrl, { method: 'POST', body: form3 });
+      await tgSendDocument({
+        chat_id: chatId,
+        blob: pdf2Blob,
+        file_name: `${baseFileName}_с_фото.pdf`,
+        file_mime: 'application/pdf',
+        caption: `📷 Заказ с фото: ${clientName}`
+      });
       sentCount++;
       sentFiles.push('📷 PDF с фото');
     }
 
-    // Отправляем PDF компакт (если выбран)
     if (sendCompact && pdf3Blob) {
       Swal.update({ html: 'Отправка PDF компакт...' });
       if (pdf3Blob.size > MAX_PDF_SIZE) {
@@ -3290,11 +3294,13 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
         });
         return;
       }
-      const form4 = new FormData();
-      form4.append('document', pdf3Blob, `${baseFileName}_компакт.pdf`);
-      form4.append('chat_id', chatId);
-      form4.append('caption', `🗂️ Заказ компакт (мелкие фото): ${clientName}`);
-      await fetch(apiUrl, { method: 'POST', body: form4 });
+      await tgSendDocument({
+        chat_id: chatId,
+        blob: pdf3Blob,
+        file_name: `${baseFileName}_компакт.pdf`,
+        file_mime: 'application/pdf',
+        caption: `🗂️ Заказ компакт (мелкие фото): ${clientName}`
+      });
       sentCount++;
       sentFiles.push('🗂️ PDF компакт');
     }

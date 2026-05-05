@@ -8,6 +8,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
+  <script src="js/app-check.js?v=2"></script>
+  <script src="js/telegram-client.js?v=2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -425,6 +428,8 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
+if (typeof kerbenStartAppCheckSetup === 'function') kerbenStartAppCheckSetup(db);
+
 // Глобальные переменные
 let sellers = [];
 let products = [];
@@ -682,16 +687,11 @@ async function approveSeller(sellerId) {
       updateStats();
       filterSellers();
       
-      // Отправляем уведомление в Telegram продавцу
       if (seller && seller.telegramId) {
-        fetch(`https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: seller.telegramId,
-            text: `✅ Ваша заявка на регистрацию продавца одобрена!\n\nТеперь вы можете войти в систему и добавлять товары.`,
-            parse_mode: 'Markdown'
-          })
+        tgSendMessage({
+          chat_id: seller.telegramId,
+          text: `✅ Ваша заявка на регистрацию продавца одобрена!\n\nТеперь вы можете войти в систему и добавлять товары.`,
+          parse_mode: 'Markdown'
         }).catch(() => {});
       }
       

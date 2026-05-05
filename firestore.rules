@@ -1,0 +1,352 @@
+rules_version = '2';
+
+// =====================================================================
+// КЕРБЕН B2B Market — Firestore Security Rules
+//
+// ВАЖНО: эти правила НЕ ломают существующий функционал сайта.
+// Они защищают от:
+//   • Загрузки документов-монстров (DoS — забить базу мусором).
+//   • Установки отрицательных/гигантских цен и количеств.
+//   • Спама в notificationQueue (рассылка миллионов push-уведомлений
+//     с произвольным содержимым).
+//   • Повышения чужого аккаунта до isAdmin: true.
+//   • Создания заказов и сообщений от заблокированных клиентов.
+//   • Записи в неизвестные коллекции (помойка из левых данных).
+//   • Чтения/записи admin-only push-токенов с клиента.
+//
+// ⚠️ ОГРАНИЧЕНИЯ (что эти правила НЕ ловят):
+//   • Любой посетитель пока ещё может прочитать заказы и клиентов
+//     (нужно для страниц "Мои заказы" и логина по телефону).
+//   • Любой посетитель пока ещё может изменить легитимную цену товара
+//     с 100 на 50 (валидация ловит только отрицательные / гигантские).
+//
+// Чтобы устранить эти ограничения — нужно включить Firebase Authentication
+// (минимум: email/password для админа, анонимная auth для клиентов) и
+// заменить `if true` на `if request.auth.token.email == 'admin@...'`
+// в нужных местах. Это следующий этап.
+// =====================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================
+    //                        ХЕЛПЕРЫ
+    // =========================================================
+
+    function isAdminPhone(p) {
+      return p == '0559009860'
+          || p == '+996559009860'
+          || p == '996559009860'
+          || p == '559009860';
+    }
+
+    // Никто, кроме админ-телефона, не может выставить isAdmin: true
+    function notElevatingToAdmin() {
+      return !('isAdmin' in request.resource.data)
+          || request.resource.data.isAdmin != true
+          || isAdminPhone(request.resource.data.phone);
+    }
+
+    // Timestamp в разумных пределах (±сутки от серверного времени)
+    function reasonableTimestamp() {
+      return !('timestamp' in request.resource.data)
+          || (
+              request.resource.data.timestamp is number
+              && request.resource.data.timestamp >= request.time.toMillis() - 86400000
+              && request.resource.data.timestamp <= request.time.toMillis() + 86400000
+            );
+    }
+
+    // Заблокирован ли телефон (по документу blockedClients/{phone}).
+    function isPhoneBlocked(phone) {
+      return phone is string
+          && phone.size() > 0
+          && exists(/databases/$(database)/documents/blockedClients/$(phone));
+    }
+
+    // Защита от документов-монстров: не больше 200 полей в одном документе.
+    function reasonableDocSize() {
+      return request.resource.data.size() <= 200;
+    }
+
+    // Если поле есть — это строка не длиннее maxLen.
+    function strOk(field, maxLen) {
+      return !(field in request.resource.data)
+          || (request.resource.data[field] is string
+              && request.resource.data[field].size() <= maxLen);
+    }
+
+    // Если поле есть — это число в диапазоне [min..max].
+    function numOk(field, minVal, maxVal) {
+      return !(field in request.resource.data)
+          || (request.resource.data[field] is number
+              && request.resource.data[field] >= minVal
+              && request.resource.data[field] <= maxVal);
+    }
+
+    // =========================================================
+    //                       PRODUCTS
+    // =========================================================
+    match /products/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('name', 500)
+        && strOk('description', 5000)
+        && strOk('category', 200)
+        && strOk('subcategory', 200)
+        && strOk('imageUrl', 2000)
+        && strOk('image', 2000)
+        && numOk('price', 0, 100000000)
+        && numOk('quantity', -1000000, 10000000)
+        && numOk('cost', 0, 100000000)
+        && numOk('priceWholesale', 0, 100000000);
+      allow delete: if true;
+    }
+
+    // =========================================================
+    //                  SELLERS / SELLER_CATEGORIES
+    // =========================================================
+    match /sellers/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('name', 200)
+        && strOk('phone', 30)
+        && strOk('description', 2000);
+      allow delete: if true;
+    }
+
+    match /seller_categories/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('name', 200)
+        && strOk('description', 2000);
+      allow delete: if true;
+    }
+
+    // =========================================================
+    //                       SETTINGS
+    // =========================================================
+    match /settings/{id} {
+      allow read: if true;
+      allow write: if reasonableDocSize();
+    }
+
+    // =========================================================
+    //                    WAREHOUSES (нужны клиенту)
+    // =========================================================
+    // Используется в cart.html, product-loader.js — клиент проверяет
+    // paused-склады. Чтение оставляем открытым.
+    match /warehouses/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('name', 200)
+        && strOk('description', 2000);
+      allow delete: if true;
+    }
+
+    // =========================================================
+    //                  AGENTS / CLIENT-AGENTS
+    // =========================================================
+    // clientAgents читается клиентом (order-submit.js, cart.html).
+    // agents читается клиентом (profile.html, agent-delivery).
+    match /agents/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('name', 200)
+        && strOk('phone', 30)
+        && strOk('email', 200);
+      allow delete: if true;
+    }
+
+    match /clientAgents/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('phone', 30)
+        && strOk('agentId', 200);
+      allow delete: if true;
+    }
+
+    // =========================================================
+    //                     ФИНАНСЫ (расходы)
+    // =========================================================
+    // ⚠️ Сейчас admin-profit.html читает их с того же клиента, что и
+    // обычные посетители. Нет Firebase Auth, нельзя отличить админа.
+    // Поэтому оставляем чтение открытым, но валидируем запись.
+    // ПОСЛЕ внедрения Firebase Auth — закрыть на admin.
+    match /expenses/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('description', 2000)
+        && strOk('category', 200)
+        && numOk('amount', -1000000000, 1000000000)
+        && reasonableTimestamp();
+      allow delete: if true;
+    }
+
+    match /agentExpenses/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('description', 2000)
+        && strOk('agentId', 200)
+        && numOk('amount', -1000000000, 1000000000)
+        && reasonableTimestamp();
+      allow delete: if true;
+    }
+
+    // =========================================================
+    //                          ORDERS
+    // =========================================================
+    match /orders/{orderId} {
+      allow read: if true;
+      allow update, delete: if true;
+
+      allow create: if
+        reasonableDocSize()
+        && request.resource.data.keys().hasAll(['name', 'phone', 'items', 'total'])
+
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 200
+
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.total <= 100000000
+
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 200
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() > 0
+        && request.resource.data.phone.size() <= 30
+        && strOk('address', 1000)
+
+        && reasonableTimestamp()
+        && (
+          !('status' in request.resource.data)
+          || request.resource.data.status == 'pending'
+        )
+        && !isPhoneBlocked(request.resource.data.phone);
+    }
+
+    // =========================================================
+    //                       CUSTOMERS
+    // =========================================================
+    match /customers/{customerId} {
+      allow read: if true;
+      allow delete: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && notElevatingToAdmin()
+        && strOk('name', 200)
+        && strOk('phone', 30)
+        && strOk('email', 200)
+        && strOk('address', 1000)
+        && (
+          !('phone' in request.resource.data)
+          || !isPhoneBlocked(request.resource.data.phone)
+        );
+    }
+
+    // =========================================================
+    //                    BLOCKED CLIENTS
+    // =========================================================
+    match /blockedClients/{blockedId} {
+      allow read: if true;
+      allow create, update: if
+        !isAdminPhone(blockedId)
+        && request.resource.data.blockedBy is string
+        && (
+          isAdminPhone(request.resource.data.blockedBy)
+          || request.resource.data.blockedBy == 'admin'
+        );
+      allow delete: if true;
+    }
+
+    // =========================================================
+    //                       PUSH-ТОКЕНЫ
+    // =========================================================
+    // pushTokens: клиент пишет свой токен (валидация ниже).
+    // Чтение — закрыто, потому что Cloud Function (admin SDK) обходит
+    // правила и читает напрямую. Клиенту читать чужие токены незачем.
+    match /pushTokens/{id} {
+      allow read: if false;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('token', 500)
+        && strOk('clientId', 200)
+        && strOk('role', 50);
+      allow delete: if true;
+    }
+
+    // adminPushTokens — только серверная Cloud Function.
+    match /adminPushTokens/{id} {
+      allow read, write: if false;
+    }
+
+    // =========================================================
+    //                    NOTIFICATION QUEUE
+    // =========================================================
+    // Защита от спама: тип ОБЯЗАН быть один из разрешённых,
+    // тексты ограничены по длине, статус только 'pending'.
+    match /notificationQueue/{id} {
+      allow read: if false;
+      allow create: if
+        reasonableDocSize()
+        && request.resource.data.type is string
+        && request.resource.data.type in ['chat', 'admin_chat', 'broadcast']
+        && strOk('title', 200)
+        && strOk('body', 1000)
+        && strOk('clientId', 200)
+        && strOk('targetClientId', 200)
+        && strOk('clientName', 200)
+        && (
+          !('status' in request.resource.data)
+          || request.resource.data.status == 'pending'
+        );
+      allow update, delete: if false;
+    }
+
+    // =========================================================
+    //                          CHAT
+    // =========================================================
+    match /chatClients/{id} {
+      allow read: if true;
+      allow create, update: if
+        reasonableDocSize()
+        && strOk('name', 200)
+        && strOk('phone', 30)
+        && strOk('pushToken', 500);
+      allow delete: if true;
+    }
+
+    match /chatMessages/{id} {
+      allow read, update, delete: if true;
+      allow create: if
+        reasonableDocSize()
+        && strOk('text', 5000)
+        && strOk('clientId', 200)
+        && strOk('sender', 50)
+        && (
+          !('clientId' in request.resource.data)
+          || !exists(/databases/$(database)/documents/blockedClients/$(request.resource.data.clientId))
+        );
+    }
+
+    // =========================================================
+    //                ВСЁ ОСТАЛЬНОЕ — НАГЛУХО
+    // =========================================================
+    // Любая неизвестная коллекция — закрыта. Если хакер попробует
+    // создать своих коллекций "trash/spam/whatever" — не получится.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
