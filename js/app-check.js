@@ -55,7 +55,13 @@
       if (/^(localhost|127\.0\.0\.1)$/i.test(location.hostname)) {
         global.self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
       }
-      firebase.appCheck().activate(new firebase.appcheck.ReCaptchaV3Provider(key), true);
+
+      var Provider = firebase.appCheck.ReCaptchaV3Provider;
+      if (!Provider) {
+        console.warn('[Kerben App Check] ReCaptchaV3Provider недоступен в SDK');
+        return;
+      }
+      firebase.appCheck().activate(new Provider(key), true);
       activated = true;
       console.log('[Kerben App Check] активирован');
     } catch (e) {
