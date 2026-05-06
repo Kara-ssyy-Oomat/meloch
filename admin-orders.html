@@ -478,6 +478,13 @@ async function loadOrdersManagement(forceRefresh = false) {
   const listDiv = document.getElementById('ordersManagementList');
   if (!listDiv) return;
 
+  if (!db) {
+    if (!initFirebase()) {
+      listDiv.innerHTML = '<div style="text-align:center; color:#dc3545; padding:40px;">❌ Нет подключения к базе данных</div>';
+      return;
+    }
+  }
+
   if (!forceRefresh && Array.isArray(ordersManagementAllOrders)) {
     renderOrdersManagementFromCache();
     return;
@@ -2356,7 +2363,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
   });
   
   try {
-    // Загружаем заказ
+    if (!db) throw new Error('Нет подключения к базе данных');
+
     const orderDoc = await db.collection('orders').doc(orderId).get();
     
     if (!orderDoc.exists) {
@@ -3325,6 +3333,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
 
 // ============ ИНИЦИАЛИЗАЦИЯ ============
 document.addEventListener('DOMContentLoaded', function() {
+  if (!initFirebase()) return;
+
   // Восстанавливаем сохранённый фильтр
   try {
     const savedFilter = localStorage.getItem('ordersFilterValue');
@@ -3332,14 +3342,11 @@ document.addEventListener('DOMContentLoaded', function() {
       const combo = document.getElementById('ordersFilterCombined');
       if (combo) {
         combo.value = savedFilter;
-        applyOrdersCombinedFilter();
       }
     }
   } catch(e) {}
-  
-  if (initFirebase()) {
-    loadOrdersManagement(true);
-  }
+
+  loadOrdersManagement(true);
   
   // Обработчики для iOS
   const searchInput = document.getElementById('ordersSearchClient');
