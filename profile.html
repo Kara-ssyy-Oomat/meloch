@@ -1,16 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>
-    // Если загружен напрямую (не в iframe) — перенаправляем в index.html SPA
-    if (window.parent === window) {
-      window.location.replace('index.html?page=profile');
-    }
-    // Если в iframe — скрываем нижнее меню (родитель уже показывает своё)
-    if (window.parent !== window) {
-      document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>');
-    }
-  </script>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4CAF50">
@@ -20,12 +11,6 @@
   <link rel="icon" type="image/jpeg" href="icon-kerben.jpg">
   
   <title>Профиль - Кербен</title>
-
-  <!-- Предзагрузка DNS -->
-  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
-  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-  <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
   
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -214,7 +199,7 @@
       top: 0;
       left: 0;
       right: 0;
-      bottom: 0;
+      bottom: 56px;
       background: #f5f5f5;
       z-index: 9500;
     }
@@ -346,25 +331,9 @@
   
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="js/app-check.js?v=2"></script>
-  <script src="js/telegram-client.js?v=2"></script>
-  <script src="js/persist-profile.js?v=1"></script>
-  <!-- XLSX и jsPDF загружаются лениво — нужны только при экспорте заказа -->
-  <script>
-    let _profileLibsLoaded = false;
-    function loadProfileExportLibs() {
-      if (_profileLibsLoaded) return Promise.resolve();
-      return Promise.all([
-        new Promise(r => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; s.onload = r; s.onerror = r; document.head.appendChild(s); }),
-        new Promise(r => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'; s.onload = r; s.onerror = r; document.head.appendChild(s); })
-      ]).then(() => { _profileLibsLoaded = true; console.log('📚 Профиль: XLSX + jsPDF загружены'); });
-    }
-    // Предзагружаем через 3 секунды после страницы
-    window.addEventListener('load', () => setTimeout(loadProfileExportLibs, 3000));
-  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 
 <body>
@@ -547,33 +516,6 @@
     // Запоминаем изначальный URL при загрузке
     const initialUrl = window.location.href;
     
-    // Закрыть все модальные окна (вызывается при нажатии "Профиль" в нижнем меню)
-    function closeAllModals() {
-      document.querySelectorAll('.modal-window').forEach(function(el) {
-        el.style.display = 'none';
-      });
-    }
-    
-    // Слушаем сообщения от родительского окна
-    window.addEventListener('message', function(e) {
-      if (e.data === 'resetProfile') {
-        closeAllModals();
-        window.scrollTo(0, 0);
-      }
-      if (e.data === 'refreshProfile') {
-        // Перечитываем данные из localStorage (могли обновиться после заказа)
-        closeAllModals();
-        window.scrollTo(0, 0);
-        if (typeof init === 'function') {
-          init();
-        }
-      }
-      if (e.data === 'refreshCart') {
-        // обновляем бейдж корзины если нужно
-        if (typeof updateCartBadge === 'function') updateCartBadge();
-      }
-    });
-    
     // Закрытие iframe или возврат назад
     function goBack() {
       // Если мы в iframe и это начальная страница - закрываем iframe
@@ -597,83 +539,6 @@
         window.location.href = url;
       }
     }
-    
-    // ============ Минимальная сумма заказа ============
-    async function openMinOrderSettings() {
-      try {
-        const doc = await db.collection('settings').doc('minOrder').get();
-        const data = doc.exists ? doc.data() : {};
-        const currentAmount = data.amount || 5000;
-        const currentEnabled = data.enabled !== false;
-
-        const result = await Swal.fire({
-          title: '💵 Минимальная сумма заказа',
-          html: `
-            <div style="text-align:left; padding:10px 0;">
-              <div style="margin-bottom:16px;">
-                <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:16px;">
-                  <input type="checkbox" id="swal-min-order-enabled" ${currentEnabled ? 'checked' : ''} style="width:20px; height:20px; cursor:pointer;">
-                  <span style="font-weight:600;">Включить минимальную сумму</span>
-                </label>
-                <div style="font-size:12px; color:#888; margin-top:4px; margin-left:30px;">Если включено — клиент не сможет заказать на сумму ниже указанной</div>
-              </div>
-              <div style="margin-bottom:12px;">
-                <label style="display:block; margin-bottom:6px; font-weight:600; color:#333;">Минимальная сумма (сом):</label>
-                <input type="number" id="swal-min-order-amount" value="${currentAmount}" min="0" step="500" placeholder="Например: 5000" style="width:100%; padding:14px; border:2px solid #4CAF50; border-radius:10px; font-size:18px; font-weight:700; text-align:center; box-sizing:border-box;">
-              </div>
-              <div style="background:#fff3cd; padding:12px; border-radius:8px; font-size:13px; color:#856404;">
-                ⚠️ Клиенты не смогут оформить заказ, если итоговая сумма корзины меньше указанной. Вы можете временно отключить это ограничение.
-              </div>
-            </div>
-          `,
-          showCancelButton: true,
-          confirmButtonText: '💾 Сохранить',
-          cancelButtonText: 'Отмена',
-          confirmButtonColor: '#4CAF50',
-          preConfirm: () => {
-            const amount = parseInt(document.getElementById('swal-min-order-amount').value) || 0;
-            const enabled = document.getElementById('swal-min-order-enabled').checked;
-            if (enabled && amount <= 0) {
-              Swal.showValidationMessage('Укажите сумму больше 0');
-              return false;
-            }
-            return { amount, enabled };
-          }
-        });
-
-        if (!result.isConfirmed) return;
-
-        console.log('[MinOrder Admin] Сохраняю:', result.value);
-        await db.collection('settings').doc('minOrder').set({
-          amount: result.value.amount,
-          enabled: result.value.enabled,
-          updatedAt: Date.now()
-        });
-        console.log('[MinOrder Admin] Сохранено успешно!');
-
-        Swal.fire({
-          icon: 'success',
-          title: 'Сохранено!',
-          html: result.value.enabled
-            ? `Минимальная сумма заказа: <b>${result.value.amount.toLocaleString()} сом</b>`
-            : 'Минимальная сумма заказа <b>отключена</b>',
-          timer: 2500,
-          showConfirmButton: false
-        });
-      } catch (e) {
-        console.error('Min order settings error:', e);
-        Swal.fire('Ошибка', 'Не удалось загрузить/сохранить настройку', 'error');
-      }
-    }
-
-    // Переход на полную страницу (admin/agent) — открывает в родительском окне
-    function navigateTop(url) {
-      if (window.parent !== window) {
-        window.top.location.href = url;
-      } else {
-        window.location.href = url;
-      }
-    }
   </script>
   <script>
     // ==================== КОНФИГУРАЦИЯ ====================
@@ -682,241 +547,104 @@
       authDomain: "svoysayet.firebaseapp.com",
       projectId: "svoysayet",
       storageBucket: "svoysayet.firebasestorage.app",
-      messagingSenderId: "450143000217",
-      appId: "1:450143000217:web:7495cefaea0b94966e8a08",
-      measurementId: "G-Y8VG9E29FY"
+      messagingSenderId: "785840370498",
+      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
     };
     
-    // Telegram-уведомления идут через Cloud Function (см. js/telegram-client.js).
-    // Токена бота в коде сайта/GitHub больше нет.
+    // Telegram Bot для уведомлений
+    const TELEGRAM_BOT_TOKEN = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
     const TELEGRAM_CHAT_ID = '5567924440';
     
-    // Данные администратора. Открытого пароля в коде нет — только SHA-256 хеш.
+    // Данные администратора
     const ADMIN_CUSTOMER_DATA = {
       phone: '0559009860',
-      passwordHash: '974f80606b985a1f8428d58d3eb6df3ba98277734d7bed5263d00256ece33f93',
+      password: '13082007',
       name: 'Адахамжон'
     };
-
-    async function _sha256(text) {
-      const buf = new TextEncoder().encode(text || '');
-      const hash = await crypto.subtle.digest('SHA-256', buf);
-      return Array.from(new Uint8Array(hash))
-        .map(b => b.toString(16).padStart(2, '0')).join('');
-    }
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-
-    if (typeof kerbenStartAppCheckSetup === 'function') {
-      kerbenStartAppCheckSetup(db);
-    }
     
     let currentCustomer = null;
     let isAdmin = false;
     let isAgent = false;
     let _customerOrders = [];
     let _dashboardCache = null; // Кэш данных dashboard
-    let _unsubOrders = null;
-    let _unsubChat = null;
-    let _badgeCounts = { orders: 0, chat: 0 }; // кэш количеств для бейджей
     
-    // Применить сохранённые значения бейджей к DOM
-    function applyBadgeCounts() {
-      const ob = document.getElementById('ordersUnreadBadge');
-      if (ob) {
-        ob.textContent = _badgeCounts.orders;
-        ob.style.display = _badgeCounts.orders > 0 ? 'inline' : 'none';
-      }
-      const cb = document.getElementById('chatUnreadBadge');
-      if (cb) {
-        cb.textContent = _badgeCounts.chat;
-        cb.style.display = _badgeCounts.chat > 0 ? 'inline' : 'none';
-      }
-    }
-
-    // Подписка на новые заказы (pending) для badge
-    function subscribeToNewOrders() {
-      if (_unsubOrders) return; // уже подписан
-      _unsubOrders = db.collection('orders')
-        .where('status', '==', 'pending')
-        .onSnapshot(snapshot => {
-          let count = 0;
-          snapshot.forEach(doc => {
-            if (!doc.data().deleted) count++;
-          });
-          _badgeCounts.orders = count;
-          applyBadgeCounts();
-        }, error => {
-          console.log('Ошибка подписки на заказы:', error.message);
-        });
-    }
-
     // Подписка на непрочитанные сообщения для badge
     function subscribeToUnreadChatMessages() {
-      if (_unsubChat) return; // уже подписан
+      console.log('🔔 Запускаем подписку на непрочитанные сообщения...');
       
-      _unsubChat = db.collection('chatClients')
+      db.collection('chatClients')
         .where('hasUnread', '==', true)
         .onSnapshot(snapshot => {
-          _badgeCounts.chat = snapshot.size;
-          applyBadgeCounts();
+          const unreadCount = snapshot.size;
+          console.log('📬 Клиентов с непрочитанными:', unreadCount);
+          
+          const badge = document.getElementById('chatUnreadBadge');
+          console.log('Badge элемент найден:', !!badge);
+          if (badge) {
+            badge.textContent = unreadCount;
+            badge.style.display = unreadCount > 0 ? 'inline' : 'none';
+          }
         }, error => {
           console.log('Ошибка подписки на чат:', error.message);
         });
     }
     
-    // Вспомогательная: сохранить профиль во все хранилища
-    function _saveProfileData() {
-      if (!currentCustomer) return;
-      try { localStorage.setItem('customerData', JSON.stringify(currentCustomer)); } catch(e) {}
-      if (window.PersistProfile) window.PersistProfile.save(currentCustomer);
-    }
-
-    // Восстановить профиль из Firestore по телефону (если localStorage очищен)
-    async function _restoreProfileFromCloud(cookieData) {
-      if (!cookieData || !cookieData.phone) return null;
-      if (typeof db === 'undefined' || !db) return null;
-
-      try {
-        const normalizedPhone = normalizePhone(cookieData.phone);
-        const snapshot = await db.collection('customers')
-          .where('phone', '==', normalizedPhone)
-          .limit(1)
-          .get();
-
-        if (snapshot.empty) return null;
-
-        const doc = snapshot.docs[0];
-        const data = doc.data() || {};
-
-        // Если имя есть в cookie и не совпадает с базой, не восстанавливаем
-        const cookieName = (cookieData.name || '').trim().toLowerCase();
-        const dbName = (data.name || '').trim().toLowerCase();
-        if (cookieName && dbName && cookieName !== dbName) return null;
-
-        return {
-          id: doc.id,
-          name: data.name || cookieData.name || '',
-          phone: data.phone || normalizedPhone,
-          address: data.address || '',
-          createdAt: data.createdAt,
-          ordersCount: data.ordersCount || 0,
-          totalSpent: data.totalSpent || 0,
-          isAdmin: !!data.isAdmin
-        };
-      } catch (error) {
-        console.error('[Profile] Ошибка восстановления из Firestore:', error);
-        return null;
-      }
-    }
-    
     // ==================== ИНИЦИАЛИЗАЦИЯ ====================
     async function init() {
-      // Используем PersistProfile для надёжного восстановления (localStorage → IndexedDB → cookie)
-      async function _onProfileLoaded(data) {
-        if (data && data.phone) {
-          try {
-            if (data._restoredFromCookie) {
-              const cloudData = await _restoreProfileFromCloud(data);
-              if (cloudData) {
-                currentCustomer = cloudData;
-                _saveProfileData();
-              } else {
-                currentCustomer = data;
-                delete currentCustomer._restoredFromCookie;
-                console.log('[Profile] ⚠️ Восстановлено из cookie-бэкапа');
-              }
-            } else {
-              currentCustomer = data;
-            }
-            
-            // Проверяем, является ли клиент админом
-            const normalizedPhone = normalizePhone(currentCustomer.phone);
-            const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-            
-            if (normalizedPhone === adminPhone || currentCustomer.isAdmin) {
-              isAdmin = true;
-              currentCustomer.isAdmin = true;
-              _saveProfileData();
-            }
-            
-            // Быстро восстанавливаем isAgent из кэша
-            const cachedAgent = sessionStorage.getItem('isAgent_' + normalizedPhone);
-            if (cachedAgent === 'true') {
-              isAgent = true;
-            }
-
-            // Фолбэк: если агент уже авторизован в localStorage и телефон совпадает
+      const saved = localStorage.getItem('customerData');
+      if (saved) {
+        try {
+          currentCustomer = JSON.parse(saved);
+          
+          // Проверяем, является ли клиент админом
+          const normalizedPhone = normalizePhone(currentCustomer.phone);
+          const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+          
+          if (normalizedPhone === adminPhone || currentCustomer.isAdmin) {
+            isAdmin = true;
+            currentCustomer.isAdmin = true;
+            localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+          }
+          
+          // Быстро восстанавливаем isAgent из кэша
+          const cachedAgent = sessionStorage.getItem('isAgent_' + normalizedPhone);
+          if (cachedAgent === 'true') {
+            isAgent = true;
+          }
+          
+          // Сначала показываем кэшированный dashboard мгновенно
+          const cachedDashboard = sessionStorage.getItem('dashboardCache_' + normalizedPhone);
+          if (cachedDashboard) {
             try {
-              const agentRaw = localStorage.getItem('currentAgent');
-              if (agentRaw) {
-                const agent = JSON.parse(agentRaw);
-                const agentPhone = normalizePhone(agent && agent.phone);
-                if (agentPhone && agentPhone === normalizedPhone) {
-                  isAgent = true;
-                  sessionStorage.setItem('isAgent_' + normalizedPhone, 'true');
-                }
-              }
+              _dashboardCache = JSON.parse(cachedDashboard);
+              _customerOrders = _dashboardCache.orders || [];
+              renderDashboard(_dashboardCache.stats || { ordersCount: 0, totalSpent: 0 }, _dashboardCache.orders || []);
             } catch (e) {
-              console.log('Ошибка чтения currentAgent:', e);
-            }
-            
-            // Сначала показываем кэшированный dashboard мгновенно
-            const cachedDashboard = sessionStorage.getItem('dashboardCache_' + normalizedPhone);
-            if (cachedDashboard) {
-              try {
-                _dashboardCache = JSON.parse(cachedDashboard);
-                _customerOrders = _dashboardCache.orders || [];
-                renderDashboard(_dashboardCache.stats || { ordersCount: 0, totalSpent: 0 }, _dashboardCache.orders || []);
-              } catch (e) {
-                console.log('Ошибка чтения кэша dashboard');
-              }
-            }
-            
-            // Параллельно обновляем данные в фоне
-            checkAgentStatus(normalizedPhone);
-            loadDashboard();
-            
-            // Подписка на непрочитанные сообщения для админа
-            if (isAdmin) {
-              subscribeToUnreadChatMessages();
-              subscribeToNewOrders();
-            }
-          } catch(e) {
-            console.error('Ошибка загрузки данных:', e);
-            // НЕ удаляем профиль при ошибках сети/Firebase!
-            // Показываем dashboard с кэшированными данными если есть
-            if (currentCustomer && currentCustomer.name) {
-              console.log('[Profile] Ошибка загрузки, показываем профиль с кэшем');
-              renderDashboard({ ordersCount: 0, totalSpent: 0 }, []);
-            } else {
-              // Только если данных совсем нет — показываем форму входа
-              showLoginForm();
+              console.log('Ошибка чтения кэша dashboard');
             }
           }
-        } else {
+          
+          // Параллельно обновляем данные в фоне
+          checkAgentStatus(normalizedPhone);
+          loadDashboard();
+          
+          // Подписка на непрочитанные сообщения для админа (после загрузки dashboard)
+          if (isAdmin) {
+            subscribeToUnreadChatMessages();
+          }
+        } catch(e) {
+          console.error('Ошибка загрузки данных:', e);
+          localStorage.removeItem('customerData');
           showLoginForm();
         }
-        updateCartBadge();
-        _fillComplaintForms();
-      }
-      
-      if (window.PersistProfile) {
-        window.PersistProfile.load(_onProfileLoaded);
       } else {
-        // Fallback
-        const saved = localStorage.getItem('customerData');
-        if (saved) {
-          try { _onProfileLoaded(JSON.parse(saved)); } catch(e) { showLoginForm(); updateCartBadge(); }
-        } else {
-          showLoginForm();
-          updateCartBadge();
-        }
+        showLoginForm();
       }
-    }
-    
-    function _fillComplaintForms() {
+      updateCartBadge();
+      
       // Автозаполнение форм жалобы/предложения
       if (currentCustomer) {
         const complaintName = document.getElementById('complaintName');
@@ -1076,28 +804,18 @@
         const doc = snapshot.docs[0];
         const data = doc.data();
         
-        // Проверяем, является ли это админом (телефон + хеш пароля)
-        const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-        const _inputHashLogin = await _sha256(password);
-        const isAdminLogin = normalizedPhone === adminPhone && _inputHashLogin === ADMIN_CUSTOMER_DATA.passwordHash;
-        const _isAdminPhoneAttempt = normalizedPhone === adminPhone;
-
-        // Проверка пароля:
-        // - для админ-телефона авторитет — хеш (isAdminLogin)
-        // - для обычных клиентов — пароль из Firestore
-        if (_isAdminPhoneAttempt) {
-          if (!isAdminLogin) {
-            Swal.fire({ icon: 'error', title: 'Неверный пароль' });
-            return;
-          }
-        } else if (data.password !== password) {
+        if (data.password !== password) {
           Swal.fire({ icon: 'error', title: 'Неверный пароль' });
           return;
         }
         
+        // Проверяем, является ли это админом
+        const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+        const isAdminLogin = normalizedPhone === adminPhone && password === ADMIN_CUSTOMER_DATA.password;
+        
         currentCustomer = { id: doc.id, ...data, isAdmin: isAdminLogin };
         isAdmin = isAdminLogin;
-        _saveProfileData();
+        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
         
         Swal.fire({ 
           icon: 'success', 
@@ -1128,10 +846,9 @@
           return;
         }
         
-        // Проверяем, является ли это админом (телефон + хеш пароля)
+        // Проверяем, является ли это админом
         const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-        const _inputHashReg = await _sha256(data.password);
-        const isAdminRegister = normalizedPhone === adminPhone && _inputHashReg === ADMIN_CUSTOMER_DATA.passwordHash;
+        const isAdminRegister = normalizedPhone === adminPhone && data.password === ADMIN_CUSTOMER_DATA.password;
         
         const ref = await db.collection('customers').add({
           name: data.name,
@@ -1153,7 +870,7 @@
         };
         
         isAdmin = isAdminRegister;
-        _saveProfileData();
+        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
         
         Swal.fire({ 
           icon: 'success', 
@@ -1274,7 +991,7 @@
           <div class="menu-section">
             <div class="menu-section-title">🔐 Панель администратора</div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-products.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-products.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">➕</span>
                 <span class="menu-text">Добавить товар</span>
@@ -1282,11 +999,10 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-orders.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-orders.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">📦</span>
                 <span class="menu-text">Заказы клиентов</span>
-                <span id="ordersUnreadBadge" style="display:none; background:red; color:white; font-size:11px; padding:2px 6px; border-radius:10px; margin-left:8px; font-weight:bold;">0</span>
               </div>
               <span class="menu-arrow">›</span>
             </div>
@@ -1299,7 +1015,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-chat.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-chat.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">💬</span>
                 <span class="menu-text">Чат с клиентами</span>
@@ -1308,7 +1024,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-profit.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-profit.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">💰</span>
                 <span class="menu-text">Отчет по прибыли</span>
@@ -1316,7 +1032,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-sellers.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-sellers.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">🏪</span>
                 <span class="menu-text">Управление продавцами</span>
@@ -1324,7 +1040,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-categories.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-categories.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">📁</span>
                 <span class="menu-text">Управление категориями</span>
@@ -1332,15 +1048,7 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-rounding.html')">
-              <div class="menu-item-left">
-                <span class="menu-icon">🔢</span>
-                <span class="menu-text">Округление цен</span>
-              </div>
-              <span class="menu-arrow">›</span>
-            </div>
-            
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-agents.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-agents.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">🤝</span>
                 <span class="menu-text">Управление агентами</span>
@@ -1348,18 +1056,10 @@
               <span class="menu-arrow">›</span>
             </div>
             
-            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-warehouse.html')">
+            <div class="menu-item admin-menu-item" onclick="window.location.href='admin-warehouse.html'">
               <div class="menu-item-left">
                 <span class="menu-icon">🏭</span>
                 <span class="menu-text">Управление складами</span>
-              </div>
-              <span class="menu-arrow">›</span>
-            </div>
-            
-            <div class="menu-item admin-menu-item" onclick="openMinOrderSettings()">
-              <div class="menu-item-left">
-                <span class="menu-icon">💵</span>
-                <span class="menu-text">Минимальная сумма заказа</span>
               </div>
               <span class="menu-arrow">›</span>
             </div>
@@ -1402,21 +1102,21 @@
             </div>
           </div>
           
-          <div class="menu-item" onclick="openInFrame('cart.html')">
+          <a href="cart.html" class="menu-item">
             <div class="menu-item-left">
               <span class="menu-icon">🛒</span>
               <span class="menu-text">Корзина</span>
             </div>
             <span class="menu-arrow">›</span>
-          </div>
+          </a>
           
-          <div class="menu-item" onclick="openInFrame('chat.html')">
+          <a href="chat.html" class="menu-item">
             <div class="menu-item-left">
               <span class="menu-icon">💬</span>
               <span class="menu-text">Чат с продавцом</span>
             </div>
             <span class="menu-arrow">›</span>
-          </div>
+          </a>
           
           <div class="menu-item" onclick="goToPage('index.html', 'openFavoritesPage')">
             <div class="menu-item-left">
@@ -1442,30 +1142,8 @@
             <span class="menu-arrow">›</span>
           </div>
           
-          <div class="menu-item" onclick="openInFrame('settings.html')">
-            <div class="menu-item-left">
-              <span class="menu-icon">⚙️</span>
-              <span class="menu-text">Настройки</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span class="menu-badge">${localStorage.getItem('cardSize') === 'small' ? 'Компакт' : 'Крупные'}</span>
-              <span class="menu-arrow">›</span>
-            </div>
-          </div>
-          
-          <div class="menu-item" id="pushToggleMenuItem" onclick="togglePushFromProfile()" style="cursor:pointer;">
-            <div class="menu-item-left">
-              <span class="menu-icon">🔔</span>
-              <span class="menu-text" id="pushMenuText">Уведомления</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span class="menu-badge" id="pushMenuBadge" style="background:#4CAF50; color:white;">Проверяем...</span>
-              <span class="menu-arrow">›</span>
-            </div>
-          </div>
-          
           ${(isAdmin || isAgent) ? `
-          <div class="menu-item" onclick="navigateTop('agent-profit.html')">
+          <div class="menu-item" onclick="window.location.href='agent-profit.html'">
             <div class="menu-item-left">
               <span class="menu-icon">💰</span>
               <span class="menu-text">Моя прибыль (агент)</span>
@@ -1473,7 +1151,7 @@
             <span class="menu-arrow">›</span>
           </div>
           
-          <div class="menu-item" onclick="navigateTop('agent-delivery.html')">
+          <div class="menu-item" onclick="window.location.href='agent-delivery.html'">
             <div class="menu-item-left">
               <span class="menu-icon">📋</span>
               <span class="menu-text">Список доставки</span>
@@ -1482,7 +1160,6 @@
           </div>
           ` : ''}
           
-          ${localStorage.getItem('currentSeller') ? '' : `
           <div class="menu-item" onclick="openBecomeSellerWindow()">
             <div class="menu-item-left">
               <span class="menu-icon">🏪</span>
@@ -1490,7 +1167,6 @@
             </div>
             <span class="menu-arrow">›</span>
           </div>
-          `}
           
           ${!isAdmin && !currentCustomer.isAdmin ? `
           <div class="menu-item" onclick="openAdminLogin()">
@@ -1505,8 +1181,6 @@
         
         ${adminPanelHtml}
         
-        ${_getSellerPanelHtml()}
-        
         <div class="orders-section">
           <div class="section-title">📋 Последние заказы</div>
           ${ordersHtml}
@@ -1515,79 +1189,17 @@
         <div style="height:20px;"></div>
       `;
       
-      // Восстанавливаем бейджи после пересоздания DOM
-      if (isAdmin) applyBadgeCounts();
-      
       // Сохраняем HTML в кэш для мгновенной загрузки
       try {
         sessionStorage.setItem('profileHtmlCache', document.getElementById('profileContent').innerHTML);
       } catch(e) {}
     }
     
-    // ==================== ПАНЕЛЬ ПРОДАВЦА ====================
-    function _getSellerPanelHtml() {
-      try {
-        const sellerRaw = localStorage.getItem('currentSeller');
-        if (!sellerRaw) return '';
-        const seller = JSON.parse(sellerRaw);
-        if (!seller || !seller.name) return '';
-        
-        return `
-          <div class="menu-section">
-            <div class="menu-section-title">🏪 Панель продавца: ${seller.name}</div>
-            
-            <div class="menu-item" onclick="sellerAddProductFromProfile()" style="background:#e8f5e9;">
-              <div class="menu-item-left">
-                <span class="menu-icon">➕</span>
-                <span class="menu-text" style="color:#2e7d32; font-weight:700;">Добавить товар</span>
-              </div>
-              <span class="menu-arrow">›</span>
-            </div>
-            
-            <div class="menu-item" onclick="logoutSellerFromProfile()" style="background:#ffebee;">
-              <div class="menu-item-left">
-                <span class="menu-icon">🚪</span>
-                <span class="menu-text" style="color:#c62828;">Выйти из продавца</span>
-              </div>
-              <span class="menu-arrow">›</span>
-            </div>
-          </div>
-        `;
-      } catch(e) { return ''; }
-    }
-    
-    // Добавить товар — открываем ту же страницу что и у админа
-    function sellerAddProductFromProfile() {
-      navigateTop('admin-products.html');
-    }
-    
-    // Выход из продавца с профиля
-    function logoutSellerFromProfile() {
-      Swal.fire({
-        title: 'Выйти из продавца?',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Да, выйти',
-        cancelButtonText: 'Отмена',
-        confirmButtonColor: '#dc3545'
-      }).then(r => {
-        if (r.isConfirmed) {
-          localStorage.removeItem('currentSeller');
-          // Сообщаем главной странице
-          if (window.parent !== window) {
-            window.parent.postMessage('sellerLoggedOut', '*');
-          }
-          loadDashboard();
-          Swal.fire({ icon: 'info', title: 'Вы вышли из продавца', timer: 1500, showConfirmButton: false });
-        }
-      });
-    }
-
     // ==================== ПЕРЕХОД НА СТРАНИЦУ С ФУНКЦИЕЙ ====================
     function goToPage(page, funcName) {
       // Сохраняем функцию для вызова после загрузки страницы
       localStorage.setItem('callAfterLoad', funcName);
-      navigateTop(page);
+      window.location.href = page;
     }
     
     // ==================== ВХОД ДЛЯ АДМИНА ====================
@@ -1603,8 +1215,7 @@
       });
       
       if (password) {
-        const _adminInputHash = await _sha256(password);
-        if (_adminInputHash === ADMIN_CUSTOMER_DATA.passwordHash) {
+        if (password === ADMIN_CUSTOMER_DATA.password) {
           // Проверяем телефон
           const userPhone = normalizePhone(currentCustomer.phone);
           const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
@@ -1683,7 +1294,7 @@
           
           currentCustomer.name = formValues.name;
           currentCustomer.address = formValues.address;
-          _saveProfileData();
+          localStorage.setItem('customerData', JSON.stringify(currentCustomer));
           
           Swal.fire({ icon: 'success', title: 'Профиль обновлён!', timer: 1500, showConfirmButton: false });
           loadDashboard();
@@ -1704,11 +1315,9 @@
         confirmButtonColor: '#dc3545'
       }).then(r => {
         if (r.isConfirmed) {
-          // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
-          if (window.PersistProfile) window.PersistProfile.remove();
-          try { localStorage.removeItem('customerData'); } catch(e) {}
+          localStorage.removeItem('customerData');
           sessionStorage.removeItem('profileHtmlCache');
-          sessionStorage.clear();
+          sessionStorage.clear(); // Очищаем все кэши сессии
           currentCustomer = null;
           isAdmin = false;
           showLoginForm();
@@ -1855,7 +1464,7 @@
             
             if (confirm.isConfirmed) {
               try {
-                await db.collection('orders').doc(orderId).update({ status: 'cancelled' });
+                await db.collection('orders').doc(orderId).update({ status: 'Отменён' });
                 Swal.fire('Заказ отменён', '', 'success');
                 await loadDashboard();
               } catch (e) {
@@ -2043,9 +1652,6 @@
     
     // ==================== ГЕНЕРАЦИЯ И ОТПРАВКА 3 ФАЙЛОВ ====================
     async function sendEditedOrderFiles(orderId, clientName, clientPhone, address, items, totalAmount) {
-      // Загружаем библиотеки экспорта если ещё не загружены
-      await loadProfileExportLibs();
-      
       const dateStr = new Date().toLocaleDateString('ru-RU') + ' ' + new Date().toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
       
       // Загрузка данных товаров для фото
@@ -2394,35 +2000,34 @@
       
       const pdf2Blob = doc2.output('blob');
       
-      // ===== Отправка в Telegram (3 файла в 2 чата, через Cloud Function) =====
-
+      // ===== Отправка в Telegram (3 файла в 2 чата) =====
+      
+      const botToken = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
       const chatIds = ['5567924440', '246421345'];
+      const apiUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
       const baseFileName = `Заказ_изменен_${clientName.replace(/\s+/g, '_')}_${Date.now()}`;
-
+      
       for (const chatId of chatIds) {
-        await tgSendDocument({
-          chat_id: chatId,
-          blob: excelBlob,
-          file_name: `${baseFileName}.xlsx`,
-          file_mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          caption: `✏️ ЗАКАЗ ИЗМЕНЁН\n📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`
-        });
-
-        await tgSendDocument({
-          chat_id: chatId,
-          blob: pdf1Blob,
-          file_name: `${baseFileName}_печать.pdf`,
-          file_mime: 'application/pdf',
-          caption: `📄 Заказ для печати: ${clientName}`
-        });
-
-        await tgSendDocument({
-          chat_id: chatId,
-          blob: pdf2Blob,
-          file_name: `${baseFileName}_с_фото.pdf`,
-          file_mime: 'application/pdf',
-          caption: `📷 Заказ с фото: ${clientName}`
-        });
+        // Отправляем Excel
+        const form1 = new FormData();
+        form1.append('document', excelBlob, `${baseFileName}.xlsx`);
+        form1.append('chat_id', chatId);
+        form1.append('caption', `✏️ ЗАКАЗ ИЗМЕНЁН\n📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`);
+        await fetch(apiUrl, { method: 'POST', body: form1 });
+        
+        // Отправляем PDF #1
+        const form2 = new FormData();
+        form2.append('document', pdf1Blob, `${baseFileName}_печать.pdf`);
+        form2.append('chat_id', chatId);
+        form2.append('caption', `📄 Заказ для печати: ${clientName}`);
+        await fetch(apiUrl, { method: 'POST', body: form2 });
+        
+        // Отправляем PDF #2 (с фото)
+        const form3 = new FormData();
+        form3.append('document', pdf2Blob, `${baseFileName}_с_фото.pdf`);
+        form3.append('chat_id', chatId);
+        form3.append('caption', `📷 Заказ с фото: ${clientName}`);
+        await fetch(apiUrl, { method: 'POST', body: form3 });
       }
     }
     
@@ -2486,19 +2091,29 @@
       
       try {
         Swal.fire({ title: 'Отправка жалобы...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-
-        await tgSendMessage({
-          chat_id: TELEGRAM_CHAT_ID,
-          text: message,
-          parse_mode: 'Markdown'
+        
+        const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: TELEGRAM_CHAT_ID,
+            text: message,
+            parse_mode: 'Markdown'
+          })
         });
-
-        closeComplaintWindow();
-        Swal.fire({
-          icon: 'success',
-          title: 'Жалоба отправлена!',
-          text: 'Мы рассмотрим вашу жалобу и свяжемся с вами'
-        });
+        
+        const result = await response.json();
+        
+        if (result.ok) {
+          closeComplaintWindow();
+          Swal.fire({
+            icon: 'success',
+            title: 'Жалоба отправлена!',
+            text: 'Мы рассмотрим вашу жалобу и свяжемся с вами'
+          });
+        } else {
+          throw new Error('Ошибка отправки');
+        }
       } catch (error) {
         console.error('Ошибка:', error);
         Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Не удалось отправить жалобу. Попробуйте позже.' });
@@ -2545,32 +2160,38 @@
           `📝 *Описание:*\n${description}\n\n` +
           `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
         
-        let success = false;
-        try {
-          if (photoInput.files && photoInput.files[0]) {
-            await tgSendPhoto({
-              chat_id: TELEGRAM_CHAT_ID,
-              blob: photoInput.files[0],
-              file_name: photoInput.files[0].name || 'photo.jpg',
-              file_mime: photoInput.files[0].type || 'image/jpeg',
-              caption: message
-            });
-          } else {
-            await tgSendMessage({
+        let result;
+        
+        if (photoInput.files && photoInput.files[0]) {
+          const telegramFormData = new FormData();
+          telegramFormData.append('chat_id', TELEGRAM_CHAT_ID);
+          telegramFormData.append('photo', photoInput.files[0]);
+          telegramFormData.append('caption', message);
+          
+          const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+            method: 'POST',
+            body: telegramFormData
+          });
+          
+          result = await response.json();
+        } else {
+          const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               chat_id: TELEGRAM_CHAT_ID,
               text: message,
               parse_mode: 'Markdown'
-            });
-          }
-          success = true;
-        } catch (e) {
-          console.error('Ошибка отправки предложения:', e);
+            })
+          });
+          
+          result = await response.json();
         }
-
+        
         document.getElementById('suggestionLoader').style.display = 'none';
         document.getElementById('suggestionSubmitBtn').disabled = false;
-
-        if (success) {
+        
+        if (result.ok) {
           closeSuggestionWindow();
           Swal.fire({
             icon: 'success',
@@ -2674,15 +2295,15 @@
           `📱 *Telegram ID:* ${telegramId || 'не указан'}\n\n` +
           `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
         
-        try {
-          await tgSendMessage({
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             chat_id: TELEGRAM_CHAT_ID,
             text: message,
             parse_mode: 'Markdown'
-          });
-        } catch (e) {
-          console.error('Ошибка отправки заявки продавца:', e);
-        }
+          })
+        });
         
         document.getElementById('sellerLoader').style.display = 'none';
         document.getElementById('sellerSubmitBtn').disabled = false;
@@ -2732,31 +2353,15 @@
           return;
         }
         
-        if (data.status === 'blocked') {
+        if (data.status !== 'approved') {
           document.getElementById('sellerLoader').style.display = 'none';
-          Swal.fire({
-            icon: 'error',
-            title: '🚫 Доступ запрещён',
-            text: 'Ваш аккаунт заблокирован администратором. Обратитесь в поддержку.',
-            confirmButtonText: 'Понятно'
-          });
-          return;
-        }
-        
-        if (data.status === 'pending') {
-          document.getElementById('sellerLoader').style.display = 'none';
-          Swal.fire({
-            icon: 'info',
-            title: '⏳ Заявка на рассмотрении',
-            text: 'Ваша заявка ещё не одобрена администратором. Дождитесь проверки.',
-            confirmButtonText: 'Понятно'
-          });
+          Swal.fire('Ожидание', 'Ваша заявка ещё не одобрена. Дождитесь проверки.', 'info');
           return;
         }
         
         // Успешный вход
         const sellerData = { id: doc.id, ...data };
-        localStorage.setItem('currentSeller', JSON.stringify(sellerData));
+        localStorage.setItem('sellerData', JSON.stringify(sellerData));
         
         document.getElementById('sellerLoader').style.display = 'none';
         closeBecomeSellerWindow();
@@ -2764,12 +2369,12 @@
         Swal.fire({
           icon: 'success',
           title: `Добро пожаловать, ${data.name}!`,
-          text: 'Вы вошли как продавец. Теперь вы можете добавлять товары.',
+          text: 'Вы вошли как продавец',
           timer: 2000,
           showConfirmButton: false
         }).then(() => {
-          // Перерисовываем dashboard — появится панель продавца
-          loadDashboard();
+          // Переходим на главную для добавления товаров
+          window.location.href = 'index.html';
         });
         
       } catch (error) {
@@ -2796,55 +2401,6 @@
     window.addEventListener('storage', (e) => {
       if (e.key === 'cart') updateCartBadge();
     });
-    
-    // ==================== PUSH-УВЕДОМЛЕНИЯ ====================
-    function togglePushFromProfile() {
-      // Вызываем функцию из родительского окна (index.html)
-      if (window.parent && window.parent.togglePushNotifications) {
-        window.parent.togglePushNotifications();
-      } else if (typeof togglePushNotifications === 'function') {
-        togglePushNotifications();
-      } else {
-        // Fallback: просим разрешение напрямую
-        if (!('Notification' in window)) {
-          Swal.fire('Не поддерживается', 'Ваш браузер не поддерживает уведомления', 'warning');
-          return;
-        }
-        Notification.requestPermission().then(function(perm) {
-          if (perm === 'granted') {
-            Swal.fire({ icon: 'success', title: 'Уведомления включены!', toast: true, position: 'top-end', timer: 2000, showConfirmButton: false });
-            updatePushBadge();
-          }
-        });
-      }
-      setTimeout(updatePushBadge, 1000);
-    }
-    
-    function updatePushBadge() {
-      var badge = document.getElementById('pushMenuBadge');
-      if (!badge) return;
-      if (!('Notification' in window)) {
-        badge.textContent = 'Не поддерж.';
-        badge.style.background = '#999';
-        return;
-      }
-      if (Notification.permission === 'granted') {
-        badge.textContent = 'ВКЛ';
-        badge.style.background = '#4CAF50';
-      } else if (Notification.permission === 'denied') {
-        badge.textContent = 'Заблокировано';
-        badge.style.background = '#f44336';
-      } else {
-        badge.textContent = 'ВЫКЛ';
-        badge.style.background = '#ff9800';
-      }
-    }
-    
-    // Обновляем бейдж при загрузке
-    setTimeout(updatePushBadge, 500);
   </script>
-<script src="js/bottom-nav.js?v=28"></script>
-<script defer src="js/push-notifications.js"></script>
-<script defer src="js/sw-register.js"></script>
 </body>
 </html>
