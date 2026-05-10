@@ -243,11 +243,6 @@ async function sendAdminMessage() {
     
     console.log('Сообщение отправлено клиенту:', selectedClientName);
     
-    // Отправляем push-уведомление клиенту
-    if (typeof sendChatNotification === 'function') {
-      sendChatNotification(selectedClientId, message, 'Кербен');
-    }
-    
     // Очищаем поле ввода
     input.value = '';
     

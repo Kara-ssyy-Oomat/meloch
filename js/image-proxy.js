@@ -9,16 +9,15 @@ const IS_ANDROID = /Android/.test(navigator.userAgent);
 console.log('📱 Мобильное устройство:', IS_MOBILE, 'iOS:', IS_IOS, 'Android:', IS_ANDROID);
 
 /**
- * Получает URL изображения с оптимизацией размера
- * Используем Cloudinary трансформации напрямую (самый надёжный способ)
- * Прокси используется ТОЛЬКО как запасной вариант при ошибке
+ * Получает URL изображения
+ * На мобильных проксируем Cloudinary через wsrv.nl
  */
-function getImageUrl(url, width) {
+function getImageUrl(url) {
   if (!url || typeof url !== 'string') return '';
   
-  // Cloudinary трансформации — работают на всех устройствах
-  if (width && url.includes('cloudinary.com') && url.includes('/upload/')) {
-    return url.replace('/upload/', '/upload/w_' + width + ',q_80,f_auto/');
+  // На мобильных устройствах проксируем через wsrv.nl
+  if (IS_MOBILE && url.includes('cloudinary.com')) {
+    return 'https://wsrv.nl/?url=' + encodeURIComponent(url);
   }
   
   return url;
@@ -26,45 +25,47 @@ function getImageUrl(url, width) {
 
 /**
  * Обработчик ошибки загрузки изображения
- * Попытка 1: оригинальный URL без трансформаций
- * Попытка 2: прокси wsrv.nl
- * Попытка 3: placeholder
+ * Пробует разные прокси или показывает placeholder
  */
 function handleImageError(img, originalUrl) {
-  var failCount = parseInt(img.dataset.failCount || '0');
-  img.dataset.failCount = failCount + 1;
-  
-  var url = originalUrl || '';
-  if (!url || url.startsWith('data:')) {
-    showPlaceholder(img);
+  if (!img || img.dataset.failCount >= 2) {
+    // Уже пробовали 2 раза - показываем placeholder
+    img.src = 'data:image/svg+xml,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">' +
+      '<rect fill="#f0f0f0" width="200" height="200"/>' +
+      '<text fill="#999" font-family="Arial" font-size="14" x="100" y="95" text-anchor="middle">📷</text>' +
+      '<text fill="#999" font-family="Arial" font-size="12" x="100" y="115" text-anchor="middle">Нет фото</text>' +
+      '</svg>'
+    );
+    img.classList.add('loaded');
     return;
   }
   
-  console.log('🔄 Изображение не загружено, попытка', failCount + 1, ':', url.substring(0, 60));
+  const failCount = parseInt(img.dataset.failCount || '0');
+  img.dataset.failCount = failCount + 1;
   
+  const url = originalUrl || img.dataset.originalUrl || img.src;
+  if (!url || url.startsWith('data:')) return;
+  
+  console.log('🔄 Изображение не загружено, попытка', failCount + 1, ':', url.substring(0, 50));
+  
+  // Попытка 1: Прокси images.weserv.nl (работает на мобильных)
   if (failCount === 0) {
-    // Попытка 1: оригинальный URL без трансформаций
-    img.src = url;
-  } else if (failCount === 1) {
-    // Попытка 2: прокси
-    img.src = 'https://wsrv.nl/?url=' + encodeURIComponent(url) + '&w=300&q=80&default=1';
-  } else {
-    // Попытка 3: placeholder
-    showPlaceholder(img);
+    img.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(url) + '&default=1';
   }
-}
-
-function showPlaceholder(img) {
-  img.src = 'data:image/svg+xml,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150" viewBox="0 0 200 150">' +
-    '<rect fill="#f0f0f0" width="200" height="150"/>' +
-    '<text fill="#999" font-family="Arial" font-size="14" x="100" y="70" text-anchor="middle">📷</text>' +
-    '<text fill="#999" font-family="Arial" font-size="12" x="100" y="90" text-anchor="middle">Нет фото</text>' +
-    '</svg>'
-  );
+  // Попытка 2: placeholder
+  else {
+    img.src = 'data:image/svg+xml,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">' +
+      '<rect fill="#f0f0f0" width="200" height="200"/>' +
+      '<text fill="#999" font-family="Arial" font-size="14" x="100" y="95" text-anchor="middle">📷</text>' +
+      '<text fill="#999" font-family="Arial" font-size="12" x="100" y="115" text-anchor="middle">Нет фото</text>' +
+      '</svg>'
+    );
+    img.classList.add('loaded');
+  }
 }
 
 // Делаем функции глобальными
 window.getImageUrl = getImageUrl;
 window.handleImageError = handleImageError;
-window.showPlaceholder = showPlaceholder;

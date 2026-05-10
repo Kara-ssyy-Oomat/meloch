@@ -2,14 +2,6 @@
 // КЕРБЕН B2B Market — Product Renderer (рендеринг, поиск, цены)
 // ===================================================================
 
-// ПАГИНАЦИЯ: показываем товары порциями для быстрой отрисовки
-const PRODUCTS_PER_PAGE = 24;
-let _currentPage = 1;
-let _allFilteredProducts = []; // Все отфильтрованные товары
-let _isLoadingMore = false;
-let _scrollObserver = null;
-let _restoreScrollAfterRender = null; // Позиция скролла для восстановления после рендера
-
 // На iPhone/медленных устройствах полный renderProducts на каждый символ сильно тормозит ввод.
 // Поэтому делаем debounce с увеличенной задержкой для iOS.
 let _renderProductsInputTimer = null;
@@ -56,19 +48,12 @@ function scheduleRenderProducts() {
   }, _debounceDelay);
 }
 
-// Привязка событий к search/sort — после загрузки DOM
-document.addEventListener('DOMContentLoaded', function() {
-  const searchEl = document.getElementById('search');
-  const sortEl = document.getElementById('sort');
-  if (searchEl) {
-    searchEl.addEventListener('compositionstart', () => { _isComposing = true; });
-    searchEl.addEventListener('compositionend', () => { _isComposing = false; scheduleRenderProducts(); });
-    searchEl.oninput = scheduleRenderProducts;
-  }
-  if (sortEl) {
-    sortEl.onchange = renderProducts;
-  }
-});
+// Обработка composition events для iOS
+search.addEventListener('compositionstart', () => { _isComposing = true; });
+search.addEventListener('compositionend', () => { _isComposing = false; scheduleRenderProducts(); });
+
+search.oninput = scheduleRenderProducts;
+sort.onchange = renderProducts;
 
 // === ОПТИМИЗАЦИЯ: Debounced renderProducts ===
 function renderProductsDebounced() {
@@ -90,13 +75,8 @@ function renderProducts() {
   renderProductsDebounced();
 }
 
-// Кэш переводов для поиска (чтобы не пересоздавать при каждом вызове)
-const _translationCache = new Map();
-
 // Функция для получения переводов и синонимов поискового запроса
 function getSearchTranslations(query) {
-  // Проверяем кэш
-  if (_translationCache.has(query)) return _translationCache.get(query);
   const translations = [];
   
   // Приводим запрос к нижнему регистру для поиска в словаре
@@ -193,11 +173,7 @@ function getSearchTranslations(query) {
     translations.push(...dictionary[lowerQuery]);
   }
   
-  const result = [...new Set(translations)]; // Удаляем дубликаты
-  // Сохраняем в кэш (максимум 50 записей чтобы не утекала память)
-  if (_translationCache.size > 50) _translationCache.clear();
-  _translationCache.set(query, result);
-  return result;
+  return [...new Set(translations)]; // Удаляем дубликаты
 }
 
 // Первичный рендер (при загрузке модуля)
@@ -227,20 +203,14 @@ function renderProductsCore() {
   // Очищаем контейнер
   container.innerHTML = '';
   
-  // Сбрасываем пагинацию при новом рендере (поиск/фильтр/категория)
-  // НО: при редактировании товара сохраняем текущую страницу
-  if (_restoreScrollAfterRender === null) {
-    _currentPage = 1;
-  }
-  
   // ОПТИМИЗАЦИЯ: Используем DocumentFragment для пакетного добавления
   const fragment = document.createDocumentFragment();
   
   let filtered = isEditorMode ? products : products.filter(p => !p.blocked);
   
-  // Продавец в режиме редактора видит только свои товары
-  if (isEditorMode && userRole === 'seller' && currentSeller) {
-    filtered = products.filter(p => p.sellerId === currentSeller.id);
+  // Продавец видит только свои товары
+  if (userRole === 'seller' && currentSeller) {
+    filtered = filtered.filter(p => p.sellerId === currentSeller.id);
   }
   
   // Корейский менеджер видит только корейские товары, часы и электронику
@@ -300,13 +270,13 @@ function renderProductsCore() {
   
   if (stockFilter === 'instock') {
     list = list.filter(p => {
-      const s = getEffectiveStock(p);
-      return s === null || s > 0;
+      const stock = typeof p.stock === 'number' ? p.stock : null;
+      return stock === null || stock > 0;
     });
   } else if (stockFilter === 'outofstock') {
     list = list.filter(p => {
-      const s = getEffectiveStock(p);
-      return s !== null && s <= 0;
+      const stock = typeof p.stock === 'number' ? p.stock : null;
+      return stock !== null && stock <= 0;
     });
   }
   
@@ -329,17 +299,13 @@ function renderProductsCore() {
   // Сохраняем количество результатов для информационного блока
   lastSearchResults = list.length;
 
-  // ПАГИНАЦИЯ: сохраняем полный список, показываем только первую порцию
-  _allFilteredProducts = list;
-  const pageList = list.slice(0, PRODUCTS_PER_PAGE * _currentPage);
-
-  pageList.forEach((p, idx) => {
+  list.forEach((p, idx) => {
     const card = document.createElement('div');
-    card.className = 'product-card' + (isBulkSelectMode && bulkSelectedProducts.has(p.id) ? ' bulk-selected' : '');
+    card.className = 'product-card';
     card.setAttribute('data-product-id', p.id);
 
-    const stock = getEffectiveStock(p);
-    const hasStock = stock !== null;
+    const hasStock = typeof p.stock === 'number' && isFinite(p.stock);
+    const stock = hasStock ? Math.max(0, Math.floor(p.stock)) : null;
     const outOfStock = stock !== null && stock <= 0;
     // Для товаров-пачек показываем "пачка" вместо "шт"
     const unitLabel = p.isPack ? 'пачка' : 'шт';
@@ -370,37 +336,26 @@ function renderProductsCore() {
     const qtyDisabledAttr = outOfStock ? 'disabled' : '';
     const buyLabel = outOfStock ? 'Нет в наличии' : 'Купить';
 
-    // Продавец видит кнопку "Редактировать" только на своих товарах в режиме редактора
-    const isSellerOwnProduct = (userRole === 'seller' && currentSeller && p.sellerId === currentSeller.id);
-    const showEditorCard = isEditorMode && (userRole !== 'seller' || isSellerOwnProduct);
-
     card.innerHTML = `
         <div class="card-image" style="position:relative; background:#f0f0f0;">
-        ${isBulkSelectMode && showEditorCard ? `<input type="checkbox" class="bulk-checkbox" ${bulkSelectedProducts.has(p.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleBulkSelectProduct('${p.id}')" />` : ''}
         ${blockedBadgeHtml}
         ${packBadgeHtml}
         ${galleryBadgeHtml}
         ${favoriteHtml}
         ${p.createdAt && (Date.now() - p.createdAt) < 4 * 24 * 60 * 60 * 1000 ? `<div class="new-badge">NEW</div>` : ''}
         ${isEditorMode ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,123,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;z-index:1;">#${idx + 1}</div>` : ''}
-        ${p.image ? `<img referrerpolicy="no-referrer" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
+        ${p.image ? `<img referrerpolicy="no-referrer" src="${getImageUrl(p.image)}" alt="${p.title || ''}" onclick="openProductImage('${p.id}')" onload="this.classList.add('loaded')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
       </div>
       <div class="card-body"
-        ${showEditorCard ? `
+        ${isEditorMode ? `
           <!-- Компактная карточка для режима редактора -->
           <div style="font-weight:600; color:#333; font-size:14px; margin-bottom:6px;">${p.title||'Товар'}</div>
           <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
             <span style="font-size:16px; font-weight:700; color:#e53935;">${p.price||0} сом</span>
           </div>
-          <div style="font-size:12px; color:#666; margin-bottom:4px;">
+          <div style="font-size:12px; color:#666; margin-bottom:8px;">
             ${stock !== null ? `📦 Остаток: ${stock}` : '📦 Без лимита'} ${p.isPack ? '| 📦 Пачка' : ''}
           </div>
-          ${primaryWarehouseId && p.warehouseStock ? ((whQty) => {
-            const has = typeof whQty === 'number';
-            const clr = !has ? '#888' : whQty <= 0 ? '#c62828' : whQty <= 10 ? '#e65100' : '#2e7d32';
-            const bg = !has ? '#f5f5f5' : whQty <= 0 ? '#ffebee' : whQty <= 10 ? '#fff3e0' : '#e8f5e9';
-            return '<div style="font-size:12px;font-weight:700;color:' + clr + ';background:' + bg + ';padding:4px 8px;border-radius:6px;margin-bottom:8px;">🏭 Гл. склад: ' + (has ? whQty + ' шт' : '—') + '</div>';
-          })(p.warehouseStock[primaryWarehouseId]) : ''}
           <button onclick="openEditProductModal('${p.id}')" style="width:100%; background:linear-gradient(135deg,#007bff,#0056b3); color:white; border:none; padding:12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;">✏️ Редактировать</button>
         ` : `
           <div class="card-title"><div>${p.title||''}</div></div>
@@ -482,31 +437,32 @@ function renderProductsCore() {
   
   // Улучшенная ленивая загрузка изображений
   // ВАЖНО: Используем ОДИН глобальный наблюдатель вместо создания нового каждый раз
-  // Браузер сам управляет загрузкой через loading="lazy"
-
-  // ПАГИНАЦИЯ: добавляем "Загрузить ещё" если есть ещё товары
-  if (_allFilteredProducts.length > PRODUCTS_PER_PAGE * _currentPage) {
-    const remaining = _allFilteredProducts.length - (PRODUCTS_PER_PAGE * _currentPage);
-    const loadMoreDiv = document.createElement('div');
-    loadMoreDiv.id = 'loadMoreProducts';
-    loadMoreDiv.style.cssText = 'grid-column:1/-1;text-align:center;padding:20px;';
-    loadMoreDiv.innerHTML = `
-      <button onclick="loadMoreProducts()" style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;padding:14px 40px;border-radius:25px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 15px rgba(102,126,234,0.4);">
-        Показать ещё (${remaining} товаров)
-      </button>
-    `;
-    container.appendChild(loadMoreDiv);
-    
-    // Авто-загрузка при скроле к низу
-    if (_scrollObserver) _scrollObserver.disconnect();
-    _scrollObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting && !_isLoadingMore) {
-          loadMoreProducts();
-        }
+  if ('IntersectionObserver' in window) {
+    // Создаем наблюдатель только если его еще нет
+    if (!globalImageObserver) {
+      globalImageObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const img = entry.target;
+            if (!img.classList.contains('loaded')) {
+              // Изображение уже загружается браузером благодаря loading="lazy"
+              // Просто добавляем класс для плавного появления
+              if (img.complete) {
+                img.classList.add('loaded');
+              }
+            }
+            observer.unobserve(img);
+          }
+        });
+      }, {
+        rootMargin: '50px' // Начинаем загрузку за 50px до появления в зоне видимости
       });
-    }, { rootMargin: '200px' });
-    _scrollObserver.observe(loadMoreDiv);
+    }
+    
+    // Наблюдаем за всеми изображениями товаров
+    container.querySelectorAll('.card-image img').forEach(img => {
+      globalImageObserver.observe(img);
+    });
   }
 
   // Восстанавливаем открытые детали после перерисовки
@@ -533,161 +489,6 @@ function renderProductsCore() {
       updateQtyDisplay(p.id);
     }
   });
-
-  // Восстанавливаем позицию скролла после редактирования товара
-  if (_restoreScrollAfterRender !== null) {
-    const y = _restoreScrollAfterRender;
-    _restoreScrollAfterRender = null;
-    // Множественные попытки для iOS
-    window.scrollTo(0, y);
-    requestAnimationFrame(function() {
-      window.scrollTo(0, y);
-      setTimeout(function() { window.scrollTo(0, y); }, 50);
-      setTimeout(function() { window.scrollTo(0, y); }, 150);
-    });
-  }
-}
-
-// ПАГИНАЦИЯ: подгрузка следующей порции товаров без полной перерисовки
-function loadMoreProducts() {
-  if (_isLoadingMore || !_allFilteredProducts.length) return;
-  _isLoadingMore = true;
-  
-  const container = document.getElementById('productTable');
-  
-  // Удаляем кнопку "Загрузить ещё"
-  const loadMoreEl = document.getElementById('loadMoreProducts');
-  if (loadMoreEl) loadMoreEl.remove();
-  
-  _currentPage++;
-  const start = PRODUCTS_PER_PAGE * (_currentPage - 1);
-  const end = PRODUCTS_PER_PAGE * _currentPage;
-  const nextBatch = _allFilteredProducts.slice(start, end);
-  
-  if (!nextBatch.length) {
-    _isLoadingMore = false;
-    return;
-  }
-  
-  const fragment = document.createDocumentFragment();
-  
-  nextBatch.forEach((p, batchIdx) => {
-    const idx = start + batchIdx;
-    const card = document.createElement('div');
-    card.className = 'product-card' + (isBulkSelectMode && bulkSelectedProducts.has(p.id) ? ' bulk-selected' : '');
-    card.setAttribute('data-product-id', p.id);
-    
-    const stock = getEffectiveStock(p);
-    const hasStock = stock !== null;
-    const outOfStock = stock !== null && stock <= 0;
-    const unitLabel = p.isPack ? 'пачка' : 'шт';
-    let packInfoHtml = '';
-    if (p.showPackInfo && p.packQty) {
-      packInfoHtml = `<div style="background:#f3e5f5;border-radius:6px;padding:6px 8px;margin:4px 0;font-size:11px;"><div style="color:#7b1fa2;font-weight:700;">📦 1 пачка = ${p.packQty} шт</div></div>`;
-    }
-    const stockHtml = stock !== null
-      ? `<div class="card-stock ${outOfStock ? 'out' : ''}">Остаток: ${outOfStock ? 'Нет' : stock} ${unitLabel}</div>`
-      : '';
-    const blockedBadgeHtml = (p.blocked || outOfStock) ? `<div class="blocked-badge">🚫</div>` : '';
-    const packBadgeHtml = p.isPack ? `<div class="pack-badge">ПАЧКА</div>` : '';
-    const hasExtraImages = p.extraImages && Array.isArray(p.extraImages) && p.extraImages.length > 0;
-    const galleryBadgeHtml = hasExtraImages ? `<div class="product-gallery-badge" onclick="event.stopPropagation(); showProductGallery('${p.id}')">📷 +${p.extraImages.length}</div>` : '';
-    const heartIcon = isFavorite(p.id) 
-      ? '<svg viewBox="0 0 24 24" width="24" height="24" fill="#e91e63" stroke="none"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>'
-      : '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#333" stroke-width="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
-    const favoriteHtml = !isAdmin ? `<button class="favorite-btn ${isFavorite(p.id) ? 'active' : ''}" data-product-id="${p.id}" onclick="event.stopPropagation(); toggleFavorite('${p.id}', this)">${heartIcon}</button>` : '';
-    const buyDisabledAttr = outOfStock ? 'disabled' : '';
-    const qtyDisabledAttr = outOfStock ? 'disabled' : '';
-    const buyLabel = outOfStock ? 'Нет в наличии' : 'Купить';
-
-    // Логика редактора — такая же как в основном рендере
-    const isSellerOwnProduct = (userRole === 'seller' && currentSeller && p.sellerId === currentSeller.id);
-    const showEditorCard = isEditorMode && (userRole !== 'seller' || isSellerOwnProduct);
-    
-    card.innerHTML = `
-      <div class="card-image" style="position:relative; background:#f0f0f0;">
-        ${isBulkSelectMode && showEditorCard ? `<input type="checkbox" class="bulk-checkbox" ${bulkSelectedProducts.has(p.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleBulkSelectProduct('${p.id}')" />` : ''}
-        ${blockedBadgeHtml}${packBadgeHtml}${galleryBadgeHtml}${favoriteHtml}
-        ${p.createdAt && (Date.now() - p.createdAt) < 4 * 24 * 60 * 60 * 1000 ? `<div class="new-badge">NEW</div>` : ''}
-        ${isEditorMode ? `<div style="position:absolute;top:5px;left:5px;background:rgba(0,123,255,0.9);color:white;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:bold;z-index:1;">#${idx + 1}</div>` : ''}
-        ${p.image ? `<img referrerpolicy="no-referrer" src="${getImageUrl(p.image, 300)}" alt="${p.title || ''}" onclick="${isBulkSelectMode && showEditorCard ? `event.stopPropagation(); toggleBulkSelectProduct('${p.id}')` : `openProductImage('${p.id}')`}" onerror="handleImageError(this, '${p.image}')" style="cursor:pointer; width:100%; height:100%; object-fit:contain;">` : `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#999;font-size:14px;text-align:center;">📷 Нет фото</div>`}
-      </div>
-      <div class="card-body"
-        ${showEditorCard ? `
-          <div style="font-weight:600; color:#333; font-size:14px; margin-bottom:6px;">${p.title||'Товар'}</div>
-          <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
-            <span style="font-size:16px; font-weight:700; color:#e53935;">${p.price||0} сом</span>
-          </div>
-          <div style="font-size:12px; color:#666; margin-bottom:4px;">
-            ${stock !== null ? `📦 Остаток: ${stock}` : '📦 Без лимита'} ${p.isPack ? '| 📦 Пачка' : ''}
-          </div>
-          ${primaryWarehouseId && p.warehouseStock ? ((whQty) => {
-            const has = typeof whQty === 'number';
-            const clr = !has ? '#888' : whQty <= 0 ? '#c62828' : whQty <= 10 ? '#e65100' : '#2e7d32';
-            const bg = !has ? '#f5f5f5' : whQty <= 0 ? '#ffebee' : whQty <= 10 ? '#fff3e0' : '#e8f5e9';
-            return '<div style="font-size:12px;font-weight:700;color:' + clr + ';background:' + bg + ';padding:4px 8px;border-radius:6px;margin-bottom:8px;">🏭 Гл. склад: ' + (has ? whQty + ' шт' : '—') + '</div>';
-          })(p.warehouseStock[primaryWarehouseId]) : ''}
-          <button onclick="openEditProductModal('${p.id}')" style="width:100%; background:linear-gradient(135deg,#007bff,#0056b3); color:white; border:none; padding:12px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;">✏️ Редактировать</button>
-        ` : `
-        <div class="card-title"><div>${p.title||''}</div></div>
-        ${packInfoHtml}
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <div class="card-price">${(p.price || '0')} сом${p.isPack ? ' / пачка' : ''}</div>
-          ${p.oldPrice ? `<div class="card-oldprice">${p.oldPrice} сом</div>` : ''}
-        </div>
-        <div class="card-opt-info" data-opt-id="${p.id}" style="font-size:12px;color:#007bff;margin-top:2px;">
-          ${p.optPrice && p.optQty ? `Опт: ${p.optPrice} сом/${p.isPack ? 'пачка' : 'шт'} при ${p.optQty} ${p.isPack ? 'пачек' : 'шт'}` : ''}
-        </div>
-        ${stockHtml}
-        <div class="card-actions" style="margin-top:6px;">
-          <input type="text" inputmode="numeric" value="${p.minQty||1}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
-          <button onclick="addToCartById('${p.id}', this)" ${buyDisabledAttr}>${buyLabel}</button>
-        </div>
-        `}
-      </div>
-    `;
-    
-    fragment.appendChild(card);
-    try {
-      const qtyInput = card.querySelector('.card-qty-input');
-      if (qtyInput) updateCardPriceNow(qtyInput, p.id);
-    } catch (e) {}
-  });
-  
-  container.appendChild(fragment);
-  
-  // Наблюдаем за новыми изображениями
-  // Обновляем пачки/количество
-  nextBatch.forEach(p => {
-    if (p.isPack && typeof updatePackDisplay === 'function') updatePackDisplay(p.id);
-    if (p.useQtyButtons && typeof updateQtyDisplay === 'function') updateQtyDisplay(p.id);
-  });
-  
-  // Добавляем кнопку "ещё" если остались товары
-  if (_allFilteredProducts.length > end) {
-    const remaining = _allFilteredProducts.length - end;
-    const loadMoreDiv = document.createElement('div');
-    loadMoreDiv.id = 'loadMoreProducts';
-    loadMoreDiv.style.cssText = 'grid-column:1/-1;text-align:center;padding:20px;';
-    loadMoreDiv.innerHTML = `
-      <button onclick="loadMoreProducts()" style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;padding:14px 40px;border-radius:25px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 15px rgba(102,126,234,0.4);">
-        Показать ещё (${remaining} товаров)
-      </button>
-    `;
-    container.appendChild(loadMoreDiv);
-    
-    if (_scrollObserver) _scrollObserver.disconnect();
-    _scrollObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting && !_isLoadingMore) {
-          loadMoreProducts();
-        }
-      });
-    }, { rootMargin: '200px' });
-    _scrollObserver.observe(loadMoreDiv);
-  }
-  
-  _isLoadingMore = false;
 }
 
 // Обновляет отображаемую цену в карточке товара в реальном времени

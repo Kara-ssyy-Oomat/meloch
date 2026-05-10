@@ -19,26 +19,13 @@ function debounce(func, wait) {
 function toggleEditorMode() {
   isEditorMode = !isEditorMode;
   const btn = document.getElementById('editorModeBtn');
-  const bulkBtn = document.getElementById('bulkSelectBtn');
   if (btn) {
     if (isEditorMode) {
       btn.style.background = 'linear-gradient(135deg, #28a745, #20c997)';
       btn.innerHTML = '✅ Редактор ВКЛ';
-      if (bulkBtn) bulkBtn.style.display = 'flex';
     } else {
       btn.style.background = 'linear-gradient(135deg, #6c757d, #495057)';
       btn.innerHTML = '✏️ Редактор';
-      
-      // Сбрасываем режим выделения
-      if (bulkBtn) {
-        bulkBtn.style.display = 'none';
-        bulkBtn.style.background = 'linear-gradient(135deg, #9c27b0, #7b1fa2)';
-        bulkBtn.innerHTML = '☑️ Выделить';
-      }
-      isBulkSelectMode = false;
-      bulkSelectedProducts.clear();
-      const bar = document.getElementById('bulkActionBar');
-      if (bar) bar.style.display = 'none';
       
       // ВАЖНО: Принудительная очистка при выходе из режима редактора
       if (globalImageObserver) {
@@ -158,30 +145,20 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   try {
-    // Восстанавливаем продавца до загрузки товаров (показываем кнопку редактора)
-    if (typeof checkSavedSeller === 'function') checkSavedSeller();
-
     loadProducts().then(() => {
-      // renderProducts() уже вызван внутри loadProducts() — не вызываем повторно!
+      renderProducts(); // Отображаем товары после загрузки
       loadSellerCategories(); // Загружаем категории продавцов
       updateCart(); // Обновляем корзину ПОСЛЕ загрузки товаров
       updateFavoritesCount(); // Обновляем счётчик избранного
       
-      // splash уже скрыт из product-loader.js при первом показе товаров
-      
-      // Повторно проверяем продавца (на случай если defer-скрипт seller.js ещё не был загружен ранее)
-      if (typeof checkSavedSeller === 'function' && !currentSeller && localStorage.getItem('currentSeller')) {
-        checkSavedSeller();
-      }
+      // Проверяем сохранённого продавца (после загрузки товаров)
+      if (typeof checkSavedSeller === 'function') checkSavedSeller();
       
       // Инициализируем калькулятор прибыли
       if (typeof setupProfitCalculator === 'function') setupProfitCalculator();
       
       // Заполняем форму заказа данными авторизованного клиента
       if (typeof fillOrderFormWithCustomerData === 'function') fillOrderFormWithCustomerData();
-      
-      // Загружаем админ-библиотеки если пользователь — администратор
-      if (isAdmin && typeof loadAdminLibraries === 'function') loadAdminLibraries();
     });
     
     // Если уже был вход как админ (например, после обновления), показать панель

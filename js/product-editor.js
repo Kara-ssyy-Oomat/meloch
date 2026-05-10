@@ -4,30 +4,10 @@
 
 // === МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ТОВАРА ===
 let currentEditProductId = null;
-let _scrollBeforeEditModal = 0;
-let _editWarehouses = [];
-let _editPrimaryWhId = '';
 
-async function openEditProductModal(productId) {
+function openEditProductModal(productId) {
   const p = products.find(pr => pr.id === productId);
   if (!p) return;
-  
-  _scrollBeforeEditModal = window.scrollY || window.pageYOffset;
-  
-  // Гарантируем загрузку категорий перед открытием формы
-  if (typeof ensureSellerCategoriesLoaded === 'function') {
-    await ensureSellerCategoriesLoaded();
-  }
-
-  // Загружаем склады для выбора
-  try {
-    const [whSnap, whSettings] = await Promise.all([
-      db.collection('warehouses').orderBy('order', 'asc').get(),
-      db.collection('settings').doc('warehouse').get()
-    ]);
-    _editWarehouses = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    _editPrimaryWhId = (whSettings.exists && whSettings.data().primaryWarehouseId) || '';
-  } catch(e) { _editWarehouses = []; _editPrimaryWhId = ''; }
   
   currentEditProductId = productId;
   const modal = document.getElementById('editProductModal');
@@ -74,59 +54,11 @@ async function openEditProductModal(productId) {
       </div>
     </div>
     
-    <!-- Остаток на главном складе -->
-    ${_editPrimaryWhId ? (() => {
-      const primaryWh = _editWarehouses.find(w => w.id === _editPrimaryWhId);
-      const primaryWhName = primaryWh ? (primaryWh.name || 'Главный склад').replace(/</g, '&lt;') : 'Главный склад';
-      const primaryStock = (p.warehouseStock || {})[_editPrimaryWhId];
-      const hasPrimaryStock = typeof primaryStock === 'number';
-      const allWhStocks = _editWarehouses.map(wh => {
-        const qty = (p.warehouseStock || {})[wh.id];
-        const whName = (wh.name || 'Без названия').replace(/</g, '&lt;');
-        const isPrim = wh.id === _editPrimaryWhId;
-        return typeof qty === 'number'
-          ? '<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #e8eaf6;' + (isPrim ? ' font-weight:700; color:#1a237e;' : '') + '"><span>' + (isPrim ? '⭐ ' : '') + whName + '</span><span>' + qty + ' шт</span></div>'
-          : '';
-      }).filter(Boolean).join('');
-      return '<div style="background:linear-gradient(135deg,#e8eaf6,#c5cae9); border:2px solid #3f51b5; border-radius:10px; padding:14px; margin-bottom:12px;">'
-        + '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">'
-        + '<span style="font-size:13px; font-weight:700; color:#1a237e;">🏭 Остатки по складам</span>'
-        + '<span style="font-size:12px; color:#666;">Общий: <b>' + (typeof p.stock === 'number' ? p.stock + ' шт' : '∞') + '</b></span>'
-        + '</div>'
-        + (allWhStocks || '<div style="color:#888; font-size:12px;">Нет данных по складам</div>')
-        + '<div style="margin-top:8px; padding-top:8px; border-top:2px solid #3f51b5; display:flex; justify-content:space-between; align-items:center;">'
-        + '<span style="font-size:14px; font-weight:700; color:#1a237e;">⭐ ' + primaryWhName + ':</span>'
-        + '<span style="font-size:20px; font-weight:900; color:' + (hasPrimaryStock && primaryStock <= 0 ? '#c62828' : hasPrimaryStock && primaryStock <= 10 ? '#e65100' : '#2e7d32') + ';">'
-        + (hasPrimaryStock ? primaryStock + ' шт' : '—') + '</span>'
-        + '</div>'
-        + '</div>';
-    })() : ''}
-
     <!-- Остаток -->
     <div style="margin-bottom:12px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-        <label style="font-size:12px; color:#666;">📦 Остаток (пусто = без лимита)</label>
-        <button type="button" onclick="document.getElementById('editStock').value='';" style="padding:2px 8px; background:#ff9800; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer;${typeof p.stock === 'number' ? '' : ' display:none;'}">✕ Убрать</button>
-      </div>
-      <input type="number" id="editStock" value="${typeof p.stock === 'number' ? p.stock : ''}" placeholder="Без лимита" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;" min="0">
-      ${typeof p.stock === 'number' && p.warehouseStock ? '<div style="font-size:11px; color:#e65100; margin-top:4px;">⚠️ Привязан к складу. Очистите поле чтобы убрать лимит.</div>' : ''}
+      <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📦 Остаток (пусто = без лимита)</label>
+      <input type="number" id="editStock" value="${p.stock === 0 ? 0 : (p.stock || '')}" placeholder="Без лимита" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;" min="0">
     </div>
-    ${_editWarehouses.length > 0 ? `
-    <!-- Склад для записи остатка -->
-    <div style="margin-bottom:12px; background:#f8f9ff; border:1px solid #c5cae9; border-radius:8px; padding:12px;">
-      <label style="font-size:12px; color:#1a237e; display:block; margin-bottom:4px; font-weight:600;">🏭 На какой склад записать остаток?</label>
-      <select id="editStockWarehouse" style="width:100%; padding:10px; border:1px solid #1a237e; border-radius:8px; font-size:14px; box-sizing:border-box; background:white;">
-        <option value="">-- Не привязывать к складу --</option>
-        ${_editWarehouses.map(wh => {
-          const isPrimary = wh.id === _editPrimaryWhId;
-          const whName = (wh.name || 'Без названия').replace(/</g, '&lt;');
-          const currentQty = (p.warehouseStock || {})[wh.id] || 0;
-          return '<option value="' + wh.id + '"' + (isPrimary ? ' selected' : '') + '>' + whName + (isPrimary ? ' ⭐' : '') + ' (сейчас: ' + currentQty + ')' + '</option>';
-        }).join('')}
-      </select>
-      <div style="font-size:11px; color:#888; margin-top:4px;">⭐ — главный склад. Введённый остаток запишется на выбранный склад.</div>
-    </div>
-    ` : ''}
     
     <!-- Мин. покупка -->
     <div style="background:#fff3e0; border:1px solid #ffb74d; border-radius:8px; padding:12px; margin-bottom:12px;">
@@ -318,24 +250,8 @@ async function saveEditProductModal() {
     
     if (stock === null) {
       updateData.stock = firebase.firestore.FieldValue.delete();
-      updateData.warehouseStock = firebase.firestore.FieldValue.delete();
-      p.warehouseStock = null;
     } else {
-      const whSelectEl = document.getElementById('editStockWarehouse');
-      const selectedWhId = whSelectEl ? whSelectEl.value : '';
-
-      if (selectedWhId) {
-        // Записываем остаток на выбранный склад
-        const oldWs = p.warehouseStock || {};
-        const newWs = { ...oldWs, [selectedWhId]: stock };
-        const totalStock = Object.values(newWs).reduce((s, v) => s + (v || 0), 0);
-        updateData.warehouseStock = newWs;
-        updateData.stock = totalStock;
-        p.warehouseStock = newWs;
-        p.stock = totalStock;
-      } else {
-        updateData.stock = stock;
-      }
+      updateData.stock = stock;
     }
     
     // Если variants null, удаляем поле
@@ -345,27 +261,7 @@ async function saveEditProductModal() {
     
     await db.collection('products').doc(currentEditProductId).update(updateData);
     
-    // Обновляем localStorage-кэш чтобы при перезагрузке данные были актуальны
-    try {
-      if (typeof LS_PRODUCTS_KEY !== 'undefined') {
-        const lightProducts = products.map(pr => ({
-          id: pr.id, title: pr.title, price: pr.price, image: pr.image,
-          category: pr.category, stock: pr.stock, order: pr.order,
-          optPrice: pr.optPrice, optQty: pr.optQty, oldPrice: pr.oldPrice,
-          isPack: pr.isPack, packQty: pr.packQty, showPackInfo: pr.showPackInfo,
-          blocked: pr.blocked, minQty: pr.minQty, sellerId: pr.sellerId,
-          createdAt: pr.createdAt, description: pr.description,
-          extraImages: pr.extraImages, useQtyButtons: pr.useQtyButtons,
-          unitsPerBox: pr.unitsPerBox, showPricePerUnit: pr.showPricePerUnit,
-          warehouseStock: pr.warehouseStock || null
-        }));
-        localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
-        localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
-      }
-    } catch(e) { /* не критично */ }
-    
     Swal.close();
-    _restoreScrollAfterRender = _scrollBeforeEditModal;
     closeEditProductModal();
     renderProducts();
     
@@ -566,72 +462,33 @@ async function showMoveProductModal(productId) {
   const currentCategoryIndex = categoryProducts.findIndex(p => p.id === productId);
   
   // Создаем список опций для выбора позиции (только товары из этой категории)
-  let optionsHtml = '';
+  const options = {};
   categoryProducts.forEach((p, idx) => {
-    const isCurrent = idx === currentCategoryIndex;
-    optionsHtml += `<div class="move-item${isCurrent ? ' move-current' : ''}" data-idx="${idx}" data-title="${(p.title||'').toLowerCase()}">`
-      + `<span class="move-num">${idx + 1}.</span> ${p.title}`
-      + (isCurrent ? ' <span style="color:#999;font-size:11px">(текущий)</span>' : '')
-      + `</div>`;
+    options[idx] = `${idx + 1}. ${p.title}`;
   });
   
   const { value: newCategoryPosition } = await Swal.fire({
     title: 'Переместить товар',
     html: `
-      <div style="text-align:left;margin-bottom:10px;">
+      <div style="text-align:left;margin-bottom:15px;">
         <strong>Товар:</strong> ${product.title}<br>
         <strong>Категория:</strong> ${product.category || 'Все товары'}<br>
-        <strong>Текущая позиция:</strong> #${currentCategoryIndex + 1}
+        <strong>Текущая позиция:</strong> #${currentCategoryIndex + 1} (в категории)
       </div>
-      <input id="moveSearchInput" type="text" placeholder="🔍 Поиск товара..." style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-bottom:8px;box-sizing:border-box;">
-      <div style="text-align:left;font-size:12px;color:#888;margin-bottom:4px;">Выберите товар, ПОСЛЕ которого разместить:</div>
-      <div id="moveProductList" style="max-height:250px;overflow-y:auto;border:1px solid #eee;border-radius:8px;">
-        ${optionsHtml}
+      <div style="text-align:left;">
+        <strong>Выберите товар, ПОСЛЕ которого разместить:</strong>
       </div>
-      <style>
-        .move-item{padding:8px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;text-align:left;transition:background .15s}
-        .move-item:last-child{border-bottom:none}
-        .move-item:hover{background:#e8f5e9}
-        .move-item.move-selected{background:#4CAF50;color:#fff}
-        .move-item.move-current{background:#fff8e1}
-        .move-item.move-hidden{display:none}
-        .move-num{color:#999;font-size:11px;min-width:28px;display:inline-block}
-        .move-item.move-selected .move-num{color:#fff}
-      </style>
     `,
+    input: 'select',
+    inputOptions: options,
+    inputPlaceholder: 'Выберите товар',
     showCancelButton: true,
     confirmButtonText: 'Переместить',
     cancelButtonText: 'Отмена',
-    didOpen: () => {
-      const list = document.getElementById('moveProductList');
-      const search = document.getElementById('moveSearchInput');
-      let selectedIdx = null;
-      
-      list.addEventListener('click', (e) => {
-        const item = e.target.closest('.move-item');
-        if (!item) return;
-        list.querySelectorAll('.move-item').forEach(el => el.classList.remove('move-selected'));
-        item.classList.add('move-selected');
-        selectedIdx = item.dataset.idx;
-      });
-      
-      search.addEventListener('input', () => {
-        const q = search.value.toLowerCase().trim().replace(/ё/g, 'е');
-        list.querySelectorAll('.move-item').forEach(el => {
-          el.classList.toggle('move-hidden', q && !el.dataset.title.replace(/ё/g, 'е').includes(q));
-        });
-      });
-      
-      // Сохраняем getter для preConfirm
-      Swal.getPopup().__getSelected = () => selectedIdx;
-    },
-    preConfirm: () => {
-      const sel = Swal.getPopup().__getSelected();
-      if (sel === null || sel === undefined) {
-        Swal.showValidationMessage('Выберите товар из списка!');
-        return false;
+    inputValidator: (value) => {
+      if (value === undefined || value === null || value === '') {
+        return 'Выберите позицию!';
       }
-      return sel;
     }
   });
   
@@ -681,9 +538,6 @@ async function showMoveProductModal(productId) {
     
     await batch.commit();
     
-    // Сбрасываем RAM-кэш чтобы loadProducts загрузил свежие данные
-    productsCacheTime = 0;
-    
     // Перезагружаем товары
     await loadProducts();
     
@@ -718,7 +572,6 @@ async function deleteProduct(productId) {
     if (result.isConfirmed) {
       await db.collection('products').doc(productId).delete();
       Swal.fire('Удалено!', 'Товар был успешно удален.', 'success');
-      productsCacheTime = 0;
       loadProducts();
     }
   } catch (error) {
@@ -760,202 +613,37 @@ editWholesaleModal.innerHTML = `
 `;
 document.body.appendChild(editWholesaleModal);
 
-let currentWholesaleProductId = null;
+let currentEditingProductId = null;
 
 function showEditWholesaleModal(productId) {
   const product = products.find(p => p.id === productId);
   if (!product) return;
   
-  currentWholesaleProductId = productId;
+  currentEditingProductId = productId;
   document.getElementById('editOptPrice').value = product.optPrice || '';
   document.getElementById('editOptQty').value = product.optQty || '';
   editWholesaleModal.style.display = 'block';
 }
 
-// ===================================================================
-// МАССОВОЕ ВЫДЕЛЕНИЕ И ПЕРЕМЕЩЕНИЕ ТОВАРОВ ПО КАТЕГОРИЯМ
-// ===================================================================
-
-function toggleBulkSelectMode() {
-  isBulkSelectMode = !isBulkSelectMode;
-  bulkSelectedProducts.clear();
-
-  const btn = document.getElementById('bulkSelectBtn');
-  const bar = document.getElementById('bulkActionBar');
-
-  if (isBulkSelectMode) {
-    btn.style.background = 'linear-gradient(135deg, #e91e63, #c2185b)';
-    btn.innerHTML = '✅ Выделение ВКЛ';
-  } else {
-    btn.style.background = 'linear-gradient(135deg, #9c27b0, #7b1fa2)';
-    btn.innerHTML = '☑️ Выделить';
-    bar.style.display = 'none';
-  }
-  renderProducts();
-}
-
-function toggleBulkSelectProduct(productId) {
-  if (bulkSelectedProducts.has(productId)) {
-    bulkSelectedProducts.delete(productId);
-  } else {
-    bulkSelectedProducts.add(productId);
-  }
-  updateBulkUI();
-}
-
-function updateBulkUI() {
-  const bar = document.getElementById('bulkActionBar');
-  const countEl = document.getElementById('bulkSelectedCount');
-  const count = bulkSelectedProducts.size;
-
-  if (count > 0) {
-    bar.style.display = 'block';
-    countEl.textContent = count + ' выбрано';
-  } else {
-    bar.style.display = 'none';
-  }
-
-  // Обновляем визуальное состояние карточек и чекбоксов
-  document.querySelectorAll('.product-card').forEach(card => {
-    const id = card.getAttribute('data-product-id');
-    const cb = card.querySelector('.bulk-checkbox');
-    if (bulkSelectedProducts.has(id)) {
-      card.classList.add('bulk-selected');
-      if (cb) cb.checked = true;
-    } else {
-      card.classList.remove('bulk-selected');
-      if (cb) cb.checked = false;
-    }
-  });
-}
-
-function selectAllVisibleProducts() {
-  document.querySelectorAll('.product-card').forEach(card => {
-    const id = card.getAttribute('data-product-id');
-    if (id) bulkSelectedProducts.add(id);
-  });
-  updateBulkUI();
-}
-
-function deselectAllProducts() {
-  bulkSelectedProducts.clear();
-  updateBulkUI();
-}
-
-async function showBulkMoveCategoryModal() {
-  if (bulkSelectedProducts.size === 0) {
-    Swal.fire('Ошибка', 'Сначала выберите товары', 'warning');
-    return;
-  }
-
-  if (typeof ensureSellerCategoriesLoaded === 'function') {
-    await ensureSellerCategoriesLoaded();
-  }
-
-  const options = generateCategoryOptions('');
-  const { value: newCategory } = await Swal.fire({
-    title: '📁 Переместить ' + bulkSelectedProducts.size + ' товаров',
-    html: '<select id="swalBulkCategory" style="width:100%;padding:12px;border:2px solid #9c27b0;border-radius:10px;font-size:15px;margin-top:10px;">' + options + '</select>',
-    focusConfirm: false,
-    showCancelButton: true,
-    confirmButtonText: '✅ Переместить',
-    cancelButtonText: 'Отмена',
-    confirmButtonColor: '#9c27b0',
-    preConfirm: () => {
-      return document.getElementById('swalBulkCategory').value;
-    }
-  });
-
-  if (newCategory) {
-    await bulkMoveToCategory(newCategory);
-  }
-}
-
-async function bulkMoveToCategory(newCategory) {
-  const ids = Array.from(bulkSelectedProducts);
-  const total = ids.length;
-
-  Swal.fire({
-    title: 'Перемещение...',
-    html: '0 / ' + total,
-    allowOutsideClick: false,
-    didOpen: () => Swal.showLoading()
-  });
-
-  try {
-    // Firebase batch max 500, разбиваем на чанки
-    const chunkSize = 400;
-    let done = 0;
-    for (let i = 0; i < ids.length; i += chunkSize) {
-      const chunk = ids.slice(i, i + chunkSize);
-      const batch = db.batch();
-      chunk.forEach(id => {
-        batch.update(db.collection('products').doc(id), { category: newCategory });
-      });
-      await batch.commit();
-      done += chunk.length;
-      Swal.getHtmlContainer().textContent = done + ' / ' + total;
-    }
-
-    // Обновляем локально
-    ids.forEach(id => {
-      const p = products.find(pr => pr.id === id);
-      if (p) p.category = newCategory;
-    });
-
-    // Обновляем localStorage-кэш
-    try {
-      const cached = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
-      cached.forEach(cp => {
-        if (ids.includes(cp.id)) cp.category = newCategory;
-      });
-      localStorage.setItem('cachedProducts', JSON.stringify(cached));
-    } catch(e) {}
-
-    bulkSelectedProducts.clear();
-    isBulkSelectMode = false;
-    const btn = document.getElementById('bulkSelectBtn');
-    if (btn) {
-      btn.style.background = 'linear-gradient(135deg, #9c27b0, #7b1fa2)';
-      btn.innerHTML = '☑️ Выделить';
-    }
-    document.getElementById('bulkActionBar').style.display = 'none';
-
-    renderProducts();
-
-    Swal.fire({
-      icon: 'success',
-      title: 'Готово!',
-      text: total + ' товаров перемещено в «' + newCategory + '»',
-      timer: 2000,
-      showConfirmButton: false
-    });
-  } catch(err) {
-    console.error('Bulk move error:', err);
-    Swal.fire('Ошибка', 'Не удалось переместить: ' + err.message, 'error');
-  }
-}
-
 function closeEditWholesaleModal() {
   editWholesaleModal.style.display = 'none';
-  currentWholesaleProductId = null;
+  currentEditingProductId = null;
 }
 
 async function saveWholesaleChanges() {
-  if (!currentWholesaleProductId) return;
+  if (!currentEditingProductId) return;
   
   try {
     const optPrice = document.getElementById('editOptPrice').value;
     const optQty = document.getElementById('editOptQty').value;
     
-    await db.collection('products').doc(currentWholesaleProductId).update({
+    await db.collection('products').doc(currentEditingProductId).update({
       optPrice: optPrice ? Number(optPrice) : null,
       optQty: optQty ? Number(optQty) : null
     });
     
     Swal.fire('Успех!', 'Оптовые цены обновлены', 'success');
     closeEditWholesaleModal();
-    productsCacheTime = 0;
     loadProducts();
   } catch (error) {
     console.error('Error updating wholesale prices:', error);

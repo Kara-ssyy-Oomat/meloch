@@ -64,7 +64,6 @@ function openFavoritesPage() {
   document.getElementById('favoritesPage').style.display = 'block';
   renderFavoritesPage();
   if (typeof lockPageScroll === 'function') lockPageScroll();
-  history.pushState({ modal: 'favorites' }, '', '');
 }
 
 // Закрыть страницу избранного

@@ -1,523 +1,382 @@
 // ==================== МОДУЛЬ ЗАКАЗОВ ====================
 
-// Сжатие изображения для встраивания в PDF (маленький размер, JPEG)
-function compressImageForPDF(base64Data, maxDim, quality) {
-  maxDim = maxDim || 200;
-  quality = quality || 0.6;
-  return new Promise(function(resolve) {
-    var img = new Image();
-    img.onload = function() {
-      var w = img.width;
-      var h = img.height;
-      if (w > maxDim || h > maxDim) {
-        var s = Math.min(maxDim / w, maxDim / h);
-        w = Math.round(w * s);
-        h = Math.round(h * s);
-      }
-      var c = document.createElement('canvas');
-      c.width = w;
-      c.height = h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve({ data: c.toDataURL('image/jpeg', quality), width: w, height: h });
-    };
-    img.onerror = function() { console.error('compressImageForPDF: ошибка загрузки изображения'); resolve(null); };
-    img.src = base64Data;
-  });
-}
-
-// Оптимизация URL Cloudinary — запрос маленького изображения с сервера
-function getSmallImageUrl(url, width, quality) {
-  width = width || 200;
-  quality = quality || 95;
-  try {
-    var parsed = new URL(url);
-    var h = parsed.hostname;
-    if ((h === 'cloudinary.com' || h.endsWith('.cloudinary.com')) && url.includes('/upload/')) {
-      return url.replace('/upload/', '/upload/w_' + width + ',q_' + quality + ',f_jpg/');
-    }
-  } catch (e) {}
-  return url;
-}
-
-// Построение PDF с фотографиями заданного качества (возвращает blob)
-async function buildPhotoPDFBlob(name, phone, address, driverName, driverPhone, cartItems, total, time, preloadedImages, compressionLevel) {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-  
-  let yPosition = 20;
-  
-  // Заголовок
-  const headerCanvas = document.createElement('canvas');
-  const headerCtx = headerCanvas.getContext('2d');
-  headerCanvas.width = 600;
-  headerCanvas.height = 50;
-  
-  headerCtx.fillStyle = 'white';
-  headerCtx.fillRect(0, 0, 600, 50);
-  headerCtx.fillStyle = 'black';
-  headerCtx.font = 'bold 24px Arial';
-  headerCtx.textAlign = 'center';
-  headerCtx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
-  
-  const headerImage = headerCanvas.toDataURL('image/jpeg', 0.85);
-  doc.addImage(headerImage, 'JPEG', 20, yPosition, 170, 15);
-  
-  yPosition += 20;
-  
-  // Определяем высоту блока информации (больше, если есть водитель)
-  const hasDriver = driverName || driverPhone;
-  const infoHeight = hasDriver ? 170 : 120;
-  
-  // Информация о заказе в рамке
-  const infoCanvas = document.createElement('canvas');
-  const infoCtx = infoCanvas.getContext('2d');
-  infoCanvas.width = 700;
-  infoCanvas.height = infoHeight;
-  
-  // Белый фон с черной рамкой
-  infoCtx.fillStyle = 'white';
-  infoCtx.fillRect(0, 0, 700, infoHeight);
-  infoCtx.strokeStyle = 'black';
-  infoCtx.lineWidth = 2;
-  infoCtx.strokeRect(0, 0, 700, infoHeight);
-  
-  // Текст
-  infoCtx.fillStyle = 'black';
-  infoCtx.font = '16px Arial';
-  infoCtx.fillText(`Дата/Время: ${time}`, 15, 30);
-  infoCtx.fillText(`Имя клиента: ${name}`, 15, 55);
-  infoCtx.fillText(`Телефон: ${phone}`, 15, 80);
-  infoCtx.fillText(`Адрес: ${address}`, 15, 105);
-  
-  // Добавляем информацию о водителе, если она есть
-  if (hasDriver) {
-    infoCtx.fillText(`Водитель: ${driverName || '-'}`, 15, 130);
-    infoCtx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
-  }
-  
-  const infoImage = infoCanvas.toDataURL('image/jpeg', 0.85);
-  const infoImageHeight = hasDriver ? 42 : 30;
-  doc.addImage(infoImage, 'JPEG', 20, yPosition, 170, infoImageHeight);
-  
-  yPosition += infoImageHeight + 5;
-  
-  // Заголовок таблицы с сеткой
-  const tableHeaderCanvas = document.createElement('canvas');
-  const thCtx = tableHeaderCanvas.getContext('2d');
-  tableHeaderCanvas.width = 550;
-  tableHeaderCanvas.height = 50;
-  
-  // Серый фон для заголовка
-  thCtx.fillStyle = '#e0e0e0';
-  thCtx.fillRect(0, 0, 550, 50);
-  
-  // Рамка
-  thCtx.strokeStyle = 'black';
-  thCtx.lineWidth = 2;
-  thCtx.strokeRect(0, 0, 550, 50);
-  
-  // Вертикальные линии (колонки: Фото | Название | Кол-во | Цена | Сумма)
-  thCtx.beginPath();
-  thCtx.moveTo(70, 0);
-  thCtx.lineTo(70, 50);
-  thCtx.moveTo(270, 0);
-  thCtx.lineTo(270, 50);
-  thCtx.moveTo(410, 0);
-  thCtx.lineTo(410, 50);
-  thCtx.moveTo(480, 0);
-  thCtx.lineTo(480, 50);
-  thCtx.stroke();
-  
-  // Текст заголовков
-  thCtx.fillStyle = 'black';
-  thCtx.font = 'bold 14px Arial';
-  thCtx.textAlign = 'center';
-  thCtx.fillText('ФОТО', 35, 32);
-  thCtx.fillText('НАЗВАНИЕ', 170, 32);
-  thCtx.fillText('КОЛ-ВО', 340, 32);
-  thCtx.fillText('ЦЕНА', 445, 32);
-  thCtx.fillText('СУММА', 515, 32);
-  
-  const tableHeaderImage = tableHeaderCanvas.toDataURL('image/jpeg', 0.85);
-  doc.addImage(tableHeaderImage, 'JPEG', 20, yPosition, 170, 12);
-  
-  yPosition += 12;
-  
-  // Товары с сеткой
-  for (let i = 0; i < cartItems.length; i++) {
-    const item = cartItems[i];
-    
-    // Проверяем, не выходим ли за страницу
-    if (yPosition > 240) {
-      doc.addPage();
-      yPosition = 20;
-    }
-    
-    // Размер ячейки фото фиксирован (как в админском PDF) — ~34 мм в PDF
-    const PHOTO_CELL = 120;
-    let photoWidth = PHOTO_CELL;
-    let photoHeight = PHOTO_CELL;
-    let photoData = null;
-
-    if (preloadedImages[i]) {
-      try {
-        const compressed = await compressImageForPDF(preloadedImages[i], compressionLevel.maxDim, compressionLevel.quality);
-        if (compressed) {
-          photoData = compressed.data;
-          // Ячейка фиксирована, фото внутри — с сохранением пропорций
-          const aspect = compressed.width / compressed.height;
-          if (aspect >= 1) {
-            photoWidth = PHOTO_CELL;
-            photoHeight = Math.round(PHOTO_CELL / aspect);
-          } else {
-            photoHeight = PHOTO_CELL;
-            photoWidth = Math.round(PHOTO_CELL * aspect);
-          }
-        }
-      } catch (err) {
-        console.error('✗ Ошибка сжатия фото:', item.title, err);
-      }
-    }
-
-    // Высота строки и ширина колонки фото — фиксированные
-    const rowHeight = Math.max(PHOTO_CELL + 5, 60);
-
-    const rowCanvas = document.createElement('canvas');
-    const rowCtx = rowCanvas.getContext('2d');
-    const photoColumnWidth = Math.max(PHOTO_CELL + 5, 50);
-    const totalWidth = photoColumnWidth + 480;
-    rowCanvas.width = totalWidth;
-    rowCanvas.height = rowHeight;
-    
-    // Белый фон
-    rowCtx.fillStyle = 'white';
-    rowCtx.fillRect(0, 0, totalWidth, rowHeight);
-    
-    // Рамка строки
-    rowCtx.strokeStyle = 'black';
-    rowCtx.lineWidth = 2;
-    rowCtx.strokeRect(0, 0, totalWidth, rowHeight);
-    
-    // Вертикальные линии (расширяем колонку количества)
-    const col2 = photoColumnWidth;
-    const col3 = photoColumnWidth + 200;  // Название уже
-    const col4 = photoColumnWidth + 340;  // Количество шире (140px)
-    const col5 = photoColumnWidth + 410;  // Цена
-    
-    rowCtx.beginPath();
-    rowCtx.moveTo(col2, 0);
-    rowCtx.lineTo(col2, rowHeight);
-    rowCtx.moveTo(col3, 0);
-    rowCtx.lineTo(col3, rowHeight);
-    rowCtx.moveTo(col4, 0);
-    rowCtx.lineTo(col4, rowHeight);
-    rowCtx.moveTo(col5, 0);
-    rowCtx.lineTo(col5, rowHeight);
-    rowCtx.stroke();
-    
-    // Текст в ячейках
-    rowCtx.fillStyle = 'black';
-    rowCtx.font = '13px Arial';
-    rowCtx.textAlign = 'center';
-    
-    const midY = rowHeight / 2;
-    
-    // Название (с переносом если длинное) + вариант
-    rowCtx.textAlign = 'left';
-    const title = item.title;
-    const variantText = item.variantName ? ` [${item.variantName}]` : '';
-    const fullTitle = title + variantText;
-    // Определяем единицу измерения для товара (берём из item или из product)
-    const product = products.find(p => p.id === item.id);
-    const isPack = item.isPack || (product && product.isPack) || false;
-    const unitLabel = isPack ? 'пач' : 'шт';
-    const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
-    
-    // Рассчитываем количество коробок
-    const boxCount = Math.floor(item.qty / unitsPerBox);
-    const remainingUnits = item.qty % unitsPerBox;
-    
-    // Формируем строку количества в коробках (короткий формат)
-    let qtyLine1 = '';
-    let qtyLine2 = '';
-    if (boxCount > 0 && remainingUnits === 0) {
-      // Целое число коробок
-      qtyLine1 = `${boxCount} кор`;
-      qtyLine2 = `(${unitsPerBox} ${unitLabel})`;
-    } else if (boxCount > 0 && remainingUnits > 0) {
-      // Коробки + остаток
-      qtyLine1 = `${boxCount} кор`;
-      qtyLine2 = `+${remainingUnits} ${unitLabel}`;
-    } else {
-      // Только штуки (меньше коробки)
-      qtyLine1 = `${item.qty} ${unitLabel}`;
-      qtyLine2 = '';
-    }
-    
-    if (fullTitle.length > 28) {
-      rowCtx.fillText(fullTitle.substring(0, 28), col2 + 5, midY - 5);
-      rowCtx.fillText(fullTitle.substring(28), col2 + 5, midY + 10);
-    } else {
-      rowCtx.fillText(fullTitle, col2 + 5, midY);
-    }
-    
-    // Количество (в коробках, две строки)
-    rowCtx.textAlign = 'center';
-    rowCtx.font = 'bold 12px Arial';
-    rowCtx.fillText(qtyLine1, (col3 + col4) / 2, midY - 5);
-    if (qtyLine2) {
-      rowCtx.font = '11px Arial';
-      rowCtx.fillText(qtyLine2, (col3 + col4) / 2, midY + 10);
-    }
-    rowCtx.font = '13px Arial';
-    
-    // Цена
-    rowCtx.fillText(`${item.price}`, (col4 + col5) / 2, midY - 5);
-    rowCtx.font = '11px Arial';
-    rowCtx.fillText('сом', (col4 + col5) / 2, midY + 8);
-    
-    // Сумма
-    rowCtx.font = 'bold 13px Arial';
-    rowCtx.fillText(`${item.qty * item.price}`, (col5 + totalWidth) / 2, midY - 5);
-    rowCtx.font = '11px Arial';
-    rowCtx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
-    
-    const rowImage = rowCanvas.toDataURL('image/jpeg', 0.85);
-    const rowPdfHeight = rowHeight * 170 / totalWidth; // Пропорционально
-    doc.addImage(rowImage, 'JPEG', 20, yPosition, 170, rowPdfHeight);
-    
-    // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
-    if (photoData) {
-      const photoWidthPdf = photoWidth * 170 / totalWidth;
-      const photoHeightPdf = photoHeight * 170 / totalWidth;
-      const xPos = 22 + (photoColumnWidth * 170 / totalWidth - photoWidthPdf) / 2; // Центрируем
-      const yPos = yPosition + (rowPdfHeight - photoHeightPdf) / 2; // Центрируем
-      doc.addImage(photoData, 'JPEG', xPos, yPos, photoWidthPdf, photoHeightPdf);
-    }
-    
-    yPosition += rowPdfHeight;
-  }
-  
-  // Строка ИТОГО с сеткой
-  const totalCanvas = document.createElement('canvas');
-  const totalCtx = totalCanvas.getContext('2d');
-  totalCanvas.width = 550;
-  totalCanvas.height = 60;
-  
-  // Желтый фон для итого
-  totalCtx.fillStyle = '#fff9c4';
-  totalCtx.fillRect(0, 0, 550, 60);
-  
-  // Рамка
-  totalCtx.strokeStyle = 'black';
-  totalCtx.lineWidth = 3;
-  totalCtx.strokeRect(0, 0, 550, 60);
-  
-  // Вертикальная линия
-  totalCtx.beginPath();
-  totalCtx.moveTo(470, 0);
-  totalCtx.lineTo(470, 60);
-  totalCtx.stroke();
-  
-  // Текст
-  totalCtx.fillStyle = 'black';
-  totalCtx.font = 'bold 18px Arial';
-  totalCtx.textAlign = 'right';
-  totalCtx.fillText('ИТОГО:', 450, 38);
-  
-  totalCtx.textAlign = 'center';
-  totalCtx.fillText(`${total}`, 510, 32);
-  totalCtx.font = '14px Arial';
-  totalCtx.fillText('сом', 510, 48);
-  
-  const totalImage = totalCanvas.toDataURL('image/jpeg', 0.85);
-  doc.addImage(totalImage, 'JPEG', 20, yPosition, 170, 15);
-  
-  return doc.output('blob');
-}
-
-// ===== Устойчивая загрузка картинки через <img> элемент (а не fetch — обходит CORS) =====
-function _loadImageAsBase64Img(url, timeoutMs) {
-  timeoutMs = timeoutMs || 12000;
-  return new Promise(function(resolve) {
-    var done = false;
-    var timer = setTimeout(function() {
-      if (!done) { done = true; resolve(null); }
-    }, timeoutMs);
-
-    var img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = function() {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      try {
-        var c = document.createElement('canvas');
-        c.width = img.naturalWidth || img.width;
-        c.height = img.naturalHeight || img.height;
-        c.getContext('2d').drawImage(img, 0, 0);
-        resolve(c.toDataURL('image/jpeg', 0.95));
-      } catch (e) {
-        resolve(null);
-      }
-    };
-    img.onerror = function() {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(null);
-    };
-    img.src = url;
-  });
-}
-
-// Загрузка фото с несколькими попытками (Cloudinary → прокси → оригинал)
-async function _loadProductPhotoSafe(imageUrl) {
-  if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) return null;
-
-  var smallUrl = getSmallImageUrl(imageUrl, 600, 95);
-  var result = await _loadImageAsBase64Img(smallUrl, 8000);
-  if (result) return result;
-
-  var proxyUrl = 'https://wsrv.nl/?url=' + encodeURIComponent(imageUrl) + '&w=600&q=95&output=jpg';
-  result = await _loadImageAsBase64Img(proxyUrl, 8000);
-  if (result) return result;
-
-  result = await _loadImageAsBase64Img(imageUrl, 8000);
-  if (result) return result;
-
-  console.warn('Все попытки загрузки фото не удались:', imageUrl.substring(0, 60));
-  return null;
-}
-
-// ===== Отправка одного файла в Telegram с retry при 429 (Too Many Requests) =====
-// Идёт через Cloud Function telegramProxy (см. js/telegram-client.js).
-// Токен бота на бэкенде, в коде сайта его нет.
-async function _sendDocToTelegram(chatId, fileBlob, fileName, caption, maxRetries) {
-  maxRetries = maxRetries || 4;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await tgSendDocument({
-        chat_id: chatId,
-        blob: fileBlob,
-        file_name: fileName,
-        file_mime: fileBlob.type || 'application/pdf',
-        caption: caption
-      });
-      console.log(`✓ Telegram chat ${chatId}: файл отправлен (попытка ${attempt})`);
-      return true;
-    } catch (err) {
-      const status = err && err.status;
-      const body = err && err.body;
-
-      if (status === 429) {
-        const retryAfter = (body && body.parameters && body.parameters.retry_after) || 3;
-        const waitMs = (retryAfter + 1) * 1000;
-        console.warn(`⏳ Telegram chat ${chatId}: 429 rate limit, ждём ${waitMs}мс (попытка ${attempt}/${maxRetries})`);
-        await new Promise(r => setTimeout(r, waitMs));
-        continue;
-      }
-
-      if (status >= 500 && status < 600) {
-        console.warn(`⏳ Telegram chat ${chatId}: HTTP ${status} (попытка ${attempt}/${maxRetries})`);
-        await new Promise(r => setTimeout(r, 2000 * attempt));
-        continue;
-      }
-
-      if (status && status >= 400 && status < 500) {
-        console.error(`✗ Telegram chat ${chatId} ошибка ${status}:`, body && body.description);
-        return false;
-      }
-
-      console.warn(`⚠️ Telegram chat ${chatId} сетевая ошибка (попытка ${attempt}/${maxRetries}):`, err);
-      if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 2000 * attempt));
-      }
-    }
-  }
-
-  console.error(`✗ Telegram chat ${chatId}: все ${maxRetries} попыток исчерпаны`);
-  return false;
-}
-
 // Функция отправки заказа как PDF файл в Telegram
 async function sendOrderAsPDF(name, phone, address, driverName, driverPhone, cartItems, total, time) {
   try {
     console.log('=== Начало создания PDF файла ===');
-
-    const MAX_PDF_SIZE = 40 * 1024 * 1024; // 40 MB лимит
-
-    // Шаг 1: Предварительная загрузка всех изображений (через <img>, устойчиво к CORS)
-    console.log('Загрузка изображений в высоком качестве...');
-    const preloadedImages = [];
+    
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    
+    let yPosition = 20;
+    
+    // Заголовок
+    const headerCanvas = document.createElement('canvas');
+    const headerCtx = headerCanvas.getContext('2d');
+    headerCanvas.width = 600;
+    headerCanvas.height = 50;
+    
+    headerCtx.fillStyle = 'white';
+    headerCtx.fillRect(0, 0, 600, 50);
+    headerCtx.fillStyle = 'black';
+    headerCtx.font = 'bold 24px Arial';
+    headerCtx.textAlign = 'center';
+    headerCtx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
+    
+    const headerImage = headerCanvas.toDataURL('image/png');
+    doc.addImage(headerImage, 'PNG', 20, yPosition, 170, 15);
+    
+    yPosition += 20;
+    
+    // Определяем высоту блока информации (больше, если есть водитель)
+    const hasDriver = driverName || driverPhone;
+    const infoHeight = hasDriver ? 170 : 120;
+    
+    // Информация о заказе в рамке
+    const infoCanvas = document.createElement('canvas');
+    const infoCtx = infoCanvas.getContext('2d');
+    infoCanvas.width = 700;
+    infoCanvas.height = infoHeight;
+    
+    // Белый фон с черной рамкой
+    infoCtx.fillStyle = 'white';
+    infoCtx.fillRect(0, 0, 700, infoHeight);
+    infoCtx.strokeStyle = 'black';
+    infoCtx.lineWidth = 2;
+    infoCtx.strokeRect(0, 0, 700, infoHeight);
+    
+    // Текст
+    infoCtx.fillStyle = 'black';
+    infoCtx.font = '16px Arial';
+    infoCtx.fillText(`Дата/Время: ${time}`, 15, 30);
+    infoCtx.fillText(`Имя клиента: ${name}`, 15, 55);
+    infoCtx.fillText(`Телефон: ${phone}`, 15, 80);
+    infoCtx.fillText(`Адрес: ${address}`, 15, 105);
+    
+    // Добавляем информацию о водителе, если она есть
+    if (hasDriver) {
+      infoCtx.fillText(`Водитель: ${driverName || '-'}`, 15, 130);
+      infoCtx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
+    }
+    
+    const infoImage = infoCanvas.toDataURL('image/png');
+    const infoImageHeight = hasDriver ? 42 : 30;
+    doc.addImage(infoImage, 'PNG', 20, yPosition, 170, infoImageHeight);
+    
+    yPosition += infoImageHeight + 5;
+    
+    // Заголовок таблицы с сеткой
+    const tableHeaderCanvas = document.createElement('canvas');
+    const thCtx = tableHeaderCanvas.getContext('2d');
+    tableHeaderCanvas.width = 550;
+    tableHeaderCanvas.height = 50;
+    
+    // Серый фон для заголовка
+    thCtx.fillStyle = '#e0e0e0';
+    thCtx.fillRect(0, 0, 550, 50);
+    
+    // Рамка
+    thCtx.strokeStyle = 'black';
+    thCtx.lineWidth = 2;
+    thCtx.strokeRect(0, 0, 550, 50);
+    
+    // Вертикальные линии (колонки: Фото | Название | Кол-во | Цена | Сумма)
+    thCtx.beginPath();
+    thCtx.moveTo(70, 0);
+    thCtx.lineTo(70, 50);
+    thCtx.moveTo(270, 0);
+    thCtx.lineTo(270, 50);
+    thCtx.moveTo(410, 0);
+    thCtx.lineTo(410, 50);
+    thCtx.moveTo(480, 0);
+    thCtx.lineTo(480, 50);
+    thCtx.stroke();
+    
+    // Текст заголовков
+    thCtx.fillStyle = 'black';
+    thCtx.font = 'bold 14px Arial';
+    thCtx.textAlign = 'center';
+    thCtx.fillText('ФОТО', 35, 32);
+    thCtx.fillText('НАЗВАНИЕ', 170, 32);
+    thCtx.fillText('КОЛ-ВО', 340, 32);
+    thCtx.fillText('ЦЕНА', 445, 32);
+    thCtx.fillText('СУММА', 515, 32);
+    
+    const tableHeaderImage = tableHeaderCanvas.toDataURL('image/png');
+    doc.addImage(tableHeaderImage, 'PNG', 20, yPosition, 170, 12);
+    
+    yPosition += 12;
+    
+    // Товары с сеткой
     for (let i = 0; i < cartItems.length; i++) {
       const item = cartItems[i];
-      preloadedImages[i] = await _loadProductPhotoSafe(item.image);
-      if (preloadedImages[i]) {
-        console.log('✓ Фото загружено:', (item.title || '').substring(0, 30));
-      } else if (item.image && item.image.startsWith('http')) {
-        console.warn('✗ Фото не загружено:', (item.title || '').substring(0, 30));
+      
+      // Проверяем, не выходим ли за страницу
+      if (yPosition > 240) {
+        doc.addPage();
+        yPosition = 20;
       }
-    }
-
-    // Шаг 2: Адаптивное качество — сначала максимальное, снижаем если PDF > 40 MB
-    const qualityLevels = [
-      { maxDim: 200, quality: 0.92 },
-      { maxDim: 150, quality: 0.75 },
-      { maxDim: 120, quality: 0.6 },
-      { maxDim: 80, quality: 0.45 }
-    ];
-
-    let pdfBlob = null;
-
-    for (const level of qualityLevels) {
-      console.log(`Генерируем PDF (качество: ${level.quality}, размер фото: ${level.maxDim}px)...`);
-      pdfBlob = await buildPhotoPDFBlob(name, phone, address, driverName, driverPhone, cartItems, total, time, preloadedImages, level);
-
-      const sizeMB = Math.round(pdfBlob.size / 1024 / 1024 * 10) / 10;
-      console.log(`PDF размер: ${sizeMB} MB`);
-
-      if (pdfBlob.size <= MAX_PDF_SIZE) {
-        console.log('✓ PDF подходит по размеру, качество:', level.quality);
-        break;
+      
+      // Загружаем фото и определяем его размеры
+      let photoWidth = 90;  // По умолчанию
+      let photoHeight = 90;
+      let photoData = null;
+      
+      if (item.image && item.image.startsWith('http')) {
+        try {
+          const response = await fetch(item.image);
+          const blob = await response.blob();
+          
+          // ИСПРАВЛЯЕМ ОРИЕНТАЦИЮ ФОТО ДЛЯ PDF
+          const file = new File([blob], 'image.jpg', { type: blob.type });
+          const fixedFile = await fixImageOrientation(file);
+          
+          const reader = new FileReader();
+          const base64 = await new Promise((resolve) => {
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(fixedFile);
+          });
+          
+          photoData = base64;
+          
+          // Определяем размеры фото
+          const img = new Image();
+          await new Promise((resolve) => {
+            img.onload = resolve;
+            img.src = base64;
+          });
+          
+          // Рассчитываем размеры фото чтобы влезло в ячейку, сохраняя пропорции
+          const maxPhotoWidth = 100;
+          const maxPhotoHeight = 100;
+          
+          let finalWidth = img.width;
+          let finalHeight = img.height;
+          
+          // Масштабируем если фото слишком большое
+          if (finalWidth > maxPhotoWidth || finalHeight > maxPhotoHeight) {
+            const scale = Math.min(maxPhotoWidth / finalWidth, maxPhotoHeight / finalHeight);
+            finalWidth = finalWidth * scale;
+            finalHeight = finalHeight * scale;
+          }
+          
+          photoWidth = finalWidth;
+          photoHeight = finalHeight;
+          
+          console.log('✓ Фото загружено:', item.title, `Размер: ${photoWidth.toFixed(0)}x${photoHeight.toFixed(0)}`);
+        } catch (err) {
+          console.error('✗ Ошибка фото:', item.title, err);
+          photoWidth = 90;
+          photoHeight = 90;
+        }
       }
-      console.log('PDF > 40 MB, пробуем меньшее качество...');
+      
+      // Высота строки = высота фото + отступы
+      const rowHeight = Math.max(photoHeight + 10, 100);
+      
+      // Создаем строку таблицы с динамической шириной
+      const rowCanvas = document.createElement('canvas');
+      const rowCtx = rowCanvas.getContext('2d');
+      const photoColumnWidth = Math.max(photoWidth + 10, 70); // Ширина колонки фото
+      const totalWidth = photoColumnWidth + 480; // фото + остальные колонки
+      rowCanvas.width = totalWidth;
+      rowCanvas.height = rowHeight;
+      
+      // Белый фон
+      rowCtx.fillStyle = 'white';
+      rowCtx.fillRect(0, 0, totalWidth, rowHeight);
+      
+      // Рамка строки
+      rowCtx.strokeStyle = 'black';
+      rowCtx.lineWidth = 2;
+      rowCtx.strokeRect(0, 0, totalWidth, rowHeight);
+      
+      // Вертикальные линии (расширяем колонку количества)
+      const col2 = photoColumnWidth;
+      const col3 = photoColumnWidth + 200;  // Название уже
+      const col4 = photoColumnWidth + 340;  // Количество шире (140px)
+      const col5 = photoColumnWidth + 410;  // Цена
+      
+      rowCtx.beginPath();
+      rowCtx.moveTo(col2, 0);
+      rowCtx.lineTo(col2, rowHeight);
+      rowCtx.moveTo(col3, 0);
+      rowCtx.lineTo(col3, rowHeight);
+      rowCtx.moveTo(col4, 0);
+      rowCtx.lineTo(col4, rowHeight);
+      rowCtx.moveTo(col5, 0);
+      rowCtx.lineTo(col5, rowHeight);
+      rowCtx.stroke();
+      
+      // Текст в ячейках
+      rowCtx.fillStyle = 'black';
+      rowCtx.font = '13px Arial';
+      rowCtx.textAlign = 'center';
+      
+      const midY = rowHeight / 2;
+      
+      // Название (с переносом если длинное) + вариант
+      rowCtx.textAlign = 'left';
+      const title = item.title;
+      const variantText = item.variantName ? ` [${item.variantName}]` : '';
+      const fullTitle = title + variantText;
+      // Определяем единицу измерения для товара (берём из item или из product)
+      const product = products.find(p => p.id === item.id);
+      const isPack = item.isPack || (product && product.isPack) || false;
+      const unitLabel = isPack ? 'пач' : 'шт';
+      const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
+      
+      // Рассчитываем количество коробок
+      const boxCount = Math.floor(item.qty / unitsPerBox);
+      const remainingUnits = item.qty % unitsPerBox;
+      
+      // Формируем строку количества в коробках (короткий формат)
+      let qtyLine1 = '';
+      let qtyLine2 = '';
+      if (boxCount > 0 && remainingUnits === 0) {
+        // Целое число коробок
+        qtyLine1 = `${boxCount} кор`;
+        qtyLine2 = `(${unitsPerBox} ${unitLabel})`;
+      } else if (boxCount > 0 && remainingUnits > 0) {
+        // Коробки + остаток
+        qtyLine1 = `${boxCount} кор`;
+        qtyLine2 = `+${remainingUnits} ${unitLabel}`;
+      } else {
+        // Только штуки (меньше коробки)
+        qtyLine1 = `${item.qty} ${unitLabel}`;
+        qtyLine2 = '';
+      }
+      
+      if (fullTitle.length > 28) {
+        rowCtx.fillText(fullTitle.substring(0, 28), col2 + 5, midY - 5);
+        rowCtx.fillText(fullTitle.substring(28), col2 + 5, midY + 10);
+      } else {
+        rowCtx.fillText(fullTitle, col2 + 5, midY);
+      }
+      
+      // Количество (в коробках, две строки)
+      rowCtx.textAlign = 'center';
+      rowCtx.font = 'bold 12px Arial';
+      rowCtx.fillText(qtyLine1, (col3 + col4) / 2, midY - 5);
+      if (qtyLine2) {
+        rowCtx.font = '11px Arial';
+        rowCtx.fillText(qtyLine2, (col3 + col4) / 2, midY + 10);
+      }
+      rowCtx.font = '13px Arial';
+      
+      // Цена
+      rowCtx.fillText(`${item.price}`, (col4 + col5) / 2, midY - 5);
+      rowCtx.font = '11px Arial';
+      rowCtx.fillText('сом', (col4 + col5) / 2, midY + 8);
+      
+      // Сумма
+      rowCtx.font = 'bold 13px Arial';
+      rowCtx.fillText(`${item.qty * item.price}`, (col5 + totalWidth) / 2, midY - 5);
+      rowCtx.font = '11px Arial';
+      rowCtx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
+      
+      const rowImage = rowCanvas.toDataURL('image/png');
+      const rowPdfHeight = rowHeight * 170 / totalWidth; // Пропорционально
+      doc.addImage(rowImage, 'PNG', 20, yPosition, 170, rowPdfHeight);
+      
+      // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
+      if (photoData) {
+        const photoWidthPdf = photoWidth * 170 / totalWidth;
+        const photoHeightPdf = photoHeight * 170 / totalWidth;
+        const xPos = 22 + (photoColumnWidth * 170 / totalWidth - photoWidthPdf) / 2; // Центрируем
+        const yPos = yPosition + (rowPdfHeight - photoHeightPdf) / 2; // Центрируем
+        doc.addImage(photoData, 'JPEG', xPos, yPos, photoWidthPdf, photoHeightPdf);
+      }
+      
+      yPosition += rowPdfHeight;
+    }
+    
+    // Строка ИТОГО с сеткой
+    const totalCanvas = document.createElement('canvas');
+    const totalCtx = totalCanvas.getContext('2d');
+    totalCanvas.width = 550;
+    totalCanvas.height = 60;
+    
+    // Желтый фон для итого
+    totalCtx.fillStyle = '#fff9c4';
+    totalCtx.fillRect(0, 0, 550, 60);
+    
+    // Рамка
+    totalCtx.strokeStyle = 'black';
+    totalCtx.lineWidth = 3;
+    totalCtx.strokeRect(0, 0, 550, 60);
+    
+    // Вертикальная линия
+    totalCtx.beginPath();
+    totalCtx.moveTo(470, 0);
+    totalCtx.lineTo(470, 60);
+    totalCtx.stroke();
+    
+    // Текст
+    totalCtx.fillStyle = 'black';
+    totalCtx.font = 'bold 18px Arial';
+    totalCtx.textAlign = 'right';
+    totalCtx.fillText('ИТОГО:', 450, 38);
+    
+    totalCtx.textAlign = 'center';
+    totalCtx.fillText(`${total}`, 510, 32);
+    totalCtx.font = '14px Arial';
+    totalCtx.fillText('сом', 510, 48);
+    
+    const totalImage = totalCanvas.toDataURL('image/png');
+    doc.addImage(totalImage, 'PNG', 20, yPosition, 170, 15);
+    
+    console.log('Генерируем PDF файл...');
+    
+    // Генерируем PDF как blob
+    const pdfBlob = doc.output('blob');
+    
+    console.log('PDF файл сгенерирован, размер:', pdfBlob.size, 'байт');
+    
+    // Отправляем в Telegram
+    const formData = new FormData();
+    formData.append('chat_id', '5567924440');
+    formData.append('document', pdfBlob, `Заказ_${name}_${Date.now()}.pdf`);
+    formData.append('caption', `📷 Заказ с фото от ${name}`);
+
+    const tgResp1 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
+      method: 'POST',
+      body: formData
+    });
+
+    const tgData1 = await tgResp1.json().catch(() => null);
+    if (!tgResp1.ok || tgData1?.ok === false) {
+      console.error('Telegram sendDocument error (chat 5567924440):', tgResp1.status, tgData1);
+      throw new Error(tgData1?.description || `Telegram HTTP ${tgResp1.status}`);
     }
 
-    if (pdfBlob.size > MAX_PDF_SIZE) {
-      console.error('PDF слишком большой даже при минимальном качестве:', Math.round(pdfBlob.size / 1024 / 1024), 'MB');
-      throw new Error('PDF файл слишком большой (' + Math.round(pdfBlob.size / 1024 / 1024) + ' MB). Попробуйте уменьшить количество товаров.');
+    // Отправляем второму пользователю
+    const formData2 = new FormData();
+    formData2.append('chat_id', '246421345');
+    formData2.append('document', pdfBlob, `Заказ_${name}_${Date.now()}.pdf`);
+    formData2.append('caption', `📷 Заказ с фото от ${name}`);
+
+    const tgResp2 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
+      method: 'POST',
+      body: formData2
+    });
+
+    const tgData2 = await tgResp2.json().catch(() => null);
+    if (!tgResp2.ok || tgData2?.ok === false) {
+      console.error('Telegram sendDocument error (chat 246421345):', tgResp2.status, tgData2);
+      throw new Error(tgData2?.description || `Telegram HTTP ${tgResp2.status}`);
     }
 
-    console.log('PDF файл сгенерирован, размер:', Math.round(pdfBlob.size / 1024), 'KB');
-
-    // Отправляем в оба чата ПАРАЛЛЕЛЬНО и НЕЗАВИСИМО — ошибка одного не блокирует другой
-    const fileName = `Заказ_${name}_${Date.now()}.pdf`;
-    const caption = `📷 Заказ с фото от ${name}`;
-    const ts = Date.now();
-
-    const results = await Promise.allSettled([
-      _sendDocToTelegram('5567924440', pdfBlob, fileName, caption),
-      _sendDocToTelegram('246421345', pdfBlob, `Заказ_${name}_${ts}.pdf`, caption)
-    ]);
-
-    const okCount = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
-    console.log(`PDF файл: отправлено в ${okCount}/2 чата`);
-
-    return okCount > 0;
+    console.log('PDF файл отправлен в Telegram');
   } catch (error) {
     console.error('Ошибка отправки PDF:', error);
-    return false;
   }
 }
 
 // Функция отправки заказа как PDF файл БЕЗ ФОТО (для печати) в Telegram
-// ПРИМЕЧАНИЕ: Ранее называлась sendOrderAsExcel, переименована для ясности
-async function sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone, cartItems, total, time) {
+async function sendOrderAsExcel(name, phone, address, driverName, driverPhone, cartItems, total, time) {
   try {
     console.log('=== Начало создания PDF файла без фото (для печати) ===');
-
     
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -724,24 +583,39 @@ async function sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone
     
     console.log('PDF файл без фото сгенерирован, размер:', pdfBlob.size, 'байт');
     
-    const fileName = `Заказ_печать_${name}_${Date.now()}.pdf`;
-    const caption = `📄 Заказ для печати от ${name}`;
+    // Отправляем в Telegram
+    const formData = new FormData();
+    formData.append('chat_id', '5567924440');
+    formData.append('document', pdfBlob, `Заказ_печать_${name}_${Date.now()}.pdf`);
+    formData.append('caption', `📄 Заказ для печати от ${name}`);
 
-    await tgSendDocument({
-      chat_id: '5567924440',
-      blob: pdfBlob,
-      file_name: fileName,
-      file_mime: 'application/pdf',
-      caption: caption
+    const tgResp1 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
+      method: 'POST',
+      body: formData
     });
 
-    await tgSendDocument({
-      chat_id: '246421345',
-      blob: pdfBlob,
-      file_name: fileName,
-      file_mime: 'application/pdf',
-      caption: caption
+    const tgData1 = await tgResp1.json().catch(() => null);
+    if (!tgResp1.ok || tgData1?.ok === false) {
+      console.error('Telegram sendDocument error (chat 5567924440):', tgResp1.status, tgData1);
+      throw new Error(tgData1?.description || `Telegram HTTP ${tgResp1.status}`);
+    }
+
+    // Отправляем второму пользователю
+    const formData2 = new FormData();
+    formData2.append('chat_id', '246421345');
+    formData2.append('document', pdfBlob, `Заказ_печать_${name}_${Date.now()}.pdf`);
+    formData2.append('caption', `📄 Заказ для печати от ${name}`);
+
+    const tgResp2 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
+      method: 'POST',
+      body: formData2
     });
+
+    const tgData2 = await tgResp2.json().catch(() => null);
+    if (!tgResp2.ok || tgData2?.ok === false) {
+      console.error('Telegram sendDocument error (chat 246421345):', tgResp2.status, tgData2);
+      throw new Error(tgData2?.description || `Telegram HTTP ${tgResp2.status}`);
+    }
 
     console.log('PDF файл без фото отправлен в Telegram');
     
@@ -752,9 +626,6 @@ async function sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone
     console.error('Ошибка отправки PDF без фото:', error);
   }
 }
-
-// Алиас для обратной совместимости (старое название)
-const sendOrderAsExcel = sendOrderAsPrintPDF;
 
 // Функция отправки заказа как Excel файл в Telegram
 async function sendOrderAsExcelFile(name, phone, address, driverName, driverPhone, cartItems, total, time) {
@@ -848,25 +719,39 @@ async function sendOrderAsExcelFile(name, phone, address, driverName, driverPhon
     
     console.log('Excel файл сгенерирован, размер:', blob.size, 'байт');
     
-    const xlsxName = `Заказ_${name}_${Date.now()}.xlsx`;
-    const xlsxCaption = `📊 Excel заказ от ${name}`;
-    const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    // Отправляем в Telegram через FormData
+    const formData = new FormData();
+    formData.append('chat_id', '5567924440');
+    formData.append('document', blob, `Заказ_${name}_${Date.now()}.xlsx`);
+    formData.append('caption', `📊 Excel заказ от ${name}`);
 
-    await tgSendDocument({
-      chat_id: '5567924440',
-      blob: blob,
-      file_name: xlsxName,
-      file_mime: xlsxMime,
-      caption: xlsxCaption
+    const tgResp1 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
+      method: 'POST',
+      body: formData
     });
 
-    await tgSendDocument({
-      chat_id: '246421345',
-      blob: blob,
-      file_name: xlsxName,
-      file_mime: xlsxMime,
-      caption: xlsxCaption
+    const tgData1 = await tgResp1.json().catch(() => null);
+    if (!tgResp1.ok || tgData1?.ok === false) {
+      console.error('Telegram sendDocument error (chat 5567924440):', tgResp1.status, tgData1);
+      throw new Error(tgData1?.description || `Telegram HTTP ${tgResp1.status}`);
+    }
+
+    // Отправляем второму пользователю
+    const formData2 = new FormData();
+    formData2.append('chat_id', '246421345');
+    formData2.append('document', blob, `Заказ_${name}_${Date.now()}.xlsx`);
+    formData2.append('caption', `📊 Excel заказ от ${name}`);
+
+    const tgResp2 = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendDocument', {
+      method: 'POST',
+      body: formData2
     });
+
+    const tgData2 = await tgResp2.json().catch(() => null);
+    if (!tgResp2.ok || tgData2?.ok === false) {
+      console.error('Telegram sendDocument error (chat 246421345):', tgResp2.status, tgData2);
+      throw new Error(tgData2?.description || `Telegram HTTP ${tgResp2.status}`);
+    }
 
     console.log('Excel файл отправлен в Telegram');
     
@@ -947,13 +832,24 @@ async function sendNotificationsToSellers(customerName, customerPhone, customerA
         `💰 *Сумма за ваши товары:* ${sellerTotal} сом\n` +
         `📊 *Общая сумма заказа:* ${total} сом`;
       
+      // Отправляем в Telegram продавцу
       try {
-        await tgSendMessage({
-          chat_id: seller.telegramId,
-          text: message,
-          parse_mode: 'Markdown'
+        const response = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: seller.telegramId,
+            text: message,
+            parse_mode: 'Markdown'
+          })
         });
-        console.log(`Уведомление отправлено продавцу ${seller.name} (ID: ${seller.telegramId})`);
+        
+        const data = await response.json();
+        if (data.ok) {
+          console.log(`Уведомление отправлено продавцу ${seller.name} (ID: ${seller.telegramId})`);
+        } else {
+          console.error(`Ошибка отправки продавцу ${seller.name}:`, data.description);
+        }
       } catch (err) {
         console.error(`Ошибка отправки продавцу ${seller.name}:`, err);
       }
@@ -1081,9 +977,28 @@ async function sendSeparatedOrderToAdmin(customerName, customerPhone, customerAd
     
     message += `\n💵 *ОБЩАЯ СУММА ЗАКАЗА:* ${total} сом`;
     
-    await tgSendMessage({ chat_id: '5567924440', text: message, parse_mode: 'Markdown' });
-    await tgSendMessage({ chat_id: '246421345', text: message, parse_mode: 'Markdown' });
-
+    // Отправляем админу
+    await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: '5567924440',
+        text: message,
+        parse_mode: 'Markdown'
+      })
+    });
+    
+    // Отправляем второму админу
+    await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: '246421345',
+        text: message,
+        parse_mode: 'Markdown'
+      })
+    });
+    
     console.log('Раздельное уведомление отправлено админам');
     
   } catch (error) {
@@ -1341,13 +1256,7 @@ function repeatOrder(index) {
   });
   
   updateCart();
-  // saveCart определена в cart.html, вызываем только если доступна
-  if (typeof saveCart === 'function') {
-    saveCart();
-  } else {
-    // Фоллбэк: сохраняем корзину в localStorage напрямую
-    try { localStorage.setItem('cart', JSON.stringify(cart)); } catch(e) {}
-  }
+  saveCart();
   
   if (addedCount > 0 && notFoundItems.length === 0) {
     Swal.fire('Готово!', `Все ${addedCount} товар(ов) добавлены в корзину`, 'success');

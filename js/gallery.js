@@ -283,7 +283,6 @@ function showImageModal(imageUrl, title) {
     previewBlock.style.display = 'flex';
     previewBlock.style.alignItems = 'center';
     previewBlock.style.justifyContent = 'center';
-    history.pushState({ modal: 'preview' }, '', '');
     
     // Закрытие по клику на фон
     previewBlock.onclick = function(e) {
@@ -301,18 +300,13 @@ function showImageModal(imageUrl, title) {
       };
     }
     
-    // Закрытие по Escape (используем именованную функцию для предотвращения утечки памяти)
-    function handleEscapeKey(e) {
+    // Закрытие по Escape
+    document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
         previewBlock.style.display = 'none';
         unlockPageScroll();
-        document.removeEventListener('keydown', handleEscapeKey);
       }
-    }
-    // Удаляем предыдущий слушатель перед добавлением нового
-    document.removeEventListener('keydown', window._galleryEscapeHandler);
-    window._galleryEscapeHandler = handleEscapeKey;
-    document.addEventListener('keydown', handleEscapeKey);
+    });
     
     lockPageScroll();
   }

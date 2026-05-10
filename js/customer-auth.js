@@ -6,21 +6,12 @@
 let currentCustomer = null;
 
 // ==================== ДАННЫЕ АДМИНИСТРАТОРА ====================
-// Пароль не хранится в открытом виде. В коде лежит только SHA-256-хеш.
-// При входе введённый пароль хешируется и сравнивается с этим значением.
+// Измените эти данные на свои для получения прав админа
 const ADMIN_CUSTOMER_DATA = {
-  phone: '0559009860',
-  // SHA-256 от настоящего пароля (сам пароль в коде не появляется)
-  passwordHash: '974f80606b985a1f8428d58d3eb6df3ba98277734d7bed5263d00256ece33f93',
-  name: 'Адахамжон'
+  phone: '0559009860',  // Ваш номер телефона
+  password: '13082007',       // Ваш пароль
+  name: 'Адахамжон'     // Ваше имя
 };
-
-async function _sha256(text) {
-  const buf = new TextEncoder().encode(text || '');
-  const hash = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(hash))
-    .map(b => b.toString(16).padStart(2, '0')).join('');
-}
 // ===============================================================
 
 // Инициализация при загрузке страницы
@@ -28,114 +19,34 @@ document.addEventListener('DOMContentLoaded', function() {
   initCustomerAuth();
 });
 
-// Вспомогательная функция: сохранить профиль во все хранилища
-function _saveCustomerData() {
-  if (!currentCustomer) return;
-  try { localStorage.setItem('customerData', JSON.stringify(currentCustomer)); } catch(e) {}
-  if (window.PersistProfile) window.PersistProfile.save(currentCustomer);
-}
-
-// Восстановить профиль из Firestore по телефону (если localStorage очищен)
-async function _restoreCustomerFromCloud(cookieData) {
-  if (!cookieData || !cookieData.phone) return null;
-  if (typeof db === 'undefined' || !db) return null;
-
-  try {
-    const normalizedPhone = normalizePhone(cookieData.phone);
-    const snapshot = await db.collection('customers')
-      .where('phone', '==', normalizedPhone)
-      .limit(1)
-      .get();
-
-    if (snapshot.empty) return null;
-
-    const doc = snapshot.docs[0];
-    const data = doc.data() || {};
-
-    // Если имя есть в cookie и не совпадает с базой, не восстанавливаем
-    const cookieName = (cookieData.name || '').trim().toLowerCase();
-    const dbName = (data.name || '').trim().toLowerCase();
-    if (cookieName && dbName && cookieName !== dbName) return null;
-
-    return {
-      id: doc.id,
-      name: data.name || cookieData.name || '',
-      phone: data.phone || normalizedPhone,
-      address: data.address || '',
-      createdAt: data.createdAt,
-      ordersCount: data.ordersCount || 0,
-      totalSpent: data.totalSpent || 0,
-      isAdmin: !!data.isAdmin
-    };
-  } catch (error) {
-    console.error('[Auth] Ошибка восстановления из Firestore:', error);
-    return null;
-  }
-}
-
 // Инициализация системы авторизации
 function initCustomerAuth() {
-  // Используем PersistProfile для надёжного восстановления (localStorage → IndexedDB → cookie)
-  if (window.PersistProfile) {
-    window.PersistProfile.load(async function(data) {
-      if (!data) return;
-
-      if (data._restoredFromCookie) {
-        const cloudData = await _restoreCustomerFromCloud(data);
-        if (cloudData) {
-          _initWithCustomerData(cloudData);
-          return;
-        }
+  // Проверяем, есть ли сохранённая сессия
+  const savedCustomer = localStorage.getItem('customerData');
+  if (savedCustomer) {
+    try {
+      currentCustomer = JSON.parse(savedCustomer);
+      updateCustomerUI();
+      console.log('👤 Клиент авторизован:', currentCustomer.name);
+      
+      // Проверяем, является ли клиент админом (по телефону)
+      const normalizedPhone = normalizePhone(currentCustomer.phone);
+      const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+      
+      if (normalizedPhone === adminPhone) {
+        // Это админ - устанавливаем флаг и активируем режим
+        currentCustomer.isAdmin = true;
+        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
+        activateAdminMode();
+        console.log('🔐 Автоматический вход админа по телефону');
+      } else if (currentCustomer.isAdmin) {
+        // Флаг уже есть
+        activateAdminMode();
       }
-
-      _initWithCustomerData(data);
-    });
-  } else {
-    // Fallback: обычный localStorage
-    const savedCustomer = localStorage.getItem('customerData');
-    if (savedCustomer) {
-      try {
-        _initWithCustomerData(JSON.parse(savedCustomer));
-      } catch (e) {
-        localStorage.removeItem('customerData');
-      }
+    } catch (e) {
+      localStorage.removeItem('customerData');
     }
   }
-}
-
-// Применить загруженные данные клиента
-function _initWithCustomerData(data) {
-  if (!data || !data.phone) return;
-  currentCustomer = data;
-  
-  // Если данные восстановлены из cookie — нужно перелогиниться полноценно
-  if (data._restoredFromCookie) {
-    console.log('[Auth] ⚠️ Данные из cookie-бэкапа, авто-логин по телефону...');
-    delete currentCustomer._restoredFromCookie;
-  }
-  
-  updateCustomerUI();
-  console.log('👤 Клиент авторизован:', currentCustomer.name);
-  
-  // Проверяем, является ли клиент админом (по телефону)
-  // НЕ активируем админ-режим если уже залогинен продавец
-  const hasSavedSeller = !!localStorage.getItem('currentSeller');
-  const normalizedPhone = normalizePhone(currentCustomer.phone);
-  const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-  
-  if (!hasSavedSeller) {
-    if (normalizedPhone === adminPhone) {
-      currentCustomer.isAdmin = true;
-      _saveCustomerData();
-      activateAdminMode();
-      console.log('🔐 Автоматический вход админа по телефону');
-    } else if (currentCustomer.isAdmin) {
-      activateAdminMode();
-    }
-  }
-  
-  // Убеждаемся что данные сохранены во всех хранилищах
-  _saveCustomerData();
 }
 
 // Активировать режим администратора
@@ -161,19 +72,15 @@ function activateAdminMode() {
   const editorBtnContainer = document.getElementById('editorBtnContainer');
   if (editorBtnContainer) editorBtnContainer.style.display = 'flex';
   
-  // ОПТИМИЗАЦИЯ: Загружаем тяжёлые admin-библиотеки (jsPDF, XLSX, Chart.js, EXIF)
-  if (typeof loadAdminLibraries === 'function') loadAdminLibraries();
-  
   console.log('🔐 Режим администратора активирован');
 }
 
-// Проверить, является ли клиент администратором (телефон + хеш пароля)
-async function checkIfAdmin(phone, password) {
+// Проверить, является ли клиент администратором
+function checkIfAdmin(phone, password) {
   const normalizedPhone = normalizePhone(phone);
   const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-  if (normalizedPhone !== adminPhone) return false;
-  const hash = await _sha256(password || '');
-  return hash === ADMIN_CUSTOMER_DATA.passwordHash;
+  
+  return normalizedPhone === adminPhone && password === ADMIN_CUSTOMER_DATA.password;
 }
 
 // Открыть окно авторизации/личного кабинета
@@ -338,7 +245,7 @@ async function loginCustomer(phone, password) {
     const normalizedPhone = normalizePhone(phone);
     
     // Проверяем, является ли это админом
-    const isAdminLogin = await checkIfAdmin(phone, password);
+    const isAdminLogin = checkIfAdmin(phone, password);
     
     // Ищем клиента в базе
     const snapshot = await db.collection('customers')
@@ -359,23 +266,8 @@ async function loginCustomer(phone, password) {
     const customerDoc = snapshot.docs[0];
     const customerData = customerDoc.data();
     
-    // Проверяем пароль:
-    // - для админ-телефона авторитетом является SHA-256 хеш (см. checkIfAdmin)
-    // - для обычных клиентов — пароль, сохранённый в Firestore
-    const _adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
-    const _isAdminPhoneAttempt = normalizedPhone === _adminPhone;
-    if (_isAdminPhoneAttempt) {
-      if (!isAdminLogin) {
-        Swal.fire({
-          icon: 'error',
-          title: 'Неверный пароль',
-          text: 'Попробуйте ещё раз',
-          confirmButtonColor: '#4CAF50'
-        });
-        return;
-      }
-      // Хеш совпал — пропускаем дальше без проверки Firestore-пароля
-    } else if (customerData.password !== password) {
+    // Проверяем пароль (простое сравнение, для production нужен хеш)
+    if (customerData.password !== password) {
       Swal.fire({
         icon: 'error',
         title: 'Неверный пароль',
@@ -395,8 +287,8 @@ async function loginCustomer(phone, password) {
       isAdmin: isAdminLogin  // Сохраняем флаг админа
     };
     
-    // Сохраняем сессию (localStorage + IndexedDB + cookie)
-    _saveCustomerData();
+    // Сохраняем сессию
+    localStorage.setItem('customerData', JSON.stringify(currentCustomer));
     
     // Если это админ - активируем админ-режим
     if (isAdminLogin) {
@@ -415,6 +307,8 @@ async function loginCustomer(phone, password) {
       text: 'Вы успешно вошли в личный кабинет',
       timer: 2000,
       showConfirmButton: false
+    }).then(() => {
+      showCustomerDashboard();
     });
     
   } catch (error) {
@@ -451,7 +345,7 @@ async function registerCustomer(data) {
     }
     
     // Проверяем, является ли это админом
-    const isAdminRegister = await checkIfAdmin(data.phone, data.password);
+    const isAdminRegister = checkIfAdmin(data.phone, data.password);
     
     // Создаём клиента
     const customerRef = await db.collection('customers').add({
@@ -475,7 +369,7 @@ async function registerCustomer(data) {
       isAdmin: isAdminRegister  // Сохраняем флаг админа
     };
     
-    _saveCustomerData();
+    localStorage.setItem('customerData', JSON.stringify(currentCustomer));
     updateCustomerUI();
     fillOrderFormWithCustomerData();
     
@@ -496,6 +390,8 @@ async function registerCustomer(data) {
       `,
       confirmButtonText: 'Отлично!',
       confirmButtonColor: '#4CAF50'
+    }).then(() => {
+      showCustomerDashboard();
     });
     
   } catch (error) {
@@ -506,26 +402,8 @@ async function registerCustomer(data) {
 
 // Автоматическая регистрация после первого заказа
 async function autoRegisterAfterOrder(name, phone, address) {
-  // Если клиент уже авторизован - открываем профиль для отслеживания заказа
+  // Если клиент уже авторизован - только обновляем статистику
   if (currentCustomer) {
-    const trackResult = await Swal.fire({
-      icon: 'info',
-      title: 'Заказ принят!',
-      html: `<p style="color:#666; font-size:14px;">Откройте профиль, чтобы отслеживать статус заказа.</p>`,
-      confirmButtonText: 'Открыть профиль',
-      showCancelButton: true,
-      cancelButtonText: 'Закрыть',
-      confirmButtonColor: '#4CAF50',
-      allowOutsideClick: false,
-      allowEscapeKey: false
-    });
-    if (trackResult.isConfirmed) {
-      if (typeof navGoProfile === 'function') {
-        navGoProfile();
-      } else {
-        showCustomerDashboard();
-      }
-    }
     return;
   }
   
@@ -542,7 +420,7 @@ async function autoRegisterAfterOrder(name, phone, address) {
       // Клиент существует - автоматический вход
       const doc = existing.docs[0];
       currentCustomer = { id: doc.id, ...doc.data() };
-      _saveCustomerData();
+      localStorage.setItem('customerData', JSON.stringify(currentCustomer));
       updateCustomerUI();
       
       // Проверяем, является ли админом
@@ -551,26 +429,18 @@ async function autoRegisterAfterOrder(name, phone, address) {
       }
       
       // Открываем профиль
-      const welcomeResult = await Swal.fire({
-        icon: 'success',
-        title: 'Добро пожаловать!',
-        html: `<p>Рады видеть вас снова, <strong>${currentCustomer.name}</strong>!</p>
-               <p style="color:#666; font-size:14px;">Ваш заказ принят. Нажмите "Профиль" чтобы отслеживать заказы.</p>`,
-        confirmButtonText: 'Открыть профиль',
-        showCancelButton: true,
-        cancelButtonText: 'Закрыть',
-        confirmButtonColor: '#4CAF50',
-        allowOutsideClick: false,
-        allowEscapeKey: false
-      });
-      if (welcomeResult.isConfirmed) {
-        // Открываем профиль через навигацию нижнего меню (iframe), а не overlay
-        if (typeof navGoProfile === 'function') {
-          navGoProfile();
-        } else {
+      setTimeout(() => {
+        Swal.fire({
+          icon: 'success',
+          title: 'Добро пожаловать!',
+          html: `<p>Рады видеть вас снова, <strong>${currentCustomer.name}</strong>!</p>
+                 <p style="color:#666; font-size:14px;">Ваш заказ принят. Нажмите "Профиль" чтобы отслеживать заказы.</p>`,
+          confirmButtonText: 'Открыть профиль',
+          confirmButtonColor: '#4CAF50'
+        }).then(() => {
           showCustomerDashboard();
-        }
-      }
+        });
+      }, 500);
       return;
     }
     
@@ -578,7 +448,7 @@ async function autoRegisterAfterOrder(name, phone, address) {
     const autoPassword = normalizedPhone.slice(-4);
     
     // Проверяем, является ли это админом
-    const isAdminRegister = await checkIfAdmin(normalizedPhone, autoPassword);
+    const isAdminRegister = checkIfAdmin(normalizedPhone, autoPassword);
     
     // Создаём нового клиента
     const customerRef = await db.collection('customers').add({
@@ -603,7 +473,7 @@ async function autoRegisterAfterOrder(name, phone, address) {
       isAdmin: isAdminRegister
     };
     
-    _saveCustomerData();
+    localStorage.setItem('customerData', JSON.stringify(currentCustomer));
     updateCustomerUI();
     
     // Если это админ - активируем админ-режим
@@ -612,36 +482,28 @@ async function autoRegisterAfterOrder(name, phone, address) {
     }
     
     // Показываем сообщение об автоматической регистрации и открываем профиль
-    const regResult = await Swal.fire({
-      icon: 'success',
-      title: '🎉 Профиль создан!',
-      html: `
-        <div style="text-align:center;">
-          <p>Добро пожаловать, <strong>${name}</strong>!</p>
-          <p style="color:#666; font-size:14px;">Ваш профиль создан автоматически.</p>
-          <div style="background:#f0f8ff; padding:15px; border-radius:10px; margin:15px 0;">
-            <p style="margin:0; font-weight:bold; color:#333;">🔐 Ваш пароль для входа:</p>
-            <p style="margin:5px 0 0; font-size:24px; color:#4CAF50; font-weight:bold;">${autoPassword}</p>
-            <p style="margin:5px 0 0; font-size:12px; color:#999;">Это последние 4 цифры вашего номера</p>
+    setTimeout(() => {
+      Swal.fire({
+        icon: 'success',
+        title: '🎉 Профиль создан!',
+        html: `
+          <div style="text-align:center;">
+            <p>Добро пожаловать, <strong>${name}</strong>!</p>
+            <p style="color:#666; font-size:14px;">Ваш профиль создан автоматически.</p>
+            <div style="background:#f0f8ff; padding:15px; border-radius:10px; margin:15px 0;">
+              <p style="margin:0; font-weight:bold; color:#333;">🔐 Ваш пароль для входа:</p>
+              <p style="margin:5px 0 0; font-size:24px; color:#4CAF50; font-weight:bold;">${autoPassword}</p>
+              <p style="margin:5px 0 0; font-size:12px; color:#999;">Это последние 4 цифры вашего номера</p>
+            </div>
+            <p style="color:#666; font-size:13px;">Теперь вы можете отслеживать заказы и получать скидки!</p>
           </div>
-          <p style="color:#666; font-size:13px;">Теперь вы можете отслеживать заказы и получать скидки!</p>
-        </div>
-      `,
-      confirmButtonText: 'Открыть профиль',
-      showCancelButton: true,
-      cancelButtonText: 'Закрыть',
-      confirmButtonColor: '#4CAF50',
-      allowOutsideClick: false,
-      allowEscapeKey: false
-    });
-    if (regResult.isConfirmed) {
-      // Открываем профиль через навигацию нижнего меню (iframe), а не overlay
-      if (typeof navGoProfile === 'function') {
-        navGoProfile();
-      } else {
+        `,
+        confirmButtonText: 'Открыть профиль',
+        confirmButtonColor: '#4CAF50'
+      }).then(() => {
         showCustomerDashboard();
-      }
-    }
+      });
+    }, 500);
     
   } catch (error) {
     console.error('Ошибка автоматической регистрации:', error);
@@ -666,7 +528,7 @@ async function showCustomerDashboard() {
   // Показываем загрузку
   const loadingModal = document.createElement('div');
   loadingModal.id = 'profileFullscreenModal';
-  loadingModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:44px;background:#f5f5f5;z-index:99990;display:flex;align-items:center;justify-content:center;overscroll-behavior:contain;';
+  loadingModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:44px;background:#f5f5f5;z-index:9500;display:flex;align-items:center;justify-content:center;overscroll-behavior:contain;';
   loadingModal.innerHTML = '<div style="text-align:center;"><div style="font-size:40px;margin-bottom:10px;">⏳</div><div>Загрузка...</div></div>';
   document.body.appendChild(loadingModal);
   
@@ -904,14 +766,6 @@ async function showCustomerDashboard() {
             <span style="color:#ccc;">›</span>
           </div>
           
-          <div onclick="openPriceRoundingFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <span style="font-size:18px;">🔢</span>
-              <span style="font-size:15px; color:#333;">Округление цен</span>
-            </div>
-            <span style="color:#ccc;">›</span>
-          </div>
-          
           <div onclick="openAgentsManagementFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
             <div style="display:flex; align-items:center; gap:12px;">
               <span style="font-size:18px;">🤝</span>
@@ -992,13 +846,12 @@ function openAdminLoginFromProfile() {
       }
       return password;
     }
-  }).then(async (result) => {
+  }).then((result) => {
     if (result.isConfirmed) {
       const password = result.value;
       
-      // Проверяем пароль через SHA-256 хеш (открытого пароля в коде нет)
-      const inputHash = await _sha256(password);
-      if (inputHash === ADMIN_CUSTOMER_DATA.passwordHash) {
+      // Проверяем пароль
+      if (password === ADMIN_CUSTOMER_DATA.password) {
         // Проверяем, совпадает ли телефон текущего пользователя с телефоном админа
         if (!currentCustomer) {
           Swal.fire({
@@ -1026,7 +879,7 @@ function openAdminLoginFromProfile() {
         
         // Телефон и пароль совпали - успешный вход админа
         currentCustomer.isAdmin = true;
-        _saveCustomerData();
+        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
         
         activateAdminMode();
         
@@ -1103,12 +956,6 @@ function openSellersManagementFromProfile() {
 function openCategoriesManagementFromProfile() {
   closeProfileAndRun(() => {
     window.location.href = 'admin-categories.html';
-  });
-}
-
-function openPriceRoundingFromProfile() {
-  closeProfileAndRun(() => {
-    window.location.href = 'admin-rounding.html';
   });
 }
 
@@ -1330,7 +1177,7 @@ async function showOrderDetails(orderId) {
         
         if (confirm.isConfirmed) {
           try {
-            await db.collection('orders').doc(orderId).update({ status: 'cancelled' });
+            await db.collection('orders').doc(orderId).update({ status: 'Отменён' });
             Swal.fire('Заказ отменён', '', 'success');
             showCustomerDashboard(); // Обновляем список
           } catch (e) {
@@ -1394,7 +1241,7 @@ function editCustomerProfile() {
         // Обновляем локально
         currentCustomer.name = result.value.name;
         currentCustomer.address = result.value.address;
-        _saveCustomerData();
+        localStorage.setItem('customerData', JSON.stringify(currentCustomer));
         
         updateCustomerUI();
         fillOrderFormWithCustomerData();
@@ -1428,9 +1275,7 @@ function logoutCustomer() {
   }).then((result) => {
     if (result.isConfirmed) {
       currentCustomer = null;
-      // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
-      if (window.PersistProfile) window.PersistProfile.remove();
-      try { localStorage.removeItem('customerData'); } catch(e) {}
+      localStorage.removeItem('customerData');
       
       // Сбрасываем флаги администратора
       if (typeof isAdmin !== 'undefined') {

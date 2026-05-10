@@ -74,52 +74,6 @@ document.getElementById('submitOrder').onclick = async () => {
     return;
   }
 
-  // Проверка минимальной суммы заказа
-  try {
-    const minOrderDoc = await db.collection('settings').doc('minOrder').get();
-    if (minOrderDoc.exists) {
-      const moData = minOrderDoc.data();
-      if (moData.enabled && moData.amount > 0) {
-        const cartTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
-        if (cartTotal < moData.amount) {
-          // Проверяем: есть ли у клиента заказ за сутки >= минимума
-          let hasTodayBigOrder = false;
-          try {
-            const bypass = localStorage.getItem('minOrderBypass');
-            if (bypass) {
-              const bp = JSON.parse(bypass);
-              if (bp.phone === phone && bp.until > Date.now()) hasTodayBigOrder = true;
-            }
-          } catch(e) {}
-          // Если локального флага нет — проверяем через Firebase
-          if (!hasTodayBigOrder && phone) {
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            const snap = await db.collection('orders')
-              .where('phone', '==', phone)
-              .where('timestamp', '>=', todayStart.getTime())
-              .limit(20).get();
-            snap.forEach(doc => {
-              const d = doc.data();
-              if (!d.deleted && d.status !== 'cancelled' && (d.total || 0) >= moData.amount) {
-                hasTodayBigOrder = true;
-              }
-            });
-          }
-          if (!hasTodayBigOrder) {
-            Swal.fire({
-              icon: 'warning',
-              title: 'Минимальная сумма заказа',
-              html: `Минимальная сумма заказа: <b>${moData.amount.toLocaleString()} сом</b>.<br>Сейчас в корзине: <b>${cartTotal.toLocaleString()} сом</b>.<br><br>Добавьте ещё товаров на <b>${(moData.amount - cartTotal).toLocaleString()} сом</b>.`,
-              confirmButtonText: 'Понятно'
-            });
-            return;
-          }
-        }
-      }
-    }
-  } catch(e) { console.error('Min order check error:', e); }
-
   // Блокируем кнопку
   submitBtn.disabled = true;
   submitBtn.style.opacity = '0.5';
@@ -143,8 +97,8 @@ document.getElementById('submitOrder').onclick = async () => {
       } else if (product.blocked) {
         // Товар заблокирован
         blockedItems.push(cartItem.title);
-      } else if (getEffectiveStock(product) !== null) {
-        const stock = getEffectiveStock(product);
+      } else if (typeof product.stock === 'number' && isFinite(product.stock)) {
+        const stock = Math.max(0, Math.floor(product.stock));
         // Если stock === 0 и склад не настроен — пропускаем проверку (товар доступен)
         const hasWarehouseSetup = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
         if (stock <= 0 && !hasWarehouseSetup) {
@@ -292,16 +246,11 @@ document.getElementById('submitOrder').onclick = async () => {
 
     const orderRef = db.collection('orders').doc();
     const batch = db.batch();
-    let stockDeducted = false;
-    const warehouseDeductions = {};
 
     for (const item of cart) {
       const localProduct = products.find(p => p.id === item.id);
       const hasLocalStock = localProduct && typeof localProduct.stock === 'number' && isFinite(localProduct.stock);
       if (!hasLocalStock) continue;
-
-      // Если склад приостановлен — не списываем остатки
-      if (getEffectiveStock(localProduct) === null) continue;
 
       // Если склад не настроен (stock=0, нет warehouseStock) — пропускаем списание
       const hasWarehouseSetup = localProduct.warehouseStock && typeof localProduct.warehouseStock === 'object' && Object.keys(localProduct.warehouseStock).length > 0;
@@ -318,7 +267,6 @@ document.getElementById('submitOrder').onclick = async () => {
         throw new Error(`Недостаточно остатка для товара: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
       }
 
-      stockDeducted = true;
       const productRef = db.collection('products').doc(item.id);
       batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(-need) });
 
@@ -331,18 +279,13 @@ document.getElementById('submitOrder').onclick = async () => {
           .sort((a, b) => b[1] - a[1]);
         
         const updatedWs = { ...ws };
-        const itemDeductions = {};
         for (const [whId, whQty] of sortedWarehouses) {
           if (remaining <= 0) break;
           const deduct = Math.min(remaining, whQty);
           updatedWs[whId] = whQty - deduct;
           remaining -= deduct;
-          itemDeductions[whId] = deduct;
         }
         
-        if (Object.keys(itemDeductions).length > 0) {
-          warehouseDeductions[item.id] = itemDeductions;
-        }
         batch.update(productRef, { warehouseStock: updatedWs });
       }
     }
@@ -358,7 +301,6 @@ document.getElementById('submitOrder').onclick = async () => {
         title: item.title,
         qty: item.qty,
         price: item.price,
-        image: item.image || null,
         costPrice: item.costPrice || 0,
         sellerId: item.sellerId || null,
         sellerName: item.sellerName || null,
@@ -367,11 +309,9 @@ document.getElementById('submitOrder').onclick = async () => {
       total,
       timestamp: Date.now(),
       time: currentTime,
-      status: 'pending',
+      status: 'Новый',
       partner: partner || null,
-      referredBy: referredBy || null,
-      stockDeducted,
-      warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
+      referredBy: referredBy || null
     });
 
     await batch.commit();
@@ -379,18 +319,12 @@ document.getElementById('submitOrder').onclick = async () => {
     const driverInfo = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
     const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfo}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
-    // Сразу показываем успех клиенту — отправка в Telegram идёт в фоне
-    Swal.fire({
-      icon: 'success',
-      title: 'Заказ принят! ✅',
-      text: 'Ваш заказ успешно отправлен.',
-      timer: 2500,
-      showConfirmButton: false
-    });
-
+    // СРАЗУ показываем успех клиенту
+    Swal.fire('Успех!', 'Ваш заказ принят и отправляется!', 'success');
+    
     // Автоматическая регистрация/вход после первого заказа
     if (typeof autoRegisterAfterOrder === 'function') {
-      autoRegisterAfterOrder(name, phone, address).catch(e => console.error('autoRegister error:', e));
+      autoRegisterAfterOrder(name, phone, address);
     }
     
     // Обновляем статистику клиента если он авторизован
@@ -409,20 +343,8 @@ document.getElementById('submitOrder').onclick = async () => {
       total,
       timestamp: Date.now(),
       time: currentTime,
-      status: 'pending'
+      status: 'Новый'
     });
-    
-    // Если заказ >= минимума, сохраняем флаг обхода на сутки
-    try {
-      if (typeof minOrderAmount !== 'undefined' && minOrderEnabled && total >= minOrderAmount) {
-        const endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
-        localStorage.setItem('minOrderBypass', JSON.stringify({
-          phone: phone,
-          until: endOfDay.getTime()
-        }));
-      }
-    } catch(e) {}
     
     // Разблокируем кнопку после показа успеха
     submitBtn.disabled = false;
@@ -470,17 +392,21 @@ document.getElementById('submitOrder').onclick = async () => {
       driverPhone
     }));
     
-    // Отправка файлов в Telegram: ТОЛЬКО PDF с фото (большие фото товаров).
-    // В ФОНЕ — клиент уже видит "Заказ принят", не блокируем UI.
-    if (typeof sendOrderAsPDF === 'function') {
-      sendOrderAsPDF(
-        orderData.name, orderData.phone, orderData.address,
-        orderData.driverName, orderData.driverPhone,
-        orderData.cart, orderData.total, orderData.currentTime
-      )
-        .then(() => console.log('PDF с фото отправлен'))
-        .catch(err => console.error('Ошибка отправки PDF с фото:', err));
-    }
+    // Отправка файлов в фоновом режиме (без await)
+    // 1. Excel файл
+    sendOrderAsExcelFile(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
+      .then(() => console.log('Excel файл отправлен успешно'))
+      .catch(err => console.error('Ошибка отправки Excel:', err));
+    
+    // 2. PDF для печати (без фото)
+    sendOrderAsExcel(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
+      .then(() => console.log('PDF для печати отправлен успешно'))
+      .catch(err => console.error('Ошибка отправки PDF для печати:', err));
+    
+    // 3. PDF с фото
+    sendOrderAsPDF(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
+      .then(() => console.log('PDF с фото отправлен успешно'))
+      .catch(err => console.error('Ошибка отправки PDF с фото:', err));
 
   } catch (error) {
     console.error('Error submitting order:', error);

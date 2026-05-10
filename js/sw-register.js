@@ -9,15 +9,12 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       .then((registration) => {
         console.log('✅ Service Worker зарегистрирован:', registration.scope);
         
-        // Немедленная проверка обновлений при загрузке
-        registration.update();
-        
-        // Проверка обновлений каждые 5 минут
+        // Проверка обновлений каждые 30 минут (не влияет на производительность)
         setInterval(() => {
           registration.update();
-        }, 5 * 60 * 1000);
+        }, 30 * 60 * 1000);
         
-        // Проверка при возвращении на вкладку
+        // Дополнительная проверка при возвращении на вкладку (без нагрузки)
         document.addEventListener('visibilitychange', () => {
           if (!document.hidden) {
             registration.update();
@@ -30,9 +27,16 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
           
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('🔄 Найдена новая версия - обновляем...');
-              // Активируем новый Service Worker
-              newWorker.postMessage('skipWaiting');
+              // Новая версия доступна - обновляем автоматически!
+              console.log('🔄 Найдена новая версия - автоматическое обновление...');
+              
+              // Активируем новый Service Worker и перезагружаем
+              newWorker.postMessage({ action: 'skipWaiting' });
+              
+              // Небольшая задержка для плавности
+              setTimeout(() => {
+                window.location.reload();
+              }, 1000);
             }
           });
         });
@@ -42,12 +46,13 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       });
   });
   
-  // При смене контроллера — перезагружаем страницу
+  // Автоматическое обновление при активации нового SW (плавно и незаметно)
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!refreshing) {
       refreshing = true;
       console.log('✨ Приложение обновлено - перезагрузка...');
+      // Обновление происходит плавно
       window.location.reload();
     }
   });

@@ -5,7 +5,6 @@
 // Открыть окно жалобы
 function openComplaintWindow() {
   document.getElementById('complaintWindow').style.display = 'flex';
-  history.pushState({ modal: 'complaint' }, '', '');
   lockPageScroll();
   
   // Очищаем форму
@@ -74,19 +73,31 @@ async function sendComplaint() {
       }
     });
     
-    await tgSendMessage({
-      chat_id: '5567924440',
-      text: message,
-      parse_mode: 'Markdown'
+    const response = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        chat_id: '5567924440',
+        text: message,
+        parse_mode: 'Markdown'
+      })
     });
-
-    closeComplaintWindow();
-    Swal.fire({
-      icon: 'success',
-      title: 'Жалоба отправлена!',
-      text: 'Мы рассмотрим вашу жалобу и свяжемся с вами в ближайшее время',
-      confirmButtonText: 'Понятно'
-    });
+    
+    const result = await response.json();
+    
+    if (result.ok) {
+      closeComplaintWindow();
+      Swal.fire({
+        icon: 'success',
+        title: 'Жалоба отправлена!',
+        text: 'Мы рассмотрим вашу жалобу и свяжемся с вами в ближайшее время',
+        confirmButtonText: 'Понятно'
+      });
+    } else {
+      throw new Error('Ошибка отправки');
+    }
     
   } catch (error) {
     console.error('Ошибка отправки жалобы:', error);
@@ -101,7 +112,6 @@ async function sendComplaint() {
 // Функции окна предложения товара
 function openSuggestionWindow() {
   document.getElementById('suggestionWindow').style.display = 'flex';
-  history.pushState({ modal: 'suggestion' }, '', '');
   lockPageScroll();
   
   // Очистка формы
@@ -162,32 +172,44 @@ async function sendSuggestion() {
       `📝 *Описание:*\n${description}\n\n` +
       `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
     
-    let success = false;
-    try {
-      if (photoInput.files && photoInput.files[0]) {
-        console.log('Отправка фото в Telegram...');
-        await tgSendPhoto({
-          chat_id: '5567924440',
-          blob: photoInput.files[0],
-          file_name: photoInput.files[0].name || 'photo.jpg',
-          file_mime: photoInput.files[0].type || 'image/jpeg',
-          caption: message
-        });
-      } else {
-        console.log('Отправка текстового сообщения...');
-        await tgSendMessage({
+    let result;
+    
+    // Если есть фото - отправляем напрямую в Telegram через sendPhoto с файлом
+    if (photoInput.files && photoInput.files[0]) {
+      console.log('Отправка фото в Telegram...');
+      
+      const telegramFormData = new FormData();
+      telegramFormData.append('chat_id', '5567924440');
+      telegramFormData.append('photo', photoInput.files[0]);
+      telegramFormData.append('caption', message);
+      
+      const response = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendPhoto', {
+        method: 'POST',
+        body: telegramFormData
+      });
+      
+      result = await response.json();
+      console.log('Результат отправки с фото:', result);
+    } else {
+      // Если нет фото - отправляем обычное текстовое сообщение
+      console.log('Отправка текстового сообщения...');
+      
+      const response = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           chat_id: '5567924440',
           text: message,
           parse_mode: 'Markdown'
-        });
-      }
-      success = true;
-    } catch (e) {
-      console.error('Ошибка отправки предложения:', e);
-      success = false;
+        })
+      });
+      result = await response.json();
+      console.log('Результат отправки текста:', result);
     }
-
-    if (success) {
+    
+    if (result.ok) {
       // Скрываем спиннер
       document.getElementById('suggestionLoader').style.display = 'none';
       document.getElementById('suggestionSubmitBtn').disabled = false;

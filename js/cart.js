@@ -4,10 +4,6 @@
 
 // Флаг productsReady объявлен в index.html (глобальная переменная)
 
-// Лимиты против саботажа (синхронизированы с firestore.rules)
-const MAX_QTY_PER_ITEM = 10000;   // максимум одной позиции (шт/пачек)
-const MAX_CART_ITEMS = 200;       // максимум разных позиций в корзине
-
 // Безопасные обёртки для кликов по карточкам.
 // Не передаём title/price/image в inline onclick, чтобы кавычки/символы в данных товара не ломали HTML.
 function addToCartById(id, btn) {
@@ -71,8 +67,9 @@ function addToCart(id, title, price, image, btn) {
     return;
   }
 
-  // Проверка остатка (если задан и склады не на паузе)
-  const stock = getEffectiveStock(product);
+  // Проверка остатка (если задан)
+  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
+  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
   if (stock !== null && stock <= 0) {
     Swal.fire('Ошибка', 'Нет в наличии (остаток 0)', 'warning');
     return;
@@ -100,18 +97,6 @@ function addToCart(id, title, price, image, btn) {
       rawValue = qtyInput.dataset.lastValue || '';
     }
     qty = parseInt(rawValue, 10) || (product.minQty || 1);
-  }
-
-  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества за один раз
-  if (qty > MAX_QTY_PER_ITEM) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Слишком большое количество',
-      html: `Максимум <b>${MAX_QTY_PER_ITEM.toLocaleString()}</b> единиц одного товара за раз.<br>Если нужно больше — оформите несколько заказов.`,
-      confirmButtonText: 'Понятно'
-    });
-    if (qtyInput) qtyInput.value = MAX_QTY_PER_ITEM;
-    qty = MAX_QTY_PER_ITEM;
   }
 
   // ПРОВЕРКА минимального количества покупки
@@ -184,15 +169,7 @@ function addToCart(id, title, price, image, btn) {
     // Обновляем unitsPerBox (могло измениться)
     cart[existingIndex].unitsPerBox = product.unitsPerBox || 72;
   } else {
-    // Новый товар: проверяем лимит количества разных позиций
-    if (cart.length >= MAX_CART_ITEMS) {
-      Swal.fire({
-        icon: 'warning',
-        title: 'Корзина переполнена',
-        text: `В корзине не может быть больше ${MAX_CART_ITEMS} разных товаров.`
-      });
-      return;
-    }
+    // Новый товар
     cart.push({
       id: id,
       title: title,
@@ -227,19 +204,16 @@ function addToCart(id, title, price, image, btn) {
 
 function updateCart() {
   // Проверяем и удаляем заблокированные/удалённые товары из корзины
-  // НО только если товары уже загружены (иначе удалим всё из корзины по ошибке)
   const initialLength = cart.length;
   const adjustedTitles = [];
   const validCart = [];
 
-  const canValidate = typeof productsReady !== 'undefined' && productsReady && products && products.length > 0;
-
   for (const item of cart) {
-    if (!canValidate) { validCart.push(item); continue; }
     const product = products.find(p => p.id === item.id);
     if (!product || product.blocked) continue;
 
-    const stock = getEffectiveStock(product);
+    const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
+    const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
     if (stock !== null) {
       if (stock <= 0) continue;
       if (item.qty > stock) {
@@ -333,45 +307,6 @@ function updateCart() {
     if (totalSum) totalSum.textContent = total + ' сом';
   }
 
-  // Проверка минимальной суммы заказа (index.html)
-  const minOrderTotal = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
-  const submitBtn = document.getElementById('submitOrder');
-  const minOrderWarn = document.getElementById('minOrderWarningIndex');
-  
-  // Проверяем обход минимума: если клиент уже заказывал сегодня >= минимума
-  let minOrderBypassed = false;
-  try {
-    const bypass = localStorage.getItem('minOrderBypass');
-    if (bypass) {
-      const bp = JSON.parse(bypass);
-      const phoneEl = document.getElementById('phone');
-      const currentPhone = phoneEl ? phoneEl.value.trim() : '';
-      if (bp.until > Date.now() && (!currentPhone || bp.phone === currentPhone)) {
-        minOrderBypassed = true;
-      }
-    }
-  } catch(e) {}
-  
-  if (!minOrderBypassed && typeof minOrderEnabled !== 'undefined' && minOrderEnabled && minOrderAmount > 0 && minOrderTotal < minOrderAmount) {
-    const deficit = minOrderAmount - minOrderTotal;
-    if (minOrderWarn) {
-      minOrderWarn.style.display = 'block';
-      minOrderWarn.innerHTML = '⚠️ Минимальная сумма заказа: <b>' + minOrderAmount.toLocaleString() + ' сом</b>. Добавьте ещё на <b>' + deficit.toLocaleString() + ' сом</b>';
-    }
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.style.opacity = '0.5';
-      submitBtn.style.cursor = 'not-allowed';
-    }
-  } else {
-    if (minOrderWarn) minOrderWarn.style.display = 'none';
-    if (submitBtn && cart.length > 0) {
-      submitBtn.disabled = false;
-      submitBtn.style.opacity = '1';
-      submitBtn.style.cursor = 'pointer';
-    }
-  }
-
   // Если открыта страница корзины, обновим её
   if (document.getElementById('cartPage') && document.getElementById('cartPage').style.display !== 'none') {
     renderCartPage();
@@ -448,7 +383,6 @@ function openCartPage() {
   renderCartPage();
   document.getElementById('cartPage').style.display = '';
   if (typeof lockPageScroll === 'function') lockPageScroll();
-  history.pushState({ modal: 'cart' }, '', '');
 }
 
 function closeCartPage() {
@@ -545,24 +479,11 @@ function changeCartItemQty(index, delta) {
   if (product && product.isPack) step = 1; // Для пачек всегда шаг 1
   
   const newQty = item.qty + (delta * step);
-
-  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества
-  if (newQty > MAX_QTY_PER_ITEM) {
-    Swal.fire({
-      icon: 'warning',
-      title: 'Ограничение',
-      text: `Максимум ${MAX_QTY_PER_ITEM.toLocaleString()} единиц одного товара`,
-      toast: true,
-      position: 'bottom',
-      timer: 2000,
-      showConfirmButton: false
-    });
-    return;
-  }
-
+  
   // Проверяем остаток
   if (product) {
-    const stock = getEffectiveStock(product);
+    const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
+    const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
     if (stock !== null && newQty > stock) {
       Swal.fire({
         icon: 'warning',
@@ -629,94 +550,4 @@ function clearCart() {
       });
     }
   });
-}
-
-// === СИНХРОНИЗАЦИЯ КОРЗИНЫ (bfcache, переключение вкладок/приложений) ===
-// При возврате через "Назад" или переключении приложений — в памяти может быть
-// старая корзина, а в localStorage уже пустая (после заказа). Синхронизируем.
-function syncCartFromLocalStorage() {
-  try {
-    const stored = JSON.parse(localStorage.getItem('cart') || '[]');
-    if (JSON.stringify(cart) !== JSON.stringify(stored)) {
-      cart.length = 0;
-      cart.push(...stored);
-      updateCart();
-    }
-  } catch(e) {}
-}
-
-// bfcache: страница восстановлена из кэша браузера (кнопка "Назад" на телефоне)
-window.addEventListener('pageshow', function(event) {
-  if (event.persisted) {
-    syncCartFromLocalStorage();
-  }
-});
-
-// Возврат на вкладку или в приложение из фона (Android/iOS)
-document.addEventListener('visibilitychange', function() {
-  if (!document.hidden) {
-    syncCartFromLocalStorage();
-    // Проверяем заблокированные товары из Firebase
-    refreshBlockedProducts();
-  }
-});
-
-// Изменение localStorage в другой вкладке
-window.addEventListener('storage', function(e) {
-  if (e.key === 'cart') {
-    syncCartFromLocalStorage();
-  }
-});
-
-// Фоновая проверка: подгружает свежий статус blocked из Firebase
-// и удаляет заблокированные/удалённые товары из корзины
-let _lastBlockedCheck = 0;
-async function refreshBlockedProducts() {
-  if (cart.length === 0) return;
-  if (typeof db === 'undefined') return;
-  // Не чаще чем раз в 30 секунд
-  const now = Date.now();
-  if (now - _lastBlockedCheck < 30000) return;
-  _lastBlockedCheck = now;
-
-  try {
-    const ids = [...new Set(cart.map(item => item.id))];
-    const blockedIds = new Set();
-    // Firestore 'in' поддерживает до 10 значений за раз
-    for (let i = 0; i < ids.length; i += 10) {
-      const batch = ids.slice(i, i + 10);
-      const snap = await db.collection('products').where(firebase.firestore.FieldPath.documentId(), 'in', batch).get();
-      const found = {};
-      snap.forEach(doc => { found[doc.id] = doc.data(); });
-      for (const id of batch) {
-        if (!found[id] || found[id].blocked) blockedIds.add(id);
-      }
-    }
-    if (blockedIds.size > 0) {
-      const removedTitles = cart.filter(item => blockedIds.has(item.id)).map(item => item.title);
-      const filtered = cart.filter(item => !blockedIds.has(item.id));
-      cart.length = 0;
-      cart.push(...filtered);
-      localStorage.setItem('cart', JSON.stringify(cart));
-      // Обновляем RAM-кэш products
-      if (typeof products !== 'undefined' && products.length > 0) {
-        blockedIds.forEach(id => {
-          const p = products.find(pp => pp.id === id);
-          if (p) p.blocked = true;
-        });
-      }
-      updateCart();
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({
-          icon: 'info',
-          title: 'Товары удалены из корзины',
-          html: '<b>Заблокированы или удалены:</b><br>' + removedTitles.join('<br>'),
-          timer: 4000,
-          showConfirmButton: false
-        });
-      }
-    }
-  } catch(e) {
-    console.log('[BlockedCheck] Ошибка:', e);
-  }
 }

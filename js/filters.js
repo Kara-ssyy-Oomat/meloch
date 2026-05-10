@@ -28,14 +28,8 @@ let _liveSearchComposing = false;
 function liveSearch() {
   if (_liveSearchComposing) return;
   clearTimeout(searchTimeout);
-  // ВАЖНО: не вызываем renderProducts напрямую,
-  // а используем scheduleRenderProducts чтобы избежать двойного рендера
   searchTimeout = setTimeout(() => {
-    if (typeof scheduleRenderProducts === 'function') {
-      scheduleRenderProducts();
-    } else {
-      renderProducts();
-    }
+    renderProducts();
     updateSearchResultsInfo();
   }, _isIOS ? 400 : 300);
 }
@@ -140,17 +134,6 @@ function updateActiveTags() {
 function clearSearchField() {
   document.getElementById('search').value = '';
   applyFilters();
-}
-
-// Очистить поиск кнопкой X
-function clearSearch() {
-  var input = document.getElementById('search');
-  if (input) {
-    input.value = '';
-    input.focus();
-  }
-  if (typeof scheduleRenderProducts === 'function') scheduleRenderProducts();
-  if (typeof updateSearchResultsInfo === 'function') updateSearchResultsInfo();
 }
 
 function clearPriceFilter() {
