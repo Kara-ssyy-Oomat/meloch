@@ -362,8 +362,12 @@
     }
     
     function subscribeToNewMessages() {
+      // ОПТИМИЗАЦИЯ COSTS: слушаем только новые сообщения. История уже
+      // выведена через loadMessages — нет смысла тянуть всё повторно.
+      const _newMsgListenStartTs = firebase.firestore.Timestamp.now();
       db.collection('chatMessages')
         .where('clientId', '==', clientId)
+        .where('timestamp', '>', _newMsgListenStartTs)
         .orderBy('timestamp', 'asc')
         .onSnapshot(snapshot => {
           snapshot.docChanges().forEach(change => {

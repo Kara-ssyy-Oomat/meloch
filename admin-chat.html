@@ -834,8 +834,13 @@
       }
       
       try {
+        // ОПТИМИЗАЦИЯ COSTS: ограничиваем 100 последними сообщениями.
+        // Раньше тянули ВСЮ историю переписки с клиентом — могли быть
+        // сотни-тысячи Reads на каждое открытие чата с одним клиентом.
         const snapshot = await db.collection('chatMessages')
           .where('clientId', '==', clientId)
+          .orderBy('timestamp', 'desc')
+          .limit(100)
           .get();
         
         messagesArea.innerHTML = '';
@@ -848,7 +853,7 @@
             </div>
           `;
         } else {
-          // Собираем и сортируем сообщения
+          // Собираем и сортируем сообщения по возрастанию (для отображения)
           const messages = [];
           snapshot.forEach(doc => {
             messages.push({ id: doc.id, ...doc.data() });
@@ -885,8 +890,13 @@
     
     // Подписка на новые сообщения
     function subscribeToMessages(clientId) {
+      // ОПТИМИЗАЦИЯ COSTS: слушаем только сообщения, пришедшие после
+      // подписки. История уже выводится через loadMessages, листенер
+      // нужен только для новых.
+      const _msgListenStartTs = firebase.firestore.Timestamp.now();
       messagesUnsubscribe = db.collection('chatMessages')
         .where('clientId', '==', clientId)
+        .where('timestamp', '>', _msgListenStartTs)
         .onSnapshot(snapshot => {
           snapshot.docChanges().forEach(change => {
             if (change.type === 'added') {
