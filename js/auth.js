@@ -24,6 +24,14 @@
   // Промис, который резолвится когда auth готов
   global.__kerbenAuthReady = null;
   let _authReadyResolve = null;
+  // Флаг: идёт ли сейчас явный логин (админ через email/password).
+  // Пока true — onAuthStateChanged НЕ должен делать signInAnonymously,
+  // иначе создадутся «лишние» анонимные пользователи и в Firebase Auth
+  // быстро накопится мусор.
+  let _signInInProgress = false;
+  // Флаг: уже логирован успешный вход (чтобы не спамить одинаковыми
+  // строками при повторных onAuthStateChanged для того же user).
+  let _lastLoggedUid = null;
 
   function _markAuthReady() {
     if (_authReadyResolve) {
@@ -45,24 +53,28 @@
         _authReadyResolve = resolve;
       });
 
-      // Подписываемся на изменения auth state — резолвим промис, как только
-      // у нас появляется любой user (либо после signInAnonymously)
       firebase.auth().onAuthStateChanged(function (user) {
         if (user) {
-          console.log('[Kerben Auth] вошёл как', user.isAnonymous ? 'аноним' : user.email,
-                      'uid:', user.uid.substring(0, 8) + '...');
+          if (_lastLoggedUid !== user.uid) {
+            console.log('[Kerben Auth] вошёл как',
+                        user.isAnonymous ? 'аноним' : user.email,
+                        'uid:', user.uid.substring(0, 8) + '...');
+            _lastLoggedUid = user.uid;
+          }
           _markAuthReady();
-        } else {
-          // Нет user — пробуем анонимный вход
+        } else if (!_signInInProgress) {
+          // Нет user и сейчас не идёт другой логин → анонимный вход
+          _signInInProgress = true;
           firebase.auth().signInAnonymously()
-            .then(function (cred) {
+            .then(function () {
               console.log('[Kerben Auth] анонимный вход успешно');
-              _markAuthReady();
             })
             .catch(function (err) {
               console.warn('[Kerben Auth] анонимный вход не удался:', err && err.message);
-              // НЕ блокируем сайт — резолвим без user
               _markAuthReady();
+            })
+            .finally(function () {
+              _signInInProgress = false;
             });
         }
       });
@@ -71,24 +83,32 @@
     return global.__kerbenAuthReady;
   };
 
-  // Войти как админ через email/password (поверх анонимного входа).
+  // Войти как админ через email/password.
   // Перед вызовом — Firebase Console: Authentication → Add user (email).
   global.kerbenSignInAsAdmin = async function (email, password) {
     if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
       throw new Error('Firebase Auth SDK не загружен');
     }
+    // Если уже вошли как этот же админ — не дёргаем сеть лишний раз.
     try {
-      // Сначала выходим из анонимного аккаунта, иначе SDK не даст переключиться
       const cur = firebase.auth().currentUser;
-      if (cur && cur.isAnonymous) {
-        try { await firebase.auth().signOut(); } catch (e) {}
+      if (cur && !cur.isAnonymous && cur.email
+          && cur.email.toLowerCase() === String(email).toLowerCase()) {
+        return cur;
       }
+    } catch (e) {}
+    // Блокируем гонку: пока идёт админ-логин — onAuthStateChanged
+    // НЕ должен запускать signInAnonymously() при промежуточном null.
+    _signInInProgress = true;
+    try {
       const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
       console.log('[Kerben Auth] админ вошёл:', cred.user.email);
       return cred.user;
     } catch (err) {
       console.error('[Kerben Auth] ошибка входа админа:', err && err.message);
       throw err;
+    } finally {
+      _signInInProgress = false;
     }
   };
 
@@ -97,9 +117,8 @@
     if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') return;
     try {
       await firebase.auth().signOut();
-      // После выхода — восстанавливаем анонимный сеанс, чтобы клиент мог
-      // дальше пользоваться сайтом (читать товары и т.п.)
-      await firebase.auth().signInAnonymously();
+      // НЕ делаем signInAnonymously явно — onAuthStateChanged сам
+      // вызовет его (см. kerbenEnsureSignedIn).
     } catch (e) {
       console.warn('[Kerben Auth] signOut error:', e && e.message);
     }

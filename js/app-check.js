@@ -70,16 +70,32 @@
   };
 
   global.kerbenStartAppCheckSetup = function (db) {
+    // ВРЕМЕННО ОТКЛЮЧЕНО (10.05.2026):
+    // App Check был заблокирован Firebase из-за throttling reCAPTCHA
+    // (домен github.io не зарегистрирован в reCAPTCHA Admin / неверный
+    // site key). Каждый запрос за токеном возвращал 403 Forbidden и
+    // спамил консоль красными ошибками. Сейчас защита от ботов
+    // обеспечивается через Firebase Anonymous Auth + Firestore Rules.
+    //
+    // Чтобы включить обратно:
+    //   1) reCAPTCHA Admin (https://www.google.com/recaptcha/admin) →
+    //      добавить домен kara-ssyy-oomat.github.io в Domains.
+    //   2) Дождаться окончания throttle (≈24 часа).
+    //   3) Раскомментировать код ниже.
+    if (global.__kerbenAppCheckInitPromise) return global.__kerbenAppCheckInitPromise;
+    global.__kerbenAppCheckInitPromise = Promise.resolve();
+    return global.__kerbenAppCheckInitPromise;
+
+    /* === ВКЛЮЧИТЬ ПОЗЖЕ ===
     if (global.__kerbenAppCheckInitPromise) return global.__kerbenAppCheckInitPromise;
     global.__kerbenAppCheckInitPromise = (async function () {
       try {
         await global.kerbenFetchAppCheckSiteKeyFromFirestore(db);
         global.kerbenActivateAppCheck();
-      } catch (e) {
-        /* ignore */
-      }
+      } catch (e) {}
     })();
     return global.__kerbenAppCheckInitPromise;
+    */
   };
 
   global.kerbenAwaitAppCheck = async function (timeoutMs) {
