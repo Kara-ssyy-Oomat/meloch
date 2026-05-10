@@ -1,18 +1,15 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}#ordersManagementWindow{bottom:0!important}</style>')</script>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}#ordersManagementWindow{bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Заказы клиентов - Кербен</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
-  <script src="js/app-check.js?v=2"></script>
-  <script src="js/telegram-client.js?v=2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -30,7 +27,33 @@
       z-index: 999999 !important;
     }
     
-
+    /* Нижнее меню */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      background: #fff;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      z-index: 99999;
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: #9e9e9e;
+      text-decoration: none;
+      position: relative;
+    }
+    .nav-item.active { color: #4CAF50; }
+    .nav-item svg { width: 24px; height: 24px; fill: currentColor; }
+    .nav-item span { font-size: 11px; }
     
     /* Карточки товаров в модальном окне */
     .order-items-cards {
@@ -132,7 +155,7 @@
 
       <!-- Поиск -->
       <div style="padding:12px 16px 8px; background:#fff;">
-        <input type="text" id="ordersSearchClient" placeholder="🔍 Поиск по имени, телефону или товару..." oninput="scheduleOrdersManagementSearch()" style="width:100%; padding:10px 14px; border:1px solid #e0e0e0; border-radius:10px; font-size:15px; background:#f8f8f8; box-sizing:border-box;">
+        <input type="text" id="ordersSearchClient" placeholder="🔍 Поиск по имени или телефону..." oninput="scheduleOrdersManagementSearch()" style="width:100%; padding:10px 14px; border:1px solid #e0e0e0; border-radius:10px; font-size:15px; background:#f8f8f8; box-sizing:border-box;">
       </div>
 
       <!-- Фильтры -->
@@ -148,7 +171,6 @@
           <option value="driver|all">🚗 Доставка</option>
           <option value="completed|all">✓ Готовы</option>
           <option value="cancelled|all">✕ Отменены</option>
-          <option value="deleted|all">🗑️ Удалённые</option>
         </select>
         <button onclick="openMergeOrdersModal()" style="padding:8px 12px; background:#667eea; color:white; border:none; border-radius:8px; cursor:pointer; font-size:13px;">🔗</button>
         <button onclick="loadOrdersManagement(true)" style="padding:8px 12px; background:#28a745; color:white; border:none; border-radius:8px; cursor:pointer; font-size:13px;">🔄</button>
@@ -293,7 +315,6 @@ function initFirebase() {
       firebase.initializeApp(firebaseConfig);
     }
     db = firebase.firestore();
-    if (typeof kerbenStartAppCheckSetup === 'function') kerbenStartAppCheckSetup(db);
     console.log('Firebase инициализирован успешно');
     return true;
   } catch (error) {
@@ -324,14 +345,6 @@ function closeOrdersManagementWindow() {
   window.location.href = 'profile.html';
 }
 
-// ============ ОТКРЫТЬ ЧАТ С КЛИЕНТОМ ============
-function openChatWithClient(name, phone) {
-  const params = new URLSearchParams();
-  if (name) params.set('clientName', name);
-  if (phone) params.set('clientPhone', phone);
-  window.location.href = 'admin-chat.html?' + params.toString();
-}
-
 // ============ УПРАВЛЕНИЕ ЗАКАЗАМИ ============
 let ordersManagementAllOrders = null;
 let ordersManagementSearchDebounceTimer = null;
@@ -350,9 +363,6 @@ function applyOrdersCombinedFilter() {
   if (!combo) return;
   const [status, date] = combo.value.split('|');
   
-  // Сохраняем выбранный фильтр
-  try { localStorage.setItem('ordersFilterValue', combo.value); } catch(e) {}
-  
   const statusEl = document.getElementById('ordersFilterStatus');
   const dateEl = document.getElementById('ordersFilterDate');
   if (statusEl) statusEl.value = status;
@@ -367,33 +377,6 @@ function updateOrdersManagementView() {
   } else {
     loadOrdersManagement(true);
   }
-}
-
-// Нормализация русских статусов в английские коды
-const _statusNormalizeMap = {
-  'Новый': 'pending',
-  'новый': 'pending',
-  'В обработке': 'pending',
-  'Готовится': 'preparing',
-  'готовится': 'preparing',
-  'Логистика': 'logistics',
-  'логистика': 'logistics',
-  'Доставка': 'driver',
-  'доставка': 'driver',
-  'У курьера': 'driver',
-  'Доставлен': 'completed',
-  'доставлен': 'completed',
-  'Готов': 'completed',
-  'готов': 'completed',
-  'Отменён': 'cancelled',
-  'отменён': 'cancelled',
-  'Отменен': 'cancelled',
-  'отменен': 'cancelled'
-};
-
-function normalizeStatus(raw) {
-  if (!raw) return 'pending';
-  return _statusNormalizeMap[raw] || raw;
 }
 
 function renderOrdersManagementFromCache() {
@@ -440,22 +423,12 @@ function renderOrdersManagementFromCache() {
       dateMatch = (now - timestamp) < (30 * oneDayMs);
     }
 
-    const status = normalizeStatus(order.status);
-    const isDeleted = order.deleted === true;
-    
-    // Для фильтра "Удалённые" показываем только удалённые; для остальных — скрываем удалённые
-    if (statusFilter === 'deleted') {
-      if (!isDeleted) return false;
-    } else {
-      if (isDeleted) return false;
-      if (statusFilter !== 'all' && status !== statusFilter) return false;
-    }
-    const statusMatch = true;
+    const status = order.status || 'pending';
+    const statusMatch = statusFilter === 'all' || status === statusFilter;
 
     const name = (order.name || '').toLowerCase();
     const phone = (order.phone || '').toLowerCase();
-    const itemsText = (order.items || []).map(i => (i.title || '').toLowerCase()).join(' ');
-    const searchMatch = !searchQuery || name.includes(searchQuery) || phone.includes(searchQuery) || itemsText.includes(searchQuery);
+    const searchMatch = !searchQuery || name.includes(searchQuery) || phone.includes(searchQuery);
 
     return dateMatch && statusMatch && searchMatch;
   });
@@ -478,13 +451,6 @@ async function loadOrdersManagement(forceRefresh = false) {
   const listDiv = document.getElementById('ordersManagementList');
   if (!listDiv) return;
 
-  if (!db) {
-    if (!initFirebase()) {
-      listDiv.innerHTML = '<div style="text-align:center; color:#dc3545; padding:40px;">❌ Нет подключения к базе данных</div>';
-      return;
-    }
-  }
-
   if (!forceRefresh && Array.isArray(ordersManagementAllOrders)) {
     renderOrdersManagementFromCache();
     return;
@@ -493,40 +459,22 @@ async function loadOrdersManagement(forceRefresh = false) {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка заказов...</div>';
 
   try {
-    // Загружаем последние 200 заказов + отдельно ВСЕ pending + удалённые
-    const [recentSnapshot, pendingSnapshot, deletedSnapshot] = await Promise.all([
-      db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(),
-      db.collection('orders').where('status', '==', 'pending').get(),
-      db.collection('orders').where('deleted', '==', true).get()
-    ]);
+    const ordersSnapshot = await db.collection('orders').orderBy('timestamp', 'desc').limit(200).get();
 
-    if (recentSnapshot.empty && pendingSnapshot.empty && deletedSnapshot.empty) {
+    if (ordersSnapshot.empty) {
       ordersManagementAllOrders = [];
       listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:60px; font-size:16px;">📭 Заказов пока нет</div>';
       return;
     }
 
-    const allMap = {};
-    recentSnapshot.forEach(doc => {
+    const all = [];
+    ordersSnapshot.forEach(doc => {
       const data = doc.data();
-      allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
-    });
-    // Добавляем pending-заказы, которые могли не попасть в limit(200)
-    pendingSnapshot.forEach(doc => {
-      if (!allMap[doc.id]) {
-        const data = doc.data();
-        allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
-      }
-    });
-    // Добавляем удалённые заказы
-    deletedSnapshot.forEach(doc => {
-      if (!allMap[doc.id]) {
-        const data = doc.data();
-        allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
-      }
+      const timestamp = data.timestamp || Date.now();
+      all.push({ id: doc.id, ...data, timestamp });
     });
 
-    ordersManagementAllOrders = Object.values(allMap);
+    ordersManagementAllOrders = all;
     renderOrdersManagementFromCache();
   } catch (error) {
     console.error('Ошибка загрузки заказов:', error);
@@ -543,7 +491,7 @@ function createOrderCard(order, index) {
   const date = new Date(order.timestamp);
   const dateStr = date.toLocaleDateString('ru-RU', {day:'2-digit', month:'short'}) + ', ' + date.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
   
-  const status = normalizeStatus(order.status);
+  const status = order.status || 'pending';
   const statusMap = {
     pending: { icon: '🕐', text: 'Новый', color: '#ff9800', bg: '#fff3e0' },
     preparing: { icon: '📦', text: 'Готовится', color: '#2196f3', bg: '#e3f2fd' },
@@ -600,15 +548,6 @@ function createOrderCard(order, index) {
         </div>
         
         <!-- Действия -->
-        ${order.deleted ? `
-        <div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:8px; text-align:center;">
-          <div style="color:#e65100; font-size:13px; font-weight:600; margin-bottom:8px;">🗑️ Удалён ${order.deletedAt ? new Date(order.deletedAt).toLocaleString('ru-RU') : ''}</div>
-          <div style="display:flex; gap:8px;">
-            <button onclick="restoreOrder('${order.id}')" style="flex:1; padding:10px; background:#28a745; color:#fff; border:none; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;">✅ Восстановить</button>
-            <button onclick="permanentDeleteOrder('${order.id}')" style="flex:1; padding:10px; background:#dc3545; color:#fff; border:none; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;">🗑️ Удалить навсегда</button>
-          </div>
-        </div>
-        ` : `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
           <select onchange="updateOrderStatus('${order.id}', this.value); this.blur();" style="padding:8px 10px; border:1px solid #e0e0e0; border-radius:6px; font-size:12px; background:#fff; cursor:pointer; color:#333;">
             <option value="pending" ${status === 'pending' ? 'selected' : ''}>🕐 Новый</option>
@@ -619,15 +558,12 @@ function createOrderCard(order, index) {
             <option value="cancelled" ${status === 'cancelled' ? 'selected' : ''}>✕ Отменён</option>
           </select>
           <button onclick="openOrderItemsDetailModal('${order.id}', '${(order.name || '').replace(/'/g, "\\'")}', '${order.phone || ''}', '${dateStr}')" style="padding:8px 12px; background:#007bff; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">📋 Товары</button>
-          <button onclick="openAddItemToOrderModal('${order.id}')" style="padding:8px 12px; background:#17a2b8; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer; font-weight:600;">➕ Добавить товар</button>
           <button onclick="openEditOrderModal('${order.id}')" style="padding:8px 12px; background:#ff9800; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">✏️ Редактировать</button>
-          <button onclick="openChatWithClient('${(order.name || '').replace(/'/g, "\\'")}', '${order.phone || ''}')" style="padding:8px 12px; background:#9c27b0; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">💬 Написать</button>
           <div style="display:flex; gap:6px;">
             <button onclick="exportOrderToExcel('${order.id}', '${(order.name || '').replace(/'/g, "\\'")}', '${order.phone || ''}')" style="flex:1; padding:8px 12px; background:#25d366; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">📤</button>
             <button onclick="deleteOrder('${order.id}')" style="flex:1; padding:8px 12px; background:#f44336; color:#fff; border:none; border-radius:6px; font-size:12px; cursor:pointer;">🗑️</button>
           </div>
         </div>
-        `}
         
         ${order.partner || order.referredBy ? `<div style="margin-top:8px;"><span style="font-size:11px; background:#e3f2fd; color:#1976d2; padding:3px 8px; border-radius:4px;">🤝 ${order.partner || order.referredBy}</span></div>` : ''}
       </div>
@@ -734,21 +670,6 @@ async function saveEditOrder() {
 // Обновить статус заказа
 async function updateOrderStatus(orderId, newStatus) {
   try {
-    // Получаем заказ для проверки текущего статуса и возврата товаров
-    const orderDoc = await db.collection('orders').doc(orderId).get();
-    if (!orderDoc.exists) {
-      Swal.fire('Ошибка', 'Заказ не найден', 'error');
-      return;
-    }
-    const orderData = orderDoc.data();
-    const oldStatus = orderData.status;
-
-    // Если переводим в "Отменён" и заказ ещё не был отменён — возвращаем товары на склад
-    if (newStatus === 'cancelled' && oldStatus !== 'cancelled') {
-      await returnStockFromOrder(orderData);
-    }
-
-    // Если отменённый заказ восстанавливают (из cancelled в другой статус) — не трогаем склад
     await db.collection('orders').doc(orderId).update({ 
       status: newStatus,
       statusUpdatedAt: Date.now()
@@ -775,7 +696,7 @@ async function updateOrderStatus(orderId, newStatus) {
       icon: 'success',
       title: 'Статус обновлен!',
       text: `Заказ переведен в статус: ${statusTexts[newStatus]}`,
-      timer: 2000,
+      timer: 1500,
       showConfirmButton: false
     });
     
@@ -783,281 +704,18 @@ async function updateOrderStatus(orderId, newStatus) {
     
   } catch (error) {
     console.error('Ошибка обновления статуса:', error);
-    Swal.fire('Ошибка', 'Не удалось обновить статус заказа: ' + error.message, 'error');
+    Swal.fire('Ошибка', 'Не удалось обновить статус заказа', 'error');
     renderOrdersManagementFromCache();
   }
 }
 
-// Кэш главного склада
-let _cachedPrimaryWhId = null;
-let _cachedPrimaryWhTime = 0;
-async function getCachedPrimaryWhId() {
-  const now = Date.now();
-  if (_cachedPrimaryWhId !== null && now - _cachedPrimaryWhTime < 60000) return _cachedPrimaryWhId;
-  try {
-    const doc = await db.collection('settings').doc('warehouse').get();
-    _cachedPrimaryWhId = doc.exists ? (doc.data().primaryWarehouseId || '') : '';
-  } catch(e) { _cachedPrimaryWhId = ''; }
-  _cachedPrimaryWhTime = now;
-  return _cachedPrimaryWhId;
-}
-
-// Возврат одного товара на склад (главный или по deductions)
-async function returnStockForItem(orderId, productId, qty) {
-  if (!productId || !qty || qty <= 0) return;
-
-  // Параллельно читаем товар и заказ
-  const [productDoc, orderDoc] = await Promise.all([
-    db.collection('products').doc(productId).get(),
-    db.collection('orders').doc(orderId).get()
-  ]);
-  if (!productDoc.exists) return;
-
-  const orderData = orderDoc.exists ? orderDoc.data() : {};
-
-  // Если при оформлении заказа товары не списывались — не возвращаем
-  if (orderData.stockDeducted === false) return;
-
-  // Проверяем паузу складов — если приостановлено, не возвращаем (товары не списывались)
-  try {
-    const whSettings = await db.collection('settings').doc('warehouse').get();
-    if (whSettings.exists && whSettings.data().paused === true) return;
-  } catch(e) {}
-  
-  const product = productDoc.data();
-  const deductions = orderData.warehouseDeductions || {};
-  const itemDed = deductions[productId];
-  
-  // Если у товара нет stock/warehouseStock и не было списаний — товар без лимита, не трогаем
-  const hasStock = typeof product.stock === 'number';
-  const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
-  const hasDeductions = itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0;
-  if (!hasStock && !hasWarehouse && !hasDeductions) return;
-  
-  const ws = product.warehouseStock || {};
-
-  const updates = []; // Собираем промисы для параллельной записи
-
-  if (itemDed && typeof itemDed === 'object') {
-    let remaining = qty;
-    for (const whId of Object.keys(itemDed)) {
-      if (remaining <= 0) break;
-      const dedQty = itemDed[whId] || 0;
-      const returnQty = Math.min(remaining, dedQty);
-      ws[whId] = (ws[whId] || 0) + returnQty;
-      itemDed[whId] = dedQty - returnQty;
-      if (itemDed[whId] <= 0) delete itemDed[whId];
-      remaining -= returnQty;
-    }
-    if (remaining > 0) {
-      const primaryWhId = await getCachedPrimaryWhId();
-      const fallbackWh = primaryWhId || Object.keys(ws)[0];
-      if (fallbackWh) ws[fallbackWh] = (ws[fallbackWh] || 0) + remaining;
-    }
-
-    if (Object.keys(itemDed).length === 0) delete deductions[productId];
-    else deductions[productId] = itemDed;
-
-    if (orderDoc.exists) {
-      updates.push(db.collection('orders').doc(orderId).update({ 
-        warehouseDeductions: Object.keys(deductions).length > 0 ? deductions : null 
-      }));
-    }
-  } else {
-    const primaryWhId = await getCachedPrimaryWhId();
-    if (primaryWhId) {
-      ws[primaryWhId] = (ws[primaryWhId] || 0) + qty;
-    } else {
-      await db.collection('products').doc(productId).update({
-        stock: firebase.firestore.FieldValue.increment(qty)
-      });
-      return;
-    }
-  }
-
-  const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-  updates.push(db.collection('products').doc(productId).update({ warehouseStock: ws, stock: newTotal }));
-  await Promise.all(updates);
-}
-
-// Списание одного товара со склада (главный → остальные)
-async function deductStockForItem(orderId, productId, qty) {
-  if (!productId || !qty || qty <= 0) return;
-
-  // Параллельно: товар + главный склад + заказ + флаг паузы
-  const [productDoc, primaryWhId, orderDoc, whSettings] = await Promise.all([
-    db.collection('products').doc(productId).get(),
-    getCachedPrimaryWhId(),
-    db.collection('orders').doc(orderId).get(),
-    db.collection('settings').doc('warehouse').get()
-  ]);
-  if (!productDoc.exists) return;
-  
-  // Если ВСЕ склады на глобальной паузе — не списываем
-  if (whSettings.exists && whSettings.data().paused === true) return;
-
-  const product = productDoc.data();
-  
-  // Если у товара нет остатка и нет складов — он без лимита, не трогаем
-  const hasStock = typeof product.stock === 'number';
-  const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
-  if (!hasStock && !hasWarehouse) return;
-
-  // Загружаем список приостановленных складов (индивидуальная пауза)
-  const pausedWhIds = new Set();
-  try {
-    const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
-    whSnap.forEach(d => pausedWhIds.add(d.id));
-  } catch(e) {}
-  
-  const ws = product.warehouseStock || {};
-
-  let remaining = qty;
-  const itemDeductions = {};
-
-  // Сначала с главного склада (если не на паузе)
-  if (primaryWhId && !pausedWhIds.has(primaryWhId) && (ws[primaryWhId] || 0) > 0) {
-    const deduct = Math.min(remaining, ws[primaryWhId]);
-    ws[primaryWhId] -= deduct;
-    remaining -= deduct;
-    itemDeductions[primaryWhId] = deduct;
-  }
-
-  // Потом с остальных (пропуская приостановленные)
-  if (remaining > 0) {
-    const otherWh = Object.entries(ws)
-      .filter(([whId, whQty]) => whQty > 0 && whId !== primaryWhId && !pausedWhIds.has(whId))
-      .sort((a, b) => b[1] - a[1]);
-    for (const [whId, whQty] of otherWh) {
-      if (remaining <= 0) break;
-      const deduct = Math.min(remaining, whQty);
-      ws[whId] -= deduct;
-      remaining -= deduct;
-      itemDeductions[whId] = deduct;
-    }
-  }
-
-  const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-  const updates = [db.collection('products').doc(productId).update({ warehouseStock: ws, stock: newTotal })];
-
-  // Обновляем warehouseDeductions в заказе
-  if (Object.keys(itemDeductions).length > 0 && orderDoc.exists) {
-    const orderData = orderDoc.data();
-    const deductions = orderData.warehouseDeductions || {};
-    if (deductions[productId]) {
-      for (const [whId, dedQty] of Object.entries(itemDeductions)) {
-        deductions[productId][whId] = (deductions[productId][whId] || 0) + dedQty;
-      }
-    } else {
-      deductions[productId] = itemDeductions;
-    }
-    updates.push(db.collection('orders').doc(orderId).update({ warehouseDeductions: deductions }));
-  }
-
-  await Promise.all(updates);
-}
-
-// Возврат товаров на склад из заказа
-async function returnStockFromOrder(orderData) {
-  // Если при оформлении заказа товары не списывались — не возвращаем
-  if (orderData.stockDeducted === false) return;
-
-  // Проверяем паузу складов — если приостановлено, не возвращаем (товары не списывались)
-  try {
-    const whSettings = await db.collection('settings').doc('warehouse').get();
-    if (whSettings.exists && whSettings.data().paused === true) return;
-  } catch(e) {}
-
-  const deductions = orderData.warehouseDeductions || {};
-  const items = orderData.items || [];
-  if (!items.length) return;
-
-  const primaryWhId = await getCachedPrimaryWhId();
-
-  const batch = db.batch();
-
-  // Собираем все productId: из items + из deductions
-  const allProductIds = new Set();
-  items.forEach(i => { if (i.id) allProductIds.add(i.id); });
-  Object.keys(deductions).forEach(pid => allProductIds.add(pid));
-
-  // Параллельно читаем все товары
-  const productIds = [...allProductIds];
-  const productDocs = await Promise.all(
-    productIds.map(pid => db.collection('products').doc(pid).get())
-  );
-
-  for (let idx = 0; idx < productIds.length; idx++) {
-    const productId = productIds[idx];
-    const productDoc = productDocs[idx];
-    if (!productDoc.exists) continue;
-    const product = productDoc.data();
-    
-    // Если у товара не было ни stock, ни warehouseStock — он без лимита, не трогаем
-    const hasStock = typeof product.stock === 'number';
-    const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
-    const itemDed = deductions[productId];
-    const hasDeductions = itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0;
-    if (!hasStock && !hasWarehouse && !hasDeductions) continue;
-    
-    const ws = product.warehouseStock || {};
-    const item = items.find(i => i.id === productId);
-    let returnQty = 0;
-
-    if (itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0) {
-      // Есть данные о складах — возвращаем на те же склады
-      for (const [whId, qty] of Object.entries(itemDed)) {
-        ws[whId] = (ws[whId] || 0) + qty;
-        returnQty += qty;
-      }
-    } else if (item && item.qty > 0) {
-      // Нет deductions — возвращаем на главный склад
-      returnQty = item.qty;
-      if (primaryWhId) {
-        ws[primaryWhId] = (ws[primaryWhId] || 0) + returnQty;
-      } else {
-        batch.update(db.collection('products').doc(productId), {
-          stock: firebase.firestore.FieldValue.increment(returnQty)
-        });
-        continue;
-      }
-    }
-
-    if (returnQty > 0) {
-      const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-      batch.update(db.collection('products').doc(productId), { 
-        warehouseStock: ws, 
-        stock: newTotal 
-      });
-
-      // Движение: возврат
-      const movRef = db.collection('warehouseMovements').doc();
-      batch.set(movRef, {
-        productId,
-        productTitle: item ? item.title : product.title || '',
-        warehouseId: (itemDed ? Object.keys(itemDed)[0] : primaryWhId) || '',
-        warehouseName: '',
-        type: 'return',
-        qty: returnQty,
-        direction: 'in',
-        oldQty: 0,
-        newQty: returnQty,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        note: 'Возврат при отмене заказа'
-      });
-    }
-  }
-
-  await batch.commit();
-}
-
-// Мягкое удаление заказа (перемещение в архив)
+// Удалить заказ
 async function deleteOrder(orderId) {
   console.log('deleteOrder вызвана, orderId:', orderId);
   
   const result = await Swal.fire({
     title: 'Удалить заказ?',
-    html: 'Заказ будет перемещён в архив удалённых.<br><small style="color:#17a2b8;">💡 Вы сможете восстановить его позже.</small>',
+    html: 'Вы действительно хотите удалить весь заказ?<br><small style="color:#dc3545;">⚠️ Это действие нельзя отменить!</small>',
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#dc3545',
@@ -1066,39 +724,24 @@ async function deleteOrder(orderId) {
     cancelButtonText: 'Отмена'
   });
   
+  console.log('Результат Swal:', result);
+  
   if (!result.isConfirmed) return;
   
   try {
-    // Возвращаем товары на склад, если заказ не был отменён
-    const orderDoc = await db.collection('orders').doc(orderId).get();
-    if (orderDoc.exists) {
-      const orderData = orderDoc.data();
-      if (orderData.status !== 'cancelled') {
-        await returnStockFromOrder(orderData);
-      }
-    }
-
-    // Мягкое удаление: помечаем заказ как удалённый
-    await db.collection('orders').doc(orderId).update({
-      deleted: true,
-      deletedAt: Date.now(),
-      statusBeforeDelete: orderDoc.exists ? orderDoc.data().status : null
-    });
+    await db.collection('orders').doc(orderId).delete();
     
     if (Array.isArray(ordersManagementAllOrders)) {
-      const order = ordersManagementAllOrders.find(o => o.id === orderId);
-      if (order) {
-        order.deleted = true;
-        order.deletedAt = Date.now();
-        order.statusBeforeDelete = order.status;
+      const index = ordersManagementAllOrders.findIndex(o => o.id === orderId);
+      if (index !== -1) {
+        ordersManagementAllOrders.splice(index, 1);
       }
     }
     
     Swal.fire({
       icon: 'success',
-      title: 'Заказ удалён!',
-      text: 'Перемещён в архив. Можно восстановить.',
-      timer: 2000,
+      title: 'Заказ удален!',
+      timer: 1500,
       showConfirmButton: false
     });
     
@@ -1110,97 +753,17 @@ async function deleteOrder(orderId) {
   }
 }
 
-// Восстановить заказ из архива
-async function restoreOrder(orderId) {
-  const result = await Swal.fire({
-    title: 'Восстановить заказ?',
-    text: 'Заказ вернётся в список активных заказов.',
-    icon: 'question',
-    showCancelButton: true,
-    confirmButtonColor: '#28a745',
-    confirmButtonText: '✅ Восстановить',
-    cancelButtonText: 'Отмена'
-  });
-  if (!result.isConfirmed) return;
-  
-  try {
-    await db.collection('orders').doc(orderId).update({
-      deleted: firebase.firestore.FieldValue.delete(),
-      deletedAt: firebase.firestore.FieldValue.delete(),
-      statusBeforeDelete: firebase.firestore.FieldValue.delete()
-    });
-    
-    if (Array.isArray(ordersManagementAllOrders)) {
-      const order = ordersManagementAllOrders.find(o => o.id === orderId);
-      if (order) {
-        delete order.deleted;
-        delete order.deletedAt;
-        delete order.statusBeforeDelete;
-      }
-    }
-    
-    Swal.fire({ icon: 'success', title: 'Заказ восстановлен!', timer: 1500, showConfirmButton: false });
-    renderOrdersManagementFromCache();
-  } catch (error) {
-    console.error('Ошибка восстановления:', error);
-    Swal.fire('Ошибка', 'Не удалось восстановить заказ', 'error');
-  }
-}
-
-// Окончательное удаление из архива (безвозвратно)
-async function permanentDeleteOrder(orderId) {
-  const result = await Swal.fire({
-    title: 'Удалить навсегда?',
-    html: '<b style="color:#dc3545;">⚠️ Это действие нельзя отменить!</b><br>Заказ будет стёрт из базы навсегда.',
-    icon: 'error',
-    showCancelButton: true,
-    confirmButtonColor: '#dc3545',
-    confirmButtonText: '🗑️ Удалить навсегда',
-    cancelButtonText: 'Отмена'
-  });
-  if (!result.isConfirmed) return;
-  
-  try {
-    await db.collection('orders').doc(orderId).delete();
-    
-    if (Array.isArray(ordersManagementAllOrders)) {
-      const index = ordersManagementAllOrders.findIndex(o => o.id === orderId);
-      if (index !== -1) ordersManagementAllOrders.splice(index, 1);
-    }
-    
-    Swal.fire({ icon: 'success', title: 'Удалено навсегда!', timer: 1500, showConfirmButton: false });
-    renderOrdersManagementFromCache();
-  } catch (error) {
-    console.error('Ошибка окончательного удаления:', error);
-    Swal.fire('Ошибка', 'Не удалось удалить заказ', 'error');
-  }
-}
-
 // ===== МОДАЛЬНОЕ ОКНО ТОВАРОВ ЗАКАЗА =====
 
 function buildOrderItemsDetailTableHTML(orderId, items) {
-  // Панель массовых действий (выбрать все + удалить выбранные)
-  let html = `
-    <div id="bulkItemsToolbar_${orderId}" style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; margin-bottom:10px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:8px; position:sticky; top:0; z-index:5;">
-      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none;">
-        <input type="checkbox" id="selectAllOrderItems_${orderId}" onchange="toggleAllOrderItems('${orderId}', this.checked)" style="width:18px; height:18px; cursor:pointer;">
-        <span style="font-size:14px; font-weight:600; color:#333;">Выбрать все</span>
-        <span id="selectedItemsCount_${orderId}" style="font-size:12px; color:#888; margin-left:4px;">(0)</span>
-      </label>
-      <button id="bulkDeleteBtn_${orderId}" onclick="deleteSelectedOrderItems('${orderId}')" disabled
-        style="padding:8px 14px; background:#dc3545; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; opacity:0.5;">
-        🗑️ Удалить выбранные
-      </button>
-    </div>
-    <div class="order-items-cards">`;
+  let html = '<div class="order-items-cards">';
 
   items.forEach((item, idx) => {
     const itemTotal = (item.price || 0) * (item.qty || 0);
     const itemPhoto = item.image || item.photo || '';
-
+    
     html += `
       <div class="order-item-card" style="padding:10px; display:flex; gap:10px; align-items:flex-start;">
-        <input type="checkbox" class="orderItemSelect_${orderId}" data-item-index="${idx}" onchange="updateSelectedItemsToolbar('${orderId}')" style="width:20px; height:20px; cursor:pointer; margin-top:14px; flex-shrink:0;">
         ${itemPhoto ? `<img src="${itemPhoto}" style="width:50px; height:50px; object-fit:cover; border-radius:6px; flex-shrink:0;">` : '<div style="width:50px; height:50px; background:#f0f0f0; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;">📦</div>'}
         <div style="flex:1; min-width:0;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; gap:8px;">
@@ -1217,14 +780,7 @@ function buildOrderItemsDetailTableHTML(orderId, items) {
               min="0"
               oninput="updateOrderItemQtyManagement('${orderId}', ${idx}, this.value)"
               style="width:50px; padding:4px; border:1px solid #ddd; border-radius:4px; text-align:center; font-size:13px;">
-            <span style="color:#666; font-size:12px; display:flex; align-items:center; gap:2px;" data-price="${item.price}" data-product-id="${item.id || ''}">
-              × <input type="number"
-                id="itemPrice_${orderId}_${idx}"
-                value="${item.price}"
-                min="0"
-                oninput="updateOrderItemPrice('${orderId}', ${idx}, this.value)"
-                style="width:60px; padding:3px 4px; border:1px solid #ddd; border-radius:4px; text-align:center; font-size:12px; color:#333;">
-            </span>
+            <span style="color:#666; font-size:12px;" data-price="${item.price}">× ${item.price}</span>
             <div style="margin-left:auto; font-weight:700; color:#007bff; font-size:15px;" id="itemSum_${orderId}_${idx}">${itemTotal.toFixed(0)} сом</div>
           </div>
         </div>
@@ -1234,148 +790,6 @@ function buildOrderItemsDetailTableHTML(orderId, items) {
 
   html += '</div>';
   return html;
-}
-
-// Переключить все чекбоксы товаров заказа
-function toggleAllOrderItems(orderId, checked) {
-  const checkboxes = document.querySelectorAll('.orderItemSelect_' + orderId);
-  checkboxes.forEach(cb => { cb.checked = checked; });
-  updateSelectedItemsToolbar(orderId);
-}
-
-// Обновить счётчик и кнопку "Удалить выбранные"
-function updateSelectedItemsToolbar(orderId) {
-  const checkboxes = document.querySelectorAll('.orderItemSelect_' + orderId);
-  const checked = Array.from(checkboxes).filter(cb => cb.checked);
-  const count = checked.length;
-
-  const countEl = document.getElementById('selectedItemsCount_' + orderId);
-  if (countEl) countEl.textContent = `(${count})`;
-
-  const btn = document.getElementById('bulkDeleteBtn_' + orderId);
-  if (btn) {
-    btn.disabled = count === 0;
-    btn.style.opacity = count === 0 ? '0.5' : '1';
-    btn.style.cursor = count === 0 ? 'not-allowed' : 'pointer';
-    btn.textContent = count > 0 ? `🗑️ Удалить выбранные (${count})` : '🗑️ Удалить выбранные';
-  }
-
-  // Состояние "Выбрать все" — частично выбрано
-  const selectAllEl = document.getElementById('selectAllOrderItems_' + orderId);
-  if (selectAllEl) {
-    if (count === 0) {
-      selectAllEl.checked = false;
-      selectAllEl.indeterminate = false;
-    } else if (count === checkboxes.length) {
-      selectAllEl.checked = true;
-      selectAllEl.indeterminate = false;
-    } else {
-      selectAllEl.checked = false;
-      selectAllEl.indeterminate = true;
-    }
-  }
-}
-
-// Массовое удаление выбранных товаров из заказа
-async function deleteSelectedOrderItems(orderId) {
-  const checkboxes = document.querySelectorAll('.orderItemSelect_' + orderId);
-  const checked = Array.from(checkboxes).filter(cb => cb.checked);
-  if (checked.length === 0) return;
-
-  // Собираем индексы выбранных товаров
-  const indices = checked.map(cb => parseInt(cb.dataset.itemIndex)).filter(n => !isNaN(n));
-  if (indices.length === 0) return;
-
-  const result = await Swal.fire({
-    title: `Удалить ${indices.length} товар(ов)?`,
-    text: 'Выбранные товары будут удалены из заказа, остатки вернутся на склад.',
-    icon: 'warning',
-    showCancelButton: true,
-    confirmButtonColor: '#dc3545',
-    cancelButtonColor: '#6c757d',
-    confirmButtonText: `Да, удалить (${indices.length})`,
-    cancelButtonText: 'Отмена'
-  });
-  if (!result.isConfirmed) return;
-
-  try {
-    const orderDoc = await db.collection('orders').doc(orderId).get();
-    if (!orderDoc.exists) throw new Error('Заказ не найден');
-
-    const orderData = orderDoc.data();
-    const items = orderData.items || [];
-
-    // Запоминаем удаляемые товары для возврата на склад
-    const removedItems = indices.map(i => items[i]).filter(Boolean);
-
-    // Удаляем по убыванию индексов, чтобы не сбить нумерацию
-    const sortedIndices = indices.slice().sort((a, b) => b - a);
-    sortedIndices.forEach(i => items.splice(i, 1));
-
-    // Возвращаем удалённые товары на склад (если заказ не отменён)
-    if (orderData.status !== 'cancelled') {
-      for (const removed of removedItems) {
-        if (removed && removed.id && removed.qty > 0) {
-          try {
-            await returnStockForItem(orderId, removed.id, removed.qty);
-          } catch (e) {
-            console.warn('Не удалось вернуть на склад:', removed.title, e);
-          }
-        }
-      }
-    }
-
-    if (items.length === 0) {
-      await Swal.fire({
-        title: 'Заказ пуст',
-        text: 'В заказе не осталось товаров. Заказ будет удалён.',
-        icon: 'warning',
-        confirmButtonText: 'Понятно'
-      });
-      await db.collection('orders').doc(orderId).delete();
-
-      if (Array.isArray(ordersManagementAllOrders)) {
-        const idx = ordersManagementAllOrders.findIndex(o => o.id === orderId);
-        if (idx !== -1) ordersManagementAllOrders.splice(idx, 1);
-      }
-
-      closeOrderItemsDetailModal();
-      renderOrdersManagementFromCache();
-      return;
-    }
-
-    const total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
-    await db.collection('orders').doc(orderId).update({ items, total });
-
-    if (Array.isArray(ordersManagementAllOrders)) {
-      const order = ordersManagementAllOrders.find(o => o.id === orderId);
-      if (order) {
-        order.items = items;
-        order.total = total;
-      }
-    }
-
-    Swal.fire({
-      icon: 'success',
-      title: `Удалено ${removedItems.length} товар(ов)`,
-      timer: 1500,
-      showConfirmButton: false
-    });
-
-    // Перерисовываем модал товаров
-    const infoEl = document.getElementById('orderItemsDetailInfo');
-    let clientName = '', dateStr = '';
-    if (infoEl) {
-      const txt = infoEl.textContent;
-      try { clientName = txt.split('👤')[1].split('•')[0].trim(); } catch (e) {}
-      try { dateStr = txt.split('📅')[1].trim(); } catch (e) {}
-    }
-    await openOrderItemsDetailModal(orderId, clientName, '', dateStr);
-    renderOrdersManagementFromCache();
-  } catch (error) {
-    console.error('Ошибка массового удаления:', error);
-    Swal.fire('Ошибка', 'Не удалось удалить выбранные товары', 'error');
-  }
 }
 
 async function openOrderItemsDetailModal(orderId, clientName, clientPhone, dateStr) {
@@ -1470,77 +884,6 @@ function closeOrderItemsDetailModal() {
 // Обновить количество товара в заказе
 // Дебаунс для предотвращения частых запросов
 let updateQtyTimeout = null;
-let updatePriceTimeout = null;
-
-// Редактирование цены товара ТОЛЬКО в этом заказе (цены на сайте не меняются)
-async function updateOrderItemPrice(orderId, itemIndex, newPrice) {
-  const price = parseFloat(newPrice) || 0;
-
-  // Моментально обновляем UI
-  const qtyEl = document.getElementById(`itemQty_${orderId}_${itemIndex}`);
-  const sumEl = document.getElementById(`itemSum_${orderId}_${itemIndex}`);
-  const qty = qtyEl ? (parseInt(qtyEl.value) || 0) : 0;
-
-  if (sumEl) {
-    sumEl.textContent = (price * qty).toFixed(0) + ' сом';
-  }
-
-  // Обновляем data-price на span
-  const priceSpan = document.getElementById(`itemPrice_${orderId}_${itemIndex}`)?.closest('[data-price]');
-  if (priceSpan) priceSpan.dataset.price = price;
-
-  // Пересчитываем общий итог
-  let grandTotal = 0;
-  document.querySelectorAll('[id^="itemSum_"]').forEach(el => {
-    const match = el.textContent.match(/(\d+\.?\d*)/);
-    if (match) grandTotal += parseFloat(match[1]);
-  });
-  const totalDiv = document.getElementById('orderItemsDetailTotal');
-  if (totalDiv) {
-    totalDiv.innerHTML = `
-      <div style="font-weight:700; color:#333;">Итого</div>
-      <div style="font-size:18px; font-weight:800; color:#28a745; white-space:nowrap;">${grandTotal.toFixed(2)} сом</div>
-    `;
-  }
-
-  // Дебаунс — сохраняем в Firebase через 600мс
-  clearTimeout(updatePriceTimeout);
-  updatePriceTimeout = setTimeout(async () => {
-    try {
-      const orderDoc = await db.collection('orders').doc(orderId).get();
-      if (!orderDoc.exists) return;
-
-      const orderData = orderDoc.data();
-      const items = orderData.items || [];
-
-      if (items[itemIndex]) {
-        // Сохраняем оригинальную цену для справки (если ещё не сохранена)
-        if (items[itemIndex].originalPrice === undefined) {
-          items[itemIndex].originalPrice = items[itemIndex].price;
-        }
-        items[itemIndex].price = price;
-
-        const total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
-
-        // Обновляем ТОЛЬКО заказ — цены на сайте НЕ трогаем
-        await db.collection('orders').doc(orderId).update({ items, total });
-
-        // Обновляем локальный кэш
-        if (Array.isArray(ordersManagementAllOrders)) {
-          const order = ordersManagementAllOrders.find(o => o.id === orderId);
-          if (order) {
-            order.items = items;
-            order.total = total;
-          }
-        }
-        renderOrdersManagementFromCache();
-      }
-    } catch (error) {
-      console.error('Ошибка обновления цены в заказе:', error);
-      Swal.fire('Ошибка', 'Не удалось обновить цену', 'error');
-    }
-  }, 600);
-}
 
 async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
   const qty = parseInt(newQty) || 0;
@@ -1552,14 +895,7 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
     const sumEl = document.getElementById(`itemSum_${orderId}_${itemIndex}`);
     
     if (priceEl && sumEl) {
-      let price = parseInt(priceEl.dataset.price) || 0;
-      
-      // Проверяем была ли цена изменена вручную — если да, не перезаписываем
-      const priceInput = document.getElementById(`itemPrice_${orderId}_${itemIndex}`);
-      if (priceInput) {
-        price = parseFloat(priceInput.value) || 0;
-      }
-      
+      const price = parseInt(priceEl.dataset.price) || 0;
       const itemTotal = price * qty;
       sumEl.textContent = itemTotal + ' сом';
     }
@@ -1592,40 +928,18 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
       const items = orderData.items || [];
       
       if (items[itemIndex]) {
-        const oldQty = items[itemIndex].qty || 0;
         items[itemIndex].qty = qty;
-        
-        // Цену не трогаем — она может быть изменена вручную
-        // Берём цену из поля ввода если есть
-        const priceInput = document.getElementById(`itemPrice_${orderId}_${itemIndex}`);
-        if (priceInput) {
-          items[itemIndex].price = parseFloat(priceInput.value) || items[itemIndex].price;
-        }
-      
-        const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
-      
-        // Сначала сохраняем items/total
-        await db.collection('orders').doc(orderId).update({ items, total });
-
-        // Потом корректируем склад (функция сама обновит warehouseDeductions)
-        const itemId = items[itemIndex].id;
-        const diff = qty - oldQty;
-        if (diff > 0 && itemId) {
-          await deductStockForItem(orderId, itemId, diff);
-        } else if (diff < 0 && itemId) {
-          await returnStockForItem(orderId, itemId, Math.abs(diff));
-        }
-      } else {
-        const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
-        await db.collection('orders').doc(orderId).update({ items, total });
       }
       
-      const updatedTotal = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      
+      await db.collection('orders').doc(orderId).update({ items, total });
+      
       if (Array.isArray(ordersManagementAllOrders)) {
         const order = ordersManagementAllOrders.find(o => o.id === orderId);
         if (order) {
           order.items = items;
-          order.total = updatedTotal;
+          order.total = total;
         }
       }
       
@@ -1661,14 +975,7 @@ async function deleteOrderItemFromModal(orderId, itemIndex) {
     const orderData = orderDoc.data();
     const items = orderData.items || [];
     
-    // Запоминаем удаляемый товар для возврата на склад
-    const removedItem = items[itemIndex];
     items.splice(itemIndex, 1);
-
-    // Возвращаем удалённый товар на склад
-    if (removedItem && removedItem.id && removedItem.qty > 0 && orderData.status !== 'cancelled') {
-      await returnStockForItem(orderId, removedItem.id, removedItem.qty);
-    }
     
     if (items.length === 0) {
       await Swal.fire({
@@ -2014,19 +1321,15 @@ async function loadProductsToAdd() {
       const productCostPrice = product.costPrice || 0;
       const productPhoto = product.image || product.photo;
       
-      const optQty = product.optQty || 0;
-      const optPrice = product.optPrice || 0;
-      
       productCard.innerHTML = `
         <div style="display:flex; gap:12px; align-items:center;">
           ${productPhoto ? `<img src="${productPhoto}" style="width:60px; height:60px; object-fit:cover; border-radius:6px;">` : '<div style="width:60px; height:60px; background:#f0f0f0; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:24px;">📦</div>'}
           <div style="flex:1;">
             <div style="font-weight:600; margin-bottom:4px;">${productName}</div>
             <div style="font-size:13px; color:#666;">💰 ${productPrice} сом</div>
-            ${optQty && optPrice ? `<div style="font-size:12px; color:#e65100; margin-top:2px;">📦 Опт от ${optQty} шт: ${optPrice} сом</div>` : ''}
             ${product.category ? `<div style="font-size:12px; color:#888; margin-top:2px;">📁 ${product.category}</div>` : ''}
           </div>
-          <button onclick="askQtyAndAddProduct('${doc.id}', '${productName.replace(/'/g, "\\'")}', ${productPrice}, ${productCostPrice}, '${(productPhoto || '').replace(/'/g, "\\'")}', ${optQty}, ${optPrice}); event.stopPropagation();" style="padding:8px 16px; background:#17a2b8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; white-space:nowrap;">
+          <button onclick="askQtyAndAddProduct('${doc.id}', '${productName.replace(/'/g, "\\'")}', ${productPrice}, ${productCostPrice}, '${(productPhoto || '').replace(/'/g, "\\'")}'); event.stopPropagation();" style="padding:8px 16px; background:#17a2b8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; white-space:nowrap;">
             ➕ Добавить
           </button>
         </div>
@@ -2068,7 +1371,7 @@ function filterProductsToAdd() {
   });
 }
 
-async function addProductToOrder(productId, productName, productPrice, productCostPrice, qty = 1, productPhoto = '', optQty = 0, optPrice = 0) {
+async function addProductToOrder(productId, productName, productPrice, productCostPrice, qty = 1, productPhoto = '') {
   if (!currentOrderIdForAddItem) {
     Swal.fire('Ошибка', 'Не выбран заказ', 'error');
     return;
@@ -2103,23 +1406,11 @@ async function addProductToOrder(productId, productName, productPrice, productCo
     
     if (existingItemIndex !== -1) {
       items[existingItemIndex].qty += qty;
-      // Пересчитываем цену с учётом оптовой
-      const totalQty = items[existingItemIndex].qty;
-      if (optQty && totalQty >= optQty && optPrice) {
-        items[existingItemIndex].price = optPrice;
-      } else {
-        items[existingItemIndex].price = productPrice;
-      }
     } else {
-      // Определяем цену: оптовая или обычная
-      let finalPrice = productPrice;
-      if (optQty && qty >= optQty && optPrice) {
-        finalPrice = optPrice;
-      }
       const newItem = {
         id: productId,
         title: productName,
-        price: finalPrice,
+        price: productPrice,
         costPrice: productCostPrice,
         qty: qty
       };
@@ -2135,10 +1426,6 @@ async function addProductToOrder(productId, productName, productPrice, productCo
       items,
       total
     });
-
-    // Списываем добавленный товар со склада
-    await deductStockForItem(orderId, productId, qty);
-    console.log('✅ Товар списан со склада:', productId, 'кол-во:', qty);
     
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -2151,19 +1438,15 @@ async function addProductToOrder(productId, productName, productPrice, productCo
     renderOrdersManagementFromCache();
     
   } catch (error) {
-    console.error('❌ Ошибка добавления товара:', error);
-    Swal.fire('Ошибка', 'Не удалось добавить товар: ' + error.message, 'error');
+    console.error('Ошибка добавления товара:', error);
   }
 }
 
 // Спросить количество перед добавлением
-async function askQtyAndAddProduct(productId, productName, productPrice, productCostPrice, productPhoto, optQty, optPrice) {
-  optQty = optQty || 0;
-  optPrice = optPrice || 0;
-  
+async function askQtyAndAddProduct(productId, productName, productPrice, productCostPrice, productPhoto) {
   const { value: qty } = await Swal.fire({
     title: 'Количество',
-    html: `${productName}${optQty && optPrice ? `<br><small style="color:#e65100;">📦 Опт от ${optQty} шт: ${optPrice} сом</small>` : ''}`,
+    text: productName,
     input: 'number',
     inputValue: 1,
     inputAttributes: {
@@ -2183,202 +1466,16 @@ async function askQtyAndAddProduct(productId, productName, productPrice, product
   });
   
   if (qty) {
-    addProductToOrder(productId, productName, productPrice, productCostPrice, parseInt(qty), productPhoto, optQty, optPrice);
+    addProductToOrder(productId, productName, productPrice, productCostPrice, parseInt(qty), productPhoto);
   }
 }
 
 // ===== ЭКСПОРТ ЗАКАЗА В TELEGRAM (3 файла: Excel + 2 PDF через Canvas) =====
 // Копия оригинального кода из orders.js с поддержкой пач/шт и коробок
 
-// Сжатие изображения для встраивания в PDF
-// renderDim = разрешение рендера (пиксели), displayDim = размер ячейки в макете
-function compressImageForPDF(base64Data, renderDim, quality) {
-  renderDim = renderDim || 400;
-  quality = quality || 0.9;
-  return new Promise(function(resolve) {
-    var img = new Image();
-    img.onload = function() {
-      var w = img.width;
-      var h = img.height;
-      // Масштабируем до renderDim для высокого качества
-      if (w > renderDim || h > renderDim) {
-        var s = Math.min(renderDim / w, renderDim / h);
-        w = Math.round(w * s);
-        h = Math.round(h * s);
-      }
-      var c = document.createElement('canvas');
-      c.width = w;
-      c.height = h;
-      c.getContext('2d').drawImage(img, 0, 0, w, h);
-      resolve({ data: c.toDataURL('image/jpeg', quality), width: w, height: h });
-    };
-    img.onerror = function() { console.error('compressImageForPDF: ошибка загрузки'); resolve(null); };
-    img.src = base64Data;
-  });
-}
-
-// Оптимизация URL Cloudinary — запрос маленького изображения с сервера
-function getSmallImageUrl(url, width, quality) {
-  width = width || 200;
-  quality = quality || 95;
-  if (!url || typeof url !== 'string') return url;
-  try {
-    // Убираем существующие трансформации перед добавлением новых
-    if (url.includes('cloudinary.com') && url.includes('/upload/')) {
-      // Ищем /upload/ и следующий за ним блок трансформаций (w_xxx,q_xxx,...)
-      var cleanUrl = url.replace(/\/upload\/[a-z][a-z0-9_,]+\//, '/upload/');
-      return cleanUrl.replace('/upload/', '/upload/w_' + width + ',q_' + quality + ',f_jpg/');
-    }
-  } catch (e) {}
-  return url;
-}
-
-// Надёжная загрузка изображения как base64 через Image элемент (не fetch)
-function loadImageToBase64(url, timeoutMs) {
-  timeoutMs = timeoutMs || 10000;
-  return new Promise(function(resolve) {
-    var done = false;
-    var timer = setTimeout(function() {
-      if (!done) { done = true; resolve(null); }
-    }, timeoutMs);
-
-    var img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = function() {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      try {
-        var c = document.createElement('canvas');
-        c.width = img.naturalWidth || img.width;
-        c.height = img.naturalHeight || img.height;
-        c.getContext('2d').drawImage(img, 0, 0);
-        resolve(c.toDataURL('image/jpeg', 0.95));
-      } catch(e) {
-        console.warn('Canvas tainted, trying proxy:', url);
-        resolve(null);
-      }
-    };
-    img.onerror = function() {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(null);
-    };
-    img.src = url;
-  });
-}
-
-// Загрузка фото с несколькими попытками (Cloudinary → прокси → оригинал)
-async function loadProductPhoto(imageUrl) {
-  if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) return null;
-
-  // Попытка 1: Cloudinary с трансформацией
-  var smallUrl = getSmallImageUrl(imageUrl, 600, 95);
-  var result = await loadImageToBase64(smallUrl, 8000);
-  if (result) return result;
-
-  // Попытка 2: прокси wsrv.nl
-  var proxyUrl = 'https://wsrv.nl/?url=' + encodeURIComponent(imageUrl) + '&w=600&q=95&output=jpg';
-  result = await loadImageToBase64(proxyUrl, 8000);
-  if (result) return result;
-
-  // Попытка 3: оригинальный URL напрямую
-  result = await loadImageToBase64(imageUrl, 8000);
-  if (result) return result;
-
-  console.warn('Все попытки загрузки фото не удались:', imageUrl.substring(0, 60));
-  return null;
-}
-
-// ===== ВРЕМЕННО: скачивание файлов через браузер =====
-// Используется как обходной путь, пока Telegram не работает.
-// Браузер сам инициирует загрузку blob через временную ссылку <a download>.
-function downloadBlob(blob, fileName) {
-  try {
-    if (!blob) return false;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName || 'file';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function() {
-      try { document.body.removeChild(a); } catch (e) {}
-      try { URL.revokeObjectURL(url); } catch (e) {}
-    }, 1500);
-    return true;
-  } catch (e) {
-    console.error('downloadBlob error:', e);
-    return false;
-  }
-}
-
 async function exportOrderToExcel(orderId, clientName, clientPhone) {
   console.log('exportOrderToExcel вызвана, orderId:', orderId);
   
-  // ===== СРАЗУ показываем диалог выбора файлов =====
-  const fileChoice = await Swal.fire({
-    title: '📎 Выберите файлы',
-    html: `
-      <div style="text-align:left; padding:10px 0;">
-        <p style="margin-bottom:10px; color:#666;">Отмеченные файлы <b>скачаются на компьютер</b> и параллельно будут отправлены в Telegram (если он работает):</p>
-        <div style="background:#fff3cd; color:#856404; padding:8px 12px; border-radius:8px; font-size:12px; margin-bottom:12px;">
-          ⚠️ Telegram временно может не работать — файлы всё равно сохранятся в браузере (папка «Загрузки»).
-        </div>
-        <label style="display:flex; align-items:center; gap:10px; padding:12px; margin-bottom:8px; background:#f8f9fa; border-radius:8px; cursor:pointer;">
-          <input type="checkbox" id="swal-file-excel" checked style="width:20px; height:20px; cursor:pointer;">
-          <div>
-            <strong style="color:#217346;">📊 Excel файл</strong>
-            <div style="font-size:12px; color:#888;">Таблица с заказом</div>
-          </div>
-        </label>
-        <label style="display:flex; align-items:center; gap:10px; padding:12px; margin-bottom:8px; background:#f8f9fa; border-radius:8px; cursor:pointer;">
-          <input type="checkbox" id="swal-file-print" checked style="width:20px; height:20px; cursor:pointer;">
-          <div>
-            <strong style="color:#d32f2f;">🖨️ PDF для печати</strong>
-            <div style="font-size:12px; color:#888;">Без фото товаров</div>
-          </div>
-        </label>
-        <label style="display:flex; align-items:center; gap:10px; padding:12px; margin-bottom:8px; background:#f8f9fa; border-radius:8px; cursor:pointer;">
-          <input type="checkbox" id="swal-file-photo" checked style="width:20px; height:20px; cursor:pointer;">
-          <div>
-            <strong style="color:#1565c0;">📷 PDF с фото</strong>
-            <div style="font-size:12px; color:#888;">С фотографиями товаров</div>
-          </div>
-        </label>
-        <label style="display:flex; align-items:center; gap:10px; padding:12px; margin-bottom:8px; background:#f8f9fa; border-radius:8px; cursor:pointer;">
-          <input type="checkbox" id="swal-file-compact" checked style="width:20px; height:20px; cursor:pointer;">
-          <div>
-            <strong style="color:#7b1fa2;">🗂️ PDF компакт (мелкие фото)</strong>
-            <div style="font-size:12px; color:#888;">Много товаров на одном листе для печати</div>
-          </div>
-        </label>
-      </div>
-    `,
-    confirmButtonText: '💾 Скачать + 📤 Telegram',
-    confirmButtonColor: '#28a745',
-    showCancelButton: true,
-    cancelButtonText: '❌ Отмена',
-    cancelButtonColor: '#6c757d',
-    preConfirm: () => {
-      const sendExcel = document.getElementById('swal-file-excel').checked;
-      const sendPrint = document.getElementById('swal-file-print').checked;
-      const sendPhoto = document.getElementById('swal-file-photo').checked;
-      const sendCompact = document.getElementById('swal-file-compact').checked;
-      if (!sendExcel && !sendPrint && !sendPhoto && !sendCompact) {
-        Swal.showValidationMessage('Выберите хотя бы один файл');
-        return false;
-      }
-      return { sendExcel, sendPrint, sendPhoto, sendCompact };
-    }
-  });
-
-  if (!fileChoice.isConfirmed || !fileChoice.value) return;
-
-  const { sendExcel, sendPrint, sendPhoto, sendCompact } = fileChoice.value;
-
   Swal.fire({
     title: 'Подготовка заказа...',
     html: 'Загрузка данных...',
@@ -2390,8 +1487,7 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
   });
   
   try {
-    if (!db) throw new Error('Нет подключения к базе данных');
-
+    // Загружаем заказ
     const orderDoc = await db.collection('orders').doc(orderId).get();
     
     if (!orderDoc.exists) {
@@ -2428,13 +1524,8 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     const driverPhone = order.driverPhone || '';
     const hasDriver = driverName || driverPhone;
     
-    const { jsPDF } = window.jspdf;
-    let yPosition;
-    
-    // ===== 1. Создаем Excel файл (если выбран) =====
-    let excelBlob = null;
-    if (sendExcel) {
-    Swal.update({ html: 'Создание Excel файла...' });
+    // ===== 1. Создаем Excel файл =====
+    Swal.update({ html: 'Создание Excel файла (1/3)' });
     
     const excelData = [
       ['ЗАКАЗ КЛИЕНТА'],
@@ -2492,17 +1583,15 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     XLSX.utils.book_append_sheet(wb, ws, 'Заказ');
     
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    excelBlob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    } // end if sendExcel
+    const excelBlob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     
-    // ===== 2. Создаем PDF #1 (Заказ для печати БЕЗ ФОТО, если выбран) =====
-    let pdf1Blob = null;
-    if (sendPrint) {
-    Swal.update({ html: 'Создание PDF для печати...' });
+    // ===== 2. Создаем PDF #1 (Заказ для печати БЕЗ ФОТО) =====
+    Swal.update({ html: 'Создание PDF для печати (2/3)' });
     
+    const { jsPDF } = window.jspdf;
     const doc1 = new jsPDF();
     const scale = 1.5;
-    yPosition = 2;
+    let yPosition = 2;
     
     // Заголовок
     const headerCanvas = document.createElement('canvas');
@@ -2673,746 +1762,352 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
     const totalImage = totalCanvas.toDataURL('image/png');
     doc1.addImage(totalImage, 'PNG', 20, yPosition, 170, 14);
     
-    pdf1Blob = doc1.output('blob');
-    } // end if sendPrint
+    const pdf1Blob = doc1.output('blob');
     
-    // ===== 3. Создаем PDF #2 (С ФОТОГРАФИЯМИ ТОВАРОВ, если выбран) =====
-    let pdf2Blob = null;
-    const MAX_PDF_SIZE = 40 * 1024 * 1024; // 40 MB лимит
-    if (sendPhoto) {
-    Swal.update({ html: 'Загрузка фото товаров...' });
+    // ===== 3. Создаем PDF #2 (С ФОТОГРАФИЯМИ ТОВАРОВ) =====
+    Swal.update({ html: 'Создание PDF с фото (3/3)' });
     
-    // Шаг 1: Предварительная загрузка всех изображений через Image элемент
-    const preloadedImages = [];
-    let loadedCount = 0;
+    const doc2 = new jsPDF();
+    yPosition = 20;
+    
+    // Заголовок
+    const header2Canvas = document.createElement('canvas');
+    const header2Ctx = header2Canvas.getContext('2d');
+    header2Canvas.width = 600;
+    header2Canvas.height = 50;
+    
+    header2Ctx.fillStyle = 'white';
+    header2Ctx.fillRect(0, 0, 600, 50);
+    header2Ctx.fillStyle = 'black';
+    header2Ctx.font = 'bold 24px Arial';
+    header2Ctx.textAlign = 'center';
+    header2Ctx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
+    
+    const header2Image = header2Canvas.toDataURL('image/png');
+    doc2.addImage(header2Image, 'PNG', 20, yPosition, 170, 15);
+    yPosition += 20;
+    
+    // Информация о заказе в рамке
+    const info2Height = hasDriver ? 170 : 120;
+    const info2Canvas = document.createElement('canvas');
+    const info2Ctx = info2Canvas.getContext('2d');
+    info2Canvas.width = 700;
+    info2Canvas.height = info2Height;
+    
+    info2Ctx.fillStyle = 'white';
+    info2Ctx.fillRect(0, 0, 700, info2Height);
+    info2Ctx.strokeStyle = 'black';
+    info2Ctx.lineWidth = 2;
+    info2Ctx.strokeRect(0, 0, 700, info2Height);
+    
+    info2Ctx.fillStyle = 'black';
+    info2Ctx.font = '16px Arial';
+    info2Ctx.fillText(`Дата/Время: ${dateStr}`, 15, 30);
+    info2Ctx.fillText(`Имя клиента: ${clientName}`, 15, 55);
+    info2Ctx.fillText(`Телефон: ${clientPhone}`, 15, 80);
+    info2Ctx.fillText(`Адрес: ${address}`, 15, 105);
+    
+    if (hasDriver) {
+      info2Ctx.fillText(`Водитель: ${driverName || '-'}`, 15, 130);
+      info2Ctx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
+    }
+    
+    const info2Image = info2Canvas.toDataURL('image/png');
+    const info2ImageHeight = hasDriver ? 42 : 30;
+    doc2.addImage(info2Image, 'PNG', 20, yPosition, 170, info2ImageHeight);
+    yPosition += info2ImageHeight + 5;
+    
+    // Заголовок таблицы с колонкой ФОТО
+    const th2Canvas = document.createElement('canvas');
+    const th2Ctx = th2Canvas.getContext('2d');
+    th2Canvas.width = 550;
+    th2Canvas.height = 50;
+    
+    th2Ctx.fillStyle = '#e0e0e0';
+    th2Ctx.fillRect(0, 0, 550, 50);
+    th2Ctx.strokeStyle = 'black';
+    th2Ctx.lineWidth = 2;
+    th2Ctx.strokeRect(0, 0, 550, 50);
+    
+    th2Ctx.beginPath();
+    th2Ctx.moveTo(70, 0); th2Ctx.lineTo(70, 50);
+    th2Ctx.moveTo(270, 0); th2Ctx.lineTo(270, 50);
+    th2Ctx.moveTo(410, 0); th2Ctx.lineTo(410, 50);
+    th2Ctx.moveTo(480, 0); th2Ctx.lineTo(480, 50);
+    th2Ctx.stroke();
+    
+    th2Ctx.fillStyle = 'black';
+    th2Ctx.font = 'bold 14px Arial';
+    th2Ctx.textAlign = 'center';
+    th2Ctx.fillText('ФОТО', 35, 32);
+    th2Ctx.fillText('НАЗВАНИЕ', 170, 32);
+    th2Ctx.fillText('КОЛ-ВО', 340, 32);
+    th2Ctx.fillText('ЦЕНА', 445, 32);
+    th2Ctx.fillText('СУММА', 515, 32);
+    
+    const th2Image = th2Canvas.toDataURL('image/png');
+    doc2.addImage(th2Image, 'PNG', 20, yPosition, 170, 12);
+    yPosition += 12;
+    
+    // Товары С ФОТОГРАФИЯМИ
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      
+      if (yPosition > 240) {
+        doc2.addPage();
+        yPosition = 20;
+      }
+      
+      // Получаем данные продукта
       const product = productsMap[item.id] || productsMap[item.productId] || {};
+      const isPack = item.isPack || product.isPack || false;
+      const unitLabel = isPack ? 'пач' : 'шт';
+      const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
+      
+      // Рассчитываем количество коробок
+      const boxCount = Math.floor(item.qty / unitsPerBox);
+      const remainingUnits = item.qty % unitsPerBox;
+      
+      // Формируем строку количества в коробках (короткий формат)
+      let qtyLine1 = '';
+      let qtyLine2 = '';
+      if (boxCount > 0 && remainingUnits === 0) {
+        qtyLine1 = `${boxCount} кор`;
+        qtyLine2 = `(${unitsPerBox} ${unitLabel})`;
+      } else if (boxCount > 0 && remainingUnits > 0) {
+        qtyLine1 = `${boxCount} кор`;
+        qtyLine2 = `+${remainingUnits} ${unitLabel}`;
+      } else {
+        qtyLine1 = `${item.qty} ${unitLabel}`;
+        qtyLine2 = '';
+      }
+      
+      // Загружаем фото товара
+      let photoWidth = 90;
+      let photoHeight = 90;
+      let photoData = null;
+      
+      // Берём фото из item.image или из productsMap
       let imageUrl = item.image || product.image;
       
-      Swal.update({ html: `Загрузка фото ${++loadedCount}/${items.length}...` });
-      
       if (imageUrl && imageUrl.startsWith('http')) {
-        preloadedImages[i] = await loadProductPhoto(imageUrl);
-        if (preloadedImages[i]) {
-          console.log('✓ Фото загружено:', (item.title || '').substring(0, 30));
-        } else {
-          console.warn('✗ Фото не загружено:', (item.title || '').substring(0, 30), imageUrl.substring(0, 60));
+        try {
+          const response = await fetch(imageUrl);
+          const blob = await response.blob();
+          
+          const reader = new FileReader();
+          const base64 = await new Promise((resolve) => {
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(blob);
+          });
+          
+          photoData = base64;
+          
+          const img = new Image();
+          await new Promise((resolve) => {
+            img.onload = resolve;
+            img.src = base64;
+          });
+          
+          const maxPhotoWidth = 100;
+          const maxPhotoHeight = 100;
+          
+          let finalWidth = img.width;
+          let finalHeight = img.height;
+          
+          if (finalWidth > maxPhotoWidth || finalHeight > maxPhotoHeight) {
+            const imgScale = Math.min(maxPhotoWidth / finalWidth, maxPhotoHeight / finalHeight);
+            finalWidth = finalWidth * imgScale;
+            finalHeight = finalHeight * imgScale;
+          }
+          
+          photoWidth = finalWidth;
+          photoHeight = finalHeight;
+          
+          console.log('✓ Фото загружено:', item.title);
+        } catch (err) {
+          console.error('✗ Ошибка фото:', item.title, err);
         }
+      }
+      
+      // Высота строки = высота фото + отступы
+      const rowHeight = Math.max(photoHeight + 10, 100);
+      const photoColumnWidth = Math.max(photoWidth + 10, 70);
+      const totalWidth = photoColumnWidth + 480;
+      
+      const row2Canvas = document.createElement('canvas');
+      const row2Ctx = row2Canvas.getContext('2d');
+      row2Canvas.width = totalWidth;
+      row2Canvas.height = rowHeight;
+      
+      row2Ctx.fillStyle = 'white';
+      row2Ctx.fillRect(0, 0, totalWidth, rowHeight);
+      row2Ctx.strokeStyle = 'black';
+      row2Ctx.lineWidth = 2;
+      row2Ctx.strokeRect(0, 0, totalWidth, rowHeight);
+      
+      // Вертикальные линии
+      const col2 = photoColumnWidth;
+      const col3 = photoColumnWidth + 200;
+      const col4 = photoColumnWidth + 340;
+      const col5 = photoColumnWidth + 410;
+      
+      row2Ctx.beginPath();
+      row2Ctx.moveTo(col2, 0); row2Ctx.lineTo(col2, rowHeight);
+      row2Ctx.moveTo(col3, 0); row2Ctx.lineTo(col3, rowHeight);
+      row2Ctx.moveTo(col4, 0); row2Ctx.lineTo(col4, rowHeight);
+      row2Ctx.moveTo(col5, 0); row2Ctx.lineTo(col5, rowHeight);
+      row2Ctx.stroke();
+      
+      row2Ctx.fillStyle = 'black';
+      row2Ctx.font = '13px Arial';
+      
+      const midY = rowHeight / 2;
+      
+      // Название (с переносом если длинное) + вариант
+      row2Ctx.textAlign = 'left';
+      const title = item.title || 'Товар';
+      const variantText = item.variantName ? ` [${item.variantName}]` : '';
+      const fullTitle = title + variantText;
+      
+      if (fullTitle.length > 28) {
+        row2Ctx.fillText(fullTitle.substring(0, 28), col2 + 5, midY - 5);
+        row2Ctx.fillText(fullTitle.substring(28), col2 + 5, midY + 10);
       } else {
-        preloadedImages[i] = null;
+        row2Ctx.fillText(fullTitle, col2 + 5, midY);
       }
+      
+      // Количество (в коробках, две строки)
+      row2Ctx.textAlign = 'center';
+      row2Ctx.font = 'bold 12px Arial';
+      row2Ctx.fillText(qtyLine1, (col3 + col4) / 2, midY - 5);
+      if (qtyLine2) {
+        row2Ctx.font = '11px Arial';
+        row2Ctx.fillText(qtyLine2, (col3 + col4) / 2, midY + 10);
+      }
+      row2Ctx.font = '13px Arial';
+      
+      // Цена
+      row2Ctx.fillText(`${item.price}`, (col4 + col5) / 2, midY - 5);
+      row2Ctx.font = '11px Arial';
+      row2Ctx.fillText('сом', (col4 + col5) / 2, midY + 8);
+      
+      // Сумма
+      row2Ctx.font = 'bold 13px Arial';
+      row2Ctx.fillText(`${item.qty * item.price}`, (col5 + totalWidth) / 2, midY - 5);
+      row2Ctx.font = '11px Arial';
+      row2Ctx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
+      
+      const row2Image = row2Canvas.toDataURL('image/png');
+      const rowPdfHeight = rowHeight * 170 / totalWidth;
+      doc2.addImage(row2Image, 'PNG', 20, yPosition, 170, rowPdfHeight);
+      
+      // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
+      if (photoData) {
+        const photoWidthPdf = photoWidth * 170 / totalWidth;
+        const photoHeightPdf = photoHeight * 170 / totalWidth;
+        const xPos = 22 + (photoColumnWidth * 170 / totalWidth - photoWidthPdf) / 2;
+        const yPos = yPosition + (rowPdfHeight - photoHeightPdf) / 2;
+        doc2.addImage(photoData, 'JPEG', xPos, yPos, photoWidthPdf, photoHeightPdf);
+      }
+      
+      yPosition += rowPdfHeight;
     }
     
-    // Шаг 2: Адаптивное качество — сначала максимальное, снижаем если PDF > 40 MB
-    const qualityLevels = [
-      { renderDim: 400, quality: 0.95 },
-      { renderDim: 300, quality: 0.85 },
-      { renderDim: 200, quality: 0.7 },
-      { renderDim: 150, quality: 0.55 }
-    ];
+    // Строка ИТОГО с сеткой
+    const total2Canvas = document.createElement('canvas');
+    const total2Ctx = total2Canvas.getContext('2d');
+    total2Canvas.width = 550;
+    total2Canvas.height = 60;
     
-    pdf2Blob = null;
+    total2Ctx.fillStyle = '#fff9c4';
+    total2Ctx.fillRect(0, 0, 550, 60);
+    total2Ctx.strokeStyle = 'black';
+    total2Ctx.lineWidth = 3;
+    total2Ctx.strokeRect(0, 0, 550, 60);
     
-    for (const level of qualityLevels) {
-      Swal.update({ html: `Создание PDF с фото (качество: ${Math.round(level.quality * 100)}%)` });
-      
-      const doc2 = new jsPDF();
-      yPosition = 20;
-      
-      // Заголовок
-      const header2Canvas = document.createElement('canvas');
-      const header2Ctx = header2Canvas.getContext('2d');
-      header2Canvas.width = 600;
-      header2Canvas.height = 50;
-      
-      header2Ctx.fillStyle = 'white';
-      header2Ctx.fillRect(0, 0, 600, 50);
-      header2Ctx.fillStyle = 'black';
-      header2Ctx.font = 'bold 24px Arial';
-      header2Ctx.textAlign = 'center';
-      header2Ctx.fillText('НОВЫЙ ЗАКАЗ', 300, 35);
-      
-      const header2Image = header2Canvas.toDataURL('image/jpeg', 0.85);
-      doc2.addImage(header2Image, 'JPEG', 20, yPosition, 170, 15);
-      yPosition += 20;
-      
-      // Информация о заказе в рамке
-      const info2Height = hasDriver ? 170 : 120;
-      const info2Canvas = document.createElement('canvas');
-      const info2Ctx = info2Canvas.getContext('2d');
-      info2Canvas.width = 700;
-      info2Canvas.height = info2Height;
-      
-      info2Ctx.fillStyle = 'white';
-      info2Ctx.fillRect(0, 0, 700, info2Height);
-      info2Ctx.strokeStyle = 'black';
-      info2Ctx.lineWidth = 2;
-      info2Ctx.strokeRect(0, 0, 700, info2Height);
-      
-      info2Ctx.fillStyle = 'black';
-      info2Ctx.font = '16px Arial';
-      info2Ctx.fillText(`Дата/Время: ${dateStr}`, 15, 30);
-      info2Ctx.fillText(`Имя клиента: ${clientName}`, 15, 55);
-      info2Ctx.fillText(`Телефон: ${clientPhone}`, 15, 80);
-      info2Ctx.fillText(`Адрес: ${address}`, 15, 105);
-      
-      if (hasDriver) {
-        info2Ctx.fillText(`Водитель: ${driverName || '-'}`, 15, 130);
-        info2Ctx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
-      }
-      
-      const info2Image = info2Canvas.toDataURL('image/jpeg', 0.85);
-      const info2ImageHeight = hasDriver ? 42 : 30;
-      doc2.addImage(info2Image, 'JPEG', 20, yPosition, 170, info2ImageHeight);
-      yPosition += info2ImageHeight + 5;
-      
-      // Заголовок таблицы с колонкой ФОТО
-      const th2Canvas = document.createElement('canvas');
-      const th2Ctx = th2Canvas.getContext('2d');
-      th2Canvas.width = 550;
-      th2Canvas.height = 50;
-      
-      th2Ctx.fillStyle = '#e0e0e0';
-      th2Ctx.fillRect(0, 0, 550, 50);
-      th2Ctx.strokeStyle = 'black';
-      th2Ctx.lineWidth = 2;
-      th2Ctx.strokeRect(0, 0, 550, 50);
-      
-      th2Ctx.beginPath();
-      th2Ctx.moveTo(70, 0); th2Ctx.lineTo(70, 50);
-      th2Ctx.moveTo(270, 0); th2Ctx.lineTo(270, 50);
-      th2Ctx.moveTo(410, 0); th2Ctx.lineTo(410, 50);
-      th2Ctx.moveTo(480, 0); th2Ctx.lineTo(480, 50);
-      th2Ctx.stroke();
-      
-      th2Ctx.fillStyle = 'black';
-      th2Ctx.font = 'bold 14px Arial';
-      th2Ctx.textAlign = 'center';
-      th2Ctx.fillText('ФОТО', 35, 32);
-      th2Ctx.fillText('НАЗВАНИЕ', 170, 32);
-      th2Ctx.fillText('КОЛ-ВО', 340, 32);
-      th2Ctx.fillText('ЦЕНА', 445, 32);
-      th2Ctx.fillText('СУММА', 515, 32);
-      
-      const th2Image = th2Canvas.toDataURL('image/jpeg', 0.85);
-      doc2.addImage(th2Image, 'JPEG', 20, yPosition, 170, 12);
-      yPosition += 12;
-      
-      // Товары С ФОТОГРАФИЯМИ
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        
-        if (yPosition > 240) {
-          doc2.addPage();
-          yPosition = 20;
-        }
-        
-        // Получаем данные продукта
-        const product = productsMap[item.id] || productsMap[item.productId] || {};
-        const isPack = item.isPack || product.isPack || false;
-        const unitLabel = isPack ? 'пач' : 'шт';
-        const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
-        
-        // Рассчитываем количество коробок
-        const boxCount = Math.floor(item.qty / unitsPerBox);
-        const remainingUnits = item.qty % unitsPerBox;
-        
-        // Формируем строку количества в коробках (короткий формат)
-        let qtyLine1 = '';
-        let qtyLine2 = '';
-        if (boxCount > 0 && remainingUnits === 0) {
-          qtyLine1 = `${boxCount} кор`;
-          qtyLine2 = `(${unitsPerBox} ${unitLabel})`;
-        } else if (boxCount > 0 && remainingUnits > 0) {
-          qtyLine1 = `${boxCount} кор`;
-          qtyLine2 = `+${remainingUnits} ${unitLabel}`;
-        } else {
-          qtyLine1 = `${item.qty} ${unitLabel}`;
-          qtyLine2 = '';
-        }
-        
-        // Сжимаем предзагруженное фото с заданным уровнем качества
-        // Фиксированный размер ячейки 80x80, но рендерим в высоком разрешении
-        const PHOTO_CELL = 120;
-        let photoWidth = PHOTO_CELL;
-        let photoHeight = PHOTO_CELL;
-        let photoData = null;
-        
-        if (preloadedImages[i]) {
-          try {
-            const compressed = await compressImageForPDF(preloadedImages[i], level.renderDim, level.quality);
-            if (compressed) {
-              photoData = compressed.data;
-              // Размер ячейки фиксирован, не зависит от разрешения
-              const aspect = compressed.width / compressed.height;
-              if (aspect >= 1) {
-                photoWidth = PHOTO_CELL;
-                photoHeight = Math.round(PHOTO_CELL / aspect);
-              } else {
-                photoHeight = PHOTO_CELL;
-                photoWidth = Math.round(PHOTO_CELL * aspect);
-              }
-            }
-          } catch (err) {
-            console.error('✗ Ошибка сжатия фото:', item.title, err);
-          }
-        }
-        
-        // Высота строки = высота фото + отступы
-        const rowHeight = Math.max(photoHeight + 5, 60);
-        const photoColumnWidth = Math.max(photoWidth + 5, 50);
-        const totalWidth = photoColumnWidth + 480;
-        
-        const row2Canvas = document.createElement('canvas');
-        const row2Ctx = row2Canvas.getContext('2d');
-        row2Canvas.width = totalWidth;
-        row2Canvas.height = rowHeight;
-        
-        row2Ctx.fillStyle = 'white';
-        row2Ctx.fillRect(0, 0, totalWidth, rowHeight);
-        row2Ctx.strokeStyle = 'black';
-        row2Ctx.lineWidth = 2;
-        row2Ctx.strokeRect(0, 0, totalWidth, rowHeight);
-        
-        // Вертикальные линии
-        const col2 = photoColumnWidth;
-        const col3 = photoColumnWidth + 200;
-        const col4 = photoColumnWidth + 340;
-        const col5 = photoColumnWidth + 410;
-        
-        row2Ctx.beginPath();
-        row2Ctx.moveTo(col2, 0); row2Ctx.lineTo(col2, rowHeight);
-        row2Ctx.moveTo(col3, 0); row2Ctx.lineTo(col3, rowHeight);
-        row2Ctx.moveTo(col4, 0); row2Ctx.lineTo(col4, rowHeight);
-        row2Ctx.moveTo(col5, 0); row2Ctx.lineTo(col5, rowHeight);
-        row2Ctx.stroke();
-        
-        row2Ctx.fillStyle = 'black';
-        row2Ctx.font = '13px Arial';
-        
-        const midY = rowHeight / 2;
-        
-        // Название (с переносом если длинное) + вариант
-        row2Ctx.textAlign = 'left';
-        const title = item.title || 'Товар';
-        const variantText = item.variantName ? ` [${item.variantName}]` : '';
-        const fullTitle = title + variantText;
-        
-        if (fullTitle.length > 28) {
-          row2Ctx.fillText(fullTitle.substring(0, 28), col2 + 5, midY - 5);
-          row2Ctx.fillText(fullTitle.substring(28), col2 + 5, midY + 10);
-        } else {
-          row2Ctx.fillText(fullTitle, col2 + 5, midY);
-        }
-        
-        // Количество (в коробках, две строки)
-        row2Ctx.textAlign = 'center';
-        row2Ctx.font = 'bold 12px Arial';
-        row2Ctx.fillText(qtyLine1, (col3 + col4) / 2, midY - 5);
-        if (qtyLine2) {
-          row2Ctx.font = '11px Arial';
-          row2Ctx.fillText(qtyLine2, (col3 + col4) / 2, midY + 10);
-        }
-        row2Ctx.font = '13px Arial';
-        
-        // Цена
-        row2Ctx.fillText(`${item.price}`, (col4 + col5) / 2, midY - 5);
-        row2Ctx.font = '11px Arial';
-        row2Ctx.fillText('сом', (col4 + col5) / 2, midY + 8);
-        
-        // Сумма
-        row2Ctx.font = 'bold 13px Arial';
-        row2Ctx.fillText(`${item.qty * item.price}`, (col5 + totalWidth) / 2, midY - 5);
-        row2Ctx.font = '11px Arial';
-        row2Ctx.fillText('сом', (col5 + totalWidth) / 2, midY + 8);
-        
-        const row2Image = row2Canvas.toDataURL('image/jpeg', 0.85);
-        const rowPdfHeight = rowHeight * 170 / totalWidth;
-        doc2.addImage(row2Image, 'JPEG', 20, yPosition, 170, rowPdfHeight);
-        
-        // Добавляем фото товара поверх ячейки - ПОЛНОЕ фото без обрезки
-        if (photoData) {
-          const photoWidthPdf = photoWidth * 170 / totalWidth;
-          const photoHeightPdf = photoHeight * 170 / totalWidth;
-          const xPos = 22 + (photoColumnWidth * 170 / totalWidth - photoWidthPdf) / 2;
-          const yPos = yPosition + (rowPdfHeight - photoHeightPdf) / 2;
-          doc2.addImage(photoData, 'JPEG', xPos, yPos, photoWidthPdf, photoHeightPdf);
-        }
-        
-        yPosition += rowPdfHeight;
-      }
-      
-      // Строка ИТОГО с сеткой
-      const total2Canvas = document.createElement('canvas');
-      const total2Ctx = total2Canvas.getContext('2d');
-      total2Canvas.width = 550;
-      total2Canvas.height = 60;
-      
-      total2Ctx.fillStyle = '#fff9c4';
-      total2Ctx.fillRect(0, 0, 550, 60);
-      total2Ctx.strokeStyle = 'black';
-      total2Ctx.lineWidth = 3;
-      total2Ctx.strokeRect(0, 0, 550, 60);
-      
-      total2Ctx.beginPath();
-      total2Ctx.moveTo(470, 0);
-      total2Ctx.lineTo(470, 60);
-      total2Ctx.stroke();
-      
-      total2Ctx.fillStyle = 'black';
-      total2Ctx.font = 'bold 18px Arial';
-      total2Ctx.textAlign = 'right';
-      total2Ctx.fillText('ИТОГО:', 450, 38);
-      
-      total2Ctx.textAlign = 'center';
-      total2Ctx.fillText(`${totalAmount}`, 510, 32);
-      total2Ctx.font = '14px Arial';
-      total2Ctx.fillText('сом', 510, 48);
-      
-      const total2Image = total2Canvas.toDataURL('image/jpeg', 0.85);
-      doc2.addImage(total2Image, 'JPEG', 20, yPosition, 170, 15);
-      
-      pdf2Blob = doc2.output('blob');
-      const sizeMB = Math.round(pdf2Blob.size / 1024 / 1024 * 10) / 10;
-      console.log(`PDF с фото (качество ${level.quality}): ${sizeMB} MB`);
-      
-      if (pdf2Blob.size <= MAX_PDF_SIZE) {
-        console.log('✓ PDF подходит по размеру, качество:', level.quality);
-        break;
-      }
-      console.log('PDF > 40 MB, пробуем меньшее качество...');
-    }
+    total2Ctx.beginPath();
+    total2Ctx.moveTo(470, 0);
+    total2Ctx.lineTo(470, 60);
+    total2Ctx.stroke();
     
-    console.log('PDF с фото размер:', Math.round(pdf2Blob.size / 1024), 'KB');
-    } // end if sendPhoto
-
-    // ===== 4. Создаем PDF #3 (КОМПАКТ — список как PDF с фото, но мелкие фото) =====
-    let pdf3Blob = null;
-    if (sendCompact) {
-      Swal.update({ html: 'Загрузка фото для компакт-версии...' });
-
-      // Предзагружаем фото
-      const compactPreloadedImages = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const product = productsMap[item.id] || productsMap[item.productId] || {};
-        let imageUrl = item.image || product.image;
-
-        Swal.update({ html: `Загрузка фото ${i + 1}/${items.length} (компакт)...` });
-
-        if (imageUrl && imageUrl.startsWith('http')) {
-          compactPreloadedImages[i] = await loadProductPhoto(imageUrl);
-        } else {
-          compactPreloadedImages[i] = null;
-        }
-      }
-
-      Swal.update({ html: 'Создание PDF компакт...' });
-
-      const doc3 = new jsPDF();
-      let yPos3 = 6;
-
-      // Масштаб canvas для повышения чёткости текста (рендерим в большем разрешении)
-      const SCALE3 = 1.8;
-
-      // Информация о заказе в рамке (без заголовка — экономим место)
-      const info3Height = hasDriver ? 170 : 120;
-      const info3Canvas = document.createElement('canvas');
-      const info3Ctx = info3Canvas.getContext('2d');
-      info3Canvas.width = 700 * SCALE3;
-      info3Canvas.height = info3Height * SCALE3;
-      info3Ctx.scale(SCALE3, SCALE3);
-
-      info3Ctx.fillStyle = 'white';
-      info3Ctx.fillRect(0, 0, 700, info3Height);
-      info3Ctx.strokeStyle = 'black';
-      info3Ctx.lineWidth = 2;
-      info3Ctx.strokeRect(0, 0, 700, info3Height);
-
-      info3Ctx.fillStyle = 'black';
-      info3Ctx.font = '16px Arial';
-      info3Ctx.fillText(`Дата/Время: ${dateStr}`, 15, 30);
-      info3Ctx.fillText(`Имя клиента: ${clientName}`, 15, 55);
-      info3Ctx.fillText(`Телефон: ${clientPhone}`, 15, 80);
-      info3Ctx.fillText(`Адрес: ${address}`, 15, 105);
-      if (hasDriver) {
-        info3Ctx.fillText(`Водитель: ${driverName || '-'}`, 15, 130);
-        info3Ctx.fillText(`Тел. водителя: ${driverPhone || '-'}`, 15, 155);
-      }
-      const info3Img = info3Canvas.toDataURL('image/jpeg', 0.92);
-      const info3PdfH = hasDriver ? 32 : 24;
-      doc3.addImage(info3Img, 'JPEG', 20, yPos3, 170, info3PdfH);
-      yPos3 += info3PdfH + 2;
-
-      // Шапка таблицы (с колонкой ФОТО, но узкая)
-      const th3Canvas = document.createElement('canvas');
-      const th3Ctx = th3Canvas.getContext('2d');
-      th3Canvas.width = 550 * SCALE3;
-      th3Canvas.height = 36 * SCALE3;
-      th3Ctx.scale(SCALE3, SCALE3);
-
-      th3Ctx.fillStyle = '#e0e0e0';
-      th3Ctx.fillRect(0, 0, 550, 36);
-      th3Ctx.strokeStyle = 'black';
-      th3Ctx.lineWidth = 2;
-      th3Ctx.strokeRect(0, 0, 550, 36);
-
-      // Колонки: ФОТО (0-60) | НАЗВАНИЕ (60-280) | КОЛ-ВО (280-410) | ЦЕНА (410-480) | СУММА (480-550)
-      th3Ctx.beginPath();
-      th3Ctx.moveTo(60, 0); th3Ctx.lineTo(60, 36);
-      th3Ctx.moveTo(280, 0); th3Ctx.lineTo(280, 36);
-      th3Ctx.moveTo(410, 0); th3Ctx.lineTo(410, 36);
-      th3Ctx.moveTo(480, 0); th3Ctx.lineTo(480, 36);
-      th3Ctx.stroke();
-
-      th3Ctx.fillStyle = 'black';
-      th3Ctx.font = 'bold 13px Arial';
-      th3Ctx.textAlign = 'center';
-      th3Ctx.fillText('ФОТО', 30, 23);
-      th3Ctx.fillText('НАЗВАНИЕ', 170, 23);
-      th3Ctx.fillText('КОЛ-ВО', 345, 23);
-      th3Ctx.fillText('ЦЕНА', 445, 23);
-      th3Ctx.fillText('СУММА', 515, 23);
-
-      const th3Img = th3Canvas.toDataURL('image/jpeg', 0.92);
-      doc3.addImage(th3Img, 'JPEG', 20, yPos3, 170, 8);
-      yPos3 += 8;
-
-      // Строки товаров с МАЛЕНЬКИМИ фото
-      // Размер ячейки фото в canvas: 60×60 px → ~18×18 мм в PDF (вдвое меньше чем в pdf2)
-      const PHOTO_CELL_COMPACT = 60;
-      const ROW_TOTAL_WIDTH = 550;
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-
-        // Перенос на новую страницу
-        if (yPos3 > 280) {
-          doc3.addPage();
-          yPos3 = 12;
-        }
-
-        const product = productsMap[item.id] || productsMap[item.productId] || {};
-        const isPack = item.isPack || product.isPack || false;
-        const unitLabel = isPack ? 'пач' : 'шт';
-        const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
-
-        const boxCount = Math.floor(item.qty / unitsPerBox);
-        const remainingUnits = item.qty % unitsPerBox;
-
-        let qtyLine1 = '';
-        let qtyLine2 = '';
-        if (boxCount > 0 && remainingUnits === 0) {
-          qtyLine1 = `${boxCount} кор`;
-          qtyLine2 = `(${unitsPerBox} ${unitLabel})`;
-        } else if (boxCount > 0 && remainingUnits > 0) {
-          qtyLine1 = `${boxCount} кор`;
-          qtyLine2 = `+${remainingUnits} ${unitLabel}`;
-        } else {
-          qtyLine1 = `${item.qty} ${unitLabel}`;
-          qtyLine2 = '';
-        }
-
-        // Сжимаем фото в маленький размер (повышенное качество)
-        let photoData = null;
-        let photoW = PHOTO_CELL_COMPACT;
-        let photoH = PHOTO_CELL_COMPACT;
-        if (compactPreloadedImages[i]) {
-          try {
-            const compressed = await compressImageForPDF(compactPreloadedImages[i], 240, 0.88);
-            if (compressed) {
-              photoData = compressed.data;
-              const aspect = compressed.width / compressed.height;
-              if (aspect >= 1) {
-                photoW = PHOTO_CELL_COMPACT;
-                photoH = Math.round(PHOTO_CELL_COMPACT / aspect);
-              } else {
-                photoH = PHOTO_CELL_COMPACT;
-                photoW = Math.round(PHOTO_CELL_COMPACT * aspect);
-              }
-            }
-          } catch (err) {
-            console.warn('Компакт фото ошибка:', item.title, err);
-          }
-        }
-
-        const rowH = PHOTO_CELL_COMPACT + 4; // 64 px → ~20 мм в PDF при ширине 170/550
-
-        const row3Canvas = document.createElement('canvas');
-        const row3Ctx = row3Canvas.getContext('2d');
-        row3Canvas.width = ROW_TOTAL_WIDTH * SCALE3;
-        row3Canvas.height = rowH * SCALE3;
-        row3Ctx.scale(SCALE3, SCALE3);
-
-        row3Ctx.fillStyle = i % 2 === 0 ? 'white' : '#fafafa';
-        row3Ctx.fillRect(0, 0, ROW_TOTAL_WIDTH, rowH);
-        row3Ctx.strokeStyle = 'black';
-        row3Ctx.lineWidth = 1.5;
-        row3Ctx.strokeRect(0, 0, ROW_TOTAL_WIDTH, rowH);
-
-        // Вертикальные линии: 60 / 280 / 410 / 480
-        row3Ctx.beginPath();
-        row3Ctx.moveTo(60, 0); row3Ctx.lineTo(60, rowH);
-        row3Ctx.moveTo(280, 0); row3Ctx.lineTo(280, rowH);
-        row3Ctx.moveTo(410, 0); row3Ctx.lineTo(410, rowH);
-        row3Ctx.moveTo(480, 0); row3Ctx.lineTo(480, rowH);
-        row3Ctx.stroke();
-
-        const midY = rowH / 2;
-        row3Ctx.fillStyle = 'black';
-
-        // Название
-        row3Ctx.textAlign = 'left';
-        row3Ctx.font = '12px Arial';
-        const title = item.title || 'Товар';
-        const variantText = item.variantName ? ` [${item.variantName}]` : '';
-        const fullTitle = title + variantText;
-        if (fullTitle.length > 36) {
-          row3Ctx.fillText(fullTitle.substring(0, 36), 65, midY - 6);
-          let line2 = fullTitle.substring(36);
-          if (line2.length > 36) line2 = line2.substring(0, 35) + '…';
-          row3Ctx.fillText(line2, 65, midY + 8);
-        } else {
-          row3Ctx.fillText(fullTitle, 65, midY + 3);
-        }
-
-        // Кол-во
-        row3Ctx.textAlign = 'center';
-        row3Ctx.font = 'bold 12px Arial';
-        row3Ctx.fillText(qtyLine1, 345, midY - 4);
-        if (qtyLine2) {
-          row3Ctx.font = '10px Arial';
-          row3Ctx.fillText(qtyLine2, 345, midY + 9);
-        }
-
-        // Цена
-        row3Ctx.font = '12px Arial';
-        row3Ctx.fillText(`${item.price}`, 445, midY - 3);
-        row3Ctx.font = '9px Arial';
-        row3Ctx.fillText('сом', 445, midY + 8);
-
-        // Сумма
-        row3Ctx.font = 'bold 12px Arial';
-        row3Ctx.fillText(`${item.qty * item.price}`, 515, midY - 3);
-        row3Ctx.font = '9px Arial';
-        row3Ctx.fillText('сом', 515, midY + 8);
-
-        const row3Img = row3Canvas.toDataURL('image/jpeg', 0.9);
-        const rowPdfH = rowH * 170 / ROW_TOTAL_WIDTH;
-        doc3.addImage(row3Img, 'JPEG', 20, yPos3, 170, rowPdfH);
-
-        // Добавляем мелкое фото в первую ячейку
-        if (photoData) {
-          const photoWPdf = photoW * 170 / ROW_TOTAL_WIDTH;
-          const photoHPdf = photoH * 170 / ROW_TOTAL_WIDTH;
-          const xPosP = 20 + (60 * 170 / ROW_TOTAL_WIDTH - photoWPdf) / 2;
-          const yPosP = yPos3 + (rowPdfH - photoHPdf) / 2;
-          doc3.addImage(photoData, 'JPEG', xPosP, yPosP, photoWPdf, photoHPdf);
-        }
-
-        yPos3 += rowPdfH;
-      }
-
-      // Итоговая строка
-      if (yPos3 > 275) { doc3.addPage(); yPos3 = 12; }
-      const total3Canvas = document.createElement('canvas');
-      const total3Ctx = total3Canvas.getContext('2d');
-      total3Canvas.width = 550 * SCALE3;
-      total3Canvas.height = 50 * SCALE3;
-      total3Ctx.scale(SCALE3, SCALE3);
-
-      total3Ctx.fillStyle = '#fff9c4';
-      total3Ctx.fillRect(0, 0, 550, 50);
-      total3Ctx.strokeStyle = 'black';
-      total3Ctx.lineWidth = 3;
-      total3Ctx.strokeRect(0, 0, 550, 50);
-
-      total3Ctx.beginPath();
-      total3Ctx.moveTo(470, 0); total3Ctx.lineTo(470, 50);
-      total3Ctx.stroke();
-
-      total3Ctx.fillStyle = 'black';
-      total3Ctx.font = 'bold 18px Arial';
-      total3Ctx.textAlign = 'right';
-      total3Ctx.fillText('ИТОГО:', 450, 32);
-
-      total3Ctx.textAlign = 'center';
-      total3Ctx.fillText(`${totalAmount}`, 510, 28);
-      total3Ctx.font = '12px Arial';
-      total3Ctx.fillText('сом', 510, 42);
-
-      const total3Img = total3Canvas.toDataURL('image/jpeg', 0.92);
-      doc3.addImage(total3Img, 'JPEG', 20, yPos3, 170, 13);
-
-      pdf3Blob = doc3.output('blob');
-      console.log('PDF компакт размер:', Math.round(pdf3Blob.size / 1024), 'KB');
-    } // end if sendCompact
-
-    // ===== Скачивание в браузер + отправка в Telegram (через Cloud Function) =====
-    // Сначала скачиваем файл локально (резервный канал, пока Telegram нестабилен),
-    // потом пытаемся отправить в Telegram. Любая ошибка Telegram не ломает остальное.
-    Swal.update({ title: 'Скачивание + Telegram...', html: 'Подготовка...' });
-
+    total2Ctx.fillStyle = 'black';
+    total2Ctx.font = 'bold 18px Arial';
+    total2Ctx.textAlign = 'right';
+    total2Ctx.fillText('ИТОГО:', 450, 38);
+    
+    total2Ctx.textAlign = 'center';
+    total2Ctx.fillText(`${totalAmount}`, 510, 32);
+    total2Ctx.font = '14px Arial';
+    total2Ctx.fillText('сом', 510, 48);
+    
+    const total2Image = total2Canvas.toDataURL('image/png');
+    doc2.addImage(total2Image, 'PNG', 20, yPosition, 170, 15);
+    
+    const pdf2Blob = doc2.output('blob');
+    
+    // ===== Отправка в Telegram (3 файла) =====
+    Swal.update({ title: 'Отправка в Telegram...', html: 'Отправка Excel...' });
+    
+    const botToken = '7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E';
     const chatId = '5567924440';
+    const apiUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
     const baseFileName = `Заказ_${clientName.replace(/\s+/g, '_')}_${Date.now()}`;
-    const downloadedFiles = [];
-    const tgSentFiles = [];
-    const tgFailedFiles = [];
-
-    async function sendOne(label, blob, fileName, fileMime, caption) {
-      // 1) скачать в браузер сразу
-      Swal.update({ html: `Скачивание: ${label}...` });
-      if (downloadBlob(blob, fileName)) {
-        downloadedFiles.push(label);
-      }
-      // 2) попытаться отправить в Telegram
-      Swal.update({ html: `Telegram: ${label}...` });
-      try {
-        await tgSendDocument({
-          chat_id: chatId,
-          blob: blob,
-          file_name: fileName,
-          file_mime: fileMime,
-          caption: caption
-        });
-        tgSentFiles.push(label);
-      } catch (e) {
-        console.warn('Telegram не отправил', label, e);
-        tgFailedFiles.push(label);
-      }
+    
+    // Отправляем Excel
+    const form1 = new FormData();
+    form1.append('document', excelBlob, `${baseFileName}.xlsx`);
+    form1.append('chat_id', chatId);
+    form1.append('caption', `📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`);
+    await fetch(apiUrl, { method: 'POST', body: form1 });
+    
+    Swal.update({ html: 'Отправка PDF для печати...' });
+    
+    // Отправляем PDF #1
+    const form2 = new FormData();
+    form2.append('document', pdf1Blob, `${baseFileName}_печать.pdf`);
+    form2.append('chat_id', chatId);
+    form2.append('caption', `📄 Заказ для печати: ${clientName}`);
+    await fetch(apiUrl, { method: 'POST', body: form2 });
+    
+    Swal.update({ html: 'Отправка PDF с фото...' });
+    
+    // Отправляем PDF #2 (с фото)
+    const form3 = new FormData();
+    form3.append('document', pdf2Blob, `${baseFileName}_с_фото.pdf`);
+    form3.append('chat_id', chatId);
+    form3.append('caption', `📷 Заказ с фото: ${clientName}`);
+    const response = await fetch(apiUrl, { method: 'POST', body: form3 });
+    
+    const result = await response.json();
+    
+    if (result.ok) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Отправлено!',
+        html: `<b>3 файла</b> отправлены в Telegram<br>📊 Excel + 📄 PDF печать + 📷 PDF с фото<br><strong>${clientName}</strong>`,
+        timer: 2500,
+        showConfirmButton: false
+      });
+    } else {
+      throw new Error(result.description || 'Ошибка отправки');
     }
-
-    if (sendExcel) {
-      await sendOne(
-        '📊 Excel',
-        excelBlob,
-        `${baseFileName}.xlsx`,
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        `📊 Excel: ${clientName}\n📱 ${clientPhone}\n💰 ${totalAmount} сом`
-      );
-    }
-
-    if (sendPrint) {
-      await sendOne(
-        '📄 PDF печать',
-        pdf1Blob,
-        `${baseFileName}_печать.pdf`,
-        'application/pdf',
-        `📄 Заказ для печати: ${clientName}`
-      );
-    }
-
-    if (sendPhoto) {
-      if (pdf2Blob.size > MAX_PDF_SIZE) {
-        const sizeMB = Math.round(pdf2Blob.size / 1024 / 1024);
-        console.warn('PDF с фото слишком большой для Telegram:', sizeMB, 'MB — скачиваем только локально');
-        // Telegram не примет, но в браузер скачать можем
-        if (downloadBlob(pdf2Blob, `${baseFileName}_с_фото.pdf`)) {
-          downloadedFiles.push(`📷 PDF с фото (${sizeMB} MB, только скачан)`);
-        }
-        tgFailedFiles.push(`📷 PDF с фото (${sizeMB} MB — слишком большой для Telegram)`);
-      } else {
-        await sendOne(
-          '📷 PDF с фото',
-          pdf2Blob,
-          `${baseFileName}_с_фото.pdf`,
-          'application/pdf',
-          `📷 Заказ с фото: ${clientName}`
-        );
-      }
-    }
-
-    if (sendCompact && pdf3Blob) {
-      if (pdf3Blob.size > MAX_PDF_SIZE) {
-        const sizeMB = Math.round(pdf3Blob.size / 1024 / 1024);
-        console.warn('PDF компакт слишком большой для Telegram:', sizeMB, 'MB — скачиваем только локально');
-        if (downloadBlob(pdf3Blob, `${baseFileName}_компакт.pdf`)) {
-          downloadedFiles.push(`🗂️ PDF компакт (${sizeMB} MB, только скачан)`);
-        }
-        tgFailedFiles.push(`🗂️ PDF компакт (${sizeMB} MB — слишком большой для Telegram)`);
-      } else {
-        await sendOne(
-          '🗂️ PDF компакт',
-          pdf3Blob,
-          `${baseFileName}_компакт.pdf`,
-          'application/pdf',
-          `🗂️ Заказ компакт (мелкие фото): ${clientName}`
-        );
-      }
-    }
-
-    // ===== Финальный результат =====
-    const dlCount = downloadedFiles.length;
-    const tgCount = tgSentFiles.length;
-    const failCount = tgFailedFiles.length;
-
-    let icon = 'success';
-    let title = 'Готово!';
-    let bodyHtml = '';
-
-    if (dlCount > 0) {
-      bodyHtml +=
-        `<div style="text-align:left; background:#e8f5e9; padding:10px; border-radius:8px; margin-bottom:10px;">` +
-        `<b>💾 Скачано в браузер (${dlCount}):</b><br>${downloadedFiles.join('<br>')}` +
-        `<div style="font-size:12px; color:#555; margin-top:6px;">Файлы — в папке «Загрузки» вашего компьютера.</div>` +
-        `</div>`;
-    }
-    if (tgCount > 0) {
-      bodyHtml +=
-        `<div style="text-align:left; background:#e3f2fd; padding:10px; border-radius:8px; margin-bottom:10px;">` +
-        `<b>📤 Отправлено в Telegram (${tgCount}):</b><br>${tgSentFiles.join('<br>')}` +
-        `</div>`;
-    }
-    if (failCount > 0) {
-      icon = dlCount > 0 ? 'warning' : 'error';
-      title = dlCount > 0 ? 'Скачано, но Telegram не ответил' : 'Telegram не работает';
-      bodyHtml +=
-        `<div style="text-align:left; background:#fff3cd; color:#856404; padding:10px; border-radius:8px; margin-bottom:10px;">` +
-        `<b>⚠️ Telegram не доставил (${failCount}):</b><br>${tgFailedFiles.join('<br>')}` +
-        `<div style="font-size:12px; margin-top:6px;">Используйте скачанные файлы из папки «Загрузки».</div>` +
-        `</div>`;
-    }
-    if (!bodyHtml) {
-      bodyHtml = '<div style="color:#888;">Нет файлов для отправки.</div>';
-      icon = 'info';
-    }
-
-    bodyHtml += `<div style="text-align:center; color:#555; margin-top:6px;"><strong>${clientName}</strong></div>`;
-
-    Swal.fire({
-      icon: icon,
-      title: title,
-      html: bodyHtml,
-      confirmButtonText: 'Понятно'
-    });
-
+    
   } catch (error) {
     console.error('Ошибка экспорта:', error);
     Swal.fire({
       icon: 'error',
-      title: 'Ошибка',
-      text: error.message || 'Не удалось подготовить файлы'
+      title: 'Ошибка отправки',
+      text: error.message || 'Не удалось отправить файлы в Telegram'
     });
   }
 }
 
 // ============ ИНИЦИАЛИЗАЦИЯ ============
 document.addEventListener('DOMContentLoaded', function() {
-  if (!initFirebase()) return;
-
-  // Восстанавливаем сохранённый фильтр
-  try {
-    const savedFilter = localStorage.getItem('ordersFilterValue');
-    if (savedFilter) {
-      const combo = document.getElementById('ordersFilterCombined');
-      if (combo) {
-        combo.value = savedFilter;
-      }
-    }
-  } catch(e) {}
-
-  loadOrdersManagement(true);
+  if (initFirebase()) {
+    loadOrdersManagement(true);
+  }
   
   // Обработчики для iOS
   const searchInput = document.getElementById('ordersSearchClient');
@@ -3429,6 +2124,29 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<script src="js/bottom-nav.js?v=28"></script>
+  <!-- Нижнее меню -->
+  <nav class="bottom-nav">
+    <a href="index.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      <span>Главная</span>
+    </a>
+    <a href="index.html#categories" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6z"/></svg>
+      <span>Меню</span>
+    </a>
+    <a href="cart.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4z"/></svg>
+      <span>Корзина</span>
+    </a>
+    <a href="chat.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
+      <span>Чат</span>
+    </a>
+    <a href="profile.html" class="nav-item active">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
+      <span>Профиль</span>
+    </a>
+  </nav>
+
 </body>
 </html>

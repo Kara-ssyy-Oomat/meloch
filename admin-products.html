@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}#addProductWindow{bottom:0!important}</style>')</script>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}#addProductWindow{bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Добавить товар - Кербен</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
@@ -21,7 +21,33 @@
       font-size: 16px;
     }
     
-
+    /* Нижнее меню */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      background: #fff;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      z-index: 99999;
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: #9e9e9e;
+      text-decoration: none;
+      position: relative;
+    }
+    .nav-item.active { color: #4CAF50; }
+    .nav-item svg { width: 24px; height: 24px; fill: currentColor; }
+    .nav-item span { font-size: 11px; }
   </style>
 </head>
 <body>
@@ -159,7 +185,6 @@ function initFirebase() {
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
     loadProducts(); // Загружаем товары после инициализации
-    loadSellerCategoriesForSelect(); // Загружаем категории продавцов
   } catch (error) {
     console.error('Firebase initialization error:', error);
     Swal.fire('Ошибка', 'Ошибка инициализации Firebase: ' + error.message, 'error');
@@ -192,61 +217,12 @@ let extraPhotoCounter = 0;
 let packCalcPreviewTimeout = null;
 const _packCalcIsIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-// ============ СКРЫВАЕМ ПОЛЯ ТОЛЬКО ДЛЯ АДМИНА ОТ ПРОДАВЦОВ ============
-(function() {
-  try {
-    const sellerRaw = localStorage.getItem('currentSeller');
-    if (sellerRaw && JSON.parse(sellerRaw).id) {
-      // Продавец — скрываем цену закупки и наценку
-      const costPriceField = document.getElementById('newCostPrice');
-      const profitDisplay = document.getElementById('profitDisplay');
-      if (costPriceField) costPriceField.style.display = 'none';
-      if (profitDisplay) profitDisplay.style.display = 'none';
-    }
-  } catch(e) {}
-})();
-
 // ============ ФУНКЦИЯ ЗАКРЫТИЯ ОКНА ============
 function closeAddProductWindow() {
   window.location.href = 'profile.html';
 }
 
 // ============ ФУНКЦИИ ДЛЯ КАТЕГОРИЙ ============
-
-// Загрузка категорий продавцов из Firebase
-async function loadSellerCategoriesForSelect() {
-  try {
-    const categorySelect = document.getElementById('newCategory');
-    if (!categorySelect) return;
-    
-    // Стандартные категории (уже есть в HTML)
-    const standardCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
-    
-    // Загружаем категории из seller_categories
-    const snapshot = await db.collection('seller_categories').get();
-    
-    snapshot.forEach(doc => {
-      const data = doc.data();
-      const catName = data.name;
-      if (catName && !standardCategories.includes(catName.toLowerCase())) {
-        // Проверяем, нет ли уже такой опции
-        const exists = Array.from(categorySelect.options).some(opt => opt.value.toLowerCase() === catName.toLowerCase());
-        if (!exists) {
-          const option = document.createElement('option');
-          option.value = catName.toLowerCase();
-          option.textContent = '🏪 ' + catName;
-          option.setAttribute('data-category', catName.toLowerCase());
-          categorySelect.appendChild(option);
-        }
-      }
-    });
-    
-    console.log('✅ Категории продавцов загружены для формы добавления');
-  } catch (error) {
-    console.error('Ошибка загрузки категорий:', error);
-  }
-}
-
 function showNewCategoryInput() {
   document.getElementById('newCategoryInputDiv').style.display = 'block';
   document.getElementById('newCategory').disabled = true;
@@ -486,7 +462,7 @@ async function uploadToImgBB(file) {
   const fixedFile = await fixImageOrientation(file);
   console.log('📤 Загружаем исправленный файл на ImgBB');
   
-  const apiKey = 'e33ec8bedb69f464ba02984709267456';
+  const apiKey = '3dcd4dce37fa365cc2ee66890444ce4b';
   
   // Конвертируем файл в base64
   const base64 = await new Promise((resolve, reject) => {
@@ -764,20 +740,6 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
     const packsPerBox = parseInt(document.getElementById('newPacksPerBox').value) || 20;
     const extraImages = extraPhotoUrls.map(p => p.url).filter(url => url && url.trim());
     
-    // Определяем продавца (если залогинен) или админ
-    let _sellerId = 'admin';
-    let _sellerName = 'Главный администратор';
-    try {
-      const _sellerRaw = localStorage.getItem('currentSeller');
-      if (_sellerRaw) {
-        const _seller = JSON.parse(_sellerRaw);
-        if (_seller && _seller.id) {
-          _sellerId = _seller.id;
-          _sellerName = _seller.name || 'Продавец';
-        }
-      }
-    } catch(e) {}
-    
     const productData = { 
       title, 
       description: description || '',
@@ -795,8 +757,6 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
       isPack: isPack,
       packQty: isPack ? packQty : null,
       packsPerBox: isPack ? packsPerBox : null,
-      sellerId: _sellerId,
-      sellerName: _sellerName,
       variants: null
     };
     
@@ -809,8 +769,8 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
     if (newCategoryInputValue) {
       await db.collection('seller_categories').add({
         name: newCategoryInputValue,
-        sellerId: _sellerId,
-        sellerName: _sellerName,
+        sellerId: 'admin',
+        sellerName: 'Главный администратор',
         createdAt: Date.now(),
         status: 'approved'
       });
@@ -859,6 +819,29 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
 });
 </script>
 
-<script src="js/bottom-nav.js?v=28"></script>
+  <!-- Нижнее меню -->
+  <nav class="bottom-nav">
+    <a href="index.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      <span>Главная</span>
+    </a>
+    <a href="index.html#categories" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6z"/></svg>
+      <span>Меню</span>
+    </a>
+    <a href="cart.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4z"/></svg>
+      <span>Корзина</span>
+    </a>
+    <a href="chat.html" class="nav-item">
+      <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>
+      <span>Чат</span>
+    </a>
+    <a href="profile.html" class="nav-item active">
+      <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
+      <span>Профиль</span>
+    </a>
+  </nav>
+
 </body>
 </html>

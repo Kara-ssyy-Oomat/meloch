@@ -10,7 +10,6 @@
       window.stop(); // Остановить загрузку
     }
   </script>
-
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
@@ -23,10 +22,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Кербен">
-  <meta name="theme-color" content="#87CEEB">
-  
-  <!-- Фон iOS PWA splash = фон анимации -->
-  <style>html,body{background:#87CEEB!important}</style>
+  <meta name="theme-color" content="#4CAF50">
   
   <!-- Иконки для iOS (iPhone/iPad) -->
   <link rel="apple-touch-icon" href="icon-kerben.jpg">
@@ -39,302 +35,56 @@
   <title>Кербен - B2B Market</title>
 
   <!-- Стили -->
-  <link rel="stylesheet" href="css/styles.css?v=2">
-  <link rel="stylesheet" href="css/index-page.css?v=5">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/index-page.css">
 
-  <!-- Предзагрузка DNS для быстрого доступа к Firebase и CDN -->
-  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
-  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-  <link rel="dns-prefetch" href="https://wsrv.nl">
-  <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
 
-  <!-- Firebase SDKs: критичные для отображения товаров -->
+  <!-- Firebase SDKs: app first, then compat modules -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
 
-  <!-- SweetAlert2 — нужен сразу для UI -->
+  <!-- jsPDF для генерации PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+  <!-- SheetJS (XLSX) для экспорта в Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <!-- EXIF.js для чтения ориентации изображений -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js"></script>
+
+      
+
+
+
+  <!-- SweetAlert2 -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
-  <!--
-    ОПТИМИЗАЦИЯ: jsPDF, XLSX, EXIF, Chart.js — загружаются ЛЕНИВО только для админа.
-    Это экономит ~800 КБ трафика для обычных покупателей.
-    Библиотеки загружаются через loadAdminLibraries() при входе в админ-режим.
-  -->
-  <script>
-    // Ленивая загрузка тяжёлых библиотек (только для админа)
-    let _adminLibsLoaded = false;
-    let _adminLibsLoading = false;
-    function loadAdminLibraries() {
-      if (_adminLibsLoaded || _adminLibsLoading) return Promise.resolve();
-      _adminLibsLoading = true;
-      const libs = [
-        'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
-        'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
-        'https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js',
-        'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'
-      ];
-      return Promise.all(libs.map(src => {
-        return new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = src;
-          s.onload = resolve;
-          s.onerror = () => { console.warn('Failed to load:', src); resolve(); };
-          document.head.appendChild(s);
-        });
-      })).then(() => {
-        _adminLibsLoaded = true;
-        _adminLibsLoading = false;
-        console.log('📚 Админ-библиотеки загружены');
-      });
-    }
-  </script>
+  
+  <!-- Chart.js для графиков -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
   <script>
     // КРИТИЧНО: Принудительно разблокируем прокрутку при загрузке
-    // Принудительная очистка кэшей при обновлении версии
-    (function() {
-      var APP_VERSION = 'v4.0.0';
-      var lastVersion = localStorage.getItem('app_version');
-      if (lastVersion !== APP_VERSION) {
-        console.log('[Update] Обнаружена новая версия: ' + lastVersion + ' → ' + APP_VERSION);
-        localStorage.setItem('app_version', APP_VERSION);
-        // Очищаем все SW кэши
-        if ('caches' in window) {
-          caches.keys().then(function(names) {
-            names.forEach(function(name) {
-              caches.delete(name);
-              console.log('[Update] Кэш удалён:', name);
-            });
-          });
-        }
-        // Просим SW обновиться
-        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage('clearAllCaches');
-        }
-        // Перерегистрируем SW
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then(function(registrations) {
-            registrations.forEach(function(reg) { reg.update(); });
-          });
-        }
-      }
-    })();
-  </script>
-  <script>
+  // Добавить в конец скрипта (после загрузки страницы)
 
 // Проверяем, есть ли функция для вызова после загрузки (из страницы профиля)
 document.addEventListener('DOMContentLoaded', function() {
   const funcToCall = localStorage.getItem('callAfterLoad');
   if (funcToCall) {
     localStorage.removeItem('callAfterLoad');
-    // Даём время на инициализацию (defer-скрипты + checkSavedSeller + loadProducts)
+    // Даём время на инициализацию
     setTimeout(() => {
       if (typeof window[funcToCall] === 'function') {
         window[funcToCall]();
       }
-    }, 1500);
+    }, 500);
   }
 });
-  </script>
-  <script>
-    // Подстраховка: скрываем splash максимум через 4 секунды
-    setTimeout(function() {
-      var s = document.getElementById('splashScreen');
-      if (s && !s.classList.contains('splash-hide')) {
-        s.classList.add('splash-hide');
-        setTimeout(function() { s.remove(); }, 350);
-      }
-    }, 4000);
   </script>
 
 </head>
 
 <body style="overflow-y: scroll !important; position: static !important; height: auto !important; touch-action: pan-y !important;">
-
-  <!-- ========== SPLASH SCREEN: Караван Кербен ========== -->
-  <div id="splashScreen">
-    <div class="splash-bg">
-      <div class="splash-dunes"></div>
-      <div class="splash-dunes splash-dunes2"></div>
-      
-      <!-- Караван из эмодзи-верблюдов -->
-      <div class="splash-caravan">
-        <span class="splash-camel">🐫</span>
-        <span class="splash-camel s2">🐫</span>
-        <span class="splash-camel s3">🐪</span>
-      </div>
-      
-      <!-- Лого и название -->
-      <div class="splash-brand">
-        <img src="icon-kerben.jpg" alt="Кербен" class="splash-logo">
-        <div class="splash-title">Кербен</div>
-        <div class="splash-subtitle">B2B Market • Оптовый караван товаров</div>
-      </div>
-      
-      <!-- Индикатор загрузки -->
-      <div class="splash-loader">
-        <div class="splash-dots">
-          <span></span><span></span><span></span>
-        </div>
-        <div class="splash-loader-text">Загрузка товаров...</div>
-      </div>
-    </div>
-  </div>
-  <style>
-    #splashScreen {
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      z-index: 999999;
-      will-change: opacity;
-      transform: translateZ(0);
-    }
-    #splashScreen.splash-hide {
-      -webkit-animation: splashOut 0.3s ease forwards;
-      animation: splashOut 0.3s ease forwards;
-    }
-    @-webkit-keyframes splashOut {
-      to { opacity: 0; pointer-events: none; }
-    }
-    @keyframes splashOut {
-      to { opacity: 0; pointer-events: none; }
-    }
-    .splash-bg {
-      width: 100%; height: 100%;
-      background: linear-gradient(180deg, #87CEEB 0%, #f9c74f 50%, #DEB887 100%);
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      overflow: hidden; position: relative;
-    }
-    /* Восстанавливаем белый фон после удаления splash */
-    .splash-gone body, .splash-gone html { background: #fff !important; }
-    .splash-bg::before {
-      content: ''; position: absolute;
-      top: 10%; right: 18%;
-      width: 60px; height: 60px;
-      background: radial-gradient(circle, #FFF9C4 30%, #FFD54F 55%, transparent 68%);
-      border-radius: 50%;
-      box-shadow: 0 0 30px 10px rgba(255,213,79,0.35);
-    }
-    .splash-dunes {
-      position: absolute; bottom: 0; left: -10%; right: -10%;
-      height: 30%; background: #DEB887;
-      border-radius: 50% 60% 0 0 / 100% 100% 0 0;
-      transform: translateZ(0);
-    }
-    .splash-dunes2 {
-      height: 20%; left: -15%; right: -5%;
-      background: #D2B48C;
-      border-radius: 60% 40% 0 0 / 100% 100% 0 0;
-    }
-    .splash-caravan {
-      position: absolute; bottom: 18%;
-      display: flex; gap: 4px; align-items: flex-end;
-      transform: translateZ(0);
-      will-change: transform;
-      -webkit-animation: caravanMove 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-      animation: caravanMove 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-    }
-    @-webkit-keyframes caravanMove {
-      from { -webkit-transform: translateX(-100vw) translateZ(0); transform: translateX(-100vw) translateZ(0); }
-      to { -webkit-transform: translateX(0) translateZ(0); transform: translateX(0) translateZ(0); }
-    }
-    @keyframes caravanMove {
-      from { transform: translateX(-100vw) translateZ(0); }
-      to { transform: translateX(0) translateZ(0); }
-    }
-    .splash-camel {
-      font-size: 48px;
-      display: inline-block;
-      transform: scaleX(-1) translateZ(0);
-      -webkit-animation: camelWalk 0.6s ease-in-out infinite;
-      animation: camelWalk 0.6s ease-in-out infinite;
-    }
-    .splash-camel.s2 { font-size: 42px; -webkit-animation-delay: 0.2s; animation-delay: 0.2s; }
-    .splash-camel.s3 { font-size: 38px; -webkit-animation-delay: 0.4s; animation-delay: 0.4s; }
-    @-webkit-keyframes camelWalk {
-      0%, 100% { -webkit-transform: scaleX(-1) translateY(0) translateZ(0); transform: scaleX(-1) translateY(0) translateZ(0); }
-      50% { -webkit-transform: scaleX(-1) translateY(-5px) translateZ(0); transform: scaleX(-1) translateY(-5px) translateZ(0); }
-    }
-    @keyframes camelWalk {
-      0%, 100% { transform: scaleX(-1) translateY(0) translateZ(0); }
-      50% { transform: scaleX(-1) translateY(-5px) translateZ(0); }
-    }
-    .splash-brand {
-      display: flex; flex-direction: column;
-      align-items: center; z-index: 2;
-      transform: translateZ(0);
-      -webkit-animation: brandIn 0.4s ease-out 0.2s both;
-      animation: brandIn 0.4s ease-out 0.2s both;
-    }
-    @-webkit-keyframes brandIn {
-      from { opacity: 0; -webkit-transform: translateY(20px) translateZ(0); transform: translateY(20px) translateZ(0); }
-      to { opacity: 1; -webkit-transform: translateY(0) translateZ(0); transform: translateY(0) translateZ(0); }
-    }
-    @keyframes brandIn {
-      from { opacity: 0; transform: translateY(20px) translateZ(0); }
-      to { opacity: 1; transform: translateY(0) translateZ(0); }
-    }
-    .splash-logo {
-      width: 80px; height: 80px;
-      border-radius: 20px;
-      box-shadow: 0 6px 24px rgba(0,0,0,0.2);
-      margin-bottom: 14px;
-    }
-    .splash-title {
-      font-size: 2.6rem; font-weight: 900; color: #fff;
-      text-shadow: 0 2px 10px rgba(0,0,0,0.25);
-      letter-spacing: 3px;
-    }
-    .splash-subtitle {
-      font-size: 0.9rem; color: rgba(255,255,255,0.9);
-      margin-top: 5px; text-shadow: 0 1px 3px rgba(0,0,0,0.15);
-    }
-    .splash-loader {
-      position: absolute; bottom: 8%; z-index: 2;
-      display: flex; flex-direction: column;
-      align-items: center; gap: 10px;
-      -webkit-animation: brandIn 0.3s ease-out 0.5s both;
-      animation: brandIn 0.3s ease-out 0.5s both;
-    }
-    .splash-dots { display: flex; gap: 8px; }
-    .splash-dots span {
-      width: 10px; height: 10px;
-      background: rgba(255,255,255,0.8);
-      border-radius: 50%;
-      -webkit-animation: dotPulse 1s ease-in-out infinite;
-      animation: dotPulse 1s ease-in-out infinite;
-    }
-    .splash-dots span:nth-child(2) { -webkit-animation-delay: 0.15s; animation-delay: 0.15s; }
-    .splash-dots span:nth-child(3) { -webkit-animation-delay: 0.3s; animation-delay: 0.3s; }
-    @-webkit-keyframes dotPulse {
-      0%, 100% { -webkit-transform: scale(0.7); transform: scale(0.7); opacity: 0.4; }
-      50% { -webkit-transform: scale(1); transform: scale(1); opacity: 1; }
-    }
-    @keyframes dotPulse {
-      0%, 100% { transform: scale(0.7); opacity: 0.4; }
-      50% { transform: scale(1); opacity: 1; }
-    }
-    @keyframes slideUpBulk {
-      from { transform: translateY(100%); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-    .bulk-checkbox {
-      position: absolute; top: 8px; right: 8px; z-index: 5;
-      width: 28px; height: 28px; cursor: pointer;
-      accent-color: #9c27b0;
-    }
-    .product-card.bulk-selected {
-      outline: 3px solid #9c27b0;
-      outline-offset: -3px;
-      box-shadow: 0 0 12px rgba(156, 39, 176, 0.4);
-    }
-    .splash-loader-text {
-      font-size: 0.8rem; color: rgba(255,255,255,0.75);
-    }
-  </style>
 
   <!-- Блок для просмотра фото -->
   <div id="previewBlock" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:9800; pointer-events:auto; background: rgba(0,0,0,0.85);">
@@ -349,7 +99,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   <!-- Модальное окно редактирования товара -->
   <div id="editProductModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; width:100%; height:100%; z-index:9000; background:rgba(0,0,0,0.7); overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;">
-    <div style="max-width:500px; margin:20px auto 80px auto; background:white; border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.3); overflow:hidden;">
+    <div style="max-width:500px; margin:20px auto; background:white; border-radius:16px; box-shadow:0 10px 40px rgba(0,0,0,0.3); overflow:hidden;">
       <!-- Шапка -->
       <div style="background:linear-gradient(135deg,#007bff,#0056b3); color:white; padding:15px 20px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:10;">
         <h3 style="margin:0; font-size:18px;">✏️ Редактирование товара</h3>
@@ -361,7 +111,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Модальное окно жалобы -->
-  <div id="complaintWindow" style="display:none; position:fixed; top:0; left:0; right:0; bottom:56px; background:#f5f5f5; z-index:9500;">
+  <div id="complaintWindow" style="display:none; position:fixed; top:0; left:0; right:0; bottom:44px; background:#f5f5f5; z-index:9500;">
     <div style="height:100%; display:flex; flex-direction:column;">
       
       <!-- Шапка -->
@@ -411,7 +161,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Окно предложения товара -->
-  <div id="suggestionWindow" style="display:none; position:fixed; top:0; left:0; right:0; bottom:56px; background:#f5f5f5; z-index:9500;">
+  <div id="suggestionWindow" style="display:none; position:fixed; top:0; left:0; right:0; bottom:44px; background:#f5f5f5; z-index:9500;">
     <div style="height:100%; display:flex; flex-direction:column; position:relative;">
       <!-- Заголовок -->
       <div style="background:#fff; padding:15px 20px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
@@ -474,7 +224,7 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Окно "Стать продавцом" -->
-  <div id="becomeSellerWindow" style="display:none; position:fixed; top:0; left:0; right:0; bottom:56px; background:#f5f5f5; z-index:9500;">
+  <div id="becomeSellerWindow" style="display:none; position:fixed; top:0; left:0; right:0; bottom:44px; background:#f5f5f5; z-index:9500;">
     <div style="height:100%; display:flex; flex-direction:column; position:relative;">
       <!-- Заголовок -->
       <div style="background:#fff; padding:15px 20px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
@@ -596,41 +346,19 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- Кнопка редактора (скрыта по умолчанию, видна только админу) -->
-  <div id="editorBtnContainer" style="display:none; justify-content:center; padding:8px 10px 0; gap:8px; flex-wrap:wrap;">
+  <div id="editorBtnContainer" style="display:none; justify-content:center; padding:8px 10px 0;">
     <button id="editorModeBtn" onclick="toggleEditorMode()" style="padding:10px 20px; background:linear-gradient(135deg,#6c757d,#495057); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px;">
       ✏️ Редактор
     </button>
-    <button id="bulkSelectBtn" onclick="toggleBulkSelectMode()" style="display:none; padding:10px 20px; background:linear-gradient(135deg,#9c27b0,#7b1fa2); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; align-items:center; gap:6px;">
-      ☑️ Выделить
-    </button>
-    <button id="blockClientsBtn" onclick="openBlockedClientsManager()" style="padding:10px 20px; background:linear-gradient(135deg,#dc3545,#a71d2a); color:white; border:none; border-radius:20px; cursor:pointer; font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px;">
-      🚫 Блокировки
-    </button>
-  </div>
-
-  <!-- Панель массовых действий -->
-  <div id="bulkActionBar" style="display:none; position:fixed; bottom:56px; left:0; right:0; background:linear-gradient(135deg,#9c27b0,#7b1fa2); color:white; padding:12px 16px; z-index:8000; box-shadow:0 -4px 20px rgba(0,0,0,0.3); animation:slideUpBulk 0.3s ease;">
-    <div style="max-width:600px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-      <div style="display:flex; align-items:center; gap:10px;">
-        <span id="bulkSelectedCount" style="font-size:16px; font-weight:700;">0 выбрано</span>
-        <button onclick="selectAllVisibleProducts()" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:15px; cursor:pointer; font-size:12px; font-weight:600;">Все</button>
-        <button onclick="deselectAllProducts()" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.4); padding:6px 12px; border-radius:15px; cursor:pointer; font-size:12px; font-weight:600;">Сброс</button>
-      </div>
-      <button onclick="showBulkMoveCategoryModal()" style="background:white; color:#7b1fa2; border:none; padding:10px 20px; border-radius:20px; cursor:pointer; font-size:14px; font-weight:700; display:flex; align-items:center; gap:6px;">
-        📁 Переместить
-      </button>
-    </div>
   </div>
 
   <!-- Расширенный поиск с фильтрами -->
   <div class="search-container">
-    <div class="search-main">
-      <div class="search-input-wrap" style="width: 100%; position: relative;">
-        <input type="text" id="search" placeholder="🔍 Поиск товара..." oninput="scheduleRenderProducts()" autocomplete="off" style="width: 100%; padding-right: 96px;" />
-        <button type="button" id="searchClearBtn" class="search-clear-btn" onclick="clearSearch()">&times;</button>
-        <button class="filter-toggle-btn" id="filterToggleBtn" onclick="toggleFilters()" title="Фильтры">⚙️</button>
-        <button id="voiceSearchBtn" class="voice-search-btn" onclick="startVoiceSearch()" title="Голосовой поиск">🎤</button>
-      </div>
+    <div class="search-main" style="flex-wrap: wrap;">
+      <button class="search-btn" onclick="applyFilters()">🔍 Найти</button>
+      <button class="filter-toggle-btn" id="filterToggleBtn" onclick="toggleFilters()">⚙️ Фильтры</button>
+      <button id="voiceSearchBtn" class="voice-search-btn" onclick="startVoiceSearch()" title="Голосовой поиск">🎤</button>
+      <input type="text" id="search" placeholder="🔍 Поиск товара..." oninput="scheduleRenderProducts()" autocomplete="off" style="width: 100%; order: 10; margin-top: 8px;" />
     </div>
     
     <div class="search-filters" id="searchFilters">
@@ -684,15 +412,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   <!-- Сетка карточек товаров -->
   <div id="productTable" class="product-grid"></div>
-  <script>
-    // Применяем размер карточек из настроек
-    (function() {
-      var s = localStorage.getItem('cardSize') || 'small';
-      if (s === 'small') {
-        document.getElementById('productTable').classList.add('cards-small');
-      }
-    })();
-  </script>
 
 
 
@@ -700,8 +419,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     <h2>Оформить заказ</h2>
 
-    <div style="display:flex;gap:8px; margin-bottom:10px;">
-      <button id="openCartBtn" onclick="if(typeof navGoCartFromMain==='function')navGoCartFromMain();else if(document.querySelector('[data-nav=&quot;cart&quot;]'))document.querySelector('[data-nav=&quot;cart&quot;]').click();" style="width:100%; padding:14px; background:linear-gradient(135deg, #333, #555); color:white; border:none; border-radius:10px; cursor:pointer; font-size:16px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:8px;">🛒 Открыть корзину</button>
+    <div id="cartList"></div>
+
+    <div class="cart-summary">Итого: <span id="totalSum">0</span> сом</div>
+
+    <!-- Кнопка открытия панели корзины перенесена вниз перед очисткой корзины -->
+    <div style="display:flex;gap:8px;">
+      <button id="openCartBtn" onclick="openCartPage()">Открыть корзину</button>
+      <!-- Кнопка очистки корзины будет в панели корзины -->
     </div>
 
     <input type="text" id="name" placeholder="Ваше имя" required />
@@ -717,8 +442,6 @@ document.addEventListener('DOMContentLoaded', function() {
     <input type="text" id="referredBy" placeholder="Кто вам порекомендовал? (необязательно)" style="background:#f8f9fa; border:2px solid #e9ecef;" />
 
     <button id="submitOrder">Отправить заказ</button>
-    
-    <div id="minOrderWarningIndex" style="display:none; background:#fff3cd; color:#856404; padding:10px 14px; border-radius:8px; font-size:13px; margin-top:10px; text-align:center;"></div>
     
     <button type="button" onclick="openTrackOrderModal()" style="width:100%; padding:14px; margin-top:10px; background:linear-gradient(135deg, #17a2b8 0%, #138496 100%); color:white; border:none; border-radius:10px; cursor:pointer; font-size:16px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:10px;">
       📦 Отслеживать мой заказ
@@ -770,6 +493,37 @@ document.addEventListener('DOMContentLoaded', function() {
       <!-- Список заказов -->
       <div id="partnersOrdersList" style="flex:1; overflow-y:auto; padding:15px;">
         <div style="text-align:center; color:#999; padding:40px;">Загрузка заказов...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Отдельная панель корзины -->
+  <div id="cartPage" style="display:none; position:fixed; top:0; left:0; right:0; bottom:56px; background:#f5f5f5; z-index:9500;">
+    <div style="height:100%; display:flex; flex-direction:column;">
+      <!-- Заголовок корзины -->
+      <div style="background:#fff; padding:15px 20px; border-bottom:1px solid #e0e0e0; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+        <button onclick="closeCartPage()" style="background:none; border:none; font-size:24px; cursor:pointer; padding:0; margin-right:10px;">←</button>
+        <div style="font-size:17px; font-weight:600; color:#333; flex:1;">Корзина</div>
+        <button onclick="clearCart()" style="background:none; border:none; color:#f44336; font-size:13px; cursor:pointer;">Очистить</button>
+      </div>
+      
+      <!-- Список товаров -->
+      <div id="cartPageList" style="flex:1; overflow-y:auto; padding:0; background:#fff;"></div>
+      
+      <!-- Пустая корзина -->
+      <div id="cartEmptyMessage" style="display:none; text-align:center; padding:60px 20px; color:#999; background:#fff; flex:1;">
+        <div style="font-size:48px; margin-bottom:15px;">🛒</div>
+        <div style="font-size:16px;">Корзина пуста</div>
+      </div>
+      
+      <!-- Нижняя панель с итогом -->
+      <div id="cartPageFooter" style="background:#fff; border-top:1px solid #e0e0e0; padding:15px 20px; flex-shrink:0;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div style="font-size:14px; color:#666;">Итого:</div>
+          <div style="font-size:20px; font-weight:600; color:#333;" id="cartPageTotal">0 сом</div>
+        </div>
+        <div id="cartPageSummary" style="font-size:12px; color:#888; margin-bottom:12px;"></div>
+        <button onclick="(function(){ closeCartPage(); document.querySelector('.order-form').scrollIntoView({behavior:'smooth'}); })()" style="width:100%; background:#333; color:white; border:none; padding:15px; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer;">Оформить заказ</button>
       </div>
     </div>
   </div>
@@ -843,9 +597,6 @@ document.addEventListener('DOMContentLoaded', function() {
     let products = [];
     let isAdmin = false;
     let isEditorMode = false;
-    let isBulkSelectMode = false;
-    let bulkSelectedProducts = new Set();
-    let currentSeller = null;
     let cachedSellerCategories = [];
     let boxPurchaseMode = false;
     let productsReady = false;
@@ -865,62 +616,6 @@ document.addEventListener('DOMContentLoaded', function() {
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
 </button>
 
-  <!-- iOS: Баннер установки PWA (только для iPhone/iPad в Safari) -->
-  <div id="iosInstallBanner" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:10000; background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%); color:#fff; padding:18px 22px; border-radius:18px; box-shadow:0 8px 32px rgba(0,0,0,0.4); max-width:370px; width:92%; animation:slideUpBanner 0.4s ease-out;">
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
-      <span style="font-size:28px;">📲</span>
-      <div>
-        <div style="font-weight:800; font-size:16px;">Установите приложение</div>
-        <div style="font-size:12px; opacity:0.8;">Чтобы уведомления приходили когда сайт закрыт</div>
-      </div>
-      <button onclick="document.getElementById('iosInstallBanner').style.display='none'; localStorage.setItem('iosInstallDismissed', Date.now());" style="background:rgba(255,255,255,0.15); color:#fff; border:none; width:28px; height:28px; border-radius:50%; cursor:pointer; font-size:16px; flex-shrink:0;">×</button>
-    </div>
-    <div style="background:rgba(255,255,255,0.1); border-radius:12px; padding:12px; font-size:13px; line-height:1.6;">
-      <div style="margin-bottom:6px;"><b>Шаг 1:</b> Нажмите <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:6px;">⬆️ Поделиться</span> внизу экрана</div>
-      <div style="margin-bottom:6px;"><b>Шаг 2:</b> Прокрутите вниз и нажмите <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:6px;">➕ На экран «Домой»</span></div>
-      <div><b>Шаг 3:</b> Нажмите <span style="background:rgba(255,255,255,0.2); padding:2px 8px; border-radius:6px;">Добавить</span></div>
-    </div>
-    <div style="text-align:center; margin-top:10px; font-size:11px; opacity:0.6;">После установки уведомления будут приходить как в WhatsApp</div>
-  </div>
-
-  <!-- Кнопка включения уведомлений -->
-  <div id="pushNotifBanner" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); z-index:9999; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; padding:14px 22px; border-radius:16px; box-shadow:0 6px 24px rgba(0,0,0,0.3); max-width:360px; width:90%; text-align:center; animation:slideUpBanner 0.4s ease-out;">
-    <div style="font-weight:700; font-size:16px; margin-bottom:6px;">🔔 Не пропустите важное!</div>
-    <div style="font-size:13px; opacity:0.9; margin-bottom:12px;">Получайте уведомления о сообщениях и заказах — даже когда сайт закрыт</div>
-    <div style="display:flex; gap:10px; justify-content:center;">
-      <button onclick="acceptPushBanner()" style="background:#fff; color:#667eea; border:none; padding:10px 24px; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Включить</button>
-      <button onclick="dismissPushBanner()" style="background:rgba(255,255,255,0.2); color:#fff; border:none; padding:10px 18px; border-radius:10px; font-size:13px; cursor:pointer;">Позже</button>
-    </div>
-  </div>
-  <style>
-    @keyframes slideUpBanner { from { transform: translateX(-50%) translateY(100px); opacity:0; } to { transform: translateX(-50%) translateY(0); opacity:1; } }
-  </style>
-  <script>
-    // Показываем баннер подписки на push если ещё не подписан
-    function showPushBannerIfNeeded() {
-      var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) && !window.MSStream;
-      var isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-      // На iOS без PWA — не показываем push-баннер (покажем iOS install баннер)
-      if (isIOS && !isStandalone) return;
-      if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
-      if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
-      if (localStorage.getItem('pushBannerDismissed')) return;
-      setTimeout(function() {
-        var banner = document.getElementById('pushNotifBanner');
-        if (banner) banner.style.display = 'block';
-      }, 5000);
-    }
-    function acceptPushBanner() {
-      document.getElementById('pushNotifBanner').style.display = 'none';
-      if (typeof togglePushNotifications === 'function') togglePushNotifications();
-    }
-    function dismissPushBanner() {
-      document.getElementById('pushNotifBanner').style.display = 'none';
-      localStorage.setItem('pushBannerDismissed', Date.now());
-    }
-    window.addEventListener('load', function() { setTimeout(showPushBannerIfNeeded, 3000); });
-  </script>
-
   <footer id="siteFooter" style="background: #003366; color: #fff; padding:14px 10px; text-align:center; margin-top:18px;">
     <div style="max-width:1200px; margin:0 auto; font-weight:700;">
       О нас: мы первый рук из китая — у нас низкие цены
@@ -929,144 +624,41 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-  <!-- КРИТИЧНЫЕ модули: загружаем сразу (нужны для отображения товаров) -->
-  <script src="js/app-check.js?v=2"></script>
+  <!-- Модули приложения -->
   <script src="js/firebase-config.js"></script>
-  <script src="js/image-proxy.js?v=3"></script>
+  <script src="js/image-proxy.js"></script>
   <script src="js/client-identity.js"></script>
-  <script src="js/block-protection.js?v=1"></script>
-  <script src="js/helpers.js?v=2"></script>
-  <script src="js/product-loader.js?v=2"></script>
-  <script src="js/product-renderer.js?v=8"></script>
-  <script src="js/cart.js?v=4"></script>
-  <script src="js/favorites.js"></script>
-  <script src="js/quantity.js?v=2"></script>
-
-  <script src="js/app-init.js?v=3"></script>
-  <script src="js/filters.js?v=2"></script>
-  <script src="js/bottom-nav.js?v=29"></script>
+  <script src="js/product-loader.js"></script>
+  <script src="js/product-renderer.js"></script>
+  <script src="js/product-editor.js"></script>
+  <script src="js/order-submit.js"></script>
+  <script src="js/app-init.js"></script>
+  <script src="js/complaint-suggestion.js"></script>
+  <script src="js/admin-ui.js"></script>
   <script src="js/scroll-buttons.js"></script>
 
-  <!-- ОТЛОЖЕННЫЕ модули: defer — загружаются параллельно, выполняются после DOM -->
-  <script defer src="js/advanced-search.js"></script>
-  <script defer src="js/product-editor.js?v=2"></script>
-  <script defer src="js/order-submit.js?v=3"></script>
-  <script defer src="js/complaint-suggestion.js"></script>
-  <script defer src="js/admin-ui.js"></script>
-  <script defer src="js/image-optimizer.js"></script>
-  <script defer src="js/upload.js"></script>
-  <script defer src="js/gallery.js"></script>
-  <script defer src="js/variants.js?v=2"></script>
-  <script defer src="js/telegram-client.js?v=2"></script>
-  <script defer src="js/orders.js?v=2"></script>
-  <script defer src="js/persist-profile.js?v=1"></script>
-  <script defer src="js/customer-auth.js?v=5"></script>
-  <script defer src="js/seller.js?v=4"></script>
-  <script defer src="js/order-tracking.js?v=2"></script>
-  <script defer src="js/partners.js?v=2"></script>
-  <script defer src="js/agents.js?v=2"></script>
-
-  <!-- Push-уведомления -->
-  <script defer src="js/push-notifications.js"></script>
+  <!-- Существующие модули -->
+  <script src="js/filters.js"></script>
+  <script src="js/advanced-search.js"></script>
+  <script src="js/helpers.js"></script>
+  <script src="js/image-optimizer.js"></script>
+  <script src="js/upload.js"></script>
+  <script src="js/gallery.js"></script>
+  <script src="js/favorites.js"></script>
+  <script src="js/cart.js"></script>
+  <script src="js/variants.js?v=2"></script>
+  <script src="js/quantity.js?v=2"></script>
+  <script src="js/orders.js?v=2"></script>
+  <script src="js/customer-auth.js?v=2"></script>
+  <script src="js/seller.js?v=2"></script>
+  <script src="js/order-tracking.js?v=2"></script>
+  <script src="js/partners.js?v=2"></script>
+  <script src="js/agents.js?v=2"></script>
+  <script src="js/bottom-nav.js?v=10"></script>
 
   <!-- PWA и Service Worker -->
-  <script defer src="js/pwa-install.js"></script>
-  <script defer src="js/sw-register.js"></script>
-
-  <!-- ГАРАНТИЯ ПРОКРУТКИ: MutationObserver + SweetAlert2 патч -->
-  <script>
-  (function() {
-    // === 1. Функция принудительного восстановления скролла ===
-    function guaranteeScroll() {
-      // Проверяем — есть ли открытое модальное окно?
-      var hasModal = document.body.classList.contains('modal-open') ||
-                     document.body.classList.contains('scroll-locked');
-      // Проверяем SweetAlert2 — только если видим реальный popup
-      var swalVisible = document.querySelector('.swal2-container.swal2-shown');
-      if (hasModal || swalVisible) return; // Не мешаем модальным окнам
-
-      // Убираем все блокирующие классы
-      document.body.classList.remove('swal2-shown', 'swal2-height-auto', 'swal2-no-backdrop');
-      document.documentElement.classList.remove('swal2-shown', 'swal2-height-auto');
-      
-      // Принудительно ставим прокрутку через setProperty (inline !important)
-      document.body.style.setProperty('overflow-y', 'scroll', 'important');
-      document.body.style.setProperty('overflow-x', 'hidden', 'important');
-      document.body.style.setProperty('position', 'static', 'important');
-      document.body.style.setProperty('height', 'auto', 'important');
-      document.body.style.setProperty('touch-action', 'pan-y', 'important');
-      document.documentElement.style.setProperty('overflow-y', 'scroll', 'important');
-      document.documentElement.style.setProperty('overflow-x', 'hidden', 'important');
-      document.documentElement.style.setProperty('position', 'static', 'important');
-      document.documentElement.style.setProperty('touch-action', 'pan-y', 'important');
-    }
-
-    // === 2. MutationObserver — следим за изменениями body/html ===
-    function setupScrollGuard() {
-      var observer = new MutationObserver(function(mutations) {
-        for (var i = 0; i < mutations.length; i++) {
-          var m = mutations[i];
-          // Если кто-то добавил блокирующий класс или изменил style
-          if (m.type === 'attributes') {
-            var target = m.target;
-            // Если это не наш собственный вызов и нет модалов — восстанавливаем
-            if (target === document.body || target === document.documentElement) {
-              // Используем requestAnimationFrame чтобы не зациклиться
-              requestAnimationFrame(function() {
-                if (!document.body.classList.contains('modal-open') &&
-                    !document.body.classList.contains('scroll-locked')) {
-                  var cs = getComputedStyle(document.body);
-                  if (cs.overflowY === 'hidden' || cs.position === 'fixed') {
-                    console.log('⚠️ ScrollGuard: обнаружена блокировка, восстанавливаю...');
-                    guaranteeScroll();
-                  }
-                }
-              });
-            }
-          }
-        }
-      });
-      
-      observer.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] });
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
-    }
-
-    // === 3. Патчим SweetAlert2: запрещаем ему блокировать скролл body ===
-    function patchSweetAlert() {
-      if (typeof Swal === 'undefined') return;
-      var origFire = Swal.fire.bind(Swal);
-      Swal.fire = function() {
-        var result = origFire.apply(Swal, arguments);
-        // После закрытия любого попапа — гарантируем скролл
-        if (result && typeof result.then === 'function') {
-          result.then(function() {
-            setTimeout(guaranteeScroll, 50);
-          }).catch(function() {
-            setTimeout(guaranteeScroll, 50);
-          });
-        }
-        return result;
-      };
-    }
-
-    // === Запуск ===
-    // На DOMContentLoaded — ставим Observer и патчим Swal
-    document.addEventListener('DOMContentLoaded', function() {
-      setupScrollGuard();
-      patchSweetAlert();
-      setTimeout(guaranteeScroll, 100);
-      setTimeout(guaranteeScroll, 500);
-    });
-    // На полную загрузку
-    window.addEventListener('load', function() {
-      setTimeout(guaranteeScroll, 200);
-      setTimeout(guaranteeScroll, 1000);
-      setTimeout(guaranteeScroll, 3000);
-    });
-    // Сразу при парсинге скрипта
-    guaranteeScroll();
-  })();
-  </script>
+  <script src="js/pwa-install.js"></script>
+  <script src="js/sw-register.js"></script>
 
 </body>
 </html>
