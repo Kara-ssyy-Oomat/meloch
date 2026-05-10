@@ -1,9 +1,96 @@
 // Service Worker для PWA приложения "Кербен"
-// Обеспечивает кэширование и автоматическое обновление
+// Обеспечивает кэширование, push-уведомления и автоматическое обновление
 
-const CACHE_VERSION = 'kerben-v2.2.0-optimized'; // Оптимизация загрузки
+// ==================== FIREBASE MESSAGING (Push) ====================
+importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+  authDomain: "svoysayet.firebaseapp.com",
+  projectId: "svoysayet",
+  storageBucket: "svoysayet.firebasestorage.app",
+  messagingSenderId: "450143000217",
+  appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+  measurementId: "G-Y8VG9E29FY"
+});
+
+const messaging = firebase.messaging();
+
+// Обработка push-уведомлений в ФОНЕ (сайт закрыт / свёрнут)
+// Как WhatsApp — громко, с вибрацией, баннер сверху
+messaging.onBackgroundMessage((payload) => {
+  console.log('[SW] 🔔 Push в фоне:', payload);
+
+  const data = payload.data || payload.notification || {};
+  const title = data.title || 'Кербен';
+  const body = data.body || 'Новое уведомление';
+
+  const options = {
+    body: body,
+    icon: './icon-kerben.jpg',
+    badge: './icon-kerben.jpg',
+    // Сильная вибрация как у мессенджера
+    vibrate: [300, 150, 300, 150, 300, 150, 300],
+    tag: data.tag || 'kerben-notification',
+    renotify: true,
+    // НЕ исчезает автоматически — пользователь должен нажать
+    requireInteraction: true,
+    // Кнопки действий
+    actions: [
+      { action: 'open', title: '📖 Открыть' },
+      { action: 'close', title: '✕ Закрыть' }
+    ],
+    // Звук (для поддерживающих браузеров)
+    silent: false,
+    data: {
+      url: data.url || './index.html',
+      type: data.type || 'general'
+    }
+  };
+
+  return self.registration.showNotification(title, options);
+});
+
+// Клик по уведомлению — открыть сайт
+self.addEventListener('notificationclick', (event) => {
+  const action = event.action;
+  
+  // Если нажали "Закрыть" — просто закрываем
+  if (action === 'close') {
+    event.notification.close();
+    return;
+  }
+  
+  // Клик на уведомление или кнопку "Открыть"
+  event.notification.close();
+  
+  // Определяем URL — для клиента всегда главная, для админа — admin-chat
+  const notifType = event.notification.data?.type || 'general';
+  const targetUrl = (notifType === 'admin_chat') ? './admin-chat.html' : './index.html';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Ищем уже открытую вкладку сайта
+      for (const client of windowClients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          // Просто фокусируем существующую вкладку — НЕ открываем чат автоматически
+          return client.focus();
+        }
+      }
+      // Если нет открытой — открываем главную
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
+// ==================== КЭШИРОВАНИЕ ====================
+
+const CACHE_VERSION = 'kerben-v4.3.0-android-fix'; // Надёжный push на Android
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
+const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
+const IMAGE_CACHE_LIMIT = 200; // Максимум 200 изображений в кэше
 
 // Firebase SDK для кэширования
 const FIREBASE_URLS = [
@@ -39,7 +126,10 @@ const STATIC_CACHE_URLS = [
   './js/variants.js',
   './js/quantity.js',
   './js/orders.js',
+  './js/app-check.js',
+  './js/telegram-client.js',
   './js/customer-auth.js',
+  './js/persist-profile.js',
   './js/chat.js',
   './js/seller.js',
   './js/admin-chat.js',
@@ -48,7 +138,8 @@ const STATIC_CACHE_URLS = [
   './js/profit-report.js',
   './js/expenses.js',
   './js/agents.js',
-  './js/bottom-nav.js'
+  './js/bottom-nav.js',
+  './js/push-notifications.js'
 ];
 
 // Установка Service Worker
@@ -99,10 +190,10 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((cacheNames) => {
-        // Удаляем старые кэши (кроме Firebase)
+        // Удаляем старые кэши (кроме Firebase и изображений)
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME && cacheName !== FIREBASE_CACHE) {
+            if (cacheName !== CACHE_NAME && cacheName !== FIREBASE_CACHE && cacheName !== IMAGE_CACHE) {
               console.log('[SW] Удаление старого кэша:', cacheName);
               return caches.delete(cacheName);
             }
@@ -121,7 +212,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
   // Firebase SDK и CDN - Cache First (из кэша, потом сеть)
-  if (url.origin.includes('gstatic.com') || url.origin.includes('jsdelivr.net')) {
+  if (url.origin.includes('gstatic.com') || url.origin.includes('jsdelivr.net') || url.origin.includes('cdnjs.cloudflare.com')) {
     event.respondWith(
       caches.match(event.request).then(cachedResponse => {
         if (cachedResponse) {
@@ -141,6 +232,41 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
+  // НОВОЕ: Кэширование изображений товаров (wsrv.nl, imgbb, cloudinary)
+  if (url.origin.includes('wsrv.nl') || 
+      url.origin.includes('i.ibb.co') || 
+      url.origin.includes('images.weserv.nl') ||
+      (url.origin.includes('cloudinary.com') && event.request.destination === 'image')) {
+    event.respondWith(
+      caches.open(IMAGE_CACHE).then(cache => {
+        return cache.match(event.request).then(cachedResponse => {
+          if (cachedResponse) {
+            return cachedResponse; // Изображение из кэша — мгновенно!
+          }
+          return fetch(event.request).then(response => {
+            if (response.ok) {
+              cache.put(event.request, response.clone());
+              // Ограничиваем размер кэша
+              cache.keys().then(keys => {
+                if (keys.length > IMAGE_CACHE_LIMIT) {
+                  cache.delete(keys[0]); // Удаляем самое старое
+                }
+              });
+            }
+            return response;
+          }).catch(() => {
+            // Офлайн — показываем placeholder
+            return new Response(
+              '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect fill="#f0f0f0" width="200" height="200"/><text fill="#999" font-family="Arial" font-size="14" x="100" y="100" text-anchor="middle">📷</text></svg>',
+              { headers: { 'Content-Type': 'image/svg+xml' } }
+            );
+          });
+        });
+      })
+    );
+    return;
+  }
+  
   // Firestore/Storage API - пропускаем без кэширования
   if (url.origin.includes('firebase') || 
       url.origin.includes('googleapis') ||
@@ -150,27 +276,30 @@ self.addEventListener('fetch', (event) => {
   }
   
   // Только для HTML, CSS, JS - остальное грузим напрямую
-  if (!event.request.url.match(/\.(html|css|js)$/)) {
+  if (!event.request.url.match(/\.(html|css|js)(\?.*)?$/)) {
     return; // Изображения и другие файлы загружаются напрямую (быстрее!)
   }
+  
+  // Убираем параметры версии (?v=XX) для единообразного кэширования
+  const cleanUrl = event.request.url.replace(/\?.*$/, '');
+  const cleanRequest = new Request(cleanUrl, { headers: event.request.headers });
   
   event.respondWith(
     // Стратегия Network First - всегда пытаемся загрузить свежее
     fetch(event.request)
       .then((response) => {
-        // Если получили ответ от сети, кэшируем в фоне (не тормозит!)
         if (response && response.status === 200) {
           const responseToCache = response.clone();
-          // Кэширование происходит асинхронно, не блокирует показ страницы
+          // Кэшируем по чистому URL (без ?v=)
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
+            cache.put(cleanRequest, responseToCache);
           });
         }
         return response;
       })
       .catch(() => {
-        // Если сеть недоступна, берём из кэша (офлайн режим)
-        return caches.match(event.request)
+        // Если сеть недоступна, ищем по чистому URL в кэше
+        return caches.match(cleanRequest)
           .then((cachedResponse) => {
             if (cachedResponse) {
               return cachedResponse;
@@ -231,7 +360,15 @@ self.addEventListener('fetch', (event) => {
 
 // Обработка сообщений от клиента
 self.addEventListener('message', (event) => {
-  if (event.data === 'skipWaiting') {
+  if (event.data === 'skipWaiting' || (event.data && event.data.action === 'skipWaiting')) {
     self.skipWaiting();
+  }
+  // Принудительная очистка всех кэшей
+  if (event.data === 'clearAllCaches' || (event.data && event.data.action === 'clearAllCaches')) {
+    caches.keys().then(names => {
+      return Promise.all(names.map(name => caches.delete(name)));
+    }).then(() => {
+      console.log('[SW] Все кэши очищены');
+    });
   }
 });

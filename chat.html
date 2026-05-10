@@ -1,7 +1,14 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}.chat-input-area{bottom:0!important}</style>')</script>
+  <script>
+    if (window.parent === window) {
+      window.location.replace('index.html?page=chat');
+    }
+    if (window.parent !== window) {
+      document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}.chat-input-area{bottom:0!important}</style>');
+    }
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#667eea">
@@ -11,6 +18,11 @@
   <link rel="icon" type="image/jpeg" href="icon-kerben.jpg">
   
   <title>Чат - Кербен</title>
+
+  <!-- Предзагрузка DNS -->
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -144,8 +156,11 @@
   </style>
   
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/auth.js?v=1"></script>
 </head>
 
 <body>
@@ -191,12 +206,15 @@
       authDomain: "svoysayet.firebaseapp.com",
       projectId: "svoysayet",
       storageBucket: "svoysayet.firebasestorage.app",
-      messagingSenderId: "785840370498",
-      appId: "1:785840370498:web:e08c7cbef96aborc5e81f1"
+      messagingSenderId: "450143000217",
+      appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+      measurementId: "G-Y8VG9E29FY"
     };
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+    // ОПТИМИЗАЦИЯ COSTS: оффлайн-кэш Firestore (бесплатные чтения из IndexedDB)
+    try { db.enablePersistence({ synchronizeTabs: true }).catch(()=>{}); } catch(e) {}
     
     let clientId = localStorage.getItem('chatClientId');
     let clientName = localStorage.getItem('chatClientName');
@@ -309,10 +327,25 @@
             doc.ref.update({ read: true });
           }
           
+          let contentHtml = '';
+          if (msg.fileUrl) {
+            if (msg.fileType && msg.fileType.startsWith('image/')) {
+              contentHtml = `<div style="margin-bottom:6px;"><img src="${msg.fileUrl}" style="max-width:100%; max-height:250px; border-radius:8px; cursor:pointer;" onclick="openChatImagePreview(this.src)"></div>`;
+            } else {
+              const icon = (msg.fileType && msg.fileType.includes('pdf')) ? '📄' : '📁';
+              const linkColor = isSent ? 'white' : '#667eea';
+              const bgColor = isSent ? 'rgba(255,255,255,0.15)' : '#f0f0ff';
+              contentHtml = `<div style="margin-bottom:6px;"><a href="${msg.fileUrl}" target="_blank" style="color:${linkColor}; text-decoration:none; display:flex; align-items:center; gap:8px; padding:8px 12px; background:${bgColor}; border-radius:8px;">${icon} <span style="flex:1; word-break:break-all;">${escapeHtml(msg.fileName || 'Файл')}</span> ⬇️</a></div>`;
+            }
+          }
+          if (msg.text) {
+            contentHtml += `<div class="message-text" style="white-space:pre-wrap;">${escapeHtml(msg.text)}</div>`;
+          }
+          
           const div = document.createElement('div');
           div.className = `message ${isSent ? 'sent' : 'received'}`;
           div.innerHTML = `
-            <div class="message-text">${escapeHtml(msg.text)}</div>
+            ${contentHtml}
             <div class="message-time">${isSent ? 'Вы' : 'Продавец'} • ${time}</div>
           `;
           messagesDiv.appendChild(div);
@@ -344,7 +377,7 @@
               
               // Показываем только сообщения от админа
               if (msg.sender === 'admin') {
-                addMessageToUI(msg.text, 'received', new Date(msg.timestamp?.seconds * 1000 || Date.now()));
+                addMessageToUI(msg.text, 'received', new Date(msg.timestamp?.seconds * 1000 || Date.now()), msg.fileUrl, msg.fileType, msg.fileName);
                 showNewMessageNotification('Новое сообщение от продавца');
                 if (!msg.read) {
                   change.doc.ref.update({ read: true });
@@ -408,15 +441,42 @@
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
+
+    function openChatImagePreview(src) {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+      overlay.innerHTML = `
+        <span style="position:absolute;top:15px;right:20px;color:white;font-size:36px;cursor:pointer;z-index:100000;">&times;</span>
+        <img src="${src}" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:8px;">
+      `;
+      overlay.onclick = function() { overlay.remove(); };
+      document.body.appendChild(overlay);
+    }
     
-    function addMessageToUI(text, type, timestamp) {
+    function addMessageToUI(text, type, timestamp, fileUrl, fileType, fileName) {
       const messagesDiv = document.getElementById('chatMessages');
       const time = timestamp.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       
       const div = document.createElement('div');
       div.className = `message ${type === 'sent' ? 'sent' : 'received'}`;
+      
+      let contentHtml = '';
+      if (fileUrl) {
+        if (fileType && fileType.startsWith('image/')) {
+          contentHtml = `<div style="margin-bottom:6px;"><img src="${fileUrl}" style="max-width:100%; max-height:250px; border-radius:8px; cursor:pointer;" onclick="openChatImagePreview(this.src)"></div>`;
+        } else {
+          const icon = (fileType && fileType.includes('pdf')) ? '📄' : '📁';
+          const linkColor = type === 'sent' ? 'white' : '#667eea';
+          const bgColor = type === 'sent' ? 'rgba(255,255,255,0.15)' : '#f0f0ff';
+          contentHtml = `<div style="margin-bottom:6px;"><a href="${fileUrl}" target="_blank" style="color:${linkColor}; text-decoration:none; display:flex; align-items:center; gap:8px; padding:8px 12px; background:${bgColor}; border-radius:8px;">${icon} <span style="flex:1; word-break:break-all;">${escapeHtml(fileName || 'Файл')}</span> ⬇️</a></div>`;
+        }
+      }
+      if (text) {
+        contentHtml += `<div class="message-text" style="white-space:pre-wrap;">${escapeHtml(text)}</div>`;
+      }
+      
       div.innerHTML = `
-        <div class="message-text">${escapeHtml(text)}</div>
+        ${contentHtml}
         <div class="message-time">${type === 'sent' ? 'Вы' : 'Продавец'} • ${time}</div>
       `;
       messagesDiv.appendChild(div);
@@ -435,7 +495,7 @@
       try {
         console.log('Отправка сообщения в Firebase...', { clientId, text });
         
-        const msgRef = await db.collection('chatMessages').add({
+        const savePromise = db.collection('chatMessages').add({
           text: text,
           sender: 'client',
           clientId: clientId,
@@ -444,16 +504,27 @@
           read: false
         });
         
-        console.log('Сообщение сохранено, ID:', msgRef.id);
+        // Push-уведомление админу
+        const notifPromise = db.collection('notificationQueue').add({
+          type: 'admin_chat',
+          title: clientName || 'Клиент',
+          body: text.length > 100 ? text.substring(0, 100) + '...' : text,
+          clientId: clientId,
+          clientName: clientName || 'Клиент',
+          status: 'pending',
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
         
-        await db.collection('chatClients').doc(clientId).set({
+        const activityPromise = db.collection('chatClients').doc(clientId).set({
           name: clientName || 'Клиент',
           lastActive: firebase.firestore.FieldValue.serverTimestamp(),
           lastMessage: text,
           hasUnread: true
         }, { merge: true });
         
-        console.log('Клиент обновлён в chatClients');
+        await Promise.all([savePromise, notifPromise, activityPromise]);
+        
+        console.log('Сообщение и уведомление отправлены');
         
       } catch (error) {
         console.error('Ошибка отправки:', error);
@@ -472,5 +543,8 @@
     
     document.addEventListener('DOMContentLoaded', init);
   </script>
+<script src="js/bottom-nav.js?v=28"></script>
+<script defer src="js/push-notifications.js"></script>
+<script defer src="js/sw-register.js"></script>
 </body>
 </html>
