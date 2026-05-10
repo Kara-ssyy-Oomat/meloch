@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}.main-container{height:100vh!important}</style>')</script>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav{display:none!important}body{padding-bottom:0!important}.main-container{height:100vh!important}</style>')</script>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Отчет по прибыли - Кербен</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
@@ -26,7 +26,33 @@
       z-index: 999999 !important;
     }
     
-
+    /* Нижнее меню */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      background: #fff;
+      border-top: 1px solid #eee;
+      display: flex;
+      justify-content: space-around;
+      z-index: 99999;
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: #9e9e9e;
+      text-decoration: none;
+      position: relative;
+    }
+    .nav-item.active { color: #4CAF50; }
+    .nav-item svg { width: 24px; height: 24px; fill: currentColor; }
+    .nav-item span { font-size: 11px; }
     
     /* Основной контейнер */
     .main-container {
@@ -605,7 +631,29 @@
   </div>
 </div>
 
-<script src="js/bottom-nav.js?v=28"></script>
+<!-- Нижнее меню -->
+<nav class="bottom-nav">
+  <a href="index.html" class="nav-item">
+    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    <span>Главная</span>
+  </a>
+  <a href="admin-products.html" class="nav-item">
+    <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+    <span>Товары</span>
+  </a>
+  <a href="admin-orders.html" class="nav-item">
+    <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+    <span>Заказы</span>
+  </a>
+  <a href="admin-profit.html" class="nav-item active">
+    <svg viewBox="0 0 24 24"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>
+    <span>Прибыль</span>
+  </a>
+  <a href="profile.html" class="nav-item">
+    <svg viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>
+    <span>Профиль</span>
+  </a>
+</nav>
 
 <script>
 // Firebase конфигурация (svoysayet - рабочий проект)
@@ -805,9 +853,6 @@ async function loadOrderProfitReport() {
       const data = doc.data();
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       if (orderDate >= startDate) {
-        // Пропускаем отменённые и удалённые заказы — они не считаются в прибыли
-        if (data.deleted) return;
-        if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
         orders.push({ id: doc.id, ...data, orderDate });
       }
     });
@@ -956,10 +1001,6 @@ async function loadAgentsProfitReport() {
         ordersSkippedByDate++;
         return;
       }
-      
-      // Пропускаем отменённые и удалённые заказы — не считаем прибыль агенту
-      if (data.deleted) return;
-      if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
       
       // Ищем агента по разным полям: partner, agentId, referredBy
       let agent = null;
@@ -1246,84 +1287,7 @@ async function loadExpensesReport() {
       }
     });
     
-    // ========== РЕГУЛЯРНЫЕ РАСХОДЫ: генерация виртуальных записей ==========
-    // Находим все регулярные расходы с выбранными днями недели
-    const recurringExpenses = [];
-    expensesSnap.forEach(doc => {
-      const data = doc.data();
-      if (data.isRecurring && data.recurringDays && data.recurringDays.length > 0) {
-        let expenseCreatedDate;
-        if (data.timestamp) {
-          expenseCreatedDate = new Date(data.timestamp);
-        } else if (data.date) {
-          expenseCreatedDate = new Date(data.date);
-        } else {
-          expenseCreatedDate = new Date(data.createdAt || 0);
-        }
-        expenseCreatedDate.setHours(0, 0, 0, 0);
-        recurringExpenses.push({
-          id: doc.id,
-          ...data,
-          expenseCreatedDate
-        });
-      }
-    });
-    
-    console.log('🔄 Регулярных расходов найдено:', recurringExpenses.length);
-    
-    if (recurringExpenses.length > 0) {
-      // Определяем реальный диапазон дат для генерации виртуальных записей
-      const periodStart = new Date(startDate);
-      periodStart.setHours(0, 0, 0, 0);
-      const periodEnd = new Date(endDate);
-      periodEnd.setHours(23, 59, 59, 999);
-      
-      // Удаляем оригинальные записи регулярных расходов из списка (они заменятся виртуальными)
-      const recurringIds = new Set(recurringExpenses.map(e => e.id));
-      expenses = expenses.filter(e => !recurringIds.has(e.id));
-      
-      // Генерируем виртуальные записи для каждого дня периода
-      const dayMs = 24 * 60 * 60 * 1000;
-      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      
-      recurringExpenses.forEach(expense => {
-        // Начинаем с позднейшей из: начала периода или даты создания расхода
-        const genStart = new Date(Math.max(periodStart.getTime(), expense.expenseCreatedDate.getTime()));
-        genStart.setHours(0, 0, 0, 0);
-        
-        // Заканчиваем не позже сегодня (не генерируем в будущее)
-        const genEnd = new Date(Math.min(periodEnd.getTime(), todayMidnight.getTime()));
-        genEnd.setHours(23, 59, 59, 999);
-        
-        let currentDay = new Date(genStart);
-        let dayIndex = 0;
-        
-        while (currentDay <= genEnd) {
-          const dayOfWeek = currentDay.getDay(); // 0=Вс, 1=Пн, ... 6=Сб
-          
-          // Проверяем, попадает ли день недели в выбранные дни
-          if (expense.recurringDays.includes(dayOfWeek)) {
-            expenses.push({
-              id: expense.id + '_virtual_' + dayIndex,
-              description: expense.description + ' (регулярный)',
-              amount: expense.amount,
-              expenseDate: new Date(currentDay),
-              isRecurring: true,
-              recurringDays: expense.recurringDays,
-              isVirtual: true
-            });
-          }
-          
-          currentDay.setDate(currentDay.getDate() + 1);
-          dayIndex++;
-        }
-      });
-      
-      console.log('✅ Расходов после добавления регулярных:', expenses.length);
-    }
-    // ========== КОНЕЦ РЕГУЛЯРНЫХ РАСХОДОВ ==========
-    
-    console.log('✅ Расходов за период (включая агентов и регулярные):', expenses.length);
+    console.log('✅ Расходов за период (включая агентов):', expenses.length);
     
     let periodProfit = 0;
     ordersSnap.forEach(doc => {
@@ -1374,11 +1338,7 @@ async function loadExpensesReport() {
         '<span style="color:#666; font-size:11px; margin-left:6px;">(' + e.recurringDays.map(d => dayNames[d]).join(', ') + ')</span>' : '';
       
       let deleteBtn = '';
-      if (e.isVirtual) {
-        // Извлекаем реальный ID расхода из виртуального ID
-        const realId = e.id.split('_virtual_')[0];
-        deleteBtn = `<button onclick="deleteExpense('${realId}')" class="btn-red" style="padding:6px 12px; font-size:12px;" title="Удалить регулярный расход">🗑️</button>`;
-      } else if (e.isAgentExpense) {
+      if (e.isAgentExpense) {
         const realId = e.id.replace('agent_', '');
         deleteBtn = `<button onclick="deleteAgentExpenseAdmin('${realId}')" class="btn-red" style="padding:6px 12px; font-size:12px;">🗑️</button>`;
       } else {
