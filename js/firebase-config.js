@@ -25,11 +25,7 @@ function initFirebase() {
     db = firebase.firestore();
     storage = firebase.storage();
     console.log('Firebase initialized successfully');
-
-    if (typeof kerbenStartAppCheckSetup === 'function') {
-      kerbenStartAppCheckSetup(db);
-    }
-
+    
     // Подписка на новые сообщения в чате
     subscribeToNewChatMessages();
     
@@ -39,9 +35,6 @@ function initFirebase() {
   }
 }
 
-// Храним unsubscribe-функцию чтобы не создавать дублирующие слушатели
-let _chatUnsubscribe = null;
-
 // Подписка на новые сообщения от админа для badge на иконке чата
 function subscribeToNewChatMessages() {
   const clientId = localStorage.getItem('chatClientId');
@@ -50,13 +43,7 @@ function subscribeToNewChatMessages() {
     return;
   }
   
-  // Отписываемся от старого слушателя если есть
-  if (_chatUnsubscribe) {
-    _chatUnsubscribe();
-    _chatUnsubscribe = null;
-  }
-  
-  _chatUnsubscribe = db.collection('chatMessages')
+  db.collection('chatMessages')
     .where('clientId', '==', clientId)
     .orderBy('timestamp', 'asc')
     .onSnapshot(snapshot => {
