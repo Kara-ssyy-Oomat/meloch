@@ -89,6 +89,9 @@ async function saveExpense() {
     }
     
     await db.collection('expenses').add(expenseData);
+
+    // Инвалидируем кэш отчёта, чтобы при следующем открытии увидели новые данные
+    if (typeof _invalidateProfitReportCache === 'function') _invalidateProfitReportCache();
     
     closeAddExpenseModal();
     
@@ -113,69 +116,108 @@ async function loadExpensesReport() {
     console.log('📊 loadExpensesReport вызвана');
     const period = document.getElementById('expenseDateFilter').value;
     console.log('🔍 Период:', period);
-    
-    // Получаем расходы
-    const expensesSnapshot = await db.collection('expenses').orderBy('timestamp', 'desc').get();
+
+    // ОПТИМИЗАЦИЯ COSTS: используем общий кэш отчёта (60 сек) для тяжёлых
+    // выгрузок — раньше каждый клик делал заново 4 крупных .get() без лимита.
+    const _useCache = typeof _loadExpensesCached === 'function';
+    const expensesSnapshot = _useCache ? null : await db.collection('expenses').orderBy('timestamp', 'desc').get();
     let expenses = [];
-    expensesSnapshot.forEach(doc => {
-      const data = doc.data();
-      expenses.push({
-        id: doc.id,
-        ...data,
-        timestamp: normalizeEpochMs(data.timestamp, normalizeEpochMs(data.createdAt, Date.now()))
-      });
-    });
-    console.log('💸 Всего расходов:', expenses.length);
-    
-    // Получаем расходы агентов из коллекции agentExpenses
-    try {
-      const agentExpSnapshot = await db.collection('agentExpenses').get();
-      agentExpSnapshot.forEach(doc => {
+    if (_useCache) {
+      const cached = await _loadExpensesCached();
+      expenses = cached.map(d => ({
+        ...d,
+        timestamp: normalizeEpochMs(d.timestamp, normalizeEpochMs(d.createdAt, Date.now()))
+      }));
+    } else {
+      expensesSnapshot.forEach(doc => {
         const data = doc.data();
         expenses.push({
-          id: 'agent_' + doc.id,
-          description: data.description,
-          amount: data.amount || 0,
-          timestamp: normalizeEpochMs(data.timestamp, normalizeEpochMs(data.createdAt, Date.now())),
-          createdAt: data.createdAt || Date.now(),
-          isAgentExpense: true,
-          agentName: data.agentName || 'Агент'
+          id: doc.id,
+          ...data,
+          timestamp: normalizeEpochMs(data.timestamp, normalizeEpochMs(data.createdAt, Date.now()))
         });
       });
-      console.log('🤝 Расходов агентов загружено:', agentExpSnapshot.size);
+    }
+    console.log('💸 Всего расходов:', expenses.length);
+
+    // Получаем расходы агентов из коллекции agentExpenses (тоже через кэш)
+    try {
+      const agentSrc = _useCache ? await _loadAgentExpensesCached() : null;
+      if (agentSrc) {
+        agentSrc.forEach(data => {
+          expenses.push({
+            id: 'agent_' + data.id,
+            description: data.description,
+            amount: data.amount || 0,
+            timestamp: normalizeEpochMs(data.timestamp, normalizeEpochMs(data.createdAt, Date.now())),
+            createdAt: data.createdAt || Date.now(),
+            isAgentExpense: true,
+            agentName: data.agentName || 'Агент'
+          });
+        });
+        console.log('🤝 Расходов агентов загружено:', agentSrc.length);
+      } else {
+        const agentExpSnapshot = await db.collection('agentExpenses').get();
+        agentExpSnapshot.forEach(doc => {
+          const data = doc.data();
+          expenses.push({
+            id: 'agent_' + doc.id,
+            description: data.description,
+            amount: data.amount || 0,
+            timestamp: normalizeEpochMs(data.timestamp, normalizeEpochMs(data.createdAt, Date.now())),
+            createdAt: data.createdAt || Date.now(),
+            isAgentExpense: true,
+            agentName: data.agentName || 'Агент'
+          });
+        });
+      }
     } catch(e) {
       console.log('⚠️ Не удалось загрузить расходы агентов:', e);
     }
-    
-    // Получаем заказы для расчета прибыли
-    const ordersSnapshot = await db.collection('orders').get();
+
+    // Заказы — из общего кэша
     let orders = [];
-    ordersSnapshot.forEach(doc => {
-      const data = doc.data();
-      orders.push({
-        id: doc.id,
-        ...data,
-        timestamp: normalizeEpochMs(data.timestamp, Date.now())
-      });
-    });
-    console.log('📦 Всего заказов:', orders.length);
-    
-    // Загружаем все товары с себестоимостью из Firebase (КАК В ФУНКЦИИ ПО ЗАКАЗАМ)
-    let productsMap = new Map();
-    try {
-      const productsSnapshot = await db.collection('products').get();
-      console.log('🛍️ Загружено товаров из Firebase:', productsSnapshot.size);
-      
-      productsSnapshot.forEach(doc => {
+    if (_useCache) {
+      const cached = await _loadOrdersCached();
+      orders = cached.map(o => ({ ...o, timestamp: normalizeEpochMs(o.timestamp, Date.now()) }));
+    } else {
+      const ordersSnapshot = await db.collection('orders').get();
+      ordersSnapshot.forEach(doc => {
         const data = doc.data();
-        productsMap.set(doc.id, {
-          name: data.name || 'Неизвестный товар',
-          costPrice: data.costPrice || 0,
-          salePrice: data.price || 0,
-          category: data.category || 'все'
+        orders.push({
+          id: doc.id,
+          ...data,
+          timestamp: normalizeEpochMs(data.timestamp, Date.now())
         });
       });
-      
+    }
+    console.log('📦 Всего заказов:', orders.length);
+
+    // Товары — из общего кэша
+    let productsMap = new Map();
+    try {
+      if (_useCache) {
+        const cached = await _loadProductsCached();
+        cached.forEach(data => {
+          productsMap.set(data.id, {
+            name: data.name || 'Неизвестный товар',
+            costPrice: data.costPrice || 0,
+            salePrice: data.price || 0,
+            category: data.category || 'все'
+          });
+        });
+      } else {
+        const productsSnapshot = await db.collection('products').get();
+        productsSnapshot.forEach(doc => {
+          const data = doc.data();
+          productsMap.set(doc.id, {
+            name: data.name || 'Неизвестный товар',
+            costPrice: data.costPrice || 0,
+            salePrice: data.price || 0,
+            category: data.category || 'все'
+          });
+        });
+      }
       console.log('💰 Товаров в карте:', productsMap.size);
     } catch (error) {
       console.error('❌ Ошибка загрузки товаров:', error);
@@ -196,7 +238,20 @@ async function loadExpensesReport() {
     console.log('  Начало вчера:', new Date(yesterdayStart).toLocaleString());
     
     const expensesBeforeFilter = expenses.length;
+    
+    // Сначала отделяем регулярные расходы от обычных
+    const recurringExpenseIds = new Set();
+    expenses.forEach(exp => {
+      if (exp.isRecurring && exp.recurringDays && exp.recurringDays.length > 0) {
+        recurringExpenseIds.add(exp.id);
+      }
+    });
+    
+    // Фильтруем по периоду (только НЕ-регулярные расходы — регулярные обработаем отдельно)
     expenses = expenses.filter(exp => {
+      // Регулярные расходы убираем — они будут заменены виртуальными записями
+      if (recurringExpenseIds.has(exp.id)) return false;
+      
       const expTime = exp.timestamp;
       switch(period) {
         case 'today': return expTime >= todayStart;
@@ -208,87 +263,98 @@ async function loadExpensesReport() {
       }
     });
     
-    console.log(`💸 Расходов до фильтра: ${expensesBeforeFilter}, после: ${expenses.length}`);
+    console.log(`💸 Обычных расходов до фильтра: ${expensesBeforeFilter}, после: ${expenses.length}`);
     
-    // Обрабатываем ежедневные расходы
-    // Получаем все ежедневные расходы (isRecurring = true)
-    const recurringExpenses = expensesBeforeFilter > 0 ? 
-      (await db.collection('expenses').where('isRecurring', '==', true).get()).docs.map(doc => ({id: doc.id, ...doc.data()})) : [];
+    // ========== РЕГУЛЯРНЫЕ РАСХОДЫ: генерация виртуальных записей ==========
+    // ОПТИМИЗАЦИЯ COSTS: берём regular из уже загруженного списка (или из кэша),
+    // а не делаем дополнительный .where('isRecurring','==',true).get().
+    let recurringExpenses = [];
+    if (_useCache) {
+      const allCached = await _loadExpensesCached();
+      allCached.forEach(data => {
+        if (data.isRecurring === true && data.recurringDays && data.recurringDays.length > 0) {
+          recurringExpenses.push({...data});
+        }
+      });
+    } else {
+      expensesSnapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.isRecurring === true && data.recurringDays && data.recurringDays.length > 0) {
+          recurringExpenses.push({id: doc.id, ...data});
+        }
+      });
+    }
     
-    console.log('🔄 Ежедневных расходов найдено:', recurringExpenses.length);
+    console.log('🔄 Регулярных расходов найдено:', recurringExpenses.length);
     
-    // Добавляем ежедневные расходы в список за выбранный период
-    if (recurringExpenses.length > 0 && period !== 'all') {
-      let daysInPeriod = 1;
+    if (recurringExpenses.length > 0) {
+      // Определяем диапазон дат для генерации
+      let periodStartMs, periodEndMs;
       switch(period) {
-        case 'today': daysInPeriod = 1; break;
-        case 'yesterday': daysInPeriod = 1; break;
-        case 'week': daysInPeriod = 7; break;
-        case 'month': daysInPeriod = today.getDate(); break;
+        case 'today':
+          periodStartMs = todayStart;
+          periodEndMs = now;
+          break;
+        case 'yesterday':
+          periodStartMs = yesterdayStart;
+          periodEndMs = todayStart - 1;
+          break;
+        case 'week':
+          periodStartMs = weekStart;
+          periodEndMs = now;
+          break;
+        case 'month':
+          periodStartMs = monthStart;
+          periodEndMs = now;
+          break;
+        case 'all':
+          // Для "all" — от самого раннего регулярного расхода до сегодня
+          periodStartMs = Math.min(...recurringExpenses.map(e => e.timestamp || e.createdAt || Date.now()));
+          periodEndMs = now;
+          break;
+        default:
+          periodStartMs = todayStart;
+          periodEndMs = now;
       }
       
-      console.log('📅 Дней в периоде:', daysInPeriod);
+      const dayMs = 86400000;
       
-      // Добавляем каждый ежедневный расход умноженный на количество дней
       recurringExpenses.forEach(expense => {
-        console.log('🔍 Проверяем расход:', expense.description);
-        console.log('   recurringDays:', expense.recurringDays);
+        const expenseStartMs = expense.timestamp || expense.createdAt || 0;
         
-        // Проверяем что дата начала расхода <= конца периода
-        const expenseStartDate = expense.timestamp;
-        let periodEnd = todayStart;
-        if (period === 'yesterday') periodEnd = todayStart;
-        else if (period === 'today') periodEnd = now;
+        // Начинаем с позднейшей из: начала периода или даты создания расхода
+        const genStartMs = Math.max(periodStartMs, expenseStartMs);
+        // Не генерируем в будущее
+        const genEndMs = Math.min(periodEndMs, todayStart + dayMs - 1);
         
-        if (expenseStartDate <= periodEnd) {
-          // Добавляем виртуальные расходы за каждый день периода
-          for (let day = 0; day < daysInPeriod; day++) {
-            const dayTimestamp = period === 'yesterday' ? 
-              (yesterdayStart + day * 86400000) : 
-              (todayStart - (daysInPeriod - 1 - day) * 86400000);
-            
-            // Проверяем день недели, если указаны конкретные дни
-            const dayOfWeek = new Date(dayTimestamp).getDay();
-            const dayDate = new Date(dayTimestamp);
-            const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-            
-            console.log(`   День ${day}: ${dayDate.toLocaleDateString()} - ${dayNames[dayOfWeek]} (${dayOfWeek})`);
-            
-            // Если у расхода указаны конкретные дни недели, проверяем соответствие
-            if (expense.recurringDays && expense.recurringDays.length > 0) {
-              console.log(`   Выбранные дни:`, expense.recurringDays);
-              console.log(`   День недели: ${dayOfWeek}, есть в списке:`, expense.recurringDays.includes(dayOfWeek));
-              
-              // Пропускаем этот день, если его нет в списке выбранных
-              if (!expense.recurringDays.includes(dayOfWeek)) {
-                console.log(`   ❌ Пропускаем - день ${dayOfWeek} не выбран`);
-                continue;
-              } else {
-                console.log(`   ✅ Добавляем - день ${dayOfWeek} выбран`);
-              }
-            } else {
-              // Если дни не указаны вообще - это старый расход без выбора дней, пропускаем
-              console.log(`   ⚠️ У расхода нет выбранных дней (recurringDays пустой или undefined)`);
-              console.log(`   ❌ Пропускаем - удалите этот расход и создайте заново с выбором дней`);
-              continue;
-            }
-            
-            // Добавляем только если дата расхода >= даты начала этого расхода
-            if (dayTimestamp >= expenseStartDate) {
-              expenses.push({
-                ...expense,
-                id: expense.id + '_day' + day,
-                description: expense.description + ' (ежедневный)',
-                timestamp: dayTimestamp,
-                isVirtual: true
-              });
-            }
+        // Выравниваем до начала дня
+        const genStart = new Date(genStartMs);
+        genStart.setHours(0, 0, 0, 0);
+        
+        let currentDay = new Date(genStart);
+        let dayIndex = 0;
+        
+        while (currentDay.getTime() <= genEndMs) {
+          const dayOfWeek = currentDay.getDay();
+          
+          if (expense.recurringDays.includes(dayOfWeek)) {
+            expenses.push({
+              ...expense,
+              id: expense.id + '_virtual_' + dayIndex,
+              description: expense.description + ' (регулярный)',
+              timestamp: currentDay.getTime(),
+              isVirtual: true
+            });
           }
+          
+          currentDay.setDate(currentDay.getDate() + 1);
+          dayIndex++;
         }
       });
       
-      console.log('💸 Расходов после добавления ежедневных:', expenses.length);
+      console.log('💸 Расходов после добавления регулярных:', expenses.length);
     }
+    // ========== КОНЕЦ РЕГУЛЯРНЫХ РАСХОДОВ ==========
     
     orders = orders.filter(order => {
       const orderTime = order.timestamp;
@@ -373,8 +439,8 @@ async function loadExpensesReport() {
       const date = new Date(expense.timestamp);
       const dateStr = date.toLocaleDateString('ru-RU');
       
-      // Определяем реальный ID расхода (убираем _dayX для виртуальных)
-      const realExpenseId = expense.isVirtual ? expense.id.split('_day')[0] : expense.id;
+      // Определяем реальный ID расхода (убираем _virtual_X для виртуальных)
+      const realExpenseId = expense.isVirtual ? expense.id.split('_virtual_')[0] : expense.id;
       
       // Формируем описание дней недели для регулярных расходов
       let daysInfo = '';
@@ -405,7 +471,7 @@ async function loadExpensesReport() {
         <td data-label="Сумма" style="padding:12px; text-align:right; font-weight:600; color:#dc3545;">${expense.amount.toFixed(2)} сом</td>
         <td data-label="Действия" style="padding:12px; text-align:center;">
           ${expense.isVirtual ? 
-            '<span style="color:#999; font-size:12px;">—</span>' : 
+            `<button onclick="deleteExpense('${realExpenseId}')" style="padding:6px 12px; background:#dc3545; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;" title="Удалить регулярный расход">🗑️</button>` : 
             expense.isAgentExpense ?
             `<button onclick="deleteAgentExpenseFromReport('${expense.id.replace('agent_', '')}')" style="padding:6px 12px; background:#ff9800; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">🗑️ Удалить</button>` :
             `<button onclick="deleteExpense('${realExpenseId}')" style="padding:6px 12px; background:#dc3545; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px;">🗑️ Удалить</button>`
@@ -437,6 +503,7 @@ async function deleteExpense(expenseId) {
   if (result.isConfirmed) {
     try {
       await db.collection('expenses').doc(expenseId).delete();
+      if (typeof _invalidateProfitReportCache === 'function') _invalidateProfitReportCache();
       Swal.fire('Удалено', 'Расход удален', 'success');
       loadExpensesReport();
     } catch (error) {
@@ -461,6 +528,7 @@ async function deleteAgentExpenseFromReport(expenseId) {
   if (result.isConfirmed) {
     try {
       await db.collection('agentExpenses').doc(expenseId).delete();
+      if (typeof _invalidateProfitReportCache === 'function') _invalidateProfitReportCache();
       Swal.fire('Удалено', 'Расход агента удален', 'success');
       loadExpensesReport();
     } catch (error) {

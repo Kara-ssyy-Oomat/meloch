@@ -30,8 +30,7 @@ function incrementPack(productId, btnElement) {
   }
 
   // Проверка остатка
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   if (stock !== null && stock <= 0) {
     Swal.fire('Ошибка', 'Нет в наличии', 'warning');
     return;
@@ -253,6 +252,9 @@ function setPackQty(productId, inputElement) {
   const rawValue = inputElement.tagName === 'INPUT' ? inputElement.value : inputElement.textContent;
   let newQty = parseInt(rawValue) || 0;
   if (newQty < 0) newQty = 0;
+  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества пачек
+  const _maxQty = (typeof MAX_QTY_PER_ITEM !== 'undefined') ? MAX_QTY_PER_ITEM : 10000;
+  if (newQty > _maxQty) newQty = _maxQty;
   
   // Функция для установки значения
   function setValue(val) {
@@ -264,8 +266,7 @@ function setPackQty(productId, inputElement) {
   }
   
   // Проверка остатка
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   
   if (stock !== null && newQty > stock) {
     newQty = stock;
@@ -330,6 +331,9 @@ function setQtyInput(productId, inputElement) {
   const rawValue = inputElement.tagName === 'INPUT' ? inputElement.value : inputElement.textContent;
   let newQty = parseInt(rawValue) || 0;
   if (newQty < 0) newQty = 0;
+  // ЗАЩИТА ОТ САБОТАЖА: ограничение количества штук
+  const _maxQty = (typeof MAX_QTY_PER_ITEM !== 'undefined') ? MAX_QTY_PER_ITEM : 10000;
+  if (newQty > _maxQty) newQty = _maxQty;
   
   // Функция для установки значения
   function setValue(val) {
@@ -361,8 +365,7 @@ function setQtyInput(productId, inputElement) {
   }
   
   // Проверка остатка
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   
   if (stock !== null && newQty > stock) {
     // Округляем вниз до кратного minQty, но не больше остатка (только если roundQty)
@@ -432,8 +435,7 @@ function incrementQty(productId, btnElement) {
     return;
   }
 
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = getEffectiveStock(product);
   if (stock !== null && stock <= 0) {
     Swal.fire('Ошибка', 'Нет в наличии', 'warning');
     return;

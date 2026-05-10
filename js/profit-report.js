@@ -1,5 +1,80 @@
 // ==================== ОТЧЕТ ПО ПРИБЫЛИ ====================
 
+// ОПТИМИЗАЦИЯ COSTS: общий кэш для тяжёлых выгрузок orders/products/agents.
+// Раньше каждое переключение вкладки или нажатие «Обновить» делало
+// db.collection('orders').get() и db.collection('products').get() заново —
+// это сотни-тысячи Firestore Reads на один клик. Теперь данные живут 60 сек
+// в памяти и переиспользуются всеми функциями отчёта.
+const _profitReportCache = {
+  orders: null,           ordersTs: 0,
+  products: null,         productsTs: 0,
+  agents: null,           agentsTs: 0,
+  agentExpenses: null,    agentExpensesTs: 0,
+  expenses: null,         expensesTs: 0,
+};
+const _PROFIT_REPORT_CACHE_MS = 60000; // 60 секунд
+
+async function _getCachedCollection(key, queryFn) {
+  const now = Date.now();
+  const tsKey = key + 'Ts';
+  if (_profitReportCache[key] && (now - _profitReportCache[tsKey]) < _PROFIT_REPORT_CACHE_MS) {
+    return _profitReportCache[key];
+  }
+  const docs = await queryFn();
+  _profitReportCache[key] = docs;
+  _profitReportCache[tsKey] = now;
+  return docs;
+}
+function _invalidateProfitReportCache() {
+  _profitReportCache.orders = null;       _profitReportCache.ordersTs = 0;
+  _profitReportCache.products = null;     _profitReportCache.productsTs = 0;
+  _profitReportCache.agents = null;       _profitReportCache.agentsTs = 0;
+  _profitReportCache.agentExpenses = null; _profitReportCache.agentExpensesTs = 0;
+  _profitReportCache.expenses = null;     _profitReportCache.expensesTs = 0;
+}
+window._invalidateProfitReportCache = _invalidateProfitReportCache;
+
+async function _loadOrdersCached() {
+  return _getCachedCollection('orders', async () => {
+    const snap = await db.collection('orders').get();
+    const arr = [];
+    snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+    return arr;
+  });
+}
+async function _loadProductsCached() {
+  return _getCachedCollection('products', async () => {
+    const snap = await db.collection('products').get();
+    const arr = [];
+    snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+    return arr;
+  });
+}
+async function _loadAgentsCached() {
+  return _getCachedCollection('agents', async () => {
+    const snap = await db.collection('agents').get();
+    const arr = [];
+    snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+    return arr;
+  });
+}
+async function _loadExpensesCached() {
+  return _getCachedCollection('expenses', async () => {
+    const snap = await db.collection('expenses').orderBy('timestamp', 'desc').get();
+    const arr = [];
+    snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+    return arr;
+  });
+}
+async function _loadAgentExpensesCached() {
+  return _getCachedCollection('agentExpenses', async () => {
+    const snap = await db.collection('agentExpenses').get();
+    const arr = [];
+    snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+    return arr;
+  });
+}
+
 function normalizeEpochMs(value, fallbackMs = Date.now()) {
   if (value === undefined || value === null || value === '') return fallbackMs;
 
@@ -63,18 +138,14 @@ async function openProfitReport() {
     expensesTab.style.display = (userRole === 'korean' || userRole === 'appliances') ? 'none' : 'block';
   }
   
-  // Загружаем товары заново из Firebase
-  console.log('⬇️ Загрузка товаров из Firebase...');
+  // ОПТИМИЗАЦИЯ COSTS: загружаем товары через общий кэш (60 сек).
+  // При повторном открытии отчёта данные не читаются из Firestore заново.
+  // Принудительный refresh — кнопкой «Обновить» (она вызовет _invalidateProfitReportCache).
+  console.log('⬇️ Загрузка товаров (с кэшем)...');
   try {
-    const snapshot = await db.collection('products').get();
-    products = [];
-    snapshot.forEach(doc => {
-      products.push({ id: doc.id, ...doc.data() });
-    });
-    console.log('✅ Загружено товаров:', products.length);
-    if (products.length > 0) {
-      console.log('📦 Первый товар:', products[0]);
-    }
+    const cached = await _loadProductsCached();
+    products = [...cached];
+    console.log('✅ Товаров (кэш/firebase):', products.length);
   } catch (error) {
     console.error('❌ Ошибка загрузки товаров:', error);
   }
@@ -83,35 +154,13 @@ async function openProfitReport() {
   switchProfitTab('products');
   loadProfitReport();
   
-  // Отписываемся от предыдущих слушателей
-  if (profitReportOrdersListener) profitReportOrdersListener();
-  if (profitReportExpensesListener) profitReportExpensesListener();
-  if (profitReportAutoRefresh) clearInterval(profitReportAutoRefresh);
-  
-  // Слушатель заказов
-  profitReportOrdersListener = db.collection('orders').onSnapshot(() => {
-    console.log('🔔 Заказы изменились');
-    if (currentProfitTab === 'expenses') {
-      loadExpensesReport();
-    } else if (currentProfitTab === 'orders') {
-      loadOrderProfitReport();
-    }
-  });
-  
-  // Слушатель расходов
-  profitReportExpensesListener = db.collection('expenses').onSnapshot(() => {
-    console.log('💸 Расходы изменились');
-    if (currentProfitTab === 'expenses') {
-      loadExpensesReport();
-    }
-  });
-  
-  // ОПТИМИЗАЦИЯ: Автообновление каждые 30 секунд вместо 3 (onSnapshot уже обновляет при изменениях)
-  profitReportAutoRefresh = setInterval(() => {
-    if (currentProfitTab === 'expenses') {
-      loadExpensesReport();
-    }
-  }, 30000);
+  // ОПТИМИЗАЦИЯ COSTS: убрали onSnapshot на orders/expenses — они вычитывали
+  // ВСЕ документы коллекций при каждом изменении и держали постоянное
+  // соединение с Firestore. Теперь данные обновляются только когда админ
+  // явно переключает вкладку или нажимает «Обновить».
+  if (profitReportOrdersListener) { profitReportOrdersListener(); profitReportOrdersListener = null; }
+  if (profitReportExpensesListener) { profitReportExpensesListener(); profitReportExpensesListener = null; }
+  if (profitReportAutoRefresh) { clearInterval(profitReportAutoRefresh); profitReportAutoRefresh = null; }
 }
 
 // Закрыть окно отчета
@@ -385,21 +434,13 @@ function switchProfitTab(tab) {
 async function loadOrderProfitReport() {
   console.log('🔵 loadOrderProfitReport ВЫЗВАНА');
   try {
-    const ordersSnapshot = await db.collection('orders').get();
-    const orders = [];
-    
-    console.log('📦 Загружено заказов из Firebase:', ordersSnapshot.size);
-    
-    ordersSnapshot.forEach(doc => {
-      const data = doc.data();
-      orders.push({
-        id: doc.id,
-        ...data,
-        timestamp: normalizeEpochMs(data.timestamp, Date.now())
-      });
-    });
-    
-    console.log('📋 Заказы после обработки:', orders.length);
+    const cached = await _loadOrdersCached();
+    const orders = cached.map(o => ({
+      ...o,
+      timestamp: normalizeEpochMs(o.timestamp, Date.now())
+    }));
+
+    console.log('📋 Заказы (кэш/firebase):', orders.length);
     
     await filterOrderProfitReport(orders);
   } catch (error) {
@@ -424,23 +465,19 @@ async function filterOrderProfitReport(ordersData = null) {
     return;
   }
   
-  // Загружаем все товары с себестоимостью из Firebase
+  // ОПТИМИЗАЦИЯ COSTS: используем кэш товаров (60 сек) вместо нового .get()
   let productsMap = new Map();
   try {
-    const productsSnapshot = await db.collection('products').get();
-    console.log('🛍️ Загружено товаров из Firebase:', productsSnapshot.size);
-    
-    productsSnapshot.forEach(doc => {
-      const data = doc.data();
-      productsMap.set(doc.id, {
+    const cachedProducts = await _loadProductsCached();
+    cachedProducts.forEach(data => {
+      productsMap.set(data.id, {
         name: data.name || 'Неизвестный товар',
         costPrice: data.costPrice || 0,
         salePrice: data.price || 0,
         category: data.category || 'все'
       });
     });
-    
-    console.log('💰 Товаров в карте:', productsMap.size);
+    console.log('💰 Товаров в карте (кэш):', productsMap.size);
   } catch (error) {
     console.error('❌ Ошибка загрузки товаров:', error);
   }
@@ -829,6 +866,7 @@ async function deleteSpecificOrder(orderId, clientName) {
   if (result.isConfirmed) {
     try {
       await db.collection('orders').doc(orderId).delete();
+      _invalidateProfitReportCache();
       
       Swal.fire({
         icon: 'success',
@@ -967,17 +1005,12 @@ async function exportOrderProfitToExcel() {
   const dateFilter = document.getElementById('orderDateFilter').value;
   
   try {
-    const ordersSnapshot = await db.collection('orders').get();
-    const orders = [];
-    
-    ordersSnapshot.forEach(doc => {
-      const data = doc.data();
-      orders.push({
-        id: doc.id,
-        ...data,
-        timestamp: data.timestamp || Date.now()
-      });
-    });
+    // ОПТИМИЗАЦИЯ COSTS: используем кэш заказов вместо нового .get()
+    const cachedOrders = await _loadOrdersCached();
+    const orders = cachedOrders.map(o => ({
+      ...o,
+      timestamp: o.timestamp || Date.now()
+    }));
     
     // Применяем фильтры
     const now = Date.now();
@@ -1097,6 +1130,7 @@ async function deleteSelectedOrders() {
     });
     
     await batch.commit();
+    _invalidateProfitReportCache();
     
     Swal.fire('Успех!', `Удалено заказов: ${deleteCount}`, 'success');
     
@@ -1120,35 +1154,30 @@ async function loadAgentsProfitReport() {
   contentEl.innerHTML = '<div style="text-align:center; padding:40px; color:#666;">Загрузка данных...</div>';
   
   try {
-    // Загружаем товары для расчета закупочных цен
-    console.log('⬇️ Загрузка товаров для расчета прибыли...');
-    const productsSnapshot = await db.collection('products').get();
+    // ОПТИМИЗАЦИЯ COSTS: используем общий кэш для товаров/агентов/заказов
+    console.log('⬇️ Загрузка для агентов (кэш)...');
+    const cachedProducts = await _loadProductsCached();
     const productsMap = new Map();
-    productsSnapshot.forEach(doc => {
-      const data = doc.data();
-      productsMap.set(doc.id, {
+    cachedProducts.forEach(data => {
+      productsMap.set(data.id, {
         costPrice: parseFloat(data.costPrice) || 0,
         salePrice: parseFloat(data.price) || 0,
         name: data.name || data.title || ''
       });
     });
-    console.log('✅ Товаров в карте:', productsMap.size);
-    
-    // Загружаем всех агентов
-    const agentsSnapshot = await db.collection('agents').get();
+
+    const cachedAgents = await _loadAgentsCached();
     const agents = {};
-    const agentsByName = {}; // Карта для поиска по имени
-    agentsSnapshot.forEach(doc => {
-      const agentData = { id: doc.id, ...doc.data(), orders: [], totalSum: 0, totalProfit: 0, ordersCount: 0 };
-      agents[doc.id] = agentData;
-      // Также индексируем по имени для поиска
-      if (agentData.name) {
-        agentsByName[agentData.name] = agentData;
-      }
+    const agentsByName = {};
+    cachedAgents.forEach(data => {
+      const agentData = { ...data, orders: [], totalSum: 0, totalProfit: 0, ordersCount: 0 };
+      agents[data.id] = agentData;
+      if (agentData.name) agentsByName[agentData.name] = agentData;
     });
-    
-    // Загружаем все заказы с партнерами (агентами)
-    const ordersSnapshot = await db.collection('orders').get();
+
+    const cachedOrders = await _loadOrdersCached();
+    // эмулируем интерфейс snapshot.forEach(doc => doc.data())
+    const ordersSnapshot = { forEach: (cb) => cachedOrders.forEach(o => cb({ id: o.id, data: () => o })) };
     
     // Фильтруем по периоду
     const dateFilter = document.getElementById('agentsDateFilter')?.value || 'month';
@@ -1329,25 +1358,23 @@ async function loadAgentsProfitReport() {
 // Показать детали заказов агента
 async function showAgentOrdersDetail(agentId, agentName) {
   try {
-    // Загружаем товары для расчета прибыли
-    const productsSnapshot = await db.collection('products').get();
+    // ОПТИМИЗАЦИЯ COSTS: товары — из общего кэша
+    const cachedProducts = await _loadProductsCached();
     const productsMap = new Map();
-    productsSnapshot.forEach(doc => {
-      const data = doc.data();
-      productsMap.set(doc.id, {
-        costPrice: parseFloat(data.costPrice) || 0
-      });
+    cachedProducts.forEach(data => {
+      productsMap.set(data.id, { costPrice: parseFloat(data.costPrice) || 0 });
     });
-    
+
+    // Заказы агента — точечный запрос по индексу partner (это уже было оптимально)
     const snapshot = await db.collection('orders')
       .where('partner', '==', agentId)
       .get();
-    
+
     if (snapshot.empty) {
       Swal.fire('Нет заказов', `У агента "${agentName}" пока нет заказов`, 'info');
       return;
     }
-    
+
     const orders = [];
     snapshot.forEach(doc => orders.push({ id: doc.id, ...doc.data() }));
     orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -1442,26 +1469,22 @@ async function showAgentOrdersDetail(agentId, agentName) {
 // Экспорт отчета по агентам в Excel
 async function exportAgentsProfitToExcel() {
   try {
-    // Загружаем товары для расчета прибыли
-    const productsSnapshot = await db.collection('products').get();
+    // ОПТИМИЗАЦИЯ COSTS: используем общий кэш для всех трёх коллекций
+    const cachedProducts = await _loadProductsCached();
     const productsMap = new Map();
-    productsSnapshot.forEach(doc => {
-      const data = doc.data();
-      productsMap.set(doc.id, {
-        costPrice: parseFloat(data.costPrice) || 0
-      });
+    cachedProducts.forEach(data => {
+      productsMap.set(data.id, { costPrice: parseFloat(data.costPrice) || 0 });
     });
-    
-    const agentsSnapshot = await db.collection('agents').get();
-    const ordersSnapshot = await db.collection('orders').get();
-    
+
+    const cachedAgents = await _loadAgentsCached();
+    const cachedOrders = await _loadOrdersCached();
+
     const agents = {};
-    agentsSnapshot.forEach(doc => {
-      agents[doc.id] = { name: doc.data().name, phone: doc.data().phone, ordersCount: 0, totalSum: 0, totalProfit: 0 };
+    cachedAgents.forEach(data => {
+      agents[data.id] = { name: data.name, phone: data.phone, ordersCount: 0, totalSum: 0, totalProfit: 0 };
     });
-    
-    ordersSnapshot.forEach(doc => {
-      const data = doc.data();
+
+    cachedOrders.forEach(data => {
       if (data.partner && agents[data.partner]) {
         agents[data.partner].ordersCount++;
         agents[data.partner].totalSum += data.total || 0;

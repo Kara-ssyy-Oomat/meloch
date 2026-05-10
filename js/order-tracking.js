@@ -43,21 +43,53 @@ async function searchMyOrders() {
     // Сохраняем телефон для следующего раза
     localStorage.setItem('lastOrderPhone', phone);
     
-    // Ищем заказы по телефону
+    // ОПТИМИЗАЦИЯ COSTS: раньше загружали ВСЕ заказы целиком (могут быть
+    // тысячи) и фильтровали их в браузере. Теперь делаем точечный запрос
+    // в Firestore через несколько вариантов телефона. Лимит 50 заказов
+    // на клиента — этого достаточно для трекинга.
+    const searchPhoneDigits = phone.replace(/\D/g, '');
+    if (searchPhoneDigits.length < 5) {
+      listDiv.innerHTML = `
+        <div style="text-align:center; color:#dc3545; padding:30px;">
+          <div style="font-size:36px; margin-bottom:10px;">⚠️</div>
+          <div>Введите номер телефона (минимум 5 цифр)</div>
+        </div>
+      `;
+      return;
+    }
+
+    // Собираем варианты телефона (с +996, с 0, без префиксов)
+    const phoneVariants = new Set();
+    phoneVariants.add(phone.trim());
+    phoneVariants.add(searchPhoneDigits);
+    phoneVariants.add('+' + searchPhoneDigits);
+    if (searchPhoneDigits.startsWith('996') && searchPhoneDigits.length === 12) {
+      phoneVariants.add('0' + searchPhoneDigits.substring(3));
+      phoneVariants.add(searchPhoneDigits.substring(3));
+    }
+    if (searchPhoneDigits.length === 9) {
+      phoneVariants.add('996' + searchPhoneDigits);
+      phoneVariants.add('+996' + searchPhoneDigits);
+      phoneVariants.add('0' + searchPhoneDigits);
+    }
+    if (searchPhoneDigits.length === 10 && searchPhoneDigits.startsWith('0')) {
+      phoneVariants.add('996' + searchPhoneDigits.substring(1));
+      phoneVariants.add('+996' + searchPhoneDigits.substring(1));
+      phoneVariants.add(searchPhoneDigits.substring(1));
+    }
+
+    const variantsArr = [...phoneVariants].slice(0, 10); // Firestore: limit 'in' до 10
     const ordersSnapshot = await db.collection('orders')
-      .orderBy('timestamp', 'desc')
+      .where('phone', 'in', variantsArr)
+      .limit(50)
       .get();
-    
+
     const myOrders = [];
     ordersSnapshot.forEach(doc => {
-      const order = { id: doc.id, ...doc.data() };
-      // Проверяем совпадение телефона (убираем лишние символы)
-      const orderPhone = (order.phone || '').replace(/\D/g, '');
-      const searchPhone = phone.replace(/\D/g, '');
-      if (orderPhone.includes(searchPhone) || searchPhone.includes(orderPhone)) {
-        myOrders.push(order);
-      }
+      myOrders.push({ id: doc.id, ...doc.data() });
     });
+    // Сортируем сами от новых к старым
+    myOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     
     if (myOrders.length === 0) {
       listDiv.innerHTML = `

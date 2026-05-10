@@ -14,6 +14,7 @@ function openBecomeSellerWindow() {
   setTimeout(() => {
     document.getElementById('becomeSellerWindow').style.display = 'flex';
     if (typeof lockPageScroll === 'function') lockPageScroll();
+    history.pushState({ modal: 'becomeSeller' }, '', '');
     
     // Очистка форм
     document.getElementById('sellerName').value = '';
@@ -108,54 +109,42 @@ async function registerSeller() {
     const sellerData = {
       name: name,
       phone: phone,
-      password: password, // В реальном приложении нужно хешировать!
+      password: password,
       city: city,
       products: products,
-      telegramId: telegramId || null, // Для получения уведомлений о заказах
+      telegramId: telegramId || null,
       registeredAt: new Date().toISOString(),
-      status: 'active'
+      createdAt: Date.now(),
+      status: 'pending'
     };
     
     const docRef = await db.collection('sellers').add(sellerData);
     
     // Отправляем уведомление в Telegram
-    let message = `🏪 *НОВЫЙ ПРОДАВЕЦ ЗАРЕГИСТРИРОВАЛСЯ*\n\n` +
+    let message = `🏪 *НОВАЯ ЗАЯВКА ПРОДАВЦА*\n\n` +
       `👤 *ФИО/Компания:* ${name}\n` +
       `📱 *Телефон:* ${phone}\n` +
       `📍 *Город/Регион:* ${city}\n` +
       `🏷️ *Товары:* ${products || 'не указаны'}\n\n` +
+      `⏳ *Статус:* Ожидает одобрения\n` +
       `🕐 *Дата:* ${new Date().toLocaleString('ru-RU')}`;
     
-    fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: '5567924440',
-        text: message,
-        parse_mode: 'Markdown'
-      })
-    });
-    
-    // Автоматически входим
-    currentSeller = { id: docRef.id, ...sellerData };
-    localStorage.setItem('currentSeller', JSON.stringify(currentSeller));
-    
-    // Устанавливаем роль
-    userRole = 'seller';
-    isAdmin = true; // Даём права на добавление товаров
+    tgSendMessage({
+      chat_id: '5567924440',
+      text: message,
+      parse_mode: 'Markdown'
+    }).catch(err => console.error('Ошибка отправки заявки продавца в Telegram:', err));
     
     document.getElementById('sellerLoader').style.display = 'none';
     document.getElementById('sellerSubmitBtn').disabled = false;
     
     closeBecomeSellerWindow();
-    updateSellerMenu();
-    renderProducts(); // Обновляем отображение - показываем только товары этого продавца
     
     Swal.fire({
       icon: 'success',
-      title: 'Добро пожаловать!',
-      html: `Вы зарегистрированы как продавец!<br><br>Теперь вы можете добавлять свои товары через меню.`,
-      confirmButtonText: 'Начать работу'
+      title: 'Заявка отправлена!',
+      html: `<p>Ваша заявка на регистрацию продавца отправлена.</p><p style="color:#666;">После проверки администратором вы сможете войти и добавлять товары.</p>`,
+      confirmButtonText: 'Понятно'
     });
     
   } catch (error) {
@@ -195,13 +184,24 @@ async function loginSeller() {
     const sellerDoc = snapshot.docs[0];
     const sellerData = sellerDoc.data();
     
-    // Проверка блокировки
+    // Проверка статуса
     if (sellerData.status === 'blocked') {
       document.getElementById('sellerLoader').style.display = 'none';
       Swal.fire({
         icon: 'error',
         title: '🚫 Доступ запрещён',
         text: 'Ваш аккаунт заблокирован администратором. Обратитесь в поддержку.',
+        confirmButtonText: 'Понятно'
+      });
+      return;
+    }
+    
+    if (sellerData.status === 'pending') {
+      document.getElementById('sellerLoader').style.display = 'none';
+      Swal.fire({
+        icon: 'info',
+        title: '⏳ Заявка на рассмотрении',
+        text: 'Ваша заявка ещё не одобрена администратором. Дождитесь проверки.',
         confirmButtonText: 'Понятно'
       });
       return;
@@ -245,11 +245,22 @@ function logoutSeller() {
   currentSeller = null;
   localStorage.removeItem('currentSeller');
   userRole = 'guest';
-  isAdmin = false;
+  isEditorMode = false;
+  isBulkSelectMode = false;
+  bulkSelectedProducts.clear();
+  const bulkBar = document.getElementById('bulkActionBar');
+  if (bulkBar) bulkBar.style.display = 'none';
   
-  // Скрываем меню продавца
-  document.getElementById('menuSellerLoggedIn').style.display = 'none';
-  document.getElementById('menuAdminLogin').style.display = 'flex';
+  // Скрываем кнопку редактора
+  const editorBtnContainer = document.getElementById('editorBtnContainer');
+  if (editorBtnContainer) editorBtnContainer.style.display = 'none';
+  
+  // Обновляем кнопку редактора
+  const editorModeBtn = document.getElementById('editorModeBtn');
+  if (editorModeBtn) {
+    editorModeBtn.style.background = 'linear-gradient(135deg, #6c757d, #495057)';
+    editorModeBtn.innerHTML = '✏️ Редактор';
+  }
   
   renderProducts();
   
@@ -312,34 +323,26 @@ async function openSellerSettingsWindow() {
       // Отправляем тестовое сообщение если указан ID
       if (formValues.telegramId) {
         try {
-          const testResponse = await fetch('https://api.telegram.org/bot7599592948:AAGtc_dGAcJFVQOSYcKVY0W-7GegszY9n8E/sendMessage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: formValues.telegramId,
-              text: `✅ Настройки сохранены!\n\n🏪 ${currentSeller.name}, теперь вы будете получать уведомления о заказах ваших товаров на этот аккаунт Telegram.`,
-              parse_mode: 'Markdown'
-            })
+          await tgSendMessage({
+            chat_id: formValues.telegramId,
+            text: `✅ Настройки сохранены!\n\n🏪 ${currentSeller.name}, теперь вы будете получать уведомления о заказах ваших товаров на этот аккаунт Telegram.`,
+            parse_mode: 'Markdown'
           });
-          
-          const testData = await testResponse.json();
-          if (testData.ok) {
-            Swal.fire({
-              icon: 'success',
-              title: 'Настройки сохранены!',
-              html: 'Тестовое сообщение отправлено в ваш Telegram.<br>Проверьте, что оно пришло.',
-              confirmButtonText: 'Отлично!'
-            });
-          } else {
-            Swal.fire({
-              icon: 'warning',
-              title: 'Настройки сохранены',
-              html: `Но не удалось отправить тестовое сообщение.<br><br>Проверьте правильность ID и убедитесь, что вы начали диалог с ботом.<br><br>Ошибка: ${testData.description || 'неизвестная'}`,
-              confirmButtonText: 'Понятно'
-            });
-          }
+
+          Swal.fire({
+            icon: 'success',
+            title: 'Настройки сохранены!',
+            html: 'Тестовое сообщение отправлено в ваш Telegram.<br>Проверьте, что оно пришло.',
+            confirmButtonText: 'Отлично!'
+          });
         } catch (err) {
-          Swal.fire('Сохранено', 'Настройки сохранены, но не удалось отправить тестовое сообщение', 'warning');
+          const desc = (err && err.body && (err.body.description || err.body.error)) || (err && err.message) || 'неизвестная';
+          Swal.fire({
+            icon: 'warning',
+            title: 'Настройки сохранены',
+            html: `Но не удалось отправить тестовое сообщение.<br><br>Проверьте правильность ID и убедитесь, что вы начали диалог с ботом.<br><br>Ошибка: ${desc}`,
+            confirmButtonText: 'Понятно'
+          });
         }
       } else {
         Swal.fire('Сохранено', 'Telegram ID удалён. Вы не будете получать уведомления о заказах.', 'info');
@@ -354,13 +357,47 @@ async function openSellerSettingsWindow() {
 // Обновление меню продавца
 function updateSellerMenu() {
   if (currentSeller) {
-    document.getElementById('menuAdminLogin').style.display = 'none';
-    document.getElementById('menuAdminLoggedIn').style.display = 'none';
-    document.getElementById('menuKoreanManager').style.display = 'none';
-    document.getElementById('menuAppliancesManager').style.display = 'none';
-    document.getElementById('menuSellerLoggedIn').style.display = 'flex';
-    document.getElementById('sellerDisplayName').textContent = currentSeller.name;
+    // Показываем кнопку редактора (чтобы продавец мог включить режим редактирования своих товаров)
+    const editorBtnContainer = document.getElementById('editorBtnContainer');
+    if (editorBtnContainer) editorBtnContainer.style.display = 'flex';
+
+    console.log('🏪 Продавец активирован:', currentSeller.name);
   }
+}
+
+// Панель инструментов продавца (кнопки "Мои товары", "Добавить товар", "Настройки", "Выход")
+function showSellerToolbar() {
+  // Удаляем старую панель, если есть
+  const existing = document.getElementById('sellerToolbar');
+  if (existing) existing.remove();
+
+  const toolbar = document.createElement('div');
+  toolbar.id = 'sellerToolbar';
+  toolbar.style.cssText = 'display:flex; gap:8px; justify-content:center; flex-wrap:wrap; padding:8px 10px; background:linear-gradient(135deg,#e8f5e9,#c8e6c9); border-radius:10px; margin:8px 10px;';
+  toolbar.innerHTML = `
+    <div style="width:100%; text-align:center; font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:4px;">🏪 Продавец: ${currentSeller.name}</div>
+    <button onclick="openSellerAddProduct()" style="flex:1; min-width:120px; background:linear-gradient(135deg,#28a745,#218838); color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600;">➕ Добавить товар</button>
+    <button onclick="openMyProductsWindow()" style="flex:1; min-width:120px; background:linear-gradient(135deg,#007bff,#0056b3); color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600;">📦 Мои товары</button>
+    <button onclick="openSellerSettingsWindow()" style="flex:1; min-width:80px; background:linear-gradient(135deg,#ff9800,#f57c00); color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600;">⚙️ Настройки</button>
+    <button onclick="logoutSeller()" style="flex:1; min-width:80px; background:linear-gradient(135deg,#dc3545,#c82333); color:white; border:none; padding:10px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600;">🚪 Выход</button>
+  `;
+
+  // Вставляем после editorBtnContainer или перед productTable
+  const editorBtnContainer = document.getElementById('editorBtnContainer');
+  const searchContainer = document.querySelector('.search-container');
+  if (editorBtnContainer) {
+    editorBtnContainer.insertAdjacentElement('afterend', toolbar);
+  } else if (searchContainer) {
+    searchContainer.insertAdjacentElement('beforebegin', toolbar);
+  } else {
+    document.body.prepend(toolbar);
+  }
+}
+
+// Скрыть панель продавца
+function hideSellerToolbar() {
+  const toolbar = document.getElementById('sellerToolbar');
+  if (toolbar) toolbar.remove();
 }
 
 // Окно "Мои товары" для продавца
@@ -375,11 +412,14 @@ function openMyProductsWindow() {
   
   let html = `
     <div style="max-height:70vh; overflow-y:auto;">
-      <h3 style="margin-bottom:15px;">📦 Ваши товары (${myProducts.length})</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h3 style="margin:0;">📦 Ваши товары (${myProducts.length})</h3>
+        <button onclick="Swal.close(); setTimeout(() => openSellerAddProduct(), 200);" style="background:linear-gradient(135deg,#28a745,#218838); color:white; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600;">➕ Добавить</button>
+      </div>
   `;
   
   if (myProducts.length === 0) {
-    html += `<p style="color:#666; text-align:center; padding:30px;">У вас пока нет товаров.<br>Добавьте первый товар!</p>`;
+    html += `<p style="color:#666; text-align:center; padding:30px;">У вас пока нет товаров.<br>Нажмите «➕ Добавить» чтобы добавить первый товар!</p>`;
   } else {
     myProducts.forEach(p => {
       html += `
@@ -388,8 +428,9 @@ function openMyProductsWindow() {
           <div style="flex:1;">
             <div style="font-weight:600; ">${p.title || 'Без названия'}</div>
             <div style="color:#e53935; font-weight:700;">${p.price || 0} сом</div>
-            <div style="font-size:12px; color:#666;">Остаток: ${p.stock || 0} шт</div>
+            <div style="font-size:12px; color:#666;">Остаток: ${typeof p.stock === 'number' ? p.stock : '∞'} шт</div>
           </div>
+          <button onclick="Swal.close(); setTimeout(() => openEditProductModal('${p.id}'), 200);" style="background:linear-gradient(135deg,#007bff,#0056b3); color:white; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-size:12px;">✏️</button>
         </div>
       `;
     });
@@ -414,11 +455,12 @@ function checkSavedSeller() {
     try {
       currentSeller = JSON.parse(savedSeller);
       userRole = 'seller';
-      isAdmin = true;
+      isEditorMode = false;
       updateSellerMenu();
-      // Товары будут отфильтрованы при следующем вызове renderProducts
+      console.log('🏪 Продавец восстановлен:', currentSeller.name);
     } catch (e) {
       localStorage.removeItem('currentSeller');
+      currentSeller = null;
     }
   }
 }
@@ -432,37 +474,92 @@ async function loadSellerCategories() {
     // Очищаем контейнер
     container.innerHTML = '';
     
-    // Получаем уникальные категории из товаров
+    // Загружаем настройки стандартных категорий (иконки, порядок, блокировка)
+    let stdSettings = {};
+    try {
+      const settingsDoc = await db.collection('settings').doc('categories').get();
+      stdSettings = settingsDoc.exists ? (settingsDoc.data().standard || {}) : {};
+    } catch(e) {}
+    
+    // Обновляем стандартные кнопки: иконки и скрытие заблокированных
     const existingCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
-    const sellerCategories = new Set();
+    const stdIconMap = {
+      'все': '🛍️', 'ножницы': '✂️', 'скотч': '📦', 'нож': '🔪',
+      'корейские': '🇰🇷', 'часы': '⌚', 'электроника': '🔌', 'бытовые': '🏠'
+    };
+    
+    // Собираем стандартные с порядком
+    const stdEntries = existingCategories.map(name => ({
+      name,
+      icon: (stdSettings[name] && stdSettings[name].icon) || stdIconMap[name] || '📂',
+      order: (stdSettings[name] && typeof stdSettings[name].order === 'number') ? stdSettings[name].order : existingCategories.indexOf(name),
+      blocked: stdSettings[name] && stdSettings[name].blocked === true
+    }));
+    stdEntries.sort((a, b) => a.order - b.order);
+    
+    // Перестраиваем стандартные кнопки с иконками и порядком
+    const otherContainer = document.getElementById('otherCategoriesContainer');
+    if (otherContainer) {
+      // Удаляем все стандартные кнопки категорий (кроме sellerCategoriesContainer)
+      const existingBtns = otherContainer.querySelectorAll('button.category-btn[data-category]');
+      existingBtns.forEach(btn => btn.remove());
+      
+      // Добавляем в правильном порядке, перед sellerCategoriesContainer
+      const sellerContainer = document.getElementById('sellerCategoriesContainer');
+      stdEntries.forEach(cat => {
+        if (cat.name === 'все') return; // "Все товары" остаётся сверху
+        if (cat.blocked) return; // Скрываем заблокированные
+        
+        const btn = document.createElement('button');
+        btn.className = 'category-btn';
+        btn.setAttribute('data-category', cat.name);
+        btn.onclick = () => filterByCategory(cat.name);
+        const labelMap = { 'ножницы': 'Ножницы', 'скотч': 'Скотч', 'нож': 'Нож', 'корейские': 'Корейские товары', 'часы': 'Часы', 'электроника': 'Электроника', 'бытовые': 'Бытовые техники' };
+        btn.innerHTML = `${cat.icon} ${labelMap[cat.name] || cat.name}`;
+        otherContainer.insertBefore(btn, sellerContainer);
+      });
+    }
+    
+    const sellerCategories = new Map(); // name -> {icon, order, blocked}
     
     // Собираем категории из товаров продавцов
     products.forEach(p => {
       if (p.category && p.sellerId && !existingCategories.includes(p.category.toLowerCase())) {
-        sellerCategories.add(p.category.toLowerCase());
+        if (!sellerCategories.has(p.category.toLowerCase())) {
+          sellerCategories.set(p.category.toLowerCase(), { icon: '🏪', order: 9999, blocked: false });
+        }
       }
     });
     
-    // Также загружаем из коллекции seller_categories
+    // Загружаем из коллекции seller_categories (иконки, порядок, блокировка)
     try {
       const snapshot = await db.collection('seller_categories').get();
       snapshot.forEach(doc => {
         const cat = doc.data();
         if (cat.name && !existingCategories.includes(cat.name.toLowerCase())) {
-          sellerCategories.add(cat.name.toLowerCase());
+          sellerCategories.set(cat.name.toLowerCase(), {
+            icon: cat.icon || '🏪',
+            order: typeof cat.order === 'number' ? cat.order : 9999,
+            blocked: cat.blocked === true
+          });
         }
       });
     } catch (e) {
       console.log('Коллекция seller_categories не найдена или пуста');
     }
     
-    // Создаём кнопки для каждой категории продавца
-    sellerCategories.forEach(catName => {
+    // Сортируем по порядку и создаём кнопки
+    const sortedCategories = [...sellerCategories.entries()]
+      .sort((a, b) => a[1].order - b[1].order);
+    
+    sortedCategories.forEach(([catName, catData]) => {
+      if (catData.blocked) return; // Скрываем заблокированные
+      
       const btn = document.createElement('button');
       btn.className = 'category-btn';
       btn.setAttribute('data-category', catName);
       btn.onclick = () => filterByCategory(catName);
-      btn.innerHTML = `🏪 ${catName.charAt(0).toUpperCase() + catName.slice(1)}`;
+      btn.innerHTML = `${catData.icon} ${catName.charAt(0).toUpperCase() + catName.slice(1)}`;
       container.appendChild(btn);
     });
     
@@ -473,3 +570,176 @@ async function loadSellerCategories() {
 
 // ==================== УПРАВЛЕНИЕ ПРОДАВЦАМИ ====================
 // Функции управления продавцами перенесены в admin-sellers.html
+
+// ==================== ДОБАВЛЕНИЕ ТОВАРА ПРОДАВЦОМ ====================
+
+// Открытие формы добавления товара для продавца
+async function openSellerAddProduct() {
+  if (!currentSeller) {
+    Swal.fire('Ошибка', 'Вы не авторизованы как продавец', 'error');
+    return;
+  }
+
+  // Гарантируем загрузку категорий перед открытием формы
+  if (typeof ensureSellerCategoriesLoaded === 'function') {
+    await ensureSellerCategoriesLoaded();
+  }
+
+  const categoryOptions = typeof generateCategoryOptions === 'function' ? generateCategoryOptions('все') : '<option value="все">Все товары</option>';
+
+  const { value: formValues } = await Swal.fire({
+    title: '➕ Добавить товар',
+    html: `
+      <div style="text-align:left; max-height:65vh; overflow-y:auto; padding:5px;">
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📷 Фото товара</label>
+          <input type="file" id="swal-product-image" accept="image/*" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:8px; box-sizing:border-box; background:white;">
+          <div id="swal-image-preview" style="margin-top:8px; text-align:center;"></div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📝 Название *</label>
+          <input type="text" id="swal-product-title" placeholder="Название товара" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📁 Категория</label>
+          <select id="swal-product-category" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+            ${categoryOptions}
+          </select>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📄 Описание</label>
+          <textarea id="swal-product-desc" rows="3" placeholder="Описание товара..." style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box; resize:vertical;"></textarea>
+        </div>
+        <div style="display:flex; gap:10px; margin-bottom:12px;">
+          <div style="flex:1;">
+            <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">💵 Цена (сом)</label>
+            <input type="number" id="swal-product-price" placeholder="0" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📦 Остаток (шт)</label>
+            <input type="number" id="swal-product-stock" placeholder="Без лимита" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-bottom:12px;">
+          <div style="flex:1;">
+            <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">💰 Опт. цена</label>
+            <input type="number" id="swal-product-optprice" placeholder="0" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📊 Опт от (шт)</label>
+            <input type="number" id="swal-product-optqty" placeholder="0" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; margin-bottom:12px;">
+          <div style="flex:1;">
+            <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">🔢 Мин. кол-во</label>
+            <input type="number" id="swal-product-minqty" value="1" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+          </div>
+        </div>
+      </div>
+    `,
+    width: '95%',
+    maxWidth: '500px',
+    showCancelButton: true,
+    confirmButtonText: '💾 Добавить товар',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#28a745',
+    didOpen: () => {
+      const fileInput = document.getElementById('swal-product-image');
+      if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const preview = document.getElementById('swal-image-preview');
+              if (preview) {
+                preview.innerHTML = '<img src="' + ev.target.result + '" style="max-width:150px; max-height:150px; border-radius:8px; border:2px solid #ddd;">';
+              }
+            };
+            reader.readAsDataURL(file);
+          }
+        });
+      }
+    },
+    preConfirm: () => {
+      const title = document.getElementById('swal-product-title').value.trim();
+      if (!title) {
+        Swal.showValidationMessage('Введите название товара');
+        return false;
+      }
+      const price = parseFloat(document.getElementById('swal-product-price').value);
+      if (!price || price <= 0) {
+        Swal.showValidationMessage('Введите цену товара');
+        return false;
+      }
+      return {
+        title: title,
+        category: document.getElementById('swal-product-category').value,
+        description: document.getElementById('swal-product-desc').value.trim(),
+        price: price,
+        stock: document.getElementById('swal-product-stock').value.trim(),
+        optPrice: document.getElementById('swal-product-optprice').value.trim(),
+        optQty: document.getElementById('swal-product-optqty').value.trim(),
+        minQty: parseInt(document.getElementById('swal-product-minqty').value) || 1,
+        imageFile: document.getElementById('swal-product-image').files[0] || null
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  try {
+    Swal.fire({ title: 'Сохранение...', text: 'Добавляем товар...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    let imageUrl = '';
+    // Загружаем изображение, если выбрано
+    if (formValues.imageFile) {
+      if (typeof uploadToFirebaseStorage === 'function') {
+        imageUrl = await uploadToFirebaseStorage(formValues.imageFile, 'products');
+      }
+    }
+
+    const productData = {
+      title: formValues.title,
+      category: formValues.category,
+      description: formValues.description || '',
+      price: formValues.price,
+      minQty: formValues.minQty,
+      image: imageUrl,
+      sellerId: currentSeller.id,
+      sellerName: currentSeller.name,
+      createdAt: Date.now(),
+      blocked: false
+    };
+
+    // Остаток
+    if (formValues.stock !== '') {
+      productData.stock = parseInt(formValues.stock);
+    }
+
+    // Оптовая цена
+    if (formValues.optPrice !== '' && formValues.optQty !== '') {
+      productData.optPrice = parseFloat(formValues.optPrice);
+      productData.optQty = parseInt(formValues.optQty);
+    }
+
+    const docRef = await db.collection('products').add(productData);
+    productData.id = docRef.id;
+
+    // Добавляем в локальный массив
+    products.push(productData);
+    renderProducts();
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Товар добавлен!',
+      text: `«${formValues.title}» успешно добавлен в каталог`,
+      confirmButtonText: 'OK'
+    });
+
+  } catch (error) {
+    console.error('Ошибка добавления товара:', error);
+    Swal.fire('Ошибка', 'Не удалось добавить товар: ' + error.message, 'error');
+  }
+}

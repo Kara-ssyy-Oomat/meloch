@@ -24,10 +24,47 @@ function initFirebase() {
     }
     db = firebase.firestore();
     storage = firebase.storage();
+
+    // ОПТИМИЗАЦИЯ COSTS: включаем оффлайн-кэш Firestore (IndexedDB).
+    // После первой загрузки документа SDK будет отдавать его из локального
+    // IndexedDB, не списывая Read из платного плана. Сильно снижает расход
+    // у постоянных посетителей и вернувшихся клиентов.
+    // synchronizeTabs = true — кэш разделяется между вкладками одного клиента.
+    try {
+      db.enablePersistence({ synchronizeTabs: true })
+        .then(() => console.log('🗃️ Firestore offline-cache включён (IndexedDB)'))
+        .catch((err) => {
+          if (err && err.code === 'failed-precondition') {
+            console.log('🗃️ Offline-cache: открыто несколько вкладок без synchronizeTabs');
+          } else if (err && err.code === 'unimplemented') {
+            console.log('🗃️ Offline-cache: браузер не поддерживает IndexedDB');
+          }
+        });
+    } catch (e) { /* старый SDK — игнорируем */ }
+
     console.log('Firebase initialized successfully');
-    
-    // Подписка на новые сообщения в чате
-    subscribeToNewChatMessages();
+
+    if (typeof kerbenStartAppCheckSetup === 'function') {
+      kerbenStartAppCheckSetup(db);
+    }
+
+    // АУТЕНТИФИКАЦИЯ: каждому посетителю даём Firebase auth.uid (анонимно).
+    // Это позволяет в Firestore Rules использовать `request.auth != null`
+    // и закрыть базы от случайных скриптов / ботов с улицы.
+    // Если SDK не загружен или Anonymous Auth выключен в Console — сайт всё
+    // равно продолжит работать (правила пока разрешают чтение всем).
+    if (typeof kerbenEnsureSignedIn === 'function') {
+      kerbenEnsureSignedIn();
+    }
+
+    // ОПТИМИЗАЦИЯ COSTS: НЕ создаём onSnapshot для каждого посетителя.
+    // Раньше это держало постоянное соединение и читало все сообщения у каждого клиента —
+    // главная причина огромных расходов на Firestore Read Ops.
+    // Теперь проверяем непрочитанные сообщения только по событиям:
+    //  - при открытии чата (внутри toggleChat/loadChatMessages)
+    //  - при возврате вкладки на передний план (visibilitychange)
+    //  - при первой загрузке (один раз)
+    setupCheapChatBadgeCheck();
     
   } catch (error) {
     console.error('Firebase initialization error:', error);
@@ -35,35 +72,64 @@ function initFirebase() {
   }
 }
 
-// Подписка на новые сообщения от админа для badge на иконке чата
-function subscribeToNewChatMessages() {
-  const clientId = localStorage.getItem('chatClientId');
-  if (!clientId) {
-    console.log('💬 Нет chatClientId - не подписываемся на сообщения');
-    return;
+// ОПТИМИЗАЦИЯ COSTS: вместо постоянного onSnapshot — лёгкая разовая проверка
+// непрочитанных сообщений. Запускается:
+//  - при загрузке страницы (один раз)
+//  - при возврате вкладки из фона
+//  - принудительно по событию 'kerben-recheck-chat-badge'
+let _chatBadgeCheckBusy = false;
+let _chatBadgeLastCheck = 0;
+
+async function checkUnreadChatMessages() {
+  if (_chatBadgeCheckBusy) return;
+  // Антиспам: не чаще 1 раза в 30 секунд
+  if (Date.now() - _chatBadgeLastCheck < 30000) return;
+  _chatBadgeCheckBusy = true;
+  _chatBadgeLastCheck = Date.now();
+  try {
+    const clientId = localStorage.getItem('chatClientId');
+    if (!clientId) return;
+    if (typeof db === 'undefined' || !db) return;
+
+    // Лёгкий запрос: только непрочитанные сообщения от админа этому клиенту,
+    // максимум 50 штук — этого достаточно для отображения цифры в badge.
+    const snap = await db.collection('chatMessages')
+      .where('clientId', '==', clientId)
+      .where('sender', '==', 'admin')
+      .where('read', '==', false)
+      .limit(50)
+      .get();
+
+    const unreadCount = snap.size;
+    const badge = document.getElementById('navChatBadge');
+    if (badge) {
+      badge.textContent = unreadCount > 0 ? unreadCount : '!';
+      badge.style.display = unreadCount > 0 ? 'flex' : 'none';
+    }
+  } catch (e) {
+    // тихо игнорируем — не ломаем UI
+  } finally {
+    _chatBadgeCheckBusy = false;
   }
-  
-  db.collection('chatMessages')
-    .where('clientId', '==', clientId)
-    .orderBy('timestamp', 'asc')
-    .onSnapshot(snapshot => {
-      let unreadCount = 0;
-      snapshot.forEach(doc => {
-        const msg = doc.data();
-        if (msg.sender === 'admin' && msg.read === false) {
-          unreadCount++;
-        }
-      });
-      
-      const badge = document.getElementById('navChatBadge');
-      if (badge) {
-        badge.textContent = unreadCount > 0 ? unreadCount : '!';
-        badge.style.display = unreadCount > 0 ? 'flex' : 'none';
-      }
-      console.log('💬 Непрочитанных сообщений:', unreadCount);
-    }, error => {
-      console.log('Ошибка подписки на чат:', error.message);
-    });
+}
+
+function setupCheapChatBadgeCheck() {
+  // Первичная проверка через 5 секунд после загрузки (не блокируем старт)
+  setTimeout(checkUnreadChatMessages, 5000);
+
+  // Когда пользователь возвращается во вкладку — проверяем
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) checkUnreadChatMessages();
+  });
+
+  // Возможность перепроверить по событию (например, после открытия/закрытия чата)
+  window.addEventListener('kerben-recheck-chat-badge', checkUnreadChatMessages);
+}
+
+// Совместимость со старым кодом, который мог звать subscribeToNewChatMessages.
+// Теперь это просто разовая проверка, без постоянного слушателя.
+function subscribeToNewChatMessages() {
+  checkUnreadChatMessages();
 }
 
 // Инициализация Firebase

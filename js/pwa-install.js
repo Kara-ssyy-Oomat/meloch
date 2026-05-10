@@ -70,6 +70,26 @@ if (installPwaBtn) {
   });
 }
 
+// ==================== iOS: Ручная установка PWA ====================
+// iOS не поддерживает beforeinstallprompt, показываем инструкцию вручную
+(function() {
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) && !window.MSStream;
+  const isInStandaloneMode = window.navigator.standalone === true || 
+    window.matchMedia('(display-mode: standalone)').matches;
+
+  if (isIOS && !isInStandaloneMode) {
+    // Проверяем — не закрыл ли уже пользователь баннер
+    const dismissed = localStorage.getItem('iosInstallDismissed');
+    if (dismissed && (Date.now() - parseInt(dismissed)) < 7 * 24 * 3600 * 1000) return;
+
+    // Показываем iOS-баннер через 3 секунды
+    setTimeout(function() {
+      var existing = document.getElementById('iosInstallBanner');
+      if (existing) existing.style.display = 'block';
+    }, 3000);
+  }
+})();
+
 // Скрываем кнопку если приложение уже установлено
 window.addEventListener('appinstalled', () => {
   console.log('✅ PWA приложение установлено');

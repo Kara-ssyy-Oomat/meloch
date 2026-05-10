@@ -9,6 +9,7 @@ function openPartnersOrdersWindow() {
     const partnersWindow = document.getElementById('partnersOrdersWindow');
     partnersWindow.style.display = 'flex';
     lockPageScroll();
+    history.pushState({ modal: 'partnersOrders' }, '', '');
     loadPartnersOrders();
   }, 300);
 }
@@ -29,38 +30,47 @@ async function loadPartnersOrders() {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка...</div>';
   
   try {
-    // Получаем все заказы
-    const ordersSnapshot = await db.collection('orders').get();
+    // ОПТИМИЗАЦИЯ COSTS: раньше каждое открытие окна тянуло ВСЕ заказы магазина
+    // и фильтровало в браузере. Теперь:
+    //  • для today/week/month — точечный запрос where('timestamp','>=',...)
+    //  • для 'all' — лимит 1000, чтобы не вытащить всю историю
+    const dateFilter = document.getElementById('partnersFilterDate').value;
+    const today = new Date().setHours(0, 0, 0, 0);
+    let timeFrom = 0;
+    switch (dateFilter) {
+      case 'today': timeFrom = today; break;
+      case 'week':  timeFrom = today - 7 * 86400000; break;
+      case 'month': timeFrom = today - 30 * 86400000; break;
+      default: timeFrom = 0;
+    }
+
+    let q = db.collection('orders');
+    if (timeFrom > 0) q = q.where('timestamp', '>=', timeFrom);
+    q = q.limit(2000);
+
     let allOrders = [];
-    ordersSnapshot.forEach(doc => {
-      const data = doc.data();
-      allOrders.push({ id: doc.id, ...data });
-    });
-    
-    // Фильтруем только заказы с партнерами
+    try {
+      const ordersSnapshot = await q.get();
+      ordersSnapshot.forEach(doc => {
+        allOrders.push({ id: doc.id, ...doc.data() });
+      });
+    } catch (e) {
+      // Фоллбэк: если индекс не создан — берём все, но c лимитом
+      console.warn('partners.js: точечный запрос не сработал, fallback', e && e.message);
+      const ordersSnapshot = await db.collection('orders').limit(2000).get();
+      ordersSnapshot.forEach(doc => {
+        allOrders.push({ id: doc.id, ...doc.data() });
+      });
+    }
+
+    // Фильтруем только заказы с партнерами (это быстро в браузере)
     let orders = allOrders.filter(order => order.partner || order.referredBy);
-    
+
     if (orders.length === 0) {
       statsDiv.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">📭 Заказов от партнеров пока нет</div>';
       listDiv.innerHTML = '';
       return;
     }
-    
-    // Фильтр по дате
-    const dateFilter = document.getElementById('partnersFilterDate').value;
-    const now = Date.now();
-    const today = new Date().setHours(0, 0, 0, 0);
-    
-    orders = orders.filter(order => {
-      const orderTime = order.timestamp || 0;
-      switch(dateFilter) {
-        case 'today': return orderTime >= today;
-        case 'week': return orderTime >= (today - 7 * 86400000);
-        case 'month': return orderTime >= (today - 30 * 86400000);
-        case 'all': return true;
-        default: return true;
-      }
-    });
     
     // Собираем статистику по партнерам
     const partnersMap = new Map();

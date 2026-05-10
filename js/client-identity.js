@@ -220,8 +220,9 @@ async function updateClientActivity() {
   }
 }
 
-// Пароли
-const ADMIN_PASSWORD = "13082007"; // Полный админ (синхронизирован с ADMIN_CUSTOMER_DATA в customer-auth.js)
+// Пароли. Админский — только в виде SHA-256 хеша (см. customer-auth.js → ADMIN_CUSTOMER_DATA.passwordHash).
+// ADMIN_PASSWORD больше не используется в коде — оставлено пустым для обратной совместимости.
+const ADMIN_PASSWORD = ""; // не используется, реальная проверка идёт через хеш в customer-auth.js
 const KOREAN_PASSWORD = "556655"; // Только корейские товары
 const APPLIANCES_PASSWORD = "777888"; // Только бытовые техники
 

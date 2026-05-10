@@ -15,10 +15,21 @@ function lockPageScroll() {
   
   // Простая блокировка без position:fixed (избегаем прыжков)
   document.body.classList.add('modal-open');
-  document.body.style.overflow = 'hidden';
-  document.body.style.touchAction = 'none';
-  document.documentElement.style.overflow = 'hidden';
+  // КРИТИЧНО: Используем setProperty вместо shorthand overflow,
+  // чтобы не потерять overflow-y !important при разблокировке
+  document.body.style.setProperty('overflow-y', 'hidden', 'important');
+  document.body.style.setProperty('touch-action', 'none', 'important');
+  document.documentElement.style.setProperty('overflow-y', 'hidden', 'important');
   document.documentElement.classList.add('modal-open');
+
+  // Safety: автоматически разблокируем через 30 секунд если забыли
+  clearTimeout(lockPageScroll._safetyTimer);
+  lockPageScroll._safetyTimer = setTimeout(function() {
+    if (scrollLockCount > 0) {
+      console.warn('⚠️ Safety: принудительная разблокировка прокрутки (timeout)');
+      forceUnlockScroll();
+    }
+  }, 30000);
   
   console.log('🔒 lockPageScroll: count=' + scrollLockCount);
 }
@@ -36,16 +47,16 @@ function unlockPageScroll() {
 // Принудительная разблокировка прокрутки
 function forceUnlockScroll() {
   scrollLockCount = 0;
-  document.body.classList.remove('modal-open');
-  document.body.classList.remove('scroll-locked');
-  document.body.style.top = '';
-  document.body.style.overflow = '';
-  document.body.style.touchAction = '';
-  document.body.style.position = '';
-  document.body.style.width = '';
-  document.body.style.height = '';
-  document.documentElement.style.overflow = '';
-  document.documentElement.classList.remove('modal-open');
+  
+  // Батчим все DOM-изменения в один requestAnimationFrame для минимизации reflow
+  requestAnimationFrame(function() {
+    document.body.classList.remove('modal-open', 'scroll-locked', 'swal2-shown', 'swal2-height-auto');
+    document.documentElement.classList.remove('modal-open', 'swal2-shown', 'swal2-height-auto');
+    
+    // Сбрасываем inline-стили одним cssText
+    document.body.style.cssText = 'overflow-y: scroll !important; overflow-x: hidden !important; position: static !important; height: auto !important; touch-action: pan-y !important;';
+    document.documentElement.style.cssText = 'overflow-y: scroll !important; overflow-x: hidden !important; position: static !important; touch-action: pan-y !important;';
+  });
   
   savedScrollPosition = 0;
   console.log('🔓 forceUnlockScroll: прокрутка разблокирована');
@@ -55,7 +66,7 @@ function forceUnlockScroll() {
 // Автоматическая проверка и восстановление прокрутки на iOS
 // ===========================================
 function checkAndRestoreScroll() {
-  // Проверяем, есть ли открытые модальные окна
+  // Проверяем, есть ли ВИДИМЫЕ открытые модальные окна
   const openModals = document.querySelectorAll(
     '#profileFullscreenModal, #cartPage[style*="display: block"], #cartPage[style*="display:block"], ' +
     '#favoritesPage[style*="display: block"], #favoritesPage[style*="display:block"], ' +
@@ -66,25 +77,36 @@ function checkAndRestoreScroll() {
     '#suggestionWindow[style*="display: block"], #suggestionWindow[style*="display:block"], ' +
     '#becomeSellerWindow[style*="display: block"], #becomeSellerWindow[style*="display:block"], ' +
     '#adminChatWindow[style*="display: flex"], #adminChatWindow[style*="display:flex"], ' +
-    '.swal2-container'
+    '.swal2-container:not(.swal2-container-hide)'
   );
   
-  const hasOpenModal = openModals.length > 0;
+  // Дополнительно: проверяем что swal2-container действительно ВИДИМ
+  let hasOpenModal = false;
+  openModals.forEach(el => {
+    if (el.classList.contains('swal2-container')) {
+      // SweetAlert2 оставляет контейнер в DOM — проверяем видимость
+      if (el.style.display !== 'none' && el.offsetParent !== null) {
+        hasOpenModal = true;
+      }
+    } else {
+      hasOpenModal = true;
+    }
+  });
   
   // Если модальных окон нет, но прокрутка заблокирована - восстанавливаем
-  if (!hasOpenModal && (document.body.classList.contains('modal-open') || 
-      document.body.classList.contains('scroll-locked') ||
-      document.body.style.overflow === 'hidden' ||
-      document.body.style.position === 'fixed')) {
-    console.log('🔄 Восстановление прокрутки...');
-    forceUnlockScroll();
+  if (!hasOpenModal) {
+    var cs = getComputedStyle(document.body);
+    if (document.body.classList.contains('modal-open') || 
+        document.body.classList.contains('scroll-locked') ||
+        cs.overflowY === 'hidden' ||
+        cs.position === 'fixed') {
+      console.log('🔄 Восстановление прокрутки... (overflow-y:', cs.overflowY, ', position:', cs.position, ')');
+      forceUnlockScroll();
+    }
   }
 }
 
-// Запускаем проверку периодически (для iOS) - ОПТИМИЗАЦИЯ: каждые 10 секунд вместо 3
-setInterval(checkAndRestoreScroll, 10000);
-
-// Также проверяем при касании экрана - ОПТИМИЗАЦИЯ: используем debounce
+// Проверяем прокрутку при касании экрана (вместо постоянного polling каждые 5сек)
 let _checkScrollTimeout = null;
 document.addEventListener('touchstart', function() {
   if (_checkScrollTimeout) return; // Уже запланировано
@@ -93,6 +115,13 @@ document.addEventListener('touchstart', function() {
     checkAndRestoreScroll();
   }, 1000);
 }, { passive: true });
+
+// Проверяем при возврате вкладки из фона (вместо постоянного setInterval)
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) {
+    setTimeout(checkAndRestoreScroll, 300);
+  }
+});
 
 // КРИТИЧНО: Принудительная разблокировка прокрутки при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
@@ -120,6 +149,11 @@ window.addEventListener('load', function() {
 // ===========================================
 
 function openAddProductWindow() {
+  // Если продавец - используем специальную форму добавления
+  if (typeof currentSeller !== 'undefined' && currentSeller && typeof openSellerAddProduct === 'function') {
+    openSellerAddProduct();
+    return;
+  }
   const window = document.getElementById('addProductWindow');
   if (window) {
     window.style.display = 'flex';

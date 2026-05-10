@@ -26,14 +26,25 @@
 
   // ----------- ХЕЛПЕРЫ -----------
 
+  // Если App Check заблокирован Google'ом (403 → throttled на 24 часа),
+  // не дёргаем его лишний раз — просто возвращаем null, чтобы не мусорить в консоль.
+  var _appCheckThrottledUntil = 0;
+
   async function _getAppCheckHeader(forceRefresh) {
     try {
       if (typeof firebase === 'undefined' || !firebase.apps.length) return null;
       if (typeof firebase.appCheck !== 'function') return null;
+      if (Date.now() < _appCheckThrottledUntil) return null;
       var ac = firebase.appCheck();
       var tr = await ac.getToken(!!forceRefresh);
       return tr && tr.token ? tr.token : null;
     } catch (e) {
+      var msg = (e && (e.code || e.message)) || '';
+      if (/throttle/i.test(msg)) {
+        // даём 30 минут передышки перед следующей попыткой
+        _appCheckThrottledUntil = Date.now() + 30 * 60 * 1000;
+        console.warn('[telegramProxy] App Check throttled, временно работаем без токена');
+      }
       return null;
     }
   }
@@ -94,7 +105,13 @@
       }
 
       if (!response.ok) {
-        const msg = (json && (json.error || json.description)) || ('HTTP ' + response.status);
+        let msg = (json && (json.error || json.description)) || ('HTTP ' + response.status);
+        if (msg === 'missing_app_check' || msg === 'invalid_app_check') {
+          msg =
+            'App Check не настроен или заблокирован Google. ' +
+            'Проверьте reCAPTCHA-ключ для домена ' + location.hostname +
+            ' и регистрацию в Firebase Console → App Check.';
+        }
         const err = new Error('telegramProxy: ' + msg);
         err.status = response.status;
         err.body = json;
