@@ -9,7 +9,6 @@ function openPartnersOrdersWindow() {
     const partnersWindow = document.getElementById('partnersOrdersWindow');
     partnersWindow.style.display = 'flex';
     lockPageScroll();
-    history.pushState({ modal: 'partnersOrders' }, '', '');
     loadPartnersOrders();
   }, 300);
 }
