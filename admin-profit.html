@@ -628,6 +628,42 @@ let products = [];
 let currentTab = 'products';
 let userRole = localStorage.getItem('userRole') || 'admin';
 
+// ОПТИМИЗАЦИЯ COSTS: общий кэш для admin-profit.html.
+// Раньше открытие страницы → переключение вкладок → нажатие «обновить»
+// каждое стоило `db.collection('orders').get()` (тысячи Firestore Reads).
+// Теперь данные живут 60 секунд в памяти и переиспользуются.
+const _profitPageCache = {
+  orders: null, ordersTs: 0,
+  agents: null, agentsTs: 0
+};
+const _PROFIT_CACHE_MS = 60000;
+async function _getOrdersCached() {
+  if (_profitPageCache.orders && (Date.now() - _profitPageCache.ordersTs) < _PROFIT_CACHE_MS) {
+    return _profitPageCache.orders;
+  }
+  const snap = await db.collection('orders').get();
+  const arr = [];
+  snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+  _profitPageCache.orders = arr;
+  _profitPageCache.ordersTs = Date.now();
+  return arr;
+}
+async function _getAgentsCached() {
+  if (_profitPageCache.agents && (Date.now() - _profitPageCache.agentsTs) < _PROFIT_CACHE_MS) {
+    return _profitPageCache.agents;
+  }
+  const snap = await db.collection('agents').get();
+  const arr = [];
+  snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+  _profitPageCache.agents = arr;
+  _profitPageCache.agentsTs = Date.now();
+  return arr;
+}
+function _invalidateProfitPageCache() {
+  _profitPageCache.orders = null; _profitPageCache.ordersTs = 0;
+  _profitPageCache.agents = null; _profitPageCache.agentsTs = 0;
+}
+
 // При загрузке страницы
 document.addEventListener('DOMContentLoaded', async function() {
   console.log('📈 Загрузка страницы отчёта по прибыли...');
@@ -800,17 +836,16 @@ async function loadOrderProfitReport() {
   }
   
   try {
-    const snapshot = await db.collection('orders').get();
+    const allOrders = await _getOrdersCached();
     let orders = [];
     
-    snapshot.forEach(doc => {
-      const data = doc.data();
+    allOrders.forEach(data => {
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       if (orderDate >= startDate) {
         // Пропускаем отменённые и удалённые заказы — они не считаются в прибыли
         if (data.deleted) return;
         if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
-        orders.push({ id: doc.id, ...data, orderDate });
+        orders.push({ ...data, orderDate });
       }
     });
     
@@ -919,23 +954,23 @@ async function loadAgentsProfitReport() {
   }
   
   try {
-    // Загружаем агентов и заказы
-    const [agentsSnap, ordersSnap] = await Promise.all([
-      db.collection('agents').get(),
-      db.collection('orders').get()
+    // ОПТИМИЗАЦИЯ COSTS: используем кэш — agents и orders уже могли быть
+    // загружены другой вкладкой отчёта в последние 60 секунд.
+    const [agentsArr, ordersArr] = await Promise.all([
+      _getAgentsCached(),
+      _getOrdersCached()
     ]);
     
     // Создаём словарь агентов по имени и id
     const agents = {};
     const agentsByName = {};
     
-    agentsSnap.forEach(doc => {
-      const data = doc.data();
-      const agentName = data.name || data.phone || doc.id;
-      agents[doc.id] = { id: doc.id, name: agentName, phone: data.phone, orders: 0, profit: 0, totalSale: 0 };
+    agentsArr.forEach(data => {
+      const agentName = data.name || data.phone || data.id;
+      agents[data.id] = { id: data.id, name: agentName, phone: data.phone, orders: 0, profit: 0, totalSale: 0 };
       // Также индексируем по имени для поиска через partner
-      agentsByName[agentName] = agents[doc.id];
-      if (data.phone) agentsByName[data.phone] = agents[doc.id];
+      agentsByName[agentName] = agents[data.id];
+      if (data.phone) agentsByName[data.phone] = agents[data.id];
     });
     
     console.log('👥 Загружено агентов:', Object.keys(agents).length);
@@ -948,8 +983,7 @@ async function loadAgentsProfitReport() {
     let ordersWithPartnerNotFound = [];
     let totalOrdersChecked = 0;
     
-    ordersSnap.forEach(doc => {
-      const data = doc.data();
+    ordersArr.forEach(data => {
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       
       totalOrdersChecked++;
@@ -1175,10 +1209,11 @@ async function loadExpensesReport() {
   console.log('📊 Загрузка расходов, период:', dateFilter, 'с', startDate, 'по', endDate);
   
   try {
-    // Загружаем расходы и заказы для расчёта прибыли
-    const [expensesSnap, ordersSnap, agentExpensesSnap] = await Promise.all([
+    // ОПТИМИЗАЦИЯ COSTS: orders берём из кэша (60 сек), остальные —
+    // напрямую (расходы редко-обновляемые, всё равно полезно перечитать).
+    const [expensesSnap, ordersArr, agentExpensesSnap] = await Promise.all([
       db.collection('expenses').get(),
-      db.collection('orders').get(),
+      _getOrdersCached(),
       db.collection('agentExpenses').get()
     ]);
     
@@ -1328,8 +1363,7 @@ async function loadExpensesReport() {
     console.log('✅ Расходов за период (включая агентов и регулярные):', expenses.length);
     
     let periodProfit = 0;
-    ordersSnap.forEach(doc => {
-      const data = doc.data();
+    ordersArr.forEach(data => {
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       if (orderDate >= startDate && orderDate <= endDate) {
         const items = data.items || data.cart || [];
