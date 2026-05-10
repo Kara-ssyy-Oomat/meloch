@@ -229,9 +229,13 @@ async function loadChatMessages() {
   await ensureClientName();
   
   try {
-    // Загружаем только сообщения текущего клиента
+    // ОПТИМИЗАЦИЯ COSTS: тянем максимум 100 последних сообщений вместо
+    // всей истории. Если переписке полгода и там 800 сообщений — раньше
+    // каждое открытие чата стоило 800 Firestore Reads. Теперь — 100.
     const querySnapshot = await db.collection('chatMessages')
       .where('clientId', '==', clientId)
+      .orderBy('timestamp', 'desc')
+      .limit(100)
       .get();
     
     const messagesDiv = document.getElementById('chatMessages');
@@ -310,8 +314,15 @@ function subscribeToChatMessages() {
     _chatUnsubscribe = null;
   }
   
+  // ОПТИМИЗАЦИЯ COSTS: слушаем только сообщения, ПРИШЕДШИЕ ПОСЛЕ подписки.
+  // Раньше onSnapshot тянул ВСЮ историю клиента при каждом открытии чата
+  // и при каждом обновлении — это были сотни лишних reads. Теперь
+  // история уже загружена через loadChatMessages, а listener получает
+  // только новинки.
+  const _listenStartTs = firebase.firestore.Timestamp.now();
   _chatUnsubscribe = db.collection('chatMessages')
-    .where('clientId', '==', clientId) // Только сообщения текущего клиента
+    .where('clientId', '==', clientId)
+    .where('timestamp', '>', _listenStartTs)
     .onSnapshot((snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {

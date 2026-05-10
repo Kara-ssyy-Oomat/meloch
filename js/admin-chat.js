@@ -272,8 +272,13 @@ function subscribeToAdminChatMessages(clientId) {
     adminChatUnsubscribe();
   }
   
+  // ОПТИМИЗАЦИЯ COSTS: listener тянет только сообщения после подписки.
+  // История уже загружена отдельным запросом, не нужно перечитывать всё
+  // каждый раз когда админ открывает чат с клиентом.
+  const _adminListenStartTs = firebase.firestore.Timestamp.now();
   adminChatUnsubscribe = db.collection('chatMessages')
     .where('clientId', '==', clientId)
+    .where('timestamp', '>', _adminListenStartTs)
     .onSnapshot((snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
