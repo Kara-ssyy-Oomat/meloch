@@ -386,7 +386,7 @@ function init() {
 // ============ ЗАГРУЗКА ТОВАРОВ ============
 async function loadProducts() {
   try {
-    var snapshot = await db.collection('products').orderBy('order', 'desc').get();
+    var snapshot = await db.collection('products').orderBy('order', 'desc').limit(5000).get();
     products = [];
     snapshot.forEach(function(doc) {
       products.push({ id: doc.id, ...doc.data() });
@@ -401,7 +401,7 @@ async function loadProducts() {
 // ============ ЗАГРУЗКА КАТЕГОРИЙ ПРОДАВЦОВ ============
 async function loadSellerCategories() {
   try {
-    var snapshot = await db.collection('seller_categories').get();
+    var snapshot = await db.collection('seller_categories').limit(500).get();
     var select = document.getElementById('filterCategory');
     var standard = ['все','ножницы','скотч','нож','корейские','часы','электроника','бытовые'];
     snapshot.forEach(function(doc) {

@@ -643,8 +643,8 @@
         // Отображаем стандартные категории
         renderStandardCategories();
         
-        // Загружаем пользовательские категории из Firebase
-        const snapshot = await db.collection('seller_categories').get();
+        // Загружаем пользовательские категории из Firebase (лимит 500)
+        const snapshot = await db.collection('seller_categories').limit(500).get();
         
         customCategories = [];
         snapshot.forEach(doc => {
@@ -675,10 +675,10 @@
       }
     }
     
-    // Загрузка количества товаров по категориям
+    // Загрузка количества товаров по категориям (лимит 5000)
     async function loadProductCounts() {
       try {
-        const snapshot = await db.collection('products').get();
+        const snapshot = await db.collection('products').limit(5000).get();
         productCounts = {};
         roundedCounts = {};
         

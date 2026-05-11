@@ -497,11 +497,14 @@ async function loadOrdersManagement(forceRefresh = false) {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка заказов...</div>';
 
   try {
-    // Загружаем последние 200 заказов + отдельно ВСЕ pending + удалённые
+    // ОПТИМИЗАЦИЯ COSTS: лимиты на pending/deleted (раньше .get() без
+    // лимита — могли быть тысячи заказов, особенно за всю историю).
+    // 500 — с большим запасом для нормальной админки. Без orderBy на
+    // pending/deleted чтобы не требовать composite index.
     const [recentSnapshot, pendingSnapshot, deletedSnapshot] = await Promise.all([
       db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(),
-      db.collection('orders').where('status', '==', 'pending').get(),
-      db.collection('orders').where('deleted', '==', true).get()
+      db.collection('orders').where('status', '==', 'pending').limit(500).get(),
+      db.collection('orders').where('deleted', '==', true).limit(200).get()
     ]);
 
     if (recentSnapshot.empty && pendingSnapshot.empty && deletedSnapshot.empty) {
@@ -1996,7 +1999,7 @@ async function loadProductsToAdd() {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка товаров...</div>';
   
   try {
-    const productsSnapshot = await db.collection('products').get();
+    const productsSnapshot = await db.collection('products').limit(5000).get();
     
     if (productsSnapshot.empty) {
       listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">📭 Товаров нет</div>';
@@ -2410,9 +2413,9 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       return;
     }
     
-    // Загружаем все продукты для получения фото и данных
+    // Загружаем все продукты для получения фото и данных (лимит 5000)
     Swal.update({ html: 'Загрузка данных товаров...' });
-    const productsSnapshot = await db.collection('products').get();
+    const productsSnapshot = await db.collection('products').limit(5000).get();
     const productsMap = {};
     productsSnapshot.forEach(doc => {
       productsMap[doc.id] = { id: doc.id, ...doc.data() };

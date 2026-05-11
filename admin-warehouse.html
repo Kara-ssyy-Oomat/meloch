@@ -1104,7 +1104,7 @@ async function toggleSingleWarehousePause(whId) {
 }
 
 async function loadProducts() {
-  const snap = await db.collection('products').get();
+  const snap = await db.collection('products').limit(5000).get();
   products = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 

@@ -301,6 +301,12 @@
     
     async function loadMessages() {
       try {
+        // Ждём Firebase Auth перед чтением chatMessages — иначе при первом
+        // открытии страницы запрос может уйти без auth-токена и rules,
+        // требующие isAuthed(), вернут permission-denied.
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(); } catch (e) {}
+        }
         const messagesDiv = document.getElementById('chatMessages');
         const snapshot = await db.collection('chatMessages')
           .where('clientId', '==', clientId)

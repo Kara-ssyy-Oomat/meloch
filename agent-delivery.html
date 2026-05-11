@@ -399,12 +399,12 @@
     let currentUserIsAdmin = false;
     let currentAgentId = null; // ID агента, если это агент
     
-    // Загрузка агентов при старте
+    // Загрузка агентов при старте (лимиты для контроля Read Ops)
     async function loadAgentsForFilter() {
       try {
         const [agentsSnap, clientAgentsSnap] = await Promise.all([
-          db.collection('agents').get(),
-          db.collection('clientAgents').get()
+          db.collection('agents').limit(500).get(),
+          db.collection('clientAgents').limit(5000).get()
         ]);
         
         allAgentsList = [];
@@ -457,8 +457,8 @@
           return true;
         }
         
-        // Проверяем, является ли агентом
-        const agentsSnap = await db.collection('agents').get();
+        // Проверяем, является ли агентом (лимит 500)
+        const agentsSnap = await db.collection('agents').limit(500).get();
         let isAgent = false;
         
         agentsSnap.forEach(doc => {

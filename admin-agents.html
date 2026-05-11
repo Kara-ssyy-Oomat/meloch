@@ -598,11 +598,11 @@
       await loadAllData();
     }
     
-    // Загрузка всех данных
+    // Загрузка всех данных (лимиты для контроля Read Ops)
     async function loadAllData() {
       try {
-        // Загружаем агентов
-        const agentsSnapshot = await db.collection('agents').get();
+        // Загружаем агентов (лимит 500)
+        const agentsSnapshot = await db.collection('agents').limit(500).get();
         allAgents = [];
         const agentIds = new Set();
         const agentNames = new Map();
@@ -615,8 +615,8 @@
           agentNames.set(doc.id, doc.id);
         });
         
-        // Загружаем заказы
-        const ordersSnapshot = await db.collection('orders').get();
+        // Загружаем заказы (последние 10000 для статистики)
+        const ordersSnapshot = await db.collection('orders').orderBy('timestamp', 'desc').limit(10000).get();
         ordersByAgent = {};
         const clientsMap = {};
         
@@ -676,8 +676,8 @@
         allClients = Object.values(clientsMap);
         allClients.sort((a, b) => b.lastOrder - a.lastOrder);
         
-        // Загружаем выплаты
-        const payoutsSnapshot = await db.collection('agentPayouts').get();
+        // Загружаем выплаты (лимит 5000)
+        const payoutsSnapshot = await db.collection('agentPayouts').limit(5000).get();
         allPayouts = [];
         payoutsByAgent = {};
         
@@ -1014,10 +1014,10 @@
           didOpen: () => Swal.showLoading()
         });
         
-        // Ищем по ID
-        const snapshot1 = await db.collection('orders').where('partner', '==', agentId).get();
-        // Ищем по имени
-        const snapshot2 = await db.collection('orders').where('partner', '==', agentName).get();
+        // Ищем по ID (лимит 2000)
+        const snapshot1 = await db.collection('orders').where('partner', '==', agentId).limit(2000).get();
+        // Ищем по имени (лимит 2000)
+        const snapshot2 = await db.collection('orders').where('partner', '==', agentName).limit(2000).get();
         
         const ordersMap = new Map();
         snapshot1.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
@@ -1372,8 +1372,8 @@
           didOpen: () => Swal.showLoading()
         });
         
-        // Получаем все заказы клиента
-        const ordersSnapshot = await db.collection('orders').where('phone', '==', phone).get();
+        // Получаем все заказы клиента (лимит 1000 — на одного клиента предостаточно)
+        const ordersSnapshot = await db.collection('orders').where('phone', '==', phone).limit(1000).get();
         
         if (ordersSnapshot.empty) {
           Swal.fire('Ошибка', 'Заказы клиента не найдены', 'warning');

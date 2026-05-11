@@ -641,7 +641,9 @@ async function _getOrdersCached() {
   if (_profitPageCache.orders && (Date.now() - _profitPageCache.ordersTs) < _PROFIT_CACHE_MS) {
     return _profitPageCache.orders;
   }
-  const snap = await db.collection('orders').get();
+  // ОПТИМИЗАЦИЯ COSTS: лимит 10000 заказов + сортировка по убыванию
+  // даты — берём последние 10k. На годы работы хватит.
+  const snap = await db.collection('orders').orderBy('timestamp', 'desc').limit(10000).get();
   const arr = [];
   snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
   _profitPageCache.orders = arr;
@@ -652,7 +654,7 @@ async function _getAgentsCached() {
   if (_profitPageCache.agents && (Date.now() - _profitPageCache.agentsTs) < _PROFIT_CACHE_MS) {
     return _profitPageCache.agents;
   }
-  const snap = await db.collection('agents').get();
+  const snap = await db.collection('agents').limit(500).get();
   const arr = [];
   snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
   _profitPageCache.agents = arr;
@@ -688,10 +690,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   }
 });
 
-// Загрузка товаров
+// Загрузка товаров (лимит 5000)
 async function loadProducts() {
   try {
-    const snapshot = await db.collection('products').get();
+    const snapshot = await db.collection('products').limit(5000).get();
     products = [];
     snapshot.forEach(doc => {
       products.push({ id: doc.id, ...doc.data() });
@@ -1209,12 +1211,12 @@ async function loadExpensesReport() {
   console.log('📊 Загрузка расходов, период:', dateFilter, 'с', startDate, 'по', endDate);
   
   try {
-    // ОПТИМИЗАЦИЯ COSTS: orders берём из кэша (60 сек), остальные —
-    // напрямую (расходы редко-обновляемые, всё равно полезно перечитать).
+    // ОПТИМИЗАЦИЯ COSTS: orders из кэша (60 сек), expenses + agentExpenses
+    // ограничены лимитом 5000 каждый (на годы работы хватает).
     const [expensesSnap, ordersArr, agentExpensesSnap] = await Promise.all([
-      db.collection('expenses').get(),
+      db.collection('expenses').orderBy('timestamp', 'desc').limit(5000).get(),
       _getOrdersCached(),
-      db.collection('agentExpenses').get()
+      db.collection('agentExpenses').limit(5000).get()
     ]);
     
     console.log('📋 Всего расходов в базе:', expensesSnap.size);
@@ -1722,8 +1724,8 @@ async function deleteAllExpensesForPeriod() {
   }
 
   try {
-    // Считаем сколько расходов попадает в период
-    const snapshot = await db.collection('expenses').get();
+    // Считаем сколько расходов попадает в период (лимит 5000)
+    const snapshot = await db.collection('expenses').orderBy('timestamp', 'desc').limit(5000).get();
     const toDelete = [];
     snapshot.forEach(doc => {
       const data = doc.data();

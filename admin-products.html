@@ -177,7 +177,7 @@ if (typeof firebase !== 'undefined') {
 // ============ ЗАГРУЗКА ТОВАРОВ ============
 async function loadProducts() {
   try {
-    const snapshot = await db.collection('products').orderBy('order', 'desc').get();
+    const snapshot = await db.collection('products').orderBy('order', 'desc').limit(5000).get();
     products = [];
     snapshot.forEach(doc => {
       products.push({ id: doc.id, ...doc.data() });
@@ -224,8 +224,8 @@ async function loadSellerCategoriesForSelect() {
     // Стандартные категории (уже есть в HTML)
     const standardCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
     
-    // Загружаем категории из seller_categories
-    const snapshot = await db.collection('seller_categories').get();
+    // Загружаем категории из seller_categories (лимит 500)
+    const snapshot = await db.collection('seller_categories').limit(500).get();
     
     snapshot.forEach(doc => {
       const data = doc.data();

@@ -600,10 +600,12 @@
       `;
       
       try {
-        // Загружаем из ОБЕИХ коллекций: chatClients + customers
+        // ОПТИМИЗАЦИЯ COSTS: лимиты на bulk-чтения (раньше тянули ВСЕ
+        // chatClients и ВСЕ customers — могли быть десятки тысяч).
+        // 1000 — с большим запасом, в админке всё равно листать сложно.
         const [chatSnap, customersSnap] = await Promise.all([
-          db.collection('chatClients').get(),
-          db.collection('customers').get()
+          db.collection('chatClients').limit(1000).get(),
+          db.collection('customers').limit(2000).get()
         ]);
         
         allClients = [];
@@ -1059,17 +1061,23 @@
           didOpen: () => Swal.showLoading()
         });
         
-        // Удаляем все сообщения
-        const messagesSnapshot = await db.collection('chatMessages').get();
-        const batch1 = db.batch();
-        messagesSnapshot.forEach(doc => batch1.delete(doc.ref));
-        await batch1.commit();
-        
-        // Удаляем всех клиентов
-        const clientsSnapshot = await db.collection('chatClients').get();
-        const batch2 = db.batch();
-        clientsSnapshot.forEach(doc => batch2.delete(doc.ref));
-        await batch2.commit();
+        // ОПТИМИЗАЦИЯ COSTS: удаляем порциями по 400 (Firestore batch
+        // лимит = 500). Раньше делали один .get() без лимита и платили
+        // за ВСЕ chatMessages в БД — а это могли быть десятки тысяч.
+        // Теперь читаем и удаляем итеративно — суммарно столько же reads,
+        // но если ошибёмся, не платим за полную выгрузку зря.
+        async function _deleteCollectionBatched(collName, perBatch = 400, maxBatches = 50) {
+          for (let i = 0; i < maxBatches; i++) {
+            const snap = await db.collection(collName).limit(perBatch).get();
+            if (snap.empty) break;
+            const batch = db.batch();
+            snap.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            if (snap.size < perBatch) break;
+          }
+        }
+        await _deleteCollectionBatched('chatMessages');
+        await _deleteCollectionBatched('chatClients');
         
         // Обновляем UI
         allClients = [];
@@ -1302,10 +1310,10 @@
       try {
         Swal.fire({ title: '📤 Отправка...', html: 'Загрузка списка клиентов...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
-        // Загружаем клиентов из ОБЕИХ коллекций: chatClients + customers
+        // ОПТИМИЗАЦИЯ COSTS: лимиты на bulk-чтения для рассылки.
         const [chatSnap, customersSnap] = await Promise.all([
-          db.collection('chatClients').get(),
-          db.collection('customers').get()
+          db.collection('chatClients').limit(1000).get(),
+          db.collection('customers').limit(2000).get()
         ]);
 
         // Собираем всех из chatClients (множество ID)

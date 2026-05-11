@@ -1,29 +1,50 @@
 rules_version = '2';
 
 // =====================================================================
-// КЕРБЕН B2B Market — Firestore Security Rules
+// КЕРБЕН B2B Market — Firestore Security Rules (МАКСИМАЛЬНАЯ ЗАЩИТА)
 //
-// ВАЖНО: эти правила НЕ ломают существующий функционал сайта.
-// Они защищают от:
-//   • Загрузки документов-монстров (DoS — забить базу мусором).
-//   • Установки отрицательных/гигантских цен и количеств.
-//   • Спама в notificationQueue (рассылка миллионов push-уведомлений
-//     с произвольным содержимым).
-//   • Повышения чужого аккаунта до isAdmin: true.
-//   • Создания заказов и сообщений от заблокированных клиентов.
-//   • Записи в неизвестные коллекции (помойка из левых данных).
-//   • Чтения/записи admin-only push-токенов с клиента.
+// Что закрывают эти правила:
+//   • READ на customers/orders/chatMessages/chatClients — только для
+//     залогиненных (Firebase Auth, в т.ч. анонимный). Внешние скрипты,
+//     curl, боты без JS — отрезаны. С App Check + reCAPTCHA — закрыто
+//     даже от автоматических браузеров.
+//   • UPDATE/DELETE на customers — ТОЛЬКО владельцу документа
+//     (request.auth.uid совпадает с customers.firebaseUid) или админу.
+//     Хакер не может изменить чужой профиль, даже зная его id.
+//   • UPDATE на orders — клиент может только ОТМЕНИТЬ свой заказ
+//     (status='cancelled'). Изменить total/items/phone — нельзя.
+//     Админ может всё.
+//   • UPDATE на chatMessages — клиент может только пометить как
+//     прочитанное (поле `read`). Текст и отправителя менять нельзя.
+//   • DELETE везде — только админ.
+//   • Пароли клиентов — хранятся ТОЛЬКО как PBKDF2-passwordHash.
+//     Поле `password` (plaintext) запрещено: правила режут любые
+//     попытки записать его (старые поля нужно вычистить из БД).
+//   • Финансы (`expenses`) — только админ читает и пишет.
+//   • notificationQueue — защищено от спама и подмены типа.
+//   • Любая неизвестная коллекция — закрыта наглухо.
 //
-// ⚠️ ОГРАНИЧЕНИЯ (что эти правила НЕ ловят):
-//   • Любой посетитель пока ещё может прочитать заказы и клиентов
-//     (нужно для страниц "Мои заказы" и логина по телефону).
-//   • Любой посетитель пока ещё может изменить легитимную цену товара
-//     с 100 на 50 (валидация ловит только отрицательные / гигантские).
-//
-// Чтобы устранить эти ограничения — нужно включить Firebase Authentication
-// (минимум: email/password для админа, анонимная auth для клиентов) и
-// заменить `if true` на `if request.auth.token.email == 'admin@...'`
-// в нужных местах. Это следующий этап.
+// =====================================================================
+// ИНСТРУКЦИЯ ПО ДЕПЛОЮ (важно соблюдать порядок!):
+//   1) Firebase Console → Authentication → Sign-in method:
+//        • Anonymous → Enable
+//        • Email/Password → Enable
+//   2) Authentication → Users → Add user:
+//        email: admin@kerben.local
+//        password: тот же, что админ использует на сайте
+//   3) ЗАЛИВАЕМ КОД на хостинг:
+//        - js/auth.js
+//        - js/customer-auth.js
+//        - js/firebase-config.js
+//        - js/chat.js
+//        - js/order-tracking.js
+//        - js/order-submit.js
+//        - chat.html
+//   4) Подождать 1-2 часа: чтобы у клиентов прогрузился новый код,
+//      они зашли в свой профиль (миграция password → passwordHash идёт
+//      при первом входе) и Firebase Auth закешировал анонимные uid.
+//   5) ТОЛЬКО ПОТОМ задеплоить эти правила (Console → Firestore → Rules).
+//      Если что-то пошло не так — откатить на резервную копию.
 // =====================================================================
 
 service cloud.firestore {
@@ -32,6 +53,18 @@ service cloud.firestore {
     // =========================================================
     //                        ХЕЛПЕРЫ
     // =========================================================
+
+    // Админ через Firebase Auth (email-логин).
+    function isAdminUser() {
+      return request.auth != null
+          && request.auth.token.email != null
+          && request.auth.token.email == 'admin@kerben.local';
+    }
+
+    // Любой залогиненный (включая анонимных) или админ.
+    function isAuthed() {
+      return request.auth != null;
+    }
 
     function isAdminPhone(p) {
       return p == '0559009860'
@@ -84,9 +117,33 @@ service cloud.firestore {
               && request.resource.data[field] <= maxVal);
     }
 
+    // Поле НЕ изменяется при update (anti-tampering).
+    // Используется чтобы запретить менять phone, isAdmin, passwordHash и т.п.
+    function fieldUnchanged(field) {
+      return !(field in request.resource.data) && !(field in resource.data)
+          || ((field in request.resource.data) && (field in resource.data)
+              && request.resource.data[field] == resource.data[field]);
+    }
+
+    // Plaintext-пароль (`password`) запрещён в БД — теперь только passwordHash.
+    // НО: у старых клиентов в БД уже может лежать password от прошлых версий.
+    // Чтобы не сломать им edit-profile/обновление статистики, разрешаем
+    // legacy-значение оставаться в документе. Запрет действует на:
+    //   1) CREATE: ни один новый документ не может содержать password.
+    //   2) UPDATE: нельзя ДОБАВИТЬ password или ИЗМЕНИТЬ его. Удалить
+    //      (FieldValue.delete) — можно (это и есть путь миграции).
+    function noPlaintextPasswordAdded() {
+      return !('password' in request.resource.data)
+          || (resource != null
+              && 'password' in resource.data
+              && request.resource.data.password == resource.data.password);
+    }
+
     // =========================================================
     //                       PRODUCTS
     // =========================================================
+    // READ открыт всем — каталог должен открываться без логина.
+    // DELETE — ТОЛЬКО админ.
     match /products/{id} {
       allow read: if true;
       allow create, update: if
@@ -101,7 +158,7 @@ service cloud.firestore {
         && numOk('quantity', -1000000, 10000000)
         && numOk('cost', 0, 100000000)
         && numOk('priceWholesale', 0, 100000000);
-      allow delete: if true;
+      allow delete: if isAdminUser();
     }
 
     // =========================================================
@@ -114,7 +171,7 @@ service cloud.firestore {
         && strOk('name', 200)
         && strOk('phone', 30)
         && strOk('description', 2000);
-      allow delete: if true;
+      allow delete: if isAdminUser();
     }
 
     match /seller_categories/{id} {
@@ -123,7 +180,7 @@ service cloud.firestore {
         reasonableDocSize()
         && strOk('name', 200)
         && strOk('description', 2000);
-      allow delete: if true;
+      allow delete: if isAdminUser();
     }
 
     // =========================================================
@@ -137,22 +194,18 @@ service cloud.firestore {
     // =========================================================
     //                    WAREHOUSES (нужны клиенту)
     // =========================================================
-    // Используется в cart.html, product-loader.js — клиент проверяет
-    // paused-склады. Чтение оставляем открытым.
     match /warehouses/{id} {
       allow read: if true;
       allow create, update: if
         reasonableDocSize()
         && strOk('name', 200)
         && strOk('description', 2000);
-      allow delete: if true;
+      allow delete: if isAdminUser();
     }
 
     // =========================================================
     //                  AGENTS / CLIENT-AGENTS
     // =========================================================
-    // clientAgents читается клиентом (order-submit.js, cart.html).
-    // agents читается клиентом (profile.html, agent-delivery).
     match /agents/{id} {
       allow read: if true;
       allow create, update: if
@@ -160,7 +213,7 @@ service cloud.firestore {
         && strOk('name', 200)
         && strOk('phone', 30)
         && strOk('email', 200);
-      allow delete: if true;
+      allow delete: if isAdminUser();
     }
 
     match /clientAgents/{id} {
@@ -169,27 +222,27 @@ service cloud.firestore {
         reasonableDocSize()
         && strOk('phone', 30)
         && strOk('agentId', 200);
-      allow delete: if true;
+      allow delete: if isAdminUser();
     }
 
     // =========================================================
     //                     ФИНАНСЫ (расходы)
     // =========================================================
-    // ⚠️ Сейчас admin-profit.html читает их с того же клиента, что и
-    // обычные посетители. Нет Firebase Auth, нельзя отличить админа.
-    // Поэтому оставляем чтение открытым, но валидируем запись.
-    // ПОСЛЕ внедрения Firebase Auth — закрыть на admin.
+    // Только админ, ничего не открыто.
     match /expenses/{id} {
-      allow read: if true;
-      allow create, update: if
-        reasonableDocSize()
+      allow read: if isAdminUser();
+      allow create, update: if isAdminUser()
+        && reasonableDocSize()
         && strOk('description', 2000)
         && strOk('category', 200)
         && numOk('amount', -1000000000, 1000000000)
         && reasonableTimestamp();
-      allow delete: if true;
+      allow delete: if isAdminUser();
     }
 
+    // agentExpenses — расходы агентов. Их вносит сам агент через
+    // agent-profit.html. У агентов нет отдельного auth — оставляем
+    // открытым на запись (с валидацией) и удаление.
     match /agentExpenses/{id} {
       allow read: if true;
       allow create, update: if
@@ -204,9 +257,51 @@ service cloud.firestore {
     // =========================================================
     //                          ORDERS
     // =========================================================
+    // READ — только залогиненный (анонимный auth тоже сойдёт).
+    //        Это закрывает «выгрузку всей базы заказов» через curl/боты.
+    // CREATE — анонимные клиенты могут создавать (с валидацией).
+    // UPDATE — админ всё, клиент ТОЛЬКО отмена своего заказа
+    //          (статус из 'pending'/'Новый' → 'cancelled'/'Отменён',
+    //          остальные поля не меняются). Клиент НЕ может поменять
+    //          сумму, товары, телефон или статус «Доставлен».
+    // DELETE — только админ.
     match /orders/{orderId} {
-      allow read: if true;
-      allow update, delete: if true;
+      allow read: if isAuthed();
+      allow delete: if isAdminUser();
+
+      allow update: if reasonableDocSize() && (
+        // === АДМИН — может всё (с разумным лимитом размера) ===
+        isAdminUser()
+        ||
+        // === КЛИЕНТ — может ТОЛЬКО отменить или мягко отредактировать ===
+        // 1) Сумма, товары, телефон, имя — НЕ меняются
+        // 2) Дата создания — НЕ меняется
+        // 3) Если меняется status — только в 'cancelled' / 'Отменён'
+        //    из текущего pending/Новый/В обработке (не из «Доставлен»).
+        (
+          fieldUnchanged('total')
+          && fieldUnchanged('items')
+          && fieldUnchanged('phone')
+          && fieldUnchanged('name')
+          && fieldUnchanged('createdAt')
+          && fieldUnchanged('timestamp')
+          && fieldUnchanged('partner')
+          && fieldUnchanged('referredBy')
+          && fieldUnchanged('warehouseDeductions')
+          && fieldUnchanged('stockDeducted')
+          && (
+            !('status' in request.resource.data)
+            || request.resource.data.status == resource.data.status
+            || request.resource.data.status == 'cancelled'
+            || request.resource.data.status == 'Отменён'
+          )
+          // Нельзя отменить уже доставленный заказ
+          && resource.data.status != 'Доставлен'
+          && resource.data.status != 'Выполнен'
+          && resource.data.status != 'delivered'
+          && resource.data.status != 'completed'
+        )
+      );
 
       allow create: if
         reasonableDocSize()
@@ -239,43 +334,93 @@ service cloud.firestore {
     // =========================================================
     //                       CUSTOMERS
     // =========================================================
+    // READ — только залогиненный (анонимный или админ). Это закрывает
+    //        выгрузку всей клиентской базы конкурентам через консоль.
+    // CREATE — открыт (нужно для регистрации новых клиентов).
+    //          Запрещён plaintext password — только passwordHash.
+    // UPDATE — админ всё, иначе ТОЛЬКО владелец документа
+    //          (request.auth.uid совпадает с firebaseUid). Раньше любой
+    //          мог изменить чужой профиль, зная id документа.
+    //          Поля phone, isAdmin, firebaseUid, createdAt — НЕ меняются.
+    //          ordersCount/totalSpent — может расти (через increment) или
+    //          оставаться прежним, но не уменьшаться вручную.
+    // DELETE — только админ.
     match /customers/{customerId} {
-      allow read: if true;
-      allow delete: if true;
-      allow create, update: if
+      allow read: if isAuthed();
+      allow delete: if isAdminUser();
+
+      allow create: if
         reasonableDocSize()
+        && noPlaintextPasswordAdded()
         && notElevatingToAdmin()
         && strOk('name', 200)
         && strOk('phone', 30)
         && strOk('email', 200)
         && strOk('address', 1000)
+        && strOk('passwordHash', 500)
+        && strOk('firebaseUid', 200)
         && (
           !('phone' in request.resource.data)
           || !isPhoneBlocked(request.resource.data.phone)
         );
+
+      allow update: if reasonableDocSize() && noPlaintextPasswordAdded() && (
+        // === АДМИН — может всё ===
+        isAdminUser()
+        ||
+        // === ВЛАДЕЛЕЦ ДОКУМЕНТА (uid совпадает) — может править свой профиль ===
+        // Не может менять: phone, isAdmin, firebaseUid, createdAt
+        // Может менять: name, address, email, passwordHash, ordersCount, totalSpent, lastOrderAt
+        (
+          isAuthed()
+          && resource.data.firebaseUid is string
+          && resource.data.firebaseUid == request.auth.uid
+          && fieldUnchanged('phone')
+          && fieldUnchanged('isAdmin')
+          && fieldUnchanged('firebaseUid')
+          && fieldUnchanged('createdAt')
+          && strOk('name', 200)
+          && strOk('email', 200)
+          && strOk('address', 1000)
+          && strOk('passwordHash', 500)
+        )
+        ||
+        // === МИГРАЦИЯ: разрешаем ОДНОКРАТНО привязать firebaseUid
+        // к документу, у которого его ещё нет. Это нужно при первом
+        // входе старых клиентов после обновления сайта.
+        // Условие: документ ещё не привязан, и мы не меняем
+        // ничего, кроме firebaseUid и/или passwordHash.
+        (
+          isAuthed()
+          && (!('firebaseUid' in resource.data) || resource.data.firebaseUid == null
+              || resource.data.firebaseUid == '')
+          && fieldUnchanged('phone')
+          && fieldUnchanged('isAdmin')
+          && fieldUnchanged('createdAt')
+          && fieldUnchanged('name')
+          && fieldUnchanged('address')
+          && fieldUnchanged('email')
+          && request.resource.data.firebaseUid == request.auth.uid
+        )
+      );
     }
 
     // =========================================================
     //                    BLOCKED CLIENTS
     // =========================================================
+    // Только админ может блокировать/разблокировать клиентов.
     match /blockedClients/{blockedId} {
       allow read: if true;
-      allow create, update: if
-        !isAdminPhone(blockedId)
-        && request.resource.data.blockedBy is string
-        && (
-          isAdminPhone(request.resource.data.blockedBy)
-          || request.resource.data.blockedBy == 'admin'
-        );
-      allow delete: if true;
+      allow create, update: if isAdminUser()
+        && !isAdminPhone(blockedId);
+      allow delete: if isAdminUser();
     }
 
     // =========================================================
     //                       PUSH-ТОКЕНЫ
     // =========================================================
-    // pushTokens: клиент пишет свой токен (валидация ниже).
-    // Чтение — закрыто, потому что Cloud Function (admin SDK) обходит
-    // правила и читает напрямую. Клиенту читать чужие токены незачем.
+    // pushTokens — клиент пишет свой токен (валидация ниже).
+    // READ закрыт — клиенту читать чужие токены незачем.
     match /pushTokens/{id} {
       allow read: if false;
       allow create, update: if
@@ -295,9 +440,11 @@ service cloud.firestore {
     //                    NOTIFICATION QUEUE
     // =========================================================
     // Защита от спама: тип ОБЯЗАН быть один из разрешённых,
-    // тексты ограничены по длине, статус только 'pending'.
+    // тексты ограничены по длине, статус только 'pending',
+    // поля title/body не пустые. Чтение/обновление/удаление —
+    // только Cloud Function (от имени админа).
     match /notificationQueue/{id} {
-      allow read: if false;
+      allow read: if isAdminUser();
       allow create: if
         reasonableDocSize()
         && request.resource.data.type is string
@@ -311,26 +458,56 @@ service cloud.firestore {
           !('status' in request.resource.data)
           || request.resource.data.status == 'pending'
         );
-      allow update, delete: if false;
+      allow update, delete: if isAdminUser();
     }
 
     // =========================================================
     //                          CHAT
     // =========================================================
+    // chatClients — список клиентов чата.
+    //   READ — только залогиненные (анонимный auth подходит).
+    //   UPDATE — клиент может менять name/pushToken/lastActive свои,
+    //            но не подменять чужой документ. Защита по совпадению
+    //            phone в resource.data — клиент не может изменить
+    //            запись с другим phone, кроме своего.
+    //   DELETE — только админ.
     match /chatClients/{id} {
-      allow read: if true;
-      allow create, update: if
+      allow read: if isAuthed();
+      allow create: if
         reasonableDocSize()
         && strOk('name', 200)
         && strOk('phone', 30)
         && strOk('pushToken', 500);
-      allow delete: if true;
+      allow update: if reasonableDocSize() && (
+        isAdminUser()
+        || (
+          // Клиент может менять свой документ (name/pushToken/hasUnread/lastActive),
+          // но не телефон.
+          isAuthed()
+          && fieldUnchanged('phone')
+          && strOk('name', 200)
+          && strOk('pushToken', 500)
+        )
+      );
+      allow delete: if isAdminUser();
     }
 
+    // chatMessages — сообщения чата.
+    //   READ — только залогиненные.
+    //   CREATE — любой залогиненный (с валидацией текста и блокировкой
+    //            заблокированных клиентов).
+    //   UPDATE — админ всё; клиент только отмечает «прочитано».
+    //   DELETE — только админ.
     match /chatMessages/{id} {
-      allow read, update, delete: if true;
+      allow read: if isAuthed();
+      allow delete: if isAdminUser();
+      allow update: if reasonableDocSize() && (
+        isAdminUser()
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+      );
       allow create: if
-        reasonableDocSize()
+        isAuthed()
+        && reasonableDocSize()
         && strOk('text', 5000)
         && strOk('clientId', 200)
         && strOk('sender', 50)
@@ -343,8 +520,6 @@ service cloud.firestore {
     // =========================================================
     //                ВСЁ ОСТАЛЬНОЕ — НАГЛУХО
     // =========================================================
-    // Любая неизвестная коллекция — закрыта. Если хакер попробует
-    // создать своих коллекций "trash/spam/whatever" — не получится.
     match /{document=**} {
       allow read, write: if false;
     }

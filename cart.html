@@ -1096,20 +1096,67 @@
                          normalizedPhone.startsWith('+') ? normalizedPhone : 
                          normalizedPhone.startsWith('996') ? '+' + normalizedPhone : '+996' + normalizedPhone;
           
+          // Готовим passwordHash вместо plaintext (новые rules запрещают
+          // поле password в БД).
+          const _autoPwd = nPhone.slice(-4);
+          const _autoPwdHash = (typeof _hashCustomerPassword === 'function')
+            ? await _hashCustomerPassword(_autoPwd, nPhone)
+            : null;
+
+          // Привязка к Firebase auth.uid (для строгих rules: update только владельцу).
+          let _curUid = null;
+          try {
+            if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+            if (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) {
+              _curUid = firebase.auth().currentUser.uid;
+            }
+          } catch(e) {}
+
           const customerDoc = await db.collection('customers').doc(nPhone).get();
           if (!customerDoc.exists) {
-            await db.collection('customers').doc(nPhone).set({
-              name, phone: nPhone, address, registeredAt: firebase.firestore.FieldValue.serverTimestamp(),
+            const newCustomer = {
+              name, phone: nPhone, address,
+              registeredAt: firebase.firestore.FieldValue.serverTimestamp(),
               totalOrders: 1, totalSpent: total,
-              password: nPhone.slice(-4),
               createdAt: Date.now()
-            });
+            };
+            if (_autoPwdHash) newCustomer.passwordHash = _autoPwdHash;
+            if (_curUid) newCustomer.firebaseUid = _curUid;
+            await db.collection('customers').doc(nPhone).set(newCustomer);
             _autoCustomerId = nPhone;
           } else {
-            await db.collection('customers').doc(nPhone).update({
-              name, address, totalOrders: firebase.firestore.FieldValue.increment(1),
-              totalSpent: firebase.firestore.FieldValue.increment(total)
-            });
+            // Существующий клиент. Новые rules разрешают update только
+            // владельцу (firebaseUid == auth.uid). Поэтому сначала
+            // ОДНИМ отдельным запросом привязываем firebaseUid (если его
+            // ещё нет) — это проходит через "migration branch" правил, —
+            // и только потом вторым запросом обновляем имя/адрес/счётчики
+            // (это уже пройдёт через owner branch).
+            const existingData = customerDoc.data() || {};
+            let _canUpdate = true;
+            if (_curUid && !existingData.firebaseUid) {
+              try {
+                await db.collection('customers').doc(nPhone).update({
+                  firebaseUid: _curUid
+                });
+              } catch (e) {
+                console.warn('[cart] не удалось привязать firebaseUid (док. чужой?):', e && e.message);
+                _canUpdate = false;
+              }
+            } else if (existingData.firebaseUid && _curUid && existingData.firebaseUid !== _curUid) {
+              // Документ принадлежит другому пользователю — не трогаем
+              _canUpdate = false;
+            }
+            if (_canUpdate) {
+              try {
+                await db.collection('customers').doc(nPhone).update({
+                  name, address,
+                  totalOrders: firebase.firestore.FieldValue.increment(1),
+                  totalSpent: firebase.firestore.FieldValue.increment(total)
+                });
+              } catch (e) {
+                console.warn('[cart] не удалось обновить customer:', e && e.message);
+              }
+            }
             _autoCustomerId = nPhone;
           }
           

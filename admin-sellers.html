@@ -455,9 +455,9 @@ document.addEventListener('DOMContentLoaded', async function() {
   }
 });
 
-// Загрузка товаров
+// Загрузка товаров (лимит 5000 для контроля Read Ops)
 async function loadProducts() {
-  const snapshot = await db.collection('products').get();
+  const snapshot = await db.collection('products').limit(5000).get();
   products = [];
   snapshot.forEach(doc => {
     products.push({ id: doc.id, ...doc.data() });
@@ -465,10 +465,10 @@ async function loadProducts() {
   console.log('📦 Загружено товаров:', products.length);
 }
 
-// Загрузка продавцов
+// Загрузка продавцов (лимит 1000)
 async function loadSellers() {
   try {
-    const snapshot = await db.collection('sellers').get();
+    const snapshot = await db.collection('sellers').limit(1000).get();
     sellers = [];
     snapshot.forEach(doc => {
       sellers.push({ id: doc.id, ...doc.data() });
