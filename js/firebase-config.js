@@ -91,6 +91,13 @@ async function checkUnreadChatMessages() {
     if (!clientId) return;
     if (typeof db === 'undefined' || !db) return;
 
+    // Ждём готовности Firebase Auth (анонимного логина).
+    // Без этого первый запрос мог уйти ДО появления request.auth и
+    // правила вида `if isAuthed()` блокировали бы его permission-denied.
+    if (typeof kerbenWaitForAuth === 'function') {
+      await kerbenWaitForAuth();
+    }
+
     // Лёгкий запрос: только непрочитанные сообщения от админа этому клиенту,
     // максимум 50 штук — этого достаточно для отображения цифры в badge.
     const snap = await db.collection('chatMessages')

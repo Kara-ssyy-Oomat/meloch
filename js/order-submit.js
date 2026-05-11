@@ -69,6 +69,13 @@ document.getElementById('submitOrder').onclick = async () => {
     }
   } catch (e) {}
 
+  // Ждём готовности Firebase Auth — все запросы (orders, products, settings,
+  // clientAgents) должны уйти с auth-токеном, иначе строгие rules
+  // (isAuthed) блокируют их permission-denied.
+  if (typeof kerbenWaitForAuth === 'function') {
+    try { await kerbenWaitForAuth(); } catch (e) {}
+  }
+
   if (!name || !phone || !address || cart.length === 0) {
     Swal.fire('Ошибка', 'Заполните все поля и добавьте товары', 'warning');
     return;

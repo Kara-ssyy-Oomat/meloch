@@ -42,7 +42,12 @@ async function searchMyOrders() {
   try {
     // Сохраняем телефон для следующего раза
     localStorage.setItem('lastOrderPhone', phone);
-    
+
+    // Ждём готовности Firebase Auth перед запросом orders.
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
+
     // ОПТИМИЗАЦИЯ COSTS: раньше загружали ВСЕ заказы целиком (могут быть
     // тысячи) и фильтровали их в браузере. Теперь делаем точечный запрос
     // в Firestore через несколько вариантов телефона. Лимит 50 заказов

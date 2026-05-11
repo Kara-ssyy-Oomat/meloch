@@ -171,11 +171,14 @@ async function loadProducts() {
     // Грузим флаг паузы складов параллельно с товарами
     const pausePromise = loadWarehousePausedFlag();
     
+    // ОПТИМИЗАЦИЯ COSTS: жёсткий лимит 5000 товаров для защиты от
+    // «убежавшего» расхода. Магазин с >5000 SKU — редкость; при
+    // необходимости поднять лимит здесь.
     let snapshot;
     try {
-      snapshot = await db.collection('products').orderBy('order').get();
+      snapshot = await db.collection('products').orderBy('order').limit(5000).get();
     } catch (e) {
-      snapshot = await db.collection('products').get();
+      snapshot = await db.collection('products').limit(5000).get();
     }
     products = [];
     snapshot.forEach(doc => {
@@ -344,8 +347,8 @@ async function loadSellerCategoriesCache() {
     const standardCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
     const categories = new Set();
     
-    // Загружаем ТОЛЬКО из коллекции seller_categories (официальные категории)
-    const snapshot = await db.collection('seller_categories').get();
+    // Загружаем ТОЛЬКО из коллекции seller_categories (лимит 500)
+    const snapshot = await db.collection('seller_categories').limit(500).get();
     snapshot.forEach(doc => {
       const data = doc.data();
       if (data.name && !standardCategories.includes(data.name.toLowerCase())) {

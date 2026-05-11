@@ -130,6 +130,34 @@
   }
 
   // ============== ПРОВЕРКА ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ==============
+  // ОПТИМИЗАЦИЯ COSTS: блок-проверка раньше делала до 10 .get() на КАЖДОЙ
+  // загрузке страницы. У 1000 посетителей в день это 10000 Read Ops в день
+  // только на блок-проверку. Теперь:
+  //   • Если в localStorage свежий результат "not_blocked" (≤ 1 часа) —
+  //     не идём в Firestore, доверяем кэшу.
+  //   • При успешном чтении кэшируем результат на 1 час.
+  //   • Если телефон сменился (другой пользователь зашёл) — кэш
+  //     инвалидируется (ключ кэша зависит от mainPhone).
+  const _BLOCK_CHECK_TTL_MS = 60 * 60 * 1000; // 1 час
+  function _readBlockCache(mainPhone) {
+    try {
+      const raw = localStorage.getItem('kerben_block_cache');
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || obj.phone !== mainPhone) return null;
+      if ((Date.now() - (obj.ts || 0)) > _BLOCK_CHECK_TTL_MS) return null;
+      return obj;
+    } catch (e) { return null; }
+  }
+  function _writeBlockCache(mainPhone, blocked, reason) {
+    try {
+      localStorage.setItem('kerben_block_cache', JSON.stringify({
+        phone: mainPhone, blocked: !!blocked,
+        reason: reason || '', ts: Date.now()
+      }));
+    } catch (e) {}
+  }
+
   async function checkIfCurrentUserBlocked() {
     try {
       if (typeof db === 'undefined' || !db) return;
@@ -157,6 +185,15 @@
       // Админ никогда не может быть заблокирован
       if (_isAdminPhone(mainPhone)) return;
 
+      // Кэш: если 1 час назад уже проверяли и не заблокирован — не дёргаем БД
+      const cached = _readBlockCache(mainPhone);
+      if (cached) {
+        if (cached.blocked) {
+          showBlockScreen(cached.reason || '');
+        }
+        return;
+      }
+
       const ids = [...new Set(phones)].slice(0, 10);
 
       const checks = await Promise.all(ids.map(id =>
@@ -165,7 +202,10 @@
       const blockedDoc = checks.find(d => d && d.exists);
       if (blockedDoc) {
         const data = blockedDoc.data() || {};
+        _writeBlockCache(mainPhone, true, data.reason || '');
         showBlockScreen(data.reason || '');
+      } else {
+        _writeBlockCache(mainPhone, false, '');
       }
     } catch (e) {
       console.warn('Block check failed:', e);
@@ -216,7 +256,10 @@
 
     let blocked = [];
     try {
-      const snap = await db.collection('blockedClients').get();
+      // ОПТИМИЗАЦИЯ COSTS: лимит 1000 на список заблокированных. Если у
+      // тебя больше тысячи блокировок — это уже зависание UI, надо чистить
+      // через массовое удаление в админке.
+      const snap = await db.collection('blockedClients').limit(1000).get();
       const seen = new Set();
       snap.forEach(doc => {
         const d = doc.data() || {};

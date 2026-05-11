@@ -36,7 +36,10 @@ window._invalidateProfitReportCache = _invalidateProfitReportCache;
 
 async function _loadOrdersCached() {
   return _getCachedCollection('orders', async () => {
-    const snap = await db.collection('orders').get();
+    // ОПТИМИЗАЦИЯ COSTS: жёсткий верхний лимит 10000 заказов. На годы
+    // работы хватит; если когда-нибудь упрётся — добавить постраничку
+    // или date-фильтр в UI отчёта прибыли.
+    const snap = await db.collection('orders').orderBy('timestamp', 'desc').limit(10000).get();
     const arr = [];
     snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
     return arr;
@@ -44,7 +47,8 @@ async function _loadOrdersCached() {
 }
 async function _loadProductsCached() {
   return _getCachedCollection('products', async () => {
-    const snap = await db.collection('products').get();
+    // 5000 товаров с запасом
+    const snap = await db.collection('products').limit(5000).get();
     const arr = [];
     snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
     return arr;
@@ -52,7 +56,7 @@ async function _loadProductsCached() {
 }
 async function _loadAgentsCached() {
   return _getCachedCollection('agents', async () => {
-    const snap = await db.collection('agents').get();
+    const snap = await db.collection('agents').limit(500).get();
     const arr = [];
     snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
     return arr;
@@ -60,7 +64,8 @@ async function _loadAgentsCached() {
 }
 async function _loadExpensesCached() {
   return _getCachedCollection('expenses', async () => {
-    const snap = await db.collection('expenses').orderBy('timestamp', 'desc').get();
+    // Расходы — лимит 5000 (несколько лет с запасом)
+    const snap = await db.collection('expenses').orderBy('timestamp', 'desc').limit(5000).get();
     const arr = [];
     snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
     return arr;
@@ -68,7 +73,7 @@ async function _loadExpensesCached() {
 }
 async function _loadAgentExpensesCached() {
   return _getCachedCollection('agentExpenses', async () => {
-    const snap = await db.collection('agentExpenses').get();
+    const snap = await db.collection('agentExpenses').limit(5000).get();
     const arr = [];
     snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
     return arr;
@@ -1097,38 +1102,42 @@ async function deleteSelectedOrders() {
   
   try {
     const dateFilter = document.getElementById('orderDateFilter').value;
-    const ordersSnapshot = await db.collection('orders').get();
-    
-    const now = Date.now();
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStart = today.getTime();
     const yesterdayStart = todayStart - 86400000;
     const weekStart = todayStart - 7 * 86400000;
     const monthStart = todayStart - 30 * 86400000;
-    
+
+    // ОПТИМИЗАЦИЯ COSTS: читаем не всю коллекцию, а только нужный диапазон.
+    // Раньше делали `.get()` без фильтра и фильтровали в JS — даже за
+    // удаление одного дня платили за чтение всей истории заказов.
+    let query = db.collection('orders');
+    let needYesterdayUpperBound = false;
+    switch (dateFilter) {
+      case 'today':     query = query.where('timestamp', '>=', todayStart); break;
+      case 'yesterday':
+        query = query.where('timestamp', '>=', yesterdayStart);
+        needYesterdayUpperBound = true; break;
+      case 'week':      query = query.where('timestamp', '>=', weekStart); break;
+      case 'month':     query = query.where('timestamp', '>=', monthStart); break;
+      case 'all':       /* без фильтра, ниже стоит лимит */ break;
+    }
+    const ordersSnapshot = await query.limit(5000).get();
+
     let deleteCount = 0;
     const batch = db.batch();
-    
+
     ordersSnapshot.forEach(doc => {
       const data = doc.data();
       const orderTime = data.timestamp || Date.now();
-      let shouldDelete = false;
-      
-      switch(dateFilter) {
-        case 'today': shouldDelete = orderTime >= todayStart; break;
-        case 'yesterday': shouldDelete = orderTime >= yesterdayStart && orderTime < todayStart; break;
-        case 'week': shouldDelete = orderTime >= weekStart; break;
-        case 'month': shouldDelete = orderTime >= monthStart; break;
-        case 'all': shouldDelete = true; break;
-      }
-      
-      if (shouldDelete) {
-        batch.delete(doc.ref);
-        deleteCount++;
-      }
+      // Для 'yesterday' нужна верхняя граница (start of today)
+      if (needYesterdayUpperBound && orderTime >= todayStart) return;
+      batch.delete(doc.ref);
+      deleteCount++;
     });
-    
+
     await batch.commit();
     _invalidateProfitReportCache();
     

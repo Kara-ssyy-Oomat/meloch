@@ -325,14 +325,17 @@ async function clearAllChatMessages() {
   if (!result.isConfirmed) return;
   
   try {
-    const querySnapshot = await db.collection('chatMessages').get();
-    
-    const deletePromises = [];
-    querySnapshot.forEach((doc) => {
-      deletePromises.push(doc.ref.delete());
-    });
-    
-    await Promise.all(deletePromises);
+    // ОПТИМИЗАЦИЯ COSTS: удаляем порциями по 400 сообщений (Firestore
+    // batch лимит = 500). Раньше .get() без лимита вычитывал ВСЮ историю
+    // чата, иногда десятки тысяч сообщений = десятки тысяч Read Ops.
+    for (let i = 0; i < 100; i++) {
+      const snap = await db.collection('chatMessages').limit(400).get();
+      if (snap.empty) break;
+      const batch = db.batch();
+      snap.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      if (snap.size < 400) break;
+    }
     
     document.getElementById('adminChatMessages').innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Нет сообщений</div>';
     document.getElementById('chatMessages').innerHTML = `

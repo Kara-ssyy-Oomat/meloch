@@ -120,7 +120,9 @@ async function loadExpensesReport() {
     // ОПТИМИЗАЦИЯ COSTS: используем общий кэш отчёта (60 сек) для тяжёлых
     // выгрузок — раньше каждый клик делал заново 4 крупных .get() без лимита.
     const _useCache = typeof _loadExpensesCached === 'function';
-    const expensesSnapshot = _useCache ? null : await db.collection('expenses').orderBy('timestamp', 'desc').get();
+    // ОПТИМИЗАЦИЯ COSTS: лимит 5000 на fallback-чтение (если cache-функции
+    // не загружены). Раньше тянуло всё, могло быть очень много за годы.
+    const expensesSnapshot = _useCache ? null : await db.collection('expenses').orderBy('timestamp', 'desc').limit(5000).get();
     let expenses = [];
     if (_useCache) {
       const cached = await _loadExpensesCached();
@@ -157,7 +159,7 @@ async function loadExpensesReport() {
         });
         console.log('🤝 Расходов агентов загружено:', agentSrc.length);
       } else {
-        const agentExpSnapshot = await db.collection('agentExpenses').get();
+        const agentExpSnapshot = await db.collection('agentExpenses').limit(5000).get();
         agentExpSnapshot.forEach(doc => {
           const data = doc.data();
           expenses.push({
@@ -181,7 +183,7 @@ async function loadExpensesReport() {
       const cached = await _loadOrdersCached();
       orders = cached.map(o => ({ ...o, timestamp: normalizeEpochMs(o.timestamp, Date.now()) }));
     } else {
-      const ordersSnapshot = await db.collection('orders').get();
+      const ordersSnapshot = await db.collection('orders').orderBy('timestamp', 'desc').limit(10000).get();
       ordersSnapshot.forEach(doc => {
         const data = doc.data();
         orders.push({
@@ -207,7 +209,7 @@ async function loadExpensesReport() {
           });
         });
       } else {
-        const productsSnapshot = await db.collection('products').get();
+        const productsSnapshot = await db.collection('products').limit(5000).get();
         productsSnapshot.forEach(doc => {
           const data = doc.data();
           productsMap.set(doc.id, {

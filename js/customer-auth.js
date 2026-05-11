@@ -21,6 +21,113 @@ async function _sha256(text) {
   return Array.from(new Uint8Array(hash))
     .map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
+// =====================================================================
+// PBKDF2 — хеширование пароля клиента с «солью» (нормализованный телефон).
+// Раньше пароли клиентов лежали в Firestore ОТКРЫТЫМ ТЕКСТОМ — если бы
+// атакующий выкачал коллекцию customers, он бы получил все пароли сразу.
+// Теперь храним только passwordHash; даже при утечке БД пароли остаются
+// неизвлекаемыми (PBKDF2 + соль + 100k итераций ~ 100мс на попытку).
+//
+// 100 000 итераций — компромисс между безопасностью и временем входа.
+// На современном телефоне это ~80-150мс, на ПК ~30-80мс.
+// =====================================================================
+async function _hashCustomerPassword(password, phoneSalt) {
+  if (!password) return '';
+  try {
+    const enc = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey(
+      'raw', enc.encode(String(password)),
+      { name: 'PBKDF2' }, false, ['deriveBits']
+    );
+    const bits = await crypto.subtle.deriveBits({
+      name: 'PBKDF2',
+      salt: enc.encode('kerben_v1:' + (phoneSalt || '')),
+      iterations: 100000,
+      hash: 'SHA-256'
+    }, baseKey, 256);
+    return 'pbkdf2$' + Array.from(new Uint8Array(bits))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    console.warn('[Auth] PBKDF2 недоступен, используем SHA-256-fallback:', e && e.message);
+    return 'sha256$' + await _sha256(String(password) + ':' + (phoneSalt || ''));
+  }
+}
+
+// Проверка пароля клиента: совпадает ли passwordHash из БД с хешем
+// от введённого пароля. Если в документе только старый «plaintext»
+// password — разрешаем вход и одновременно мигрируем в hash.
+async function _verifyCustomerPassword(customerData, inputPassword, normalizedPhone) {
+  if (!customerData) return { ok: false, needsMigration: false };
+
+  // Современный путь: храним только passwordHash
+  if (customerData.passwordHash && typeof customerData.passwordHash === 'string') {
+    const candidate = await _hashCustomerPassword(inputPassword, normalizedPhone);
+    return { ok: candidate === customerData.passwordHash, needsMigration: false };
+  }
+
+  // Legacy: старый клиент с plaintext-паролем. Разрешаем вход, но
+  // помечаем для миграции (хеш сохранится после успешного входа).
+  if (typeof customerData.password === 'string') {
+    return {
+      ok: customerData.password === inputPassword,
+      needsMigration: true
+    };
+  }
+
+  return { ok: false, needsMigration: false };
+}
+
+// Заменить legacy plaintext-пароль клиента в БД на passwordHash.
+// Одновременно (в ОДНОМ update) привязываем firebaseUid — иначе
+// строгие rules не пропустят запрос: они требуют либо
+// firebaseUid==auth.uid, либо одновременной привязки firebaseUid.
+async function _migrateCustomerPasswordToHash(customerId, plaintextPassword, normalizedPhone) {
+  if (!customerId || typeof db === 'undefined' || !db) return;
+  const passwordHash = await _hashCustomerPassword(plaintextPassword, normalizedPhone);
+
+  let uidToBind = null;
+  try {
+    if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+    if (typeof firebase !== 'undefined' && firebase.auth) {
+      const cur = firebase.auth().currentUser;
+      if (cur && cur.uid) uidToBind = cur.uid;
+    }
+  } catch (e) {}
+
+  const update = {
+    passwordHash: passwordHash,
+    password: firebase.firestore.FieldValue.delete()
+  };
+  if (uidToBind) update.firebaseUid = uidToBind;
+  await db.collection('customers').doc(customerId).update(update);
+}
+
+// Привязать документ клиента к Firebase auth.uid.
+// Используется отдельно (без миграции пароля) — например, для тех клиентов,
+// у кого уже есть passwordHash, но ещё нет firebaseUid (например, новый
+// клиент создан до этой защиты).
+async function _bindCustomerDocToFirebaseUid(customerId, customerData) {
+  if (!customerId || typeof db === 'undefined' || !db) return;
+  if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') return;
+  // Уже привязан — не перезаписываем (иначе любой залогиненный аноним
+  // мог бы перепривязать чужой документ к своему uid).
+  if (customerData && typeof customerData.firebaseUid === 'string' && customerData.firebaseUid.length > 0) {
+    return;
+  }
+  try {
+    if (typeof kerbenWaitForAuth === 'function') {
+      await kerbenWaitForAuth();
+    }
+    const cur = firebase.auth().currentUser;
+    if (!cur || !cur.uid) return;
+    await db.collection('customers').doc(customerId).update({
+      firebaseUid: cur.uid
+    });
+  } catch (e) {
+    // не критично — клиент сможет работать и без привязки
+  }
+}
 // ===============================================================
 
 // Инициализация при загрузке страницы
@@ -41,6 +148,11 @@ async function _restoreCustomerFromCloud(cookieData) {
   if (typeof db === 'undefined' || !db) return null;
 
   try {
+    // Ждём Firebase Auth (чтобы запрос ушёл с auth-токеном — нужно
+    // когда rules требуют request.auth != null для customers).
+    if (typeof kerbenWaitForAuth === 'function') {
+      await kerbenWaitForAuth();
+    }
     const normalizedPhone = normalizePhone(cookieData.phone);
     const snapshot = await db.collection('customers')
       .where('phone', '==', normalizedPhone)
@@ -112,6 +224,14 @@ function _initWithCustomerData(data) {
   if (data._restoredFromCookie) {
     console.log('[Auth] ⚠️ Данные из cookie-бэкапа, авто-логин по телефону...');
     delete currentCustomer._restoredFromCookie;
+  }
+
+  // Фоном подвязываем документ клиента к Firebase auth.uid (если ещё нет).
+  // Это нужно чтобы новые rules (update только владельцу) пропускали
+  // последующие правки профиля у уже залогиненных клиентов.
+  if (currentCustomer && currentCustomer.id) {
+    _bindCustomerDocToFirebaseUid(currentCustomer.id, currentCustomer)
+      .catch(e => console.warn('[Auth] auto-bind firebaseUid failed (не критично):', e && e.message));
   }
   
   updateCustomerUI();
@@ -333,7 +453,13 @@ async function loginCustomer(phone, password) {
       allowOutsideClick: false,
       didOpen: () => Swal.showLoading()
     });
-    
+
+    // Ждём Firebase Auth — после новых rules чтение customers требует
+    // request.auth != null (включая анонимный auth).
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
+
     // Нормализуем телефон
     const normalizedPhone = normalizePhone(phone);
     
@@ -361,9 +487,11 @@ async function loginCustomer(phone, password) {
     
     // Проверяем пароль:
     // - для админ-телефона авторитетом является SHA-256 хеш (см. checkIfAdmin)
-    // - для обычных клиентов — пароль, сохранённый в Firestore
+    // - для обычных клиентов — PBKDF2-хеш (passwordHash) ИЛИ legacy plaintext
+    //   с автоматической миграцией на хеш при первом успешном входе.
     const _adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
     const _isAdminPhoneAttempt = normalizedPhone === _adminPhone;
+    let _legacyPasswordToMigrate = false;
     if (_isAdminPhoneAttempt) {
       if (!isAdminLogin) {
         Swal.fire({
@@ -375,14 +503,18 @@ async function loginCustomer(phone, password) {
         return;
       }
       // Хеш совпал — пропускаем дальше без проверки Firestore-пароля
-    } else if (customerData.password !== password) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Неверный пароль',
-        text: 'Попробуйте ещё раз',
-        confirmButtonColor: '#4CAF50'
-      });
-      return;
+    } else {
+      const verify = await _verifyCustomerPassword(customerData, password, normalizedPhone);
+      if (!verify.ok) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Неверный пароль',
+          text: 'Попробуйте ещё раз',
+          confirmButtonColor: '#4CAF50'
+        });
+        return;
+      }
+      _legacyPasswordToMigrate = verify.needsMigration;
     }
     
     // Успешный вход
@@ -397,7 +529,23 @@ async function loginCustomer(phone, password) {
     
     // Сохраняем сессию (localStorage + IndexedDB + cookie)
     _saveCustomerData();
-    
+
+    // Миграция legacy plaintext-пароля → PBKDF2-хеш.
+    // Вызывается ОДИН раз при первом входе старого клиента после
+    // обновления сайта. После этого password в БД удаляется, а
+    // passwordHash сохраняется. Если что-то упало — не блокируем вход.
+    if (_legacyPasswordToMigrate && !_isAdminPhoneAttempt) {
+      _migrateCustomerPasswordToHash(customerDoc.id, password, normalizedPhone)
+        .then(() => console.log('[Auth] ✅ password мигрирован в hash:', customerDoc.id))
+        .catch(e => console.warn('[Auth] migrate failed (не критично):', e && e.message));
+    }
+
+    // Привязываем документ клиента к Firebase auth.uid (если ещё не привязан).
+    // Это позволит в Firestore Rules разрешать update только владельцу
+    // документа, а не любому посетителю с известным id.
+    _bindCustomerDocToFirebaseUid(customerDoc.id, customerData)
+      .catch(e => console.warn('[Auth] bind firebaseUid failed:', e && e.message));
+
     // Если это админ - активируем админ-режим + Firebase Auth
     if (isAdminLogin) {
       activateAdminMode();
@@ -438,7 +586,12 @@ async function registerCustomer(data) {
       allowOutsideClick: false,
       didOpen: () => Swal.showLoading()
     });
-    
+
+    // Ждём Firebase Auth для возможности чтения customers.
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
+
     const normalizedPhone = normalizePhone(data.phone);
     
     // Проверяем, не зарегистрирован ли уже этот номер
@@ -459,17 +612,29 @@ async function registerCustomer(data) {
     
     // Проверяем, является ли это админом
     const isAdminRegister = await checkIfAdmin(data.phone, data.password);
-    
+
+    // Хешируем пароль PBKDF2 — в БД сохраняем только passwordHash,
+    // открытый пароль никогда не покидает клиента.
+    const passwordHash = await _hashCustomerPassword(data.password, normalizedPhone);
+
+    // Привязка к Firebase auth.uid (для строгих rules: update только владельцем)
+    let _currentUid = null;
+    try {
+      if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+      _currentUid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
+    } catch (e) {}
+
     // Создаём клиента
     const customerRef = await db.collection('customers').add({
       name: data.name,
       phone: normalizedPhone,
       address: data.address || '',
-      password: data.password, // В production нужен хеш!
+      passwordHash: passwordHash,
       createdAt: Date.now(),
       ordersCount: 0,
       totalSpent: 0,
-      isAdmin: isAdminRegister
+      isAdmin: isAdminRegister,
+      firebaseUid: _currentUid || null
     });
     
     // Автоматический вход после регистрации
@@ -544,6 +709,11 @@ async function autoRegisterAfterOrder(name, phone, address) {
   }
   
   try {
+    // Ждём Firebase Auth для чтения customers (новые rules требуют isAuthed)
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
+
     const normalizedPhone = normalizePhone(phone);
     
     // Проверяем, есть ли уже такой клиент
@@ -593,17 +763,28 @@ async function autoRegisterAfterOrder(name, phone, address) {
     
     // Проверяем, является ли это админом
     const isAdminRegister = await checkIfAdmin(normalizedPhone, autoPassword);
-    
+
+    // Хеш для авто-зарегистрированного клиента (в БД нет plaintext)
+    const passwordHash = await _hashCustomerPassword(autoPassword, normalizedPhone);
+
+    // Привязка к Firebase auth.uid
+    let _currentUid = null;
+    try {
+      if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+      _currentUid = firebase.auth().currentUser ? firebase.auth().currentUser.uid : null;
+    } catch (e) {}
+
     // Создаём нового клиента
     const customerRef = await db.collection('customers').add({
       name: name,
       phone: normalizedPhone,
       address: address || '',
-      password: autoPassword, // Автоматический пароль
+      passwordHash: passwordHash,
       createdAt: Date.now(),
       ordersCount: 1, // Уже есть первый заказ
       totalSpent: 0,
-      isAdmin: isAdminRegister
+      isAdmin: isAdminRegister,
+      firebaseUid: _currentUid || null
     });
     
     // Автоматический вход
@@ -689,6 +870,10 @@ async function showCustomerDashboard() {
   let stats = { ordersCount: 0, totalSpent: 0 };
   
   try {
+    // Ждём Firebase Auth (после новых rules orders.read требуют isAuthed())
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
     // Запрос без orderBy чтобы избежать необходимости создания индекса
     const ordersSnapshot = await db.collection('orders')
       .where('phone', '==', currentCustomer.phone)
@@ -1412,6 +1597,11 @@ function editCustomerProfile() {
   }).then(async (result) => {
     if (result.isConfirmed && result.value) {
       try {
+        // Привязка к Firebase auth.uid (для новых rules: update только владельцу)
+        try {
+          await _bindCustomerDocToFirebaseUid(currentCustomer.id, currentCustomer);
+        } catch (e) {}
+
         // Обновляем в Firebase
         await db.collection('customers').doc(currentCustomer.id).update({
           name: result.value.name,
@@ -1564,6 +1754,14 @@ async function updateCustomerStats(total) {
   if (!currentCustomer) return;
   
   try {
+    // Сначала подвязываем документ к firebaseUid (если ещё не привязан).
+    // Без этого новые rules не пропустят update — требуется чтобы
+    // owner == auth.uid. Делаем await чтобы запрос статистики ушёл уже
+    // после привязки.
+    try {
+      await _bindCustomerDocToFirebaseUid(currentCustomer.id, currentCustomer);
+    } catch (e) {}
+
     await db.collection('customers').doc(currentCustomer.id).update({
       ordersCount: firebase.firestore.FieldValue.increment(1),
       totalSpent: firebase.firestore.FieldValue.increment(total),

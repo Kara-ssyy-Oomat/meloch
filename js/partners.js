@@ -21,6 +21,12 @@ function closePartnersOrdersWindow() {
   unlockPageScroll();
 }
 
+// ОПТИМИЗАЦИЯ COSTS: in-memory кэш заказов на 60 секунд + ключ от
+// (dateFilter). Раньше быстрое многократное переключение фильтров
+// плодило дубли запросов — каждый платил .limit(2000) Read Ops.
+const _partnersOrdersCache = { key: null, ts: 0, orders: null };
+const _PARTNERS_CACHE_MS = 60000;
+
 // Загрузить заказы от партнеров
 async function loadPartnersOrders() {
   const statsDiv = document.getElementById('partnersStats');
@@ -30,10 +36,7 @@ async function loadPartnersOrders() {
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка...</div>';
   
   try {
-    // ОПТИМИЗАЦИЯ COSTS: раньше каждое открытие окна тянуло ВСЕ заказы магазина
-    // и фильтровало в браузере. Теперь:
-    //  • для today/week/month — точечный запрос where('timestamp','>=',...)
-    //  • для 'all' — лимит 1000, чтобы не вытащить всю историю
+    // ОПТИМИЗАЦИЯ COSTS: точечные запросы по диапазону + кэш на 60 сек.
     const dateFilter = document.getElementById('partnersFilterDate').value;
     const today = new Date().setHours(0, 0, 0, 0);
     let timeFrom = 0;
@@ -44,23 +47,36 @@ async function loadPartnersOrders() {
       default: timeFrom = 0;
     }
 
-    let q = db.collection('orders');
-    if (timeFrom > 0) q = q.where('timestamp', '>=', timeFrom);
-    q = q.limit(2000);
+    const cacheKey = 'partners:' + String(timeFrom);
+    let allOrders = null;
+    if (_partnersOrdersCache.key === cacheKey
+        && _partnersOrdersCache.orders
+        && (Date.now() - _partnersOrdersCache.ts) < _PARTNERS_CACHE_MS) {
+      allOrders = _partnersOrdersCache.orders;
+    }
 
-    let allOrders = [];
-    try {
-      const ordersSnapshot = await q.get();
-      ordersSnapshot.forEach(doc => {
-        allOrders.push({ id: doc.id, ...doc.data() });
-      });
-    } catch (e) {
-      // Фоллбэк: если индекс не создан — берём все, но c лимитом
-      console.warn('partners.js: точечный запрос не сработал, fallback', e && e.message);
-      const ordersSnapshot = await db.collection('orders').limit(2000).get();
-      ordersSnapshot.forEach(doc => {
-        allOrders.push({ id: doc.id, ...doc.data() });
-      });
+    if (!allOrders) {
+      let q = db.collection('orders');
+      if (timeFrom > 0) q = q.where('timestamp', '>=', timeFrom);
+      q = q.limit(2000);
+
+      allOrders = [];
+      try {
+        const ordersSnapshot = await q.get();
+        ordersSnapshot.forEach(doc => {
+          allOrders.push({ id: doc.id, ...doc.data() });
+        });
+      } catch (e) {
+        console.warn('partners.js: точечный запрос не сработал, fallback', e && e.message);
+        const ordersSnapshot = await db.collection('orders').limit(2000).get();
+        ordersSnapshot.forEach(doc => {
+          allOrders.push({ id: doc.id, ...doc.data() });
+        });
+      }
+
+      _partnersOrdersCache.key = cacheKey;
+      _partnersOrdersCache.ts = Date.now();
+      _partnersOrdersCache.orders = allOrders;
     }
 
     // Фильтруем только заказы с партнерами (это быстро в браузере)

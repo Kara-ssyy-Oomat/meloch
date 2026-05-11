@@ -33,6 +33,17 @@
   // строками при повторных onAuthStateChanged для того же user).
   let _lastLoggedUid = null;
 
+  // Флаг: уже предупредили про открытие с file://
+  let _fileProtocolWarned = false;
+
+  function _kerbenIsFileOrigin() {
+    try {
+      return typeof location !== 'undefined' && location.protocol === 'file:';
+    } catch (e) {
+      return false;
+    }
+  }
+
   function _markAuthReady() {
     if (_authReadyResolve) {
       _authReadyResolve(firebase.auth().currentUser);
@@ -63,6 +74,18 @@
           }
           _markAuthReady();
         } else if (!_signInInProgress) {
+          // Открыли HTML как file:// — у запросов нет HTTP Referer, Firebase
+          // отклоняет signUp/signIn с кодом requests-from-referer-null-are-blocked.
+          // Анонимный вход не выполняем (не спамим 403 в консоли).
+          if (_kerbenIsFileOrigin()) {
+            if (!_fileProtocolWarned) {
+              _fileProtocolWarned = true;
+              console.warn('[Kerben Auth] Сайт открыт через file:// — анонимный Firebase Auth недоступен. ' +
+                'Для проверки на компьютере запустите локальный сервер и откройте http://localhost:..., например: ' +
+                'python3 -m http.server 8080');
+            }
+            _markAuthReady();
+          } else {
           // Нет user и сейчас не идёт другой логин → анонимный вход
           _signInInProgress = true;
           firebase.auth().signInAnonymously()
@@ -76,6 +99,7 @@
             .finally(function () {
               _signInInProgress = false;
             });
+          }
         }
       });
     }
@@ -124,6 +148,35 @@
     }
   };
 
+  // Ждать пока завершится анонимный/админский логин (в Firebase Auth
+  // должен появиться currentUser). Используется ПЕРЕД запросами к
+  // Firestore, чтобы избежать race condition: запросы не должны
+  // уходить раньше чем `request.auth` появится у Firebase. Без этого
+  // правила вида `request.auth != null` блокировали бы первый запрос
+  // и сайт давал бы permission-denied при быстром открытии.
+  //
+  // Возвращает промис, который резолвится за <500мс (обычно 50-200мс).
+  // Если SDK не загружен — резолвится сразу.
+  global.kerbenWaitForAuth = function () {
+    try {
+      if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
+        return Promise.resolve();
+      }
+      // Если уже есть user — мгновенно возвращаемся.
+      const cur = firebase.auth().currentUser;
+      if (cur) return Promise.resolve(cur);
+      // Запускаем процесс входа (если ещё не запущен) и ждём.
+      return (global.kerbenEnsureSignedIn ? global.kerbenEnsureSignedIn() : Promise.resolve())
+        // Жёсткий таймаут 3 сек — если что-то пошло не так, не будем
+        // зависать. Запрос пойдёт без auth (и упадёт с permission-denied,
+        // но это лучше чем бесконечная загрузка).
+        .then(function (u) { return u; })
+        .catch(function () { return null; });
+    } catch (e) {
+      return Promise.resolve();
+    }
+  };
+
   // Проверить, что текущий user — это админ (по email из Firebase Auth)
   global.kerbenIsFirebaseAdmin = function () {
     try {
@@ -135,10 +188,14 @@
     }
   };
 
-  // АВТО-СТАРТ: как только Firebase инициализирован, запускаем анонимный вход.
-  // Так на страницах без firebase-config.js (например, admin-rounding.html,
-  // которая инициализирует Firebase прямо в HTML) логин тоже включается.
+  // АВТО-СТАРТ: запускаем НЕМЕДЛЕННО (не дожидаясь DOMContentLoaded),
+  // чтобы успеть запустить signInAnonymously() ДО первого Firestore-запроса
+  // от другого кода. Так у Firebase SDK будет «в очереди» auth-токен,
+  // и запросы уйдут уже авторизованными. Это критично когда rules
+  // требуют `request.auth != null`.
+  let _autoStartAttempts = 0;
   function _autoStart() {
+    _autoStartAttempts++;
     try {
       if (typeof firebase !== 'undefined'
           && firebase.apps && firebase.apps.length > 0
@@ -147,13 +204,10 @@
         return;
       }
     } catch (e) {}
-    setTimeout(_autoStart, 250);
+    // Первые 50 попыток — каждые 30мс (быстро). Дальше — реже.
+    setTimeout(_autoStart, _autoStartAttempts < 50 ? 30 : 250);
   }
-  if (typeof document !== 'undefined') {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', _autoStart);
-    } else {
-      _autoStart();
-    }
-  }
+  // Запускаем СРАЗУ, не ждём DOMContentLoaded — auth должен стартовать
+  // как можно раньше.
+  _autoStart();
 })(typeof window !== 'undefined' ? window : this);

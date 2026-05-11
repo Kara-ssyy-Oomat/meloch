@@ -227,7 +227,13 @@ async function loadChatMessages() {
   
   // Запрашиваем имя при первом открытии
   await ensureClientName();
-  
+
+  // Ждём Firebase Auth — иначе при первом открытии чата запрос может уйти
+  // без auth-токена и правила `read: if isAuthed()` дадут permission-denied.
+  if (typeof kerbenWaitForAuth === 'function') {
+    try { await kerbenWaitForAuth(); } catch (e) {}
+  }
+
   try {
     // ОПТИМИЗАЦИЯ COSTS: тянем максимум 100 последних сообщений вместо
     // всей истории. Если переписке полгода и там 800 сообщений — раньше

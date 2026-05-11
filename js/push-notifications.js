@@ -10,16 +10,17 @@ const VAPID_KEY = 'BCdA8I-AhgwdmbQmyCcvh_oAJ4KyMTMG5niUHMlJzZPhv3VWeDKfexWDpfL5L
 let _messaging = null;
 let _pushToken = null;
 
-// Проверка iOS
-const _isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) && !window.MSStream;
-const _isStandalone = window.navigator.standalone === true || 
+// Проверка iOS (имя НЕ _isIOS — в index.html уже есть const _isIOS в
+// product-renderer.js; два top-level const с одним именем = SyntaxError)
+const _pushIsIOSDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent) && !window.MSStream;
+const _pushIsStandalone = window.navigator.standalone === true ||
   window.matchMedia('(display-mode: standalone)').matches;
 
 // Инициализация Firebase Messaging
 function initPushNotifications() {
   if (!('Notification' in window)) {
     // iOS Safari без PWA не поддерживает push
-    if (_isIOS && !_isStandalone) {
+    if (_pushIsIOSDevice && !_pushIsStandalone) {
       console.log('🔔 iOS: для push-уведомлений нужно установить приложение на Домой экран');
     } else {
       console.log('🔔 Браузер не поддерживает уведомления');
@@ -249,7 +250,7 @@ async function unsubscribeFromPush() {
 // UI: Кнопка подписки/отписки с анимацией
 async function togglePushNotifications() {
   // iOS без установки PWA — показываем инструкцию
-  if (_isIOS && !_isStandalone) {
+  if (_pushIsIOSDevice && !_pushIsStandalone) {
     Swal.fire({
       icon: 'info',
       title: '📲 Установите приложение',
