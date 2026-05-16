@@ -2,10 +2,17 @@
 // КЕРБЕН B2B Market — Product Loader (загрузка, кэш, upload)
 // ===================================================================
 
-// ОПТИМИЗАЦИЯ: Кэш для товаров
+// ОПТИМИЗАЦИЯ COSTS: Кэш для товаров.
+// Старые значения (RAM 2 мин, LS 10 мин) приводили к МАССОВЫМ повторным
+// чтениям всех 5000 товаров каждые 10 минут у каждого посетителя —
+// главная причина 48M Read Ops в сутки.
+// Теперь RAM-кэш 30 минут, localStorage 1 час, и пока кэш моложе
+// `FRESH_DURATION` (15 минут) — мы вообще НЕ дергаем Firestore в фоне.
 let productsCache = [];
 let productsCacheTime = 0;
-const CACHE_DURATION = 120000; // 2 минуты кэш (увеличено с 30с для скорости)
+const CACHE_DURATION = 1800000;      // 30 минут — пока в RAM, второй раз не читаем
+const LS_CACHE_DURATION = 3600000;   // 60 минут — мгновенный показ из localStorage
+const FRESH_DURATION = 900000;       // 15 минут — пока кэш свежий, в Firestore не лезем вообще
 const LS_PRODUCTS_KEY = 'cachedProducts';
 const LS_PRODUCTS_TIME_KEY = 'cachedProductsTime';
 
@@ -149,9 +156,11 @@ async function loadProducts() {
     
     // 2) Показываем товары из localStorage мгновенно (пока грузим с сервера)
     let showedFromCache = false;
+    let lsAgeMs = Infinity;
     try {
       const lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0');
-      if (now - lsTime < 600000) { // localStorage кэш 10 минут
+      lsAgeMs = now - lsTime;
+      if (lsAgeMs < LS_CACHE_DURATION) {
         const lsProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
         if (lsProducts.length > 0) {
           products = lsProducts;
@@ -159,13 +168,32 @@ async function loadProducts() {
           renderProducts();
           showedFromCache = true;
           hideSplashScreen();
-          console.log('📦 Мгновенная загрузка из localStorage:', lsProducts.length, 'товаров');
+          // Заполняем RAM-кэш тем же массивом, чтобы переход между вкладками
+          // в течение CACHE_DURATION не лез в Firestore.
+          productsCache = lsProducts;
+          productsCacheTime = now - Math.min(lsAgeMs, CACHE_DURATION);
+          console.log('📦 Мгновенная загрузка из localStorage:', lsProducts.length, 'товаров (возраст: ' + Math.round(lsAgeMs/60000) + ' мин)');
         }
       }
     } catch(e) { /* localStorage может быть недоступен */ }
-    
+
+    // ОПТИМИЗАЦИЯ COSTS: если кэш моложе FRESH_DURATION — ВООБЩЕ не дергаем
+    // Firestore. Раньше каждый визит дотягивал 5000 товаров «для свежести»,
+    // даже если localStorage был совсем недавним. Это съедало ~80% всех
+    // Read Ops. Теперь свежий кэш = ноль чтений на визит.
+    if (showedFromCache && lsAgeMs < FRESH_DURATION) {
+      // Только проверим флаг паузы складов и настройки минимального заказа
+      // (это дешёво — 1-3 doc reads, и нужно для корректного UI).
+      loadWarehousePausedFlag().then(() => {
+        if (typeof updateCart === 'function') updateCart();
+      });
+      // Догружаем категории продавцов, если ещё не кэшированы
+      try { if (typeof sellerCategoriesLoaded !== 'undefined' && !sellerCategoriesLoaded) loadSellerCategoriesCache(); } catch(e) {}
+      return;
+    }
+
     // 3) Загружаем свежие данные с Firebase (в фоне если кэш показан)
-    console.log('Loading products from Firebase...');
+    console.log('Loading products from Firebase... (возраст кэша: ' + Math.round(lsAgeMs/60000) + ' мин)');
     if (!showedFromCache) productsReady = false;
     
     // Грузим флаг паузы складов параллельно с товарами

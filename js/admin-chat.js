@@ -12,8 +12,10 @@ async function loadAdminChat() {
   }
   
   try {
-    // Загружаем список клиентов
+    // ОПТИМИЗАЦИЯ COSTS: лимит 500 клиентов. Раньше .get() без лимита
+    // мог тянуть тысячи документов на каждое открытие админ-чата.
     const clientsSnapshot = await db.collection('chatClients')
+      .limit(500)
       .get();
     
     const messagesDiv = document.getElementById('adminChatMessages');
@@ -130,9 +132,13 @@ async function loadClientMessages(clientId, clientName, clientDiv) {
   `;
   
   try {
-    // Загружаем сообщения этого клиента
+    // ОПТИМИЗАЦИЯ COSTS: лимит 200 последних сообщений. Раньше .get() без
+    // лимита тянул ВСЮ переписку с клиентом — могло быть 1000+ сообщений
+    // = 1000+ reads на каждое открытие чата с одним клиентом.
     const querySnapshot = await db.collection('chatMessages')
       .where('clientId', '==', clientId)
+      .orderBy('timestamp', 'desc')
+      .limit(200)
       .get();
     
     const chatArea = document.getElementById('chatMessagesArea');
