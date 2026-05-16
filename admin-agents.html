@@ -3,6 +3,7 @@
 <head>
   <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
   <meta charset="UTF-8">
+  <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Управление агентами</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -528,6 +529,9 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/products-cache.js?v=1"></script>
   
   <script>
     // Firebase конфигурация
@@ -598,6 +602,36 @@
       await loadAllData();
     }
     
+    // ОПТИМИЗАЦИЯ COSTS: кэш на 30 минут (раньше при каждом открытии страницы
+    // тянули 10000 заказов = десятки тысяч Read Ops в день).
+    const _AGENTS_CACHE_MS = 1800000;
+    const _AGENTS_LS_KEY = 'agentsOrdersCache';
+    const _AGENTS_LS_TS_KEY = 'agentsOrdersCacheTs';
+
+    async function _loadOrdersForAgentsCached() {
+      // 1) localStorage кэш (общий для разных вкладок)
+      try {
+        const lsTs = parseInt(localStorage.getItem(_AGENTS_LS_TS_KEY) || '0');
+        if (Date.now() - lsTs < _AGENTS_CACHE_MS) {
+          const arr = JSON.parse(localStorage.getItem(_AGENTS_LS_KEY) || '[]');
+          if (Array.isArray(arr) && arr.length > 0) {
+            console.log('📦 Агенты: заказы из кэша (' + arr.length + ' шт, возраст ' + Math.round((Date.now()-lsTs)/60000) + ' мин) — 0 Firestore reads');
+            return arr;
+          }
+        }
+      } catch(e) {}
+
+      // 2) Firestore — лимит 2000 (раньше 10000)
+      const snap = await db.collection('orders').orderBy('timestamp', 'desc').limit(2000).get();
+      const arr = [];
+      snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
+      try {
+        localStorage.setItem(_AGENTS_LS_KEY, JSON.stringify(arr));
+        localStorage.setItem(_AGENTS_LS_TS_KEY, String(Date.now()));
+      } catch(e) {}
+      return arr;
+    }
+
     // Загрузка всех данных (лимиты для контроля Read Ops)
     async function loadAllData() {
       try {
@@ -615,13 +649,12 @@
           agentNames.set(doc.id, doc.id);
         });
         
-        // Загружаем заказы (последние 10000 для статистики)
-        const ordersSnapshot = await db.collection('orders').orderBy('timestamp', 'desc').limit(10000).get();
+        // Загружаем заказы (последние 2000, с кэшем 30 минут)
+        const ordersArr = await _loadOrdersForAgentsCached();
         ordersByAgent = {};
         const clientsMap = {};
         
-        ordersSnapshot.forEach(doc => {
-          const order = doc.data();
+        ordersArr.forEach(order => {
           
           // Статистика по агентам
           let agentId = null;

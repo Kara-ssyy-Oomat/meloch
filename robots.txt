@@ -1,0 +1,123 @@
+# ===================================================================
+# КЕРБЕН B2B Market — robots.txt
+# -------------------------------------------------------------------
+# Защита от ботов, которые жгут Firestore reads. Каждый визит
+# поисковика без JS-кэша = ~5000 reads на загрузку товаров.
+# -------------------------------------------------------------------
+
+# ---------- 1. Полностью блокируем "жадных" SEO/AI-ботов ----------
+# Это коммерческие сканеры, которые не дают трафика — только нагрузку.
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: BLEXBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+User-agent: SeznamBot
+Disallow: /
+
+User-agent: ZoominfoBot
+Disallow: /
+
+User-agent: serpstatbot
+Disallow: /
+
+User-agent: barkrowler
+Disallow: /
+
+User-agent: linkfluence
+Disallow: /
+
+# AI-краулеры, которые тащат контент для обучения моделей
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+
+User-agent: FacebookBot
+Disallow: /
+
+User-agent: Applebot-Extended
+Disallow: /
+
+# ---------- 2. Остальные боты (Google, Bing, Yandex) ----------
+# Им разрешаем главную и публичные страницы, но ЗАПРЕЩАЕМ:
+#   • Все админ-страницы (admin-*) — там нечего индексировать
+#   • Все агент-страницы (agent-*)  — это внутренний интерфейс
+#   • Профиль и корзину — персональные данные
+#   • Чат — нет смысла индексировать
+#   • Все query-параметры (?ref=, ?id= и т.д.) — дубли страниц
+User-agent: *
+Disallow: /admin-agents.html
+Disallow: /admin-categories.html
+Disallow: /admin-chat.html
+Disallow: /admin-orders.html
+Disallow: /admin-products.html
+Disallow: /admin-profit.html
+Disallow: /admin-rounding.html
+Disallow: /admin-sellers.html
+Disallow: /admin-warehouse.html
+Disallow: /agent-delivery.html
+Disallow: /agent-profit.html
+Disallow: /chat.html
+Disallow: /cart.html
+Disallow: /profile.html
+Disallow: /settings.html
+Disallow: /*?ref=*
+Disallow: /*?id=*
+Disallow: /*?order=*
+Disallow: /*?utm_*
+
+# Не индексируем тех. файлы
+Disallow: /sw.js
+Disallow: /manifest.json
+Disallow: /functions/
+Disallow: /firebase.json
+Disallow: /firestore.rules
+Disallow: /firestore.indexes.json
+
+# Crawl-delay: бот не делает чаще 1 запроса в 30 секунд.
+# Google игнорирует Crawl-delay (для него — настройки в Search Console),
+# но Bing/Yandex/Yahoo соблюдают.
+Crawl-delay: 30
+
+# ---------- 3. Sitemap ----------
+# Подскажем поисковикам только главную, чтобы они не сканировали лишнее.
+# Sitemap: https://svoysayet.web.app/sitemap.xml

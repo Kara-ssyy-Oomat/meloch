@@ -3,6 +3,7 @@
 <head>
   <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}.main-container{height:100vh!important}</style>')</script>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Отчет по прибыли - Кербен</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -11,6 +12,9 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/products-cache.js?v=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -631,23 +635,46 @@ let userRole = localStorage.getItem('userRole') || 'admin';
 // ОПТИМИЗАЦИЯ COSTS: общий кэш для admin-profit.html.
 // Раньше открытие страницы → переключение вкладок → нажатие «обновить»
 // каждое стоило `db.collection('orders').get()` (тысячи Firestore Reads).
-// Теперь данные живут 60 секунд в памяти и переиспользуются.
+// Теперь данные живут 30 МИНУТ в памяти + 1 час в localStorage и
+// переиспользуются между открытиями страницы в одной сессии админа.
+// Лимит уменьшен 10000 → 2000 — для нормального отчёта прибыли последних
+// 2000 заказов более чем достаточно (это ~3-6 месяцев активной работы).
 const _profitPageCache = {
   orders: null, ordersTs: 0,
   agents: null, agentsTs: 0
 };
-const _PROFIT_CACHE_MS = 60000;
+const _PROFIT_CACHE_MS = 1800000; // 30 минут
+const _PROFIT_LS_KEY = 'profitOrdersCache';
+const _PROFIT_LS_TS_KEY = 'profitOrdersCacheTs';
+
 async function _getOrdersCached() {
   if (_profitPageCache.orders && (Date.now() - _profitPageCache.ordersTs) < _PROFIT_CACHE_MS) {
     return _profitPageCache.orders;
   }
-  // ОПТИМИЗАЦИЯ COSTS: лимит 10000 заказов + сортировка по убыванию
-  // даты — берём последние 10k. На годы работы хватит.
-  const snap = await db.collection('orders').orderBy('timestamp', 'desc').limit(10000).get();
+  // Пробуем поднять из localStorage (если открыли страницу в новой вкладке)
+  try {
+    const lsTs = parseInt(localStorage.getItem(_PROFIT_LS_TS_KEY) || '0');
+    if (Date.now() - lsTs < _PROFIT_CACHE_MS) {
+      const lsArr = JSON.parse(localStorage.getItem(_PROFIT_LS_KEY) || '[]');
+      if (Array.isArray(lsArr) && lsArr.length > 0) {
+        _profitPageCache.orders = lsArr;
+        _profitPageCache.ordersTs = lsTs;
+        console.log('📦 Прибыль: данные из localStorage (' + lsArr.length + ' заказов, возраст ' + Math.round((Date.now()-lsTs)/60000) + ' мин)');
+        return lsArr;
+      }
+    }
+  } catch(e) {}
+
+  // ОПТИМИЗАЦИЯ COSTS: лимит 2000 заказов (раньше 10000).
+  const snap = await db.collection('orders').orderBy('timestamp', 'desc').limit(2000).get();
   const arr = [];
   snap.forEach(doc => arr.push({ id: doc.id, ...doc.data() }));
   _profitPageCache.orders = arr;
   _profitPageCache.ordersTs = Date.now();
+  try {
+    localStorage.setItem(_PROFIT_LS_KEY, JSON.stringify(arr));
+    localStorage.setItem(_PROFIT_LS_TS_KEY, String(_profitPageCache.ordersTs));
+  } catch(e) { /* localStorage может быть переполнен — не критично */ }
   return arr;
 }
 async function _getAgentsCached() {
@@ -664,6 +691,10 @@ async function _getAgentsCached() {
 function _invalidateProfitPageCache() {
   _profitPageCache.orders = null; _profitPageCache.ordersTs = 0;
   _profitPageCache.agents = null; _profitPageCache.agentsTs = 0;
+  try {
+    localStorage.removeItem(_PROFIT_LS_KEY);
+    localStorage.removeItem(_PROFIT_LS_TS_KEY);
+  } catch(e) {}
 }
 
 // При загрузке страницы
@@ -690,15 +721,36 @@ document.addEventListener('DOMContentLoaded', async function() {
   }
 });
 
-// Загрузка товаров (лимит 5000)
+// ОПТИМИЗАЦИЯ COSTS: используем общий кэш товаров (из product-loader.js, 1 час).
+// Раньше каждое открытие admin-profit читало 5000 товаров заново —
+// даже если на index.html их только что прочитали. Теперь все админ-страницы
+// делят один localStorage-кэш cachedProducts.
 async function loadProducts() {
   try {
-    const snapshot = await db.collection('products').limit(5000).get();
+    // 1) Сначала пробуем общий кэш товаров (тот же, что использует index.html)
+    try {
+      const lsTime = parseInt(localStorage.getItem('cachedProductsTime') || '0');
+      const lsProducts = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+      if (Date.now() - lsTime < 3600000 && Array.isArray(lsProducts) && lsProducts.length > 0) {
+        products = lsProducts;
+        console.log('📦 Товары из общего кэша (' + products.length + ' шт, возраст ' + Math.round((Date.now()-lsTime)/60000) + ' мин) — 0 Firestore reads');
+        return;
+      }
+    } catch(e) {}
+
+    // 2) Кэша нет — читаем с лимитом 2000 (раньше 5000)
+    const snapshot = await db.collection('products').limit(2000).get();
     products = [];
     snapshot.forEach(doc => {
       products.push({ id: doc.id, ...doc.data() });
     });
-    console.log('✅ Загружено товаров:', products.length);
+    console.log('✅ Загружено товаров с Firestore:', products.length);
+
+    // Сохраняем в общий кэш — другие админ-страницы воспользуются
+    try {
+      localStorage.setItem('cachedProducts', JSON.stringify(products));
+      localStorage.setItem('cachedProductsTime', String(Date.now()));
+    } catch(e) {}
   } catch (error) {
     console.error('❌ Ошибка загрузки товаров:', error);
   }

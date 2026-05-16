@@ -3,6 +3,7 @@
 <head>
   <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}.main-container{height:100vh!important}.modal-overlay{bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Управление продавцами - Кербен</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -12,6 +13,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
   <script src="js/app-check.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/products-cache.js?v=1"></script>
   <script src="js/telegram-client.js?v=2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -455,14 +459,28 @@ document.addEventListener('DOMContentLoaded', async function() {
   }
 });
 
-// Загрузка товаров (лимит 5000 для контроля Read Ops)
+// ОПТИМИЗАЦИЯ COSTS: общий кэш товаров (1 час) для всех админ-страниц.
 async function loadProducts() {
-  const snapshot = await db.collection('products').limit(5000).get();
+  try {
+    const lsTime = parseInt(localStorage.getItem('cachedProductsTime') || '0');
+    const lsProducts = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+    if (Date.now() - lsTime < 3600000 && Array.isArray(lsProducts) && lsProducts.length > 0) {
+      products = lsProducts;
+      console.log('📦 Продавцы: товары из общего кэша (' + products.length + ' шт) — 0 Firestore reads');
+      return;
+    }
+  } catch(e) {}
+
+  const snapshot = await db.collection('products').limit(2000).get();
   products = [];
   snapshot.forEach(doc => {
     products.push({ id: doc.id, ...doc.data() });
   });
   console.log('📦 Загружено товаров:', products.length);
+  try {
+    localStorage.setItem('cachedProducts', JSON.stringify(products));
+    localStorage.setItem('cachedProductsTime', String(Date.now()));
+  } catch(e) {}
 }
 
 // Загрузка продавцов (лимит 1000)

@@ -3,6 +3,7 @@
 <head>
   <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Округление количества - Админ</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -10,6 +11,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/products-cache.js?v=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -386,11 +390,28 @@ function init() {
 // ============ ЗАГРУЗКА ТОВАРОВ ============
 async function loadProducts() {
   try {
-    var snapshot = await db.collection('products').orderBy('order', 'desc').limit(5000).get();
+    // ОПТИМИЗАЦИЯ COSTS: общий кэш товаров (1 час)
+    try {
+      var lsTime = parseInt(localStorage.getItem('cachedProductsTime') || '0');
+      var lsProducts = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+      if (Date.now() - lsTime < 3600000 && Array.isArray(lsProducts) && lsProducts.length > 0) {
+        products = [...lsProducts].sort(function(a, b) { return (b.order || 0) - (a.order || 0); });
+        console.log('📦 Округление: товары из общего кэша (' + products.length + ' шт) — 0 Firestore reads');
+        updatePreview();
+        updateMinQtyPreview();
+        return;
+      }
+    } catch(e) {}
+
+    var snapshot = await db.collection('products').orderBy('order', 'desc').limit(2000).get();
     products = [];
     snapshot.forEach(function(doc) {
       products.push({ id: doc.id, ...doc.data() });
     });
+    try {
+      localStorage.setItem('cachedProducts', JSON.stringify(products));
+      localStorage.setItem('cachedProductsTime', String(Date.now()));
+    } catch(e) {}
     updatePreview();
     updateMinQtyPreview();
   } catch(err) {

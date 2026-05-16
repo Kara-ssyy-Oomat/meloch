@@ -3,6 +3,7 @@
 <head>
   <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}#addProductWindow{bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Добавить товар - Кербен</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -11,6 +12,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/products-cache.js?v=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -177,12 +181,29 @@ if (typeof firebase !== 'undefined') {
 // ============ ЗАГРУЗКА ТОВАРОВ ============
 async function loadProducts() {
   try {
-    const snapshot = await db.collection('products').orderBy('order', 'desc').limit(5000).get();
+    // ОПТИМИЗАЦИЯ COSTS: общий кэш товаров (1 час) — используется на index.html
+    // и всех админ-страницах. Переход между ними не дёргает Firestore.
+    try {
+      const lsTime = parseInt(localStorage.getItem('cachedProductsTime') || '0');
+      const lsProducts = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+      if (Date.now() - lsTime < 3600000 && Array.isArray(lsProducts) && lsProducts.length > 0) {
+        products = [...lsProducts].sort((a, b) => (b.order || 0) - (a.order || 0));
+        console.log('📦 Товары из общего кэша (' + products.length + ' шт, возраст ' + Math.round((Date.now()-lsTime)/60000) + ' мин) — 0 Firestore reads');
+        return;
+      }
+    } catch(e) {}
+
+    const snapshot = await db.collection('products').orderBy('order', 'desc').limit(2000).get();
     products = [];
     snapshot.forEach(doc => {
       products.push({ id: doc.id, ...doc.data() });
     });
     console.log('Loaded products:', products.length);
+
+    try {
+      localStorage.setItem('cachedProducts', JSON.stringify(products));
+      localStorage.setItem('cachedProductsTime', String(Date.now()));
+    } catch(e) {}
   } catch (error) {
     console.error('Error loading products:', error);
   }

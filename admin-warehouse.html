@@ -3,6 +3,7 @@
 <head>
   <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Управление складами - Кербен</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
@@ -10,6 +11,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/products-cache.js?v=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -1104,8 +1108,24 @@ async function toggleSingleWarehousePause(whId) {
 }
 
 async function loadProducts() {
-  const snap = await db.collection('products').limit(5000).get();
+  // ОПТИМИЗАЦИЯ COSTS: общий кэш товаров (1 час) — экономит до 5000 reads
+  // при переходе между админ-страницами в течение часа.
+  try {
+    const lsTime = parseInt(localStorage.getItem('cachedProductsTime') || '0');
+    const lsProducts = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+    if (Date.now() - lsTime < 3600000 && Array.isArray(lsProducts) && lsProducts.length > 0) {
+      products = lsProducts;
+      console.log('📦 Склад: товары из общего кэша (' + products.length + ' шт) — 0 Firestore reads');
+      return;
+    }
+  } catch(e) {}
+
+  const snap = await db.collection('products').limit(2000).get();
   products = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  try {
+    localStorage.setItem('cachedProducts', JSON.stringify(products));
+    localStorage.setItem('cachedProductsTime', String(Date.now()));
+  } catch(e) {}
 }
 
 async function loadMovements() {

@@ -12,6 +12,7 @@
     }
   </script>
   <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4CAF50">
   
@@ -352,6 +353,9 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/app-check.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/products-cache.js?v=1"></script>
   <script src="js/telegram-client.js?v=2"></script>
   <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при экспорте заказа -->
@@ -2149,12 +2153,21 @@
           lsProducts.forEach(p => { productsMap[p.id] = p; });
         }
       } catch(e) {}
-      // Если кэш пуст или протух — загружаем
+      // Если кэш пуст или протух — загружаем (с обязательным лимитом!)
+      // ОПТИМИЗАЦИЯ COSTS: раньше тут стоял `.get()` без лимита — при базе
+      // в несколько тысяч товаров каждое редактирование заказа = несколько
+      // тысяч лишних Read Ops.
       if (Object.keys(productsMap).length === 0) {
-        const productsSnapshot = await db.collection('products').get();
+        const productsSnapshot = await db.collection('products').limit(2000).get();
         productsSnapshot.forEach(doc => {
           productsMap[doc.id] = { id: doc.id, ...doc.data() };
         });
+        // Сохраняем в общий кэш — другие страницы воспользуются
+        try {
+          const lightProducts = Object.values(productsMap);
+          localStorage.setItem('cachedProducts', JSON.stringify(lightProducts));
+          localStorage.setItem('cachedProductsTime', String(Date.now()));
+        } catch(e) {}
       }
       
       // ===== 1. Создаем Excel файл =====
