@@ -27,14 +27,22 @@ const TELEGRAM_BOT_TOKEN_SECRET = 'TELEGRAM_BOT_TOKEN';
 const ALLOWED_ORIGINS = [
   'https://svoysayet.firebaseapp.com',
   'https://svoysayet.web.app',
+  'https://kara-ssyy.github.io',
   'http://localhost:5000',
   'http://localhost:5500',
   'http://127.0.0.1:5500'
 ];
 
+// Регексп для GitHub Pages: позволяет любые поддомены *.github.io.
+// Если такой широкий список нежелателен — оставьте только конкретный домен в ALLOWED_ORIGINS.
+const ALLOWED_ORIGIN_REGEXES = [
+  /^https:\/\/[a-z0-9-]+\.github\.io$/i
+];
+
 function pickCorsOrigin(req) {
   const origin = req.headers.origin || '';
   if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  if (ALLOWED_ORIGIN_REGEXES.some(rx => rx.test(origin))) return origin;
   // Любой локальный дев-сервер (Live Server 5500, Firebase emulator и т.п.).
   // localhost и 127.0.0.1 — разные Origin для браузера; оба нужны.
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return origin;
@@ -178,9 +186,12 @@ async function sendChatNotification(notif) {
 
 // ==================== УВЕДОМЛЕНИЕ АДМИНУ ====================
 async function sendAdminNotification(notif) {
+  // Админов обычно <20. Лимит 100 — защита от случайного раздувания
+  // коллекции pushTokens (если кто-то по ошибке проставил role:admin).
+  // На каждое сообщение в чате эта функция вызывается => лимит критичен.
   const adminTokens = await db.collection('pushTokens')
-    .where('role', '==', 'admin').get();
-  const adminTokens2 = await db.collection('adminPushTokens').get();
+    .where('role', '==', 'admin').limit(100).get();
+  const adminTokens2 = await db.collection('adminPushTokens').limit(100).get();
 
   const tokens = new Set();
   adminTokens.forEach(doc => {
@@ -233,7 +244,10 @@ async function sendAdminNotification(notif) {
 
 // ==================== РАССЫЛКА ВСЕМ ====================
 async function sendBroadcastNotification(notif) {
-  const tokensSnapshot = await db.collection('pushTokens').get();
+  // Жёсткий лимит, чтобы случайная рассылка не сожгла тысячи Read Ops.
+  // 2000 подписчиков — это уже промышленный масштаб; если будет больше,
+  // переходим на topic-based messaging (admin.messaging().sendToTopic).
+  const tokensSnapshot = await db.collection('pushTokens').limit(2000).get();
 
   if (tokensSnapshot.empty) {
     console.log('⚠️ Нет подписчиков');
@@ -361,17 +375,25 @@ exports.telegramProxy = functions
       return;
     }
 
-    const appCheckHeader = req.get('X-Firebase-AppCheck');
-    if (!appCheckHeader || typeof appCheckHeader !== 'string') {
-      res.status(401).json({ ok: false, error: 'missing_app_check' });
-      return;
-    }
-    try {
-      await admin.appCheck().verifyToken(appCheckHeader);
-    } catch (err) {
-      console.warn('App Check verify failed:', err.code || err.message);
-      res.status(401).json({ ok: false, error: 'invalid_app_check' });
-      return;
+    // App Check можно временно отключить через переменную APPCHECK_ENFORCE=false
+    // в файле functions/.env (новый рекомендованный способ Firebase Functions).
+    // По умолчанию — включено.
+    const appCheckEnforce =
+      String(process.env.APPCHECK_ENFORCE ?? 'true').toLowerCase() !== 'false';
+
+    if (appCheckEnforce) {
+      const appCheckHeader = req.get('X-Firebase-AppCheck');
+      if (!appCheckHeader || typeof appCheckHeader !== 'string') {
+        res.status(401).json({ ok: false, error: 'missing_app_check' });
+        return;
+      }
+      try {
+        await admin.appCheck().verifyToken(appCheckHeader);
+      } catch (err) {
+        console.warn('App Check verify failed:', err.code || err.message);
+        res.status(401).json({ ok: false, error: 'invalid_app_check' });
+        return;
+      }
     }
 
     const token = process.env[TELEGRAM_BOT_TOKEN_SECRET];
