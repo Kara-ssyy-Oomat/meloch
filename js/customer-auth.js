@@ -552,6 +552,10 @@ async function loginCustomer(phone, password) {
       try {
         if (typeof kerbenSignInAsAdmin === 'function') {
           await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
+          // Запоминаем пароль локально, чтобы при потере Firebase Auth сессии
+          // (Safari ITP / перезапуск браузера) сайт мог тихо восстановить её
+          // без диалога. Действует 30 дней. Очищается при выходе из аккаунта.
+          try { _storeAdminCredentialsLocally(password); } catch (_) {}
         }
       } catch (e) {
         console.warn('[Admin] Firebase Auth не активен:', e && e.message);
@@ -672,6 +676,7 @@ async function registerCustomer(data) {
       try {
         if (typeof kerbenSignInAsAdmin === 'function') {
           await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', data.password);
+          try { _storeAdminCredentialsLocally(data.password); } catch (_) {}
         }
       } catch (e) {
         console.warn('[Admin] Firebase Auth не активен:', e && e.message);
@@ -1251,6 +1256,7 @@ function openAdminLoginFromProfile() {
         try {
           if (typeof kerbenSignInAsAdmin === 'function') {
             await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
+            try { _storeAdminCredentialsLocally(password); } catch (_) {}
           }
         } catch (e) {
           console.warn('[Admin] Firebase Auth не активен:', e && e.message);
@@ -1677,7 +1683,18 @@ function logoutCustomer() {
       // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
       if (window.PersistProfile) window.PersistProfile.remove();
       try { localStorage.removeItem('customerData'); } catch(e) {}
-      
+      // Стираем сохранённый локально пароль админа (если был) — важно для
+      // безопасности: пользователь явно «вышел», устройство может быть общим.
+      try {
+        if (typeof window.kerbenClearStoredAdminCreds === 'function') {
+          window.kerbenClearStoredAdminCreds();
+        }
+      } catch(e) {}
+      // Выходим из Firebase Auth и возвращаемся к анонимному пользователю.
+      try {
+        if (typeof kerbenSignOut === 'function') kerbenSignOut();
+      } catch(e) {}
+
       // Сбрасываем флаги администратора
       if (typeof isAdmin !== 'undefined') {
         window.isAdmin = false;
@@ -1777,6 +1794,192 @@ function normalizePhone(phone) {
   
   return normalized;
 }
+
+// =====================================================================
+// АВТОМАТИЧЕСКОЕ ВОССТАНОВЛЕНИЕ АДМИН-СЕССИИ FIREBASE AUTH
+//
+// Проблема: на iOS Safari (и иногда на десктопе) Firebase Auth «забывает»
+// админ-сессию через несколько часов или после перезапуска браузера.
+// Без этой сессии правила Firestore блокируют любые изменения заказов:
+// админ видит «Ошибка / Не удалось сохранить изменения» через какое-то
+// время после успешного входа.
+//
+// Решение: после первого успешного входа админа сохраняем пароль в
+// localStorage в обфусцированном виде (НЕ открытый текст — простой XOR
+// от поверхностного взгляда; настоящая защита — PIN/Face ID устройства).
+// При потере Firebase Auth сессии сайт ТИХО восстанавливает её, не
+// дёргая админа диалогами. Так пароль вводится один раз на 30 дней.
+//
+// Использование в админ-страницах:
+//   const ok = await kerbenReAuthAdminIfNeeded();
+//   if (!ok) return; // не админ или восстановление не удалось
+// =====================================================================
+
+const _ADMIN_CREDS_KEY = 'kerbenAdminCreds_v1';
+const _ADMIN_CREDS_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 дней
+
+// Обфускация — НЕ настоящее шифрование. Защищает только от случайного
+// взгляда в DevTools → Application → Local Storage. От настоящей атаки
+// защищает PIN/Face ID/Touch ID устройства + домен GitHub Pages (HTTPS).
+function _obfuscatePassword(text) {
+  try {
+    const key = 'kerben_admin_local_obfusc_2026';
+    let out = '';
+    for (let i = 0; i < text.length; i++) {
+      out += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(unescape(encodeURIComponent(out)));
+  } catch (e) { return null; }
+}
+
+function _deobfuscatePassword(b64) {
+  try {
+    const key = 'kerben_admin_local_obfusc_2026';
+    const text = decodeURIComponent(escape(atob(b64)));
+    let out = '';
+    for (let i = 0; i < text.length; i++) {
+      out += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return out;
+  } catch (e) { return null; }
+}
+
+function _storeAdminCredentialsLocally(password) {
+  try {
+    const obf = _obfuscatePassword(password);
+    if (!obf) return;
+    localStorage.setItem(_ADMIN_CREDS_KEY, JSON.stringify({
+      p: obf, ts: Date.now()
+    }));
+  } catch (e) {}
+}
+
+function _getStoredAdminPassword() {
+  try {
+    const raw = localStorage.getItem(_ADMIN_CREDS_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || !data.p || !data.ts) return null;
+    if (Date.now() - data.ts > _ADMIN_CREDS_TTL_MS) {
+      localStorage.removeItem(_ADMIN_CREDS_KEY);
+      return null;
+    }
+    return _deobfuscatePassword(data.p);
+  } catch (e) { return null; }
+}
+
+window.kerbenClearStoredAdminCreds = function () {
+  try { localStorage.removeItem(_ADMIN_CREDS_KEY); } catch (e) {}
+};
+
+window.kerbenReAuthAdminIfNeeded = async function () {
+  if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
+    return false;
+  }
+  const adminEmail = (window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local').toLowerCase();
+  try {
+    const fbUser = firebase.auth().currentUser;
+    if (fbUser && fbUser.email && fbUser.email.toLowerCase() === adminEmail) {
+      return true; // Уже админ — ничего делать не нужно
+    }
+  } catch (e) {}
+
+  // Проверяем, есть ли в localStorage пометка «я админ» с тем же телефоном.
+  // Если её нет — значит это не админ, ничего не показываем.
+  let isAdminLocally = false;
+  try {
+    const saved = localStorage.getItem('currentCustomer');
+    if (saved) {
+      const data = JSON.parse(saved);
+      const adminPhoneNorm = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
+      if (data && data.isAdmin && normalizePhone(data.phone || '') === adminPhoneNorm) {
+        isAdminLocally = true;
+      }
+    }
+  } catch (e) {}
+  if (!isAdminLocally) return false;
+
+  // 1) ТИХИЙ ВХОД: пробуем восстановить сессию через сохранённый ранее
+  // пароль. Если получилось — админ даже не заметит, что сессия истекла.
+  const storedPassword = _getStoredAdminPassword();
+  if (storedPassword) {
+    try {
+      if (typeof kerbenSignInAsAdmin === 'function') {
+        await kerbenSignInAsAdmin(
+          window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local',
+          storedPassword
+        );
+        console.log('[Admin] сессия Firebase Auth тихо восстановлена из сохранённого пароля');
+        return true;
+      }
+    } catch (e) {
+      // Пароль больше не подходит (например, пересоздали аккаунт в Console).
+      // Чистим сохранённое, чтобы при следующем входе пересохранилось.
+      console.warn('[Admin] сохранённый пароль не подошёл:', e && e.message);
+      try { window.kerbenClearStoredAdminCreds(); } catch (_) {}
+    }
+  }
+
+  // 2) Тихий путь не сработал — спрашиваем пароль вручную (один раз)
+  let password;
+  try {
+    const res = await Swal.fire({
+      title: '🔐 Подтвердите пароль админа',
+      html: 'Сайт запомнит вас на этом устройстве на 30 дней.<br>'
+          + '<small>Пароль хранится <b>только в этом браузере</b>, '
+          + 'не отправляется на сервер.</small>',
+      input: 'password',
+      inputAttributes: { autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' },
+      showCancelButton: true,
+      confirmButtonText: 'Запомнить меня',
+      cancelButtonText: 'Отмена',
+      confirmButtonColor: '#28a745',
+      allowOutsideClick: false,
+      inputValidator: (val) => { if (!val) return 'Введите пароль'; }
+    });
+    if (!res.isConfirmed) return false;
+    password = res.value;
+  } catch (e) { return false; }
+
+  try {
+    const inputHash = await _sha256(password);
+    if (inputHash !== ADMIN_CUSTOMER_DATA.passwordHash) {
+      Swal.fire('Ошибка', 'Неверный пароль администратора', 'error');
+      return false;
+    }
+  } catch (e) {
+    Swal.fire('Ошибка', 'Не удалось проверить пароль', 'error');
+    return false;
+  }
+
+  try {
+    if (typeof kerbenSignInAsAdmin !== 'function') {
+      throw new Error('kerbenSignInAsAdmin недоступен (js/auth.js не загружен?)');
+    }
+    await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
+    // Запоминаем пароль локально, чтобы дальше входить тихо без диалогов.
+    _storeAdminCredentialsLocally(password);
+    Swal.fire({
+      icon: 'success',
+      title: 'Сессия восстановлена',
+      text: 'Запомнили вас на 30 дней',
+      timer: 1500,
+      showConfirmButton: false
+    });
+    return true;
+  } catch (e) {
+    Swal.fire({
+      icon: 'error',
+      title: 'Не удалось войти в Firebase Auth',
+      html: (e && e.message ? e.message : 'Неизвестная ошибка')
+          + '<br><br><small>Если ошибка повторится: удалите admin@kerben.local '
+          + 'в Firebase Console → Authentication → Users и войдите ещё раз — '
+          + 'аккаунт пересоздастся автоматически.</small>',
+      confirmButtonColor: '#dc3545'
+    });
+    return false;
+  }
+};
 
 // Обновление статистики клиента после заказа
 async function updateCustomerStats(total) {
