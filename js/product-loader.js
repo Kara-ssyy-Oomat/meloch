@@ -127,6 +127,14 @@ async function loadProducts() {
     // Сразу читаем флаг паузы из localStorage (мгновенно)
     loadWarehousePausedFromLS();
 
+    // Ждём готовности Firebase Auth (анонимный логин). Без этого первый
+    // запрос к Firestore может уйти ДО появления request.auth, и правила
+    // вида `read: if isAuthed()` развернут его permission-denied. Auth уже
+    // запущен в auth.js при загрузке скрипта, обычно ждём <200мс.
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
+
     // 1) Проверяем in-memory кэш (самый быстрый)
     const now = Date.now();
     if (productsCache.length > 0 && (now - productsCacheTime) < CACHE_DURATION) {
@@ -239,7 +247,20 @@ async function loadProducts() {
         createdAt: p.createdAt, description: p.description,
         extraImages: p.extraImages, useQtyButtons: p.useQtyButtons,
         unitsPerBox: p.unitsPerBox, showPricePerUnit: p.showPricePerUnit,
-        warehouseStock: p.warehouseStock || null
+        warehouseStock: p.warehouseStock || null,
+        // Админ-поля: без них при рендере из localStorage-кэша админ видел
+        // карточки без цены закупки, веса и пр. Раньше эта проблема пряталась
+        // тем, что кэш быстро протухал и каждый визит лез в Firestore — но
+        // это сжигало миллионы reads. Теперь кэш живёт 15 минут «свежим»,
+        // поэтому админ-поля обязаны переживать localStorage-сериализацию.
+        costPrice: p.costPrice,
+        packsPerBox: p.packsPerBox,
+        roundQty: p.roundQty,
+        sellerName: p.sellerName,
+        weight: p.weight,
+        variants: p.variants,
+        subcategory: p.subcategory,
+        priceWholesale: p.priceWholesale
       }));
       localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
       localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
@@ -374,7 +395,12 @@ async function loadSellerCategoriesCache() {
   try {
     const standardCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
     const categories = new Set();
-    
+
+    // Ждём auth перед чтением (правила требуют isAuthed())
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
+
     // Загружаем ТОЛЬКО из коллекции seller_categories (лимит 500)
     const snapshot = await db.collection('seller_categories').limit(500).get();
     snapshot.forEach(doc => {
