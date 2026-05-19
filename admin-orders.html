@@ -500,15 +500,33 @@ async function loadOrdersManagement(forceRefresh = false) {
 
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка заказов...</div>';
 
+  // Ждём готовности Firebase Auth перед запросами. Без этого первый запрос
+  // может уйти ДО появления request.auth — правила orders/{id} требуют
+  // isAuthed(), и SDK будет висеть в ожидании auth-токена → страница
+  // вечно показывает «Загрузка заказов...». Auth обычно готов за <300мс.
+  if (typeof kerbenWaitForAuth === 'function') {
+    try { await kerbenWaitForAuth(); } catch (e) {}
+  }
+
   try {
     // ОПТИМИЗАЦИЯ COSTS: лимиты на pending/deleted (раньше .get() без
     // лимита — могли быть тысячи заказов, особенно за всю историю).
     // 500 — с большим запасом для нормальной админки. Без orderBy на
     // pending/deleted чтобы не требовать composite index.
+    // ЗАЩИТА ОТ ВИСЯКА: каждый запрос с таймаутом 15с — если SDK залип
+    // (например, проблема с IndexedDB или auth-токеном), не висим вечно.
+    const _withTimeout = (promise, ms, label) =>
+      Promise.race([
+        promise,
+        new Promise((_, rej) => setTimeout(
+          () => rej(new Error('Таймаут ' + ms + 'мс: ' + label)),
+          ms
+        ))
+      ]);
     const [recentSnapshot, pendingSnapshot, deletedSnapshot] = await Promise.all([
-      db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(),
-      db.collection('orders').where('status', '==', 'pending').limit(500).get(),
-      db.collection('orders').where('deleted', '==', true).limit(200).get()
+      _withTimeout(db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(), 15000, 'recent'),
+      _withTimeout(db.collection('orders').where('status', '==', 'pending').limit(500).get(), 15000, 'pending'),
+      _withTimeout(db.collection('orders').where('deleted', '==', true).limit(200).get(), 15000, 'deleted')
     ]);
 
     if (recentSnapshot.empty && pendingSnapshot.empty && deletedSnapshot.empty) {
@@ -541,7 +559,17 @@ async function loadOrdersManagement(forceRefresh = false) {
     renderOrdersManagementFromCache();
   } catch (error) {
     console.error('Ошибка загрузки заказов:', error);
-    listDiv.innerHTML = '<div style="text-align:center; color:#dc3545; padding:40px;">❌ Ошибка загрузки заказов</div>';
+    const msg = error && error.message ? error.message : 'Неизвестная ошибка';
+    const isTimeout = msg.indexOf('Таймаут') === 0;
+    const isPerm = error && (error.code === 'permission-denied'
+        || /permission|insufficient/i.test(msg));
+    let hint = '';
+    if (isTimeout) {
+      hint = '<br><br><span style="font-size:13px; color:#666;">Сервер не ответил за 15 секунд. Проверьте интернет и нажмите 🔄 ещё раз.</span>';
+    } else if (isPerm) {
+      hint = '<br><br><span style="font-size:13px; color:#666;">Нет прав. Войдите как админ через профиль на главной странице.</span>';
+    }
+    listDiv.innerHTML = '<div style="text-align:center; color:#dc3545; padding:40px;">❌ Ошибка загрузки заказов' + hint + '</div>';
   }
 }
 
