@@ -293,6 +293,35 @@ const firebaseConfig = {
 let db;
 let products = [];
 
+// Подсказка админу, если правила Firestore отказывают в записи.
+// Это бывает когда Firebase Auth admin@kerben.local не активирован.
+function _showAdminPermissionHelp(error) {
+  const code = error && error.code ? error.code : '';
+  const msg = error && error.message ? error.message : '';
+  const isPerm = code === 'permission-denied'
+              || /permission|insufficient|PERMISSION_DENIED/i.test(msg);
+  if (!isPerm) return false;
+  try {
+    const fbUser = (typeof firebase !== 'undefined' && firebase.auth)
+      ? firebase.auth().currentUser : null;
+    const email = fbUser && fbUser.email ? fbUser.email : '(не вошёл)';
+    const isAnon = fbUser ? fbUser.isAnonymous : true;
+    Swal.fire({
+      icon: 'error',
+      title: '🔒 Нет прав на изменение',
+      html: 'Firestore отклонил запрос — у текущего пользователя нет прав админа.<br><br>'
+          + '<b>Firebase Auth:</b> ' + email + (isAnon ? ' <i>(аноним)</i>' : '') + '<br><br>'
+          + 'Решение: на главной странице зайдите в профиль, нажмите «Выйти», '
+          + 'войдите заново админ-телефоном и паролем.<br>'
+          + 'Если после этого появится предупреждение «Firebase Auth не подключился» — '
+          + 'надо в Firebase Console пересоздать пользователя <code>admin@kerben.local</code> '
+          + 'с тем же паролем, что вводите на сайте.',
+      confirmButtonColor: '#dc3545'
+    });
+  } catch (_) {}
+  return true;
+}
+
 function initFirebase() {
   try {
     if (!firebase.apps.length) {
@@ -772,6 +801,7 @@ async function saveEditOrder() {
     renderOrdersManagementFromCache();
   } catch (error) {
     console.error('Ошибка сохранения заказа:', error);
+    if (_showAdminPermissionHelp(error)) return;
     Swal.fire('Ошибка', 'Не удалось сохранить изменения', 'error');
   }
 }
@@ -828,7 +858,9 @@ async function updateOrderStatus(orderId, newStatus) {
     
   } catch (error) {
     console.error('Ошибка обновления статуса:', error);
-    Swal.fire('Ошибка', 'Не удалось обновить статус заказа: ' + error.message, 'error');
+    if (!_showAdminPermissionHelp(error)) {
+      Swal.fire('Ошибка', 'Не удалось обновить статус заказа: ' + error.message, 'error');
+    }
     renderOrdersManagementFromCache();
   }
 }
