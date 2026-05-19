@@ -293,13 +293,46 @@ const firebaseConfig = {
 let db;
 let products = [];
 
-// Подсказка админу, если правила Firestore отказывают в записи.
-// Это бывает когда Firebase Auth admin@kerben.local не активирован.
+// Проверяет, не отвалилась ли админ-сессия Firebase Auth, и если да —
+// предлагает восстановить её через ввод пароля. Возвращает true, если в
+// итоге сессия активна и можно продолжать работу.
+async function _ensureAdminAuth() {
+  if (typeof kerbenReAuthAdminIfNeeded === 'function') {
+    try { return !!(await kerbenReAuthAdminIfNeeded()); } catch (e) { return false; }
+  }
+  return true; // Если функция недоступна — пропускаем (старый JS)
+}
+
+// Обёртка для админ-операций с заказом: если правила отклонили запрос,
+// пробуем заново восстановить сессию админа и повторить операцию ОДИН раз.
+// Если повтор тоже не получился — показываем понятную ошибку.
+async function _runAdminOp(op, label) {
+  try {
+    return await op();
+  } catch (error) {
+    const code = error && error.code ? error.code : '';
+    const msg = error && error.message ? error.message : '';
+    const isPerm = code === 'permission-denied'
+                || /permission|insufficient|PERMISSION_DENIED/i.test(msg);
+    if (!isPerm) throw error;
+    console.warn('[Admin] ' + (label || 'операция') + ' — нет прав, пробую восстановить сессию');
+    const ok = await _ensureAdminAuth();
+    if (!ok) {
+      const e = new Error('Не удалось восстановить админ-сессию');
+      e.code = 'admin-auth-cancelled';
+      throw e;
+    }
+    return await op();
+  }
+}
+
+// Старый помощник: показать длинное объяснение, если права всё ещё не получены.
 function _showAdminPermissionHelp(error) {
   const code = error && error.code ? error.code : '';
   const msg = error && error.message ? error.message : '';
   const isPerm = code === 'permission-denied'
-              || /permission|insufficient|PERMISSION_DENIED/i.test(msg);
+              || /permission|insufficient|PERMISSION_DENIED/i.test(msg)
+              || code === 'admin-auth-cancelled';
   if (!isPerm) return false;
   try {
     const fbUser = (typeof firebase !== 'undefined' && firebase.auth)
@@ -543,6 +576,11 @@ async function loadOrdersManagement(forceRefresh = false) {
     try { await kerbenWaitForAuth(); } catch (e) {}
   }
 
+  // Если localStorage помечает пользователя как админа, но Firebase Auth уже
+  // не админ (Safari/браузер удалил сессию через несколько часов) — заранее
+  // предложим восстановить вход, чтобы дальше редактирование сразу работало.
+  try { if (typeof _ensureAdminAuth === 'function') await _ensureAdminAuth(); } catch (e) {}
+
   try {
     // ОПТИМИЗАЦИЯ COSTS: лимиты на pending/deleted (раньше .get() без
     // лимита — могли быть тысячи заказов, особенно за всю историю).
@@ -769,14 +807,14 @@ async function saveEditOrder() {
   const referredBy = (document.getElementById('editOrderReferredBy').value || '').trim();
 
   try {
-    await db.collection('orders').doc(currentEditOrderId).update({
+    await _runAdminOp(() => db.collection('orders').doc(currentEditOrderId).update({
       name,
       phone,
       address,
       driverName,
       driverPhone,
       referredBy
-    });
+    }), 'сохранение заказа');
 
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === currentEditOrderId);
@@ -824,10 +862,10 @@ async function updateOrderStatus(orderId, newStatus) {
     }
 
     // Если отменённый заказ восстанавливают (из cancelled в другой статус) — не трогаем склад
-    await db.collection('orders').doc(orderId).update({ 
+    await _runAdminOp(() => db.collection('orders').doc(orderId).update({
       status: newStatus,
       statusUpdatedAt: Date.now()
-    });
+    }), 'смена статуса');
     
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
