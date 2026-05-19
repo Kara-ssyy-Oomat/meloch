@@ -299,8 +299,14 @@ function initFirebase() {
       firebase.initializeApp(firebaseConfig);
     }
     db = firebase.firestore();
-    // ОПТИМИЗАЦИЯ COSTS: оффлайн-кэш Firestore (бесплатные чтения из IndexedDB)
-    try { db.enablePersistence({ synchronizeTabs: true }).catch(()=>{}); } catch(e) {}
+    // Оффлайн-кэш Firestore НЕ включаем на админ-страницах:
+    // - На iOS Safari `enablePersistence({synchronizeTabs:true})` иногда
+    //   зависает в попытке скоординировать lock между вкладками через
+    //   IndexedDB → запросы к orders не возвращаются и страница вечно
+    //   висит на «Загрузка заказов...».
+    // - Админу нужны СВЕЖИЕ данные, кэш не критичен (трафика мало).
+    // - Расход reads минимален: 1 админ × 200-700 заказов = 700 reads,
+    //   а с кэшем главного сайта это <0.01% общей нагрузки.
     if (typeof kerbenStartAppCheckSetup === 'function') kerbenStartAppCheckSetup(db);
     console.log('Firebase инициализирован успешно');
     return true;
