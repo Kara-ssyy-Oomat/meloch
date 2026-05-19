@@ -555,6 +555,21 @@ async function loginCustomer(phone, password) {
         }
       } catch (e) {
         console.warn('[Admin] Firebase Auth не активен:', e && e.message);
+        try {
+          Swal.fire({
+            icon: 'warning',
+            title: '⚠️ Админ-вход неполный',
+            html: 'Вы вошли локально, но <b>Firebase Auth не подключился</b>.<br><br>'
+                + '<b>Что делать:</b><br>'
+                + '1. Откройте Firebase Console → Authentication → Users<br>'
+                + '2. Удалите <code>admin@kerben.local</code> (если есть)<br>'
+                + '3. Вернитесь на сайт, выйдите и войдите снова админом — '
+                + 'аккаунт пересоздастся <b>автоматически</b> с правильным паролем.<br><br>'
+                + '<small>Подробности ошибки: ' + (e && e.message ? e.message : '—') + '</small>',
+            confirmButtonText: 'Понятно',
+            confirmButtonColor: '#dc3545'
+          });
+        } catch (_) {}
       }
     }
     
@@ -1238,8 +1253,22 @@ function openAdminLoginFromProfile() {
             await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
           }
         } catch (e) {
-          // Firebase Auth не настроен в Console или пароль другой — не блокируем
           console.warn('[Admin] Firebase Auth не активен:', e && e.message);
+          try {
+            Swal.fire({
+              icon: 'warning',
+              title: '⚠️ Админ-вход неполный',
+              html: 'Вы вошли локально, но <b>Firebase Auth не подключился</b>.<br><br>'
+                  + '<b>Что делать:</b><br>'
+                  + '1. Откройте Firebase Console → Authentication → Users<br>'
+                  + '2. Удалите <code>admin@kerben.local</code> (если есть)<br>'
+                  + '3. Вернитесь на сайт, выйдите и войдите снова админом — '
+                  + 'аккаунт пересоздастся <b>автоматически</b> с правильным паролем.<br><br>'
+                  + '<small>Подробности ошибки: ' + (e && e.message ? e.message : '—') + '</small>',
+              confirmButtonText: 'Понятно',
+              confirmButtonColor: '#dc3545'
+            });
+          } catch (_) {}
         }
         
         Swal.fire({

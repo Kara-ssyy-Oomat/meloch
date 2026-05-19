@@ -108,7 +108,14 @@
   };
 
   // Войти как админ через email/password.
-  // Перед вызовом — Firebase Console: Authentication → Add user (email).
+  // ПОВЕДЕНИЕ:
+  //   1) signInWithEmailAndPassword — обычный вход.
+  //   2) Если user-not-found → createUserWithEmailAndPassword (само-инициация
+  //      при первом входе админа: не нужно вручную создавать аккаунт
+  //      в Firebase Console).
+  //   3) Если wrong-password — кидаем понятную ошибку с подсказкой, что
+  //      нужно удалить admin@kerben.local в Firebase Console и войти ещё раз
+  //      (сайт пересоздаст с правильным паролем).
   global.kerbenSignInAsAdmin = async function (email, password) {
     if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
       throw new Error('Firebase Auth SDK не загружен');
@@ -125,12 +132,44 @@
     // НЕ должен запускать signInAnonymously() при промежуточном null.
     _signInInProgress = true;
     try {
-      const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
-      console.log('[Kerben Auth] админ вошёл:', cred.user.email);
-      return cred.user;
-    } catch (err) {
-      console.error('[Kerben Auth] ошибка входа админа:', err && err.message);
-      throw err;
+      try {
+        const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+        console.log('[Kerben Auth] админ вошёл:', cred.user.email);
+        return cred.user;
+      } catch (err) {
+        const code = err && err.code ? String(err.code) : '';
+        // Юзера ещё нет — создаём (само-инициация при первом входе админа).
+        if (code === 'auth/user-not-found') {
+          try {
+            const created = await firebase.auth().createUserWithEmailAndPassword(email, password);
+            console.log('[Kerben Auth] админ создан и вошёл:', created.user.email);
+            return created.user;
+          } catch (createErr) {
+            const cCode = createErr && createErr.code ? String(createErr.code) : '';
+            // Email уже занят (гонка): пробуем войти ещё раз.
+            if (cCode === 'auth/email-already-in-use') {
+              const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+              return cred.user;
+            }
+            console.error('[Kerben Auth] не удалось создать админа:', createErr && createErr.message);
+            throw createErr;
+          }
+        }
+        // Wrong password — кидаем ошибку с понятной подсказкой
+        if (code === 'auth/wrong-password' || code === 'auth/invalid-credential'
+            || code === 'auth/invalid-login-credentials') {
+          const e = new Error(
+            'Пароль не совпадает с тем, что в Firebase Auth. '
+            + 'Откройте Firebase Console → Authentication → Users, '
+            + 'удалите admin@kerben.local и войдите на сайте ещё раз — '
+            + 'аккаунт пересоздастся автоматически с правильным паролем.'
+          );
+          e.code = code;
+          throw e;
+        }
+        console.error('[Kerben Auth] ошибка входа админа:', err && err.message);
+        throw err;
+      }
     } finally {
       _signInInProgress = false;
     }
