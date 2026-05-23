@@ -669,54 +669,90 @@ window.addEventListener('storage', function(e) {
 });
 
 // Фоновая проверка: подгружает свежий статус blocked из Firebase
-// и удаляет заблокированные/удалённые товары из корзины
+// и удаляет заблокированные/удалённые товары из корзины.
+//
+// ВАЖНО (фикс 23.05.2026): раньше функция считала «не нашёлся в БД» = «товар
+// удалён» и удаляла его из корзины. Это приводило к ложным удалениям, когда
+// запрос падал из-за неготового Firebase Auth (правила требуют isAuthed())
+// или из-за нестабильного интернета. Теперь:
+//   1) Ждём готовности Firebase Auth.
+//   2) Если ХОТЬ ОДИН батч упал — прерываем проверку, корзину не трогаем.
+//   3) Удаляем из корзины ТОЛЬКО реально заблокированные товары (blocked=true).
+//      Случай «товара нет в БД» обрабатываем отдельно и тихо: за 1 раз
+//      такой товар оставляем в корзине, удаляем только если он отсутствует
+//      ДВА раза подряд (защита от единичного флапа в результатах).
 let _lastBlockedCheck = 0;
+let _missingPrev = new Set();  // id, которых не было в прошлой проверке
 async function refreshBlockedProducts() {
   if (cart.length === 0) return;
   if (typeof db === 'undefined') return;
-  // Не чаще чем раз в 30 секунд
   const now = Date.now();
   if (now - _lastBlockedCheck < 30000) return;
   _lastBlockedCheck = now;
 
+  // 1) Ждём пока Firebase Auth выдаст auth.uid — иначе правила вернут
+  // permission-denied и snap.empty будет ложно «всё удалено».
+  if (typeof kerbenWaitForAuth === 'function') {
+    try { await kerbenWaitForAuth(); } catch (e) {}
+  }
+
+  const ids = [...new Set(cart.map(item => item.id))];
+  const blockedIds = new Set();   // реально заблокированные (blocked=true)
+  const missingNow = new Set();   // не нашлись в этом запросе
+
+  // 2) Тянем все батчи; если хоть один упал — отменяем всю проверку.
   try {
-    const ids = [...new Set(cart.map(item => item.id))];
-    const blockedIds = new Set();
-    // Firestore 'in' поддерживает до 10 значений за раз
     for (let i = 0; i < ids.length; i += 10) {
       const batch = ids.slice(i, i + 10);
-      const snap = await db.collection('products').where(firebase.firestore.FieldPath.documentId(), 'in', batch).get();
+      const snap = await db.collection('products')
+        .where(firebase.firestore.FieldPath.documentId(), 'in', batch).get();
       const found = {};
       snap.forEach(doc => { found[doc.id] = doc.data(); });
       for (const id of batch) {
-        if (!found[id] || found[id].blocked) blockedIds.add(id);
+        if (!found[id]) {
+          missingNow.add(id);
+        } else if (found[id].blocked) {
+          blockedIds.add(id);
+        }
       }
     }
-    if (blockedIds.size > 0) {
-      const removedTitles = cart.filter(item => blockedIds.has(item.id)).map(item => item.title);
-      const filtered = cart.filter(item => !blockedIds.has(item.id));
-      cart.length = 0;
-      cart.push(...filtered);
-      localStorage.setItem('cart', JSON.stringify(cart));
-      // Обновляем RAM-кэш products
-      if (typeof products !== 'undefined' && products.length > 0) {
-        blockedIds.forEach(id => {
-          const p = products.find(pp => pp.id === id);
-          if (p) p.blocked = true;
-        });
-      }
-      updateCart();
-      if (typeof Swal !== 'undefined') {
-        Swal.fire({
-          icon: 'info',
-          title: 'Товары удалены из корзины',
-          html: '<b>Заблокированы или удалены:</b><br>' + removedTitles.join('<br>'),
-          timer: 4000,
-          showConfirmButton: false
-        });
-      }
-    }
-  } catch(e) {
-    console.log('[BlockedCheck] Ошибка:', e);
+  } catch (e) {
+    // Сеть/auth/правила упали — НЕ трогаем корзину. Попробуем снова через 30с.
+    console.warn('[BlockedCheck] запрос упал — корзина не изменена:', e && e.message);
+    return;
+  }
+
+  // 3) Товар считаем удалённым ТОЛЬКО если он отсутствовал две проверки подряд.
+  // Это защищает от единичных «флапов» Firestore (пакетные запросы иногда
+  // не возвращают часть результатов при перегрузке).
+  const confirmedMissing = new Set();
+  missingNow.forEach(id => { if (_missingPrev.has(id)) confirmedMissing.add(id); });
+  _missingPrev = missingNow;
+
+  // Объединяем: «реально заблокированные» + «подтверждённо удалённые»
+  confirmedMissing.forEach(id => blockedIds.add(id));
+
+  if (blockedIds.size === 0) return;
+
+  const removedTitles = cart.filter(item => blockedIds.has(item.id)).map(item => item.title);
+  const filtered = cart.filter(item => !blockedIds.has(item.id));
+  cart.length = 0;
+  cart.push(...filtered);
+  localStorage.setItem('cart', JSON.stringify(cart));
+  if (typeof products !== 'undefined' && products.length > 0) {
+    blockedIds.forEach(id => {
+      const p = products.find(pp => pp.id === id);
+      if (p) p.blocked = true;
+    });
+  }
+  updateCart();
+  if (typeof Swal !== 'undefined') {
+    Swal.fire({
+      icon: 'info',
+      title: 'Товары удалены из корзины',
+      html: '<b>Заблокированы или удалены:</b><br>' + removedTitles.join('<br>'),
+      timer: 4000,
+      showConfirmButton: false
+    });
   }
 }
