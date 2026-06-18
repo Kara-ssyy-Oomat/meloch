@@ -133,7 +133,32 @@ async function _bindCustomerDocToFirebaseUid(customerId, customerData) {
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
   initCustomerAuth();
+  // ТИХОЕ ВОССТАНОВЛЕНИЕ АДМИН-СЕССИИ:
+  // Если пользователь помечен админом в localStorage, но Firebase Auth
+  // забыл сессию (Safari/iOS обрезает её через несколько часов) —
+  // молча восстанавливаем по сохранённому паролю, чтобы админ-функции
+  // (редактирование товаров, заказов и т.п.) сразу работали и не было
+  // ошибки «вы не админ». Делаем с небольшой задержкой, чтобы дать
+  // Firebase Auth подняться.
+  setTimeout(function() {
+    try {
+      if (typeof window.kerbenReAuthAdminIfNeeded === 'function') {
+        window.kerbenReAuthAdminIfNeeded().catch(function() {});
+      }
+    } catch (e) {}
+  }, 1500);
 });
+
+// Дополнительно: повторяем тихое восстановление каждые 30 минут,
+// чтобы Firebase Auth не успевал «протухнуть» во время длинной
+// админ-сессии (актуально для iOS Safari и долгих вкладок).
+setInterval(function() {
+  try {
+    if (typeof window.kerbenReAuthAdminIfNeeded === 'function') {
+      window.kerbenReAuthAdminIfNeeded().catch(function() {});
+    }
+  } catch (e) {}
+}, 30 * 60 * 1000);
 
 // Вспомогательная функция: сохранить профиль во все хранилища
 function _saveCustomerData() {
@@ -1886,9 +1911,13 @@ window.kerbenReAuthAdminIfNeeded = async function () {
 
   // Проверяем, есть ли в localStorage пометка «я админ» с тем же телефоном.
   // Если её нет — значит это не админ, ничего не показываем.
+  // ВАЖНО: ключ — 'customerData' (так сохраняет _saveCustomerData / profile.html).
+  // Раньше тут ошибочно читали 'currentCustomer' — из-за этого тихое
+  // восстановление НИКОГДА не срабатывало, и админ постоянно «выпадал».
   let isAdminLocally = false;
   try {
-    const saved = localStorage.getItem('currentCustomer');
+    let saved = localStorage.getItem('customerData');
+    if (!saved) saved = localStorage.getItem('currentCustomer'); // legacy ключ
     if (saved) {
       const data = JSON.parse(saved);
       const adminPhoneNorm = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
