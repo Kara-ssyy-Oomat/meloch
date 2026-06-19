@@ -142,10 +142,14 @@ service cloud.firestore {
     // =========================================================
     //                       PRODUCTS
     // =========================================================
-    // READ открыт всем — каталог должен открываться без логина.
+    // READ — только залогиненный (анонимный auth тоже сойдёт). Это
+    // закрывает прямую выгрузку всех 5000 товаров через REST API
+    // ботами — главная причина миллионов Read Ops в сутки. Для
+    // настоящих посетителей site работает прозрачно: js/auth.js
+    // автоматически логинит каждого анонимно перед первым запросом.
     // DELETE — ТОЛЬКО админ.
     match /products/{id} {
-      allow read: if true;
+      allow read: if isAuthed();
       allow create, update: if
         reasonableDocSize()
         && strOk('name', 500)
@@ -164,8 +168,11 @@ service cloud.firestore {
     // =========================================================
     //                  SELLERS / SELLER_CATEGORIES
     // =========================================================
+    // READ — только залогиненный. Анонимный auth получает каждый
+    // посетитель автоматически в js/auth.js, поэтому каталог
+    // открывается как обычно, а боты с curl-ом отрезаны.
     match /sellers/{id} {
-      allow read: if true;
+      allow read: if isAuthed();
       allow create, update: if
         reasonableDocSize()
         && strOk('name', 200)
@@ -175,7 +182,7 @@ service cloud.firestore {
     }
 
     match /seller_categories/{id} {
-      allow read: if true;
+      allow read: if isAuthed();
       allow create, update: if
         reasonableDocSize()
         && strOk('name', 200)
@@ -194,8 +201,9 @@ service cloud.firestore {
     // =========================================================
     //                    WAREHOUSES (нужны клиенту)
     // =========================================================
+    // READ — только залогиненный (анонимный auth подходит).
     match /warehouses/{id} {
-      allow read: if true;
+      allow read: if isAuthed();
       allow create, update: if
         reasonableDocSize()
         && strOk('name', 200)
@@ -206,8 +214,9 @@ service cloud.firestore {
     // =========================================================
     //                  AGENTS / CLIENT-AGENTS
     // =========================================================
+    // READ — только залогиненный (анонимный auth подходит).
     match /agents/{id} {
-      allow read: if true;
+      allow read: if isAuthed();
       allow create, update: if
         reasonableDocSize()
         && strOk('name', 200)
@@ -217,7 +226,7 @@ service cloud.firestore {
     }
 
     match /clientAgents/{id} {
-      allow read: if true;
+      allow read: if isAuthed();
       allow create, update: if
         reasonableDocSize()
         && strOk('phone', 30)
@@ -243,8 +252,10 @@ service cloud.firestore {
     // agentExpenses — расходы агентов. Их вносит сам агент через
     // agent-profit.html. У агентов нет отдельного auth — оставляем
     // открытым на запись (с валидацией) и удаление.
+    // READ — только залогиненный (5000+ документов, удобная цель для
+    // выгрузки финансовых данных конкурентами через REST API).
     match /agentExpenses/{id} {
-      allow read: if true;
+      allow read: if isAuthed();
       allow create, update: if
         reasonableDocSize()
         && strOk('description', 2000)
