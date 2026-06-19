@@ -711,6 +711,31 @@
       return Array.from(new Uint8Array(hash))
         .map(b => b.toString(16).padStart(2, '0')).join('');
     }
+
+    // ====== ЛОКАЛЬНЫЙ КЭШ ПАРОЛЯ АДМИНА ======
+    // Нужен чтобы при потере Firebase Auth сессии (Safari ITP, перезапуск
+    // браузера, бездействие) admin-reauth.js мог тихо восстановить вход
+    // без диалога. Эти же функции есть в js/customer-auth.js, но profile.html
+    // имеет собственную форму входа — поэтому копируем их сюда. Ключ и
+    // обфускация ОБЯЗАНЫ совпадать с admin-reauth.js / customer-auth.js.
+    const _ADMIN_CREDS_KEY = 'kerbenAdminCreds_v1';
+    const _ADMIN_OBFUSC_KEY = 'kerben_admin_local_obfusc_2026';
+    function _obfuscatePassword(text) {
+      try {
+        let out = '';
+        for (let i = 0; i < text.length; i++) {
+          out += String.fromCharCode(text.charCodeAt(i) ^ _ADMIN_OBFUSC_KEY.charCodeAt(i % _ADMIN_OBFUSC_KEY.length));
+        }
+        return btoa(unescape(encodeURIComponent(out)));
+      } catch (e) { return null; }
+    }
+    function _storeAdminCredentialsLocally(password) {
+      try {
+        const obf = _obfuscatePassword(password);
+        if (!obf) return;
+        localStorage.setItem(_ADMIN_CREDS_KEY, JSON.stringify({ p: obf, ts: Date.now() }));
+      } catch (e) {}
+    }
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
@@ -1155,6 +1180,10 @@
           try {
             if (typeof kerbenSignInAsAdmin === 'function') {
               await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
+              // Запоминаем пароль локально (обфусцированно, 30 дней).
+              // Это даёт admin-reauth.js возможность молча восстановить
+              // сессию после перезапуска браузера / истечения Firebase Auth.
+              try { _storeAdminCredentialsLocally(password); } catch (_) {}
             }
           } catch (e) {
             console.warn('[Admin] Firebase Auth не активен:', e && e.message);
@@ -1242,6 +1271,7 @@
           try {
             if (typeof kerbenSignInAsAdmin === 'function') {
               await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', data.password);
+              try { _storeAdminCredentialsLocally(data.password); } catch (_) {}
             }
           } catch (e) {
             console.warn('[Admin] Firebase Auth не активен:', e && e.message);
@@ -1715,7 +1745,19 @@
           currentCustomer.isAdmin = true;
           isAdmin = true;
           localStorage.setItem('customerData', JSON.stringify(currentCustomer));
-          
+
+          // FIREBASE AUTH: полноценный вход для админа + сохранение пароля
+          // локально, чтобы admin-reauth.js мог молча восстановить сессию
+          // при следующем заходе на сайт.
+          try {
+            if (typeof kerbenSignInAsAdmin === 'function') {
+              await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
+              try { _storeAdminCredentialsLocally(password); } catch (_) {}
+            }
+          } catch (e) {
+            console.warn('[Admin] Firebase Auth не активен:', e && e.message);
+          }
+
           Swal.fire({
             icon: 'success',
             title: '✅ Успешный вход',
