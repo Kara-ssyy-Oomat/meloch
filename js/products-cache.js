@@ -57,18 +57,32 @@
   var bc = null;
   try { bc = new BroadcastChannel(BC_NAME); } catch (e) {}
 
-  function clearLocal(collection) {
+  // Очистка только localStorage (без RAM). Используется когда ТЕКУЩАЯ
+  // вкладка сама делает запись — её собственный RAM-кэш страница уже
+  // обновляет вручную сразу после await, и обнулять его извне НЕЛЬЗЯ
+  // (иначе чекпоинт `if (Array.isArray(...))` после await упадёт и
+  // локальное обновление будет потеряно — экран зависнет на «Загрузке»).
+  function clearLSOnly(collection) {
     var cfg = CACHES[collection];
     if (!cfg) return;
     cfg.keys.forEach(function (k) {
       try { localStorage.removeItem(k); } catch (e) {}
     });
+  }
+
+  // Полная очистка: localStorage + RAM-кэш. Используется только для
+  // СТОРОННИХ инвалидаций (broadcast от другой вкладки, storage event).
+  function clearAll(collection) {
+    clearLSOnly(collection);
+    var cfg = CACHES[collection];
+    if (!cfg) return;
     try { cfg.clearRam(); } catch (e) {}
   }
 
   function invalidate(collection, opts) {
     if (!CACHES[collection]) return;
-    clearLocal(collection);
+    // ТЕКУЩАЯ вкладка: только localStorage. RAM не трогаем — страница сама.
+    clearLSOnly(collection);
     if (!(opts && opts.silent) && bc) {
       try { bc.postMessage({ type: 'invalidate', collection: collection }); } catch (e) {}
     }
@@ -77,12 +91,12 @@
     }
   }
 
-  // Получаем сообщение от другой вкладки — сбрасываем у себя без эха
+  // Получаем сообщение от ДРУГОЙ вкладки — сбрасываем у себя по полной
   if (bc) {
     bc.onmessage = function (e) {
       var d = e && e.data;
       if (d && d.type === 'invalidate' && CACHES[d.collection]) {
-        clearLocal(d.collection);
+        clearAll(d.collection);
       }
     };
   }
@@ -90,7 +104,7 @@
   // Доп. канал: storage event (на случай если BroadcastChannel недоступен)
   window.addEventListener('storage', function (e) {
     if (!e.key) return;
-    // Если другая вкладка удалила timestamp-ключ какой-либо коллекции — сбрасываем RAM
+    // Если ДРУГАЯ вкладка удалила timestamp-ключ — сбрасываем RAM у себя
     Object.keys(CACHES).forEach(function (collection) {
       var keys = CACHES[collection].keys;
       if (keys.indexOf(e.key) !== -1 && !e.newValue) {
