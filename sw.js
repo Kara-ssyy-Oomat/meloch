@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.4.0-admin-remember-cart-fix'; // Запомни-меня админа + фикс ложного удаления корзины
+const CACHE_VERSION = 'kerben-v4.5.0-stable-order-and-admin-reauth'; // Стабильный порядок товаров + молчаливый ре-логин админа + фикс ImgBB
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
