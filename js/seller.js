@@ -700,6 +700,19 @@ async function openSellerAddProduct() {
       }
     }
 
+    // Поле order ОБЯЗАТЕЛЬНО — без него товар при следующей загрузке
+    // мог "прыгать" из-за нестабильной сортировки. Берём maxOrder+1
+    // среди уже загруженных товаров (чтобы новый встал в конец списка).
+    let _maxOrder = 0;
+    if (Array.isArray(products)) {
+      for (let i = 0; i < products.length; i++) {
+        const pOrder = products[i] && products[i].order;
+        if (typeof pOrder === 'number' && isFinite(pOrder) && pOrder > _maxOrder) {
+          _maxOrder = pOrder;
+        }
+      }
+    }
+
     const productData = {
       title: formValues.title,
       category: formValues.category,
@@ -710,6 +723,7 @@ async function openSellerAddProduct() {
       sellerId: currentSeller.id,
       sellerName: currentSeller.name,
       createdAt: Date.now(),
+      order: _maxOrder + 1,
       blocked: false
     };
 

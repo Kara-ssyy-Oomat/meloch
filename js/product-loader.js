@@ -13,8 +13,33 @@ let productsCacheTime = 0;
 const CACHE_DURATION = 1800000;      // 30 минут — пока в RAM, второй раз не читаем
 const LS_CACHE_DURATION = 3600000;   // 60 минут — мгновенный показ из localStorage
 const FRESH_DURATION = 900000;       // 15 минут — пока кэш свежий, в Firestore не лезем вообще
+// ВАЖНО: используем ОРИГИНАЛЬНЫЕ ключи кэша.
+// Раньше был v2-bump, но из-за этого после обновления кода у пользователей
+// кэш становился «пустым», и если Firebase в этот момент возвращал
+// permission-denied (auth не успел подняться) — на сайте вообще ничего
+// не показывалось. Стабильная сортировка _stableProductOrderCompare
+// применяется при ЧТЕНИИ из кэша, поэтому старый «кривой» порядок
+// автоматически чинится при загрузке — bump-key не нужен.
 const LS_PRODUCTS_KEY = 'cachedProducts';
 const LS_PRODUCTS_TIME_KEY = 'cachedProductsTime';
+
+// МИГРАЦИЯ из v2-ключей обратно (для тех, кто получил v2-версию кода).
+// Если v2-ключи есть, а оригинальных нет — переносим v2 → оригинал.
+// Если оба есть — выбираем самый свежий по timestamp.
+try {
+  var _v2Raw = localStorage.getItem('cachedProducts_v2');
+  var _v2Time = parseInt(localStorage.getItem('cachedProductsTime_v2') || '0');
+  if (_v2Raw && _v2Raw.length > 2) {
+    var _origTime = parseInt(localStorage.getItem('cachedProductsTime') || '0');
+    if (_v2Time >= _origTime) {
+      localStorage.setItem('cachedProducts', _v2Raw);
+      localStorage.setItem('cachedProductsTime', String(_v2Time));
+      console.log('[Products] миграция кэша v2 → original (', _v2Raw.length, 'байт)');
+    }
+  }
+  localStorage.removeItem('cachedProducts_v2');
+  localStorage.removeItem('cachedProductsTime_v2');
+} catch (e) {}
 
 // Флаг: склады приостановлены (все товары без лимита)
 let warehousePaused = false;
@@ -85,6 +110,31 @@ async function loadWarehousePausedFlag() {
   }
 }
 
+// Стабильная функция сравнения товаров по позиции.
+// Гарантирует, что один и тот же набор товаров ВСЕГДА получит одну и ту же
+// последовательность независимо от:
+//  - наличия/отсутствия поля order у отдельных товаров,
+//  - совпадения значений order у нескольких товаров,
+//  - локали браузера/устройства (Safari/Chrome/iOS/Android).
+function _stableProductOrderCompare(a, b) {
+  // 1) Основной ключ — числовой order. Отсутствует/не число → в самый конец.
+  var ao = (typeof a.order === 'number' && isFinite(a.order))
+    ? a.order : Number.MAX_SAFE_INTEGER;
+  var bo = (typeof b.order === 'number' && isFinite(b.order))
+    ? b.order : Number.MAX_SAFE_INTEGER;
+  if (ao !== bo) return ao - bo;
+  // 2) При совпадении order — стабильный тай-брейк по времени создания.
+  var ac = (typeof a.createdAt === 'number') ? a.createdAt : 0;
+  var bc = (typeof b.createdAt === 'number') ? b.createdAt : 0;
+  if (ac !== bc) return ac - bc;
+  // 3) Финальный тай-брейк по id — никогда не равны → порядок строго детерминированный.
+  var aid = a.id || '';
+  var bid = b.id || '';
+  if (aid < bid) return -1;
+  if (aid > bid) return 1;
+  return 0;
+}
+
 // Эффективный остаток товара (исключая приостановленные склады)
 // Возвращает null если остаток не отслеживается (безлимит), число если отслеживается
 function getEffectiveStock(product) {
@@ -139,7 +189,9 @@ async function loadProducts() {
     const now = Date.now();
     if (productsCache.length > 0 && (now - productsCacheTime) < CACHE_DURATION) {
       console.log('📦 Загрузка из RAM-кэша');
-      products = productsCache;
+      // Применяем стабильную сортировку и здесь — на случай если RAM-кэш
+      // был наполнен старой версией кода с нестабильной сортировкой.
+      products = productsCache.slice().sort(_stableProductOrderCompare);
       productsReady = true;
       renderProducts();
       hideSplashScreen();
@@ -163,25 +215,25 @@ async function loadProducts() {
     }
     
     // 2) Показываем товары из localStorage мгновенно (пока грузим с сервера)
+    // ВАЖНО: показываем кэш ЛЮБОГО возраста, лучше старые товары чем
+    // пустой экран. Если кэш старее LS_CACHE_DURATION — всё равно
+    // покажем, но дальше пойдём в Firestore за свежими данными.
     let showedFromCache = false;
     let lsAgeMs = Infinity;
     try {
       const lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0');
       lsAgeMs = now - lsTime;
-      if (lsAgeMs < LS_CACHE_DURATION) {
-        const lsProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
-        if (lsProducts.length > 0) {
-          products = lsProducts;
-          productsReady = true;
-          renderProducts();
-          showedFromCache = true;
-          hideSplashScreen();
-          // Заполняем RAM-кэш тем же массивом, чтобы переход между вкладками
-          // в течение CACHE_DURATION не лез в Firestore.
-          productsCache = lsProducts;
-          productsCacheTime = now - Math.min(lsAgeMs, CACHE_DURATION);
-          console.log('📦 Мгновенная загрузка из localStorage:', lsProducts.length, 'товаров (возраст: ' + Math.round(lsAgeMs/60000) + ' мин)');
-        }
+      const lsProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
+      if (Array.isArray(lsProducts) && lsProducts.length > 0) {
+        lsProducts.sort(_stableProductOrderCompare);
+        products = lsProducts;
+        productsReady = true;
+        renderProducts();
+        showedFromCache = true;
+        hideSplashScreen();
+        productsCache = lsProducts;
+        productsCacheTime = now - Math.min(lsAgeMs, CACHE_DURATION);
+        console.log('📦 Мгновенная загрузка из localStorage:', lsProducts.length, 'товаров (возраст: ' + Math.round(lsAgeMs/60000) + ' мин)');
       }
     } catch(e) { /* localStorage может быть недоступен */ }
 
@@ -210,11 +262,74 @@ async function loadProducts() {
     // ОПТИМИЗАЦИЯ COSTS: жёсткий лимит 5000 товаров для защиты от
     // «убежавшего» расхода. Магазин с >5000 SKU — редкость; при
     // необходимости поднять лимит здесь.
+    //
+    // ВАЖНО: НЕ используем .orderBy('order') в запросе Firestore.
+    // Причины:
+    //  1) Firestore с orderBy('order') ПРОПУСКАЕТ документы у которых нет
+    //     этого поля (например, товары, добавленные продавцами без order).
+    //     Из-за этого часть товаров "исчезала" при загрузке.
+    //  2) Сортировку всё равно делаем на клиенте (см. ниже) — там она более
+    //     надёжная и стабильная.
+    //
+    // Защита от race-condition с Firebase Auth: правила products требуют
+    // request.auth != null. Если первый запрос ушёл раньше, чем поднялась
+    // анонимная/админ сессия — Firestore вернёт permission-denied. В этом
+    // случае РЕАЛЬНО ждём появления firebase.auth().currentUser (а не
+    // просто фиксированное время) и повторяем запрос до 4 попыток.
+    async function _waitForFirebaseUser(maxWaitMs) {
+      var deadline = Date.now() + (maxWaitMs || 6000);
+      while (Date.now() < deadline) {
+        try {
+          if (typeof firebase !== 'undefined' && firebase.auth
+              && firebase.auth().currentUser) {
+            return firebase.auth().currentUser;
+          }
+        } catch (_) {}
+        // Пробуем дёрнуть kerbenWaitForAuth/kerbenEnsureSignedIn,
+        // если они есть — это запустит signInAnonymously если ещё не запущен.
+        try {
+          if (typeof kerbenEnsureSignedIn === 'function') kerbenEnsureSignedIn();
+        } catch (_) {}
+        await new Promise(function (r) { setTimeout(r, 200); });
+      }
+      return null;
+    }
+
     let snapshot;
-    try {
-      snapshot = await db.collection('products').orderBy('order').limit(5000).get();
-    } catch (e) {
-      snapshot = await db.collection('products').limit(5000).get();
+    let _attempt = 0;
+    const MAX_ATTEMPTS = 4;
+    while (true) {
+      try {
+        // Перед запросом проверяем что auth user есть. Если нет — ждём.
+        try {
+          if (typeof firebase !== 'undefined' && firebase.auth
+              && !firebase.auth().currentUser) {
+            await _waitForFirebaseUser(6000);
+          }
+        } catch (_) {}
+        snapshot = await db.collection('products').limit(5000).get();
+        break; // успех
+      } catch (e) {
+        _attempt++;
+        const code = e && e.code ? e.code : '';
+        const msg = e && e.message ? e.message : '';
+        const isPerm = code === 'permission-denied'
+                    || /permission|insufficient/i.test(msg);
+        if (isPerm && _attempt < MAX_ATTEMPTS) {
+          var fbUser = null;
+          try { fbUser = firebase.auth().currentUser; } catch (_) {}
+          console.warn('[Products] permission-denied, попытка', _attempt,
+            '— firebase user:', fbUser ? (fbUser.isAnonymous ? 'anon ' + fbUser.uid.substring(0,6) : fbUser.email) : 'NULL',
+            '— жду auth и пробую ещё раз');
+          // Реально ждём появления firebase user (до 6 сек)
+          await _waitForFirebaseUser(6000);
+          // Плюс маленький буфер для прокидки токена в SDK
+          await new Promise(r => setTimeout(r, 300 + 300 * _attempt));
+          continue;
+        }
+        // Не permission или попытки кончились — пробрасываем дальше
+        throw e;
+      }
     }
     products = [];
     snapshot.forEach(doc => {
@@ -225,12 +340,14 @@ async function loadProducts() {
     const withPhoto = products.filter(p => p.image).length;
     console.log(`📦 Загружено ${products.length} товаров, с фото: ${withPhoto}`);
     
-    // Сортировка
-    if (!products.every(p => typeof p.order === 'number')) {
-      products.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-    } else {
-      products.sort((a, b) => (a.order || 0) - (b.order || 0));
-    }
+    // СТАБИЛЬНАЯ СОРТИРОВКА (один и тот же порядок при каждой загрузке).
+    // Раньше тут была проблема: если хоть один товар без `order` —
+    // ВЕСЬ список перестраивался по названию, и порядок «прыгал».
+    // Теперь:
+    //  - сортируем по `order` (товары без него уходят в конец)
+    //  - при равных `order` — по времени создания (новый позже)
+    //  - при равных времени — по id (всегда стабильный финальный тай-брейк)
+    products.sort(_stableProductOrderCompare);
     
     // Сохраняем в оба кэша
     productsCache = [...products];
@@ -293,16 +410,84 @@ async function loadProducts() {
     await loadSellerCategoriesCache();
   } catch (error) {
     console.error('Error loading products:', error);
+    const code = error && error.code ? error.code : '';
+    const msg = error && error.message ? error.message : '';
+    const isPerm = code === 'permission-denied'
+                || /permission|insufficient/i.test(msg);
+
+    // ВСЕГДА скрываем splash, чтобы пользователь видел хоть что-то.
+    hideSplashScreen();
+
+    // ГРАЦИОЗНАЯ ДЕГРАДАЦИЯ при permission-denied:
+    // Если у нас УЖЕ есть какие-то товары на экране (из RAM/localStorage-
+    // кэша), не показываем модальную ошибку — пользователь продолжает
+    // видеть товары, а в консоль пишем подробности.
+    if (isPerm && Array.isArray(products) && products.length > 0) {
+      console.warn('[Products] permission-denied при фоновом обновлении — оставляем кэш на экране');
+      productsReady = true;
+      return;
+    }
+
+    // Если кэш в памяти пуст, но в localStorage что-то лежит (даже
+    // устаревшее) — лучше показать старые товары, чем пустой экран.
+    if (isPerm && (!Array.isArray(products) || products.length === 0)) {
+      try {
+        const lsRaw = localStorage.getItem(LS_PRODUCTS_KEY) || '[]';
+        const lsProducts = JSON.parse(lsRaw);
+        if (Array.isArray(lsProducts) && lsProducts.length > 0) {
+          lsProducts.sort(_stableProductOrderCompare);
+          products = lsProducts;
+          productsCache = lsProducts;
+          productsCacheTime = Date.now() - CACHE_DURATION;
+          productsReady = true;
+          if (typeof renderProducts === 'function') renderProducts();
+          console.warn('[Products] permission-denied + пустой RAM — показал устаревший localStorage кэш (',
+                       lsProducts.length, 'тов.)');
+          return;
+        }
+      } catch (_) {}
+    }
+
     productsReady = false;
-    Swal.fire('Ошибка', 'Не удалось загрузить товары: ' + error.message, 'error');
+    let fbUserInfo = 'неизвестно';
+    try {
+      if (typeof firebase !== 'undefined' && firebase.auth) {
+        const u = firebase.auth().currentUser;
+        fbUserInfo = u ? (u.isAnonymous ? 'аноним' : u.email || 'без email') : 'НЕТ';
+      }
+    } catch (_) {}
+
+    if (isPerm) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Не удалось загрузить товары',
+        html:
+          '<div style="text-align:left; font-size:13px;">' +
+          'Сервер не разрешил чтение (permission-denied).<br><br>' +
+          '<b>Что попробовать:</b><br>' +
+          '1. Обновите страницу (Ctrl+F5 / Cmd+Shift+R).<br>' +
+          '2. Проверьте интернет.<br>' +
+          '3. Если повторяется — в Firebase Console: <b>Authentication → Sign-in method → Anonymous → Enable</b>.<br><br>' +
+          '<small>Auth user: ' + fbUserInfo + '</small>' +
+          '</div>',
+        confirmButtonColor: '#dc3545'
+      });
+    } else {
+      Swal.fire('Ошибка', 'Не удалось загрузить товары: ' + msg, 'error');
+    }
   }
 }
 
 // Функция загрузки изображений на ImgBB (для редактирования товаров)
+// ВАЖНО: ключ ImgBB можно поменять в одном месте — global.IMGBB_API_KEY.
+// Тот же ключ используется в admin-products.html. Если получаешь
+// "Invalid API v1 key" — сгенерируй новый на https://api.imgbb.com/
+// (Account → Settings → API → Generate key) и подставь сюда.
 async function uploadToImgBB(file) {
   console.log('📤 Начинаем загрузку на ImgBB:', file.name);
   
-  const apiKey = '3dcd4dce37fa365cc2ee66890444ce4b';
+  const apiKey = (typeof window !== 'undefined' && window.IMGBB_API_KEY)
+    || 'e33ec8bedb69f464ba02984709267456';
   
   // Конвертируем файл в base64
   const base64 = await new Promise((resolve, reject) => {
@@ -331,7 +516,15 @@ async function uploadToImgBB(file) {
       console.log('✅ Файл успешно загружен на ImgBB:', data.data.url);
       return data.data.url;
     } else {
-      throw new Error('Ошибка загрузки на ImgBB: ' + (data.error?.message || JSON.stringify(data)));
+      var imgErrMsg = (data.error && data.error.message) || JSON.stringify(data);
+      // Понятная подсказка при невалидном ключе.
+      if (/invalid api(\s*v\d+)? key/i.test(imgErrMsg)) {
+        imgErrMsg += '\n\nКЛЮЧ ImgBB больше не работает. Нужно:\n' +
+                     '1) Зайти https://api.imgbb.com → Sign In.\n' +
+                     '2) Account → Settings → API → Generate key.\n' +
+                     '3) Подставить ключ в window.IMGBB_API_KEY или в js/product-loader.js (строка ~485).';
+      }
+      throw new Error('Ошибка загрузки на ImgBB: ' + imgErrMsg);
     }
   } catch (err) {
     console.error('❌ Ошибка при загрузке:', err);

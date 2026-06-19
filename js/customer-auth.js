@@ -133,32 +133,12 @@ async function _bindCustomerDocToFirebaseUid(customerId, customerData) {
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
   initCustomerAuth();
-  // ТИХОЕ ВОССТАНОВЛЕНИЕ АДМИН-СЕССИИ:
-  // Если пользователь помечен админом в localStorage, но Firebase Auth
-  // забыл сессию (Safari/iOS обрезает её через несколько часов) —
-  // молча восстанавливаем по сохранённому паролю, чтобы админ-функции
-  // (редактирование товаров, заказов и т.п.) сразу работали и не было
-  // ошибки «вы не админ». Делаем с небольшой задержкой, чтобы дать
-  // Firebase Auth подняться.
-  setTimeout(function() {
-    try {
-      if (typeof window.kerbenReAuthAdminIfNeeded === 'function') {
-        window.kerbenReAuthAdminIfNeeded().catch(function() {});
-      }
-    } catch (e) {}
-  }, 1500);
+  // Тихое восстановление админ-сессии Firebase Auth обрабатывает
+  // модуль js/admin-reauth.js (он подключён на каждой странице и сам
+  // запускается по DOMContentLoaded + visibilitychange + раз в 30 мин).
+  // Здесь ничего дополнительно делать не нужно, чтобы не показывать
+  // лишний Swal-диалог из-за временно «пустого» firebase.auth().
 });
-
-// Дополнительно: повторяем тихое восстановление каждые 30 минут,
-// чтобы Firebase Auth не успевал «протухнуть» во время длинной
-// админ-сессии (актуально для iOS Safari и долгих вкладок).
-setInterval(function() {
-  try {
-    if (typeof window.kerbenReAuthAdminIfNeeded === 'function') {
-      window.kerbenReAuthAdminIfNeeded().catch(function() {});
-    }
-  } catch (e) {}
-}, 30 * 60 * 1000);
 
 // Вспомогательная функция: сохранить профиль во все хранилища
 function _saveCustomerData() {

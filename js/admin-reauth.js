@@ -102,20 +102,61 @@
     }
   }
 
+  // Если в текущей загрузке страницы сохранённый пароль уже не подошёл —
+  // больше не пытаемся (бессмысленно дёргать сеть с одним и тем же паролем).
+  var _badPasswordThisSession = false;
+  // Защита от гонки: если уже идёт попытка входа — следующие вызовы ждут её.
+  var _restorePromise = null;
+
+  // Очистить сохранённый пароль — например, если он больше не подходит
+  // (Firebase Console пересоздали аккаунт админа с другим паролем).
+  function clearStoredAdminCreds() {
+    try { localStorage.removeItem(ADMIN_CREDS_KEY); } catch (e) {}
+  }
+  global.kerbenClearStoredAdminCreds =
+    global.kerbenClearStoredAdminCreds || clearStoredAdminCreds;
+
+  // Определить, что ошибка signIn — именно «не подходит пароль» (а не
+  // временная сетевая проблема). В этом случае стоит очистить кэш пароля.
+  function isWrongPasswordError(err) {
+    if (!err) return false;
+    var code = err.code || '';
+    return (
+      code === 'auth/wrong-password' ||
+      code === 'auth/invalid-credential' ||
+      code === 'auth/invalid-login-credentials' ||
+      code === 'auth/user-not-found' ||
+      code === 'auth/user-disabled'
+    );
+  }
+
   // ----------- Основная функция: тихое восстановление -----------
   // Возвращает Promise<boolean>: true — админ-сессия активна, false — нет.
   function tryRestoreAdminSession() {
-    return new Promise(function (resolve) {
+    // Если уже идёт восстановление — отдаём тот же промис, не запускаем
+    // параллельно (иначе будет 2-3 ненужных запроса signIn).
+    if (_restorePromise) return _restorePromise;
+
+    _restorePromise = new Promise(function (resolve) {
+      function finish(ok) {
+        _restorePromise = null;
+        resolve(ok);
+      }
+
       // Firebase ещё не подгружен?
       if (typeof firebase === 'undefined' || !firebase.auth) {
-        return resolve(false);
+        return finish(false);
       }
 
       // Пользователь не админ локально — ничего не делаем
-      if (!isAdminLocally()) return resolve(false);
+      if (!isAdminLocally()) return finish(false);
 
       // Уже залогинен как админ — всё ок
-      if (isFirebaseAdminAlready()) return resolve(true);
+      if (isFirebaseAdminAlready()) return finish(true);
+
+      // В этой сессии страницы пароль уже оказался неподходящим —
+      // не пытаемся снова до перезагрузки.
+      if (_badPasswordThisSession) return finish(false);
 
       // Сессия в Firebase Auth ещё может догрузиться (asynchronously),
       // подождём её появления чуть-чуть.
@@ -124,15 +165,34 @@
       var max = 2000;
 
       function check() {
-        if (isFirebaseAdminAlready()) return resolve(true);
+        if (isFirebaseAdminAlready()) return finish(true);
         waitMs += step;
         if (waitMs >= max) return tryStoredPassword();
         setTimeout(check, step);
       }
 
+      function onSignInError(err) {
+        var wrong = isWrongPasswordError(err);
+        console.warn(
+          '[Admin Reauth] не удалось восстановить:',
+          (err && err.message) || err
+        );
+        // Если пароль больше не подходит — очищаем кэш, чтобы не долбить
+        // Firebase бессмысленными запросами. Админ войдёт заново вручную
+        // в профиле, и кэш пересоздастся с актуальным паролем.
+        if (wrong) {
+          _badPasswordThisSession = true;
+          clearStoredAdminCreds();
+          console.warn(
+            '[Admin Reauth] сохранённый пароль больше не подходит — кэш очищен'
+          );
+        }
+        finish(false);
+      }
+
       function tryStoredPassword() {
         var password = getStoredAdminPassword();
-        if (!password) return resolve(false);
+        if (!password) return finish(false);
 
         var adminEmail =
           global.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local';
@@ -143,15 +203,9 @@
             .kerbenSignInAsAdmin(adminEmail, password)
             .then(function () {
               console.log('[Admin Reauth] сессия Firebase Auth восстановлена');
-              resolve(true);
+              finish(true);
             })
-            .catch(function (err) {
-              console.warn(
-                '[Admin Reauth] не удалось восстановить:',
-                err && err.message
-              );
-              resolve(false);
-            });
+            .catch(onSignInError);
           return;
         }
 
@@ -161,19 +215,15 @@
           .signInWithEmailAndPassword(adminEmail, password)
           .then(function () {
             console.log('[Admin Reauth] сессия Firebase Auth восстановлена (fallback)');
-            resolve(true);
+            finish(true);
           })
-          .catch(function (err) {
-            console.warn(
-              '[Admin Reauth] не удалось восстановить (fallback):',
-              err && err.message
-            );
-            resolve(false);
-          });
+          .catch(onSignInError);
       }
 
       check();
     });
+
+    return _restorePromise;
   }
 
   // ----------- Экспорт глобально -----------
@@ -187,17 +237,32 @@
 
   // ----------- Автозапуск -----------
   // 1) При загрузке страницы — пытаемся восстановить молча.
+  // ВАЖНО: сначала ждём:
+  //  (a) пока поднимется БАЗОВАЯ сессия Firebase Auth (kerbenWaitForAuth),
+  //  (b) достаточно времени, чтобы основная загрузка страницы (товары,
+  //      заказы) успела пройти на анонимной сессии.
+  // Иначе наш signInAsAdmin разрушит анонимного юзера в самый неподходящий
+  // момент — параллельные Firestore-запросы словят permission-denied.
   function runOnLoad() {
-    // Даём firebase инициализироваться
-    setTimeout(function () {
+    function go() {
       tryRestoreAdminSession().catch(function () {});
-    }, 800);
-    // Повтор через 4 сек, если первая попытка была слишком ранней
+    }
+    function safeGo() {
+      if (typeof global.kerbenWaitForAuth === 'function') {
+        global.kerbenWaitForAuth().then(go, go);
+      } else {
+        go();
+      }
+    }
+    // 5 секунд — этого хватает, чтобы loadProducts успел отработать на
+    // анонимной сессии. После этого спокойно переключаемся на админа.
+    setTimeout(safeGo, 5000);
+    // Повтор через 15 сек — на случай если первая попытка была слишком ранней
     setTimeout(function () {
       if (!isFirebaseAdminAlready() && isAdminLocally()) {
         tryRestoreAdminSession().catch(function () {});
       }
-    }, 4000);
+    }, 15000);
   }
 
   if (document.readyState === 'loading') {
