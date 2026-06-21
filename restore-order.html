@@ -101,6 +101,18 @@
       <button id="applyBtn" class="success" disabled>🚀 Применить порядок в Firestore</button>
     </div>
 
+    <!-- ШАГ 3: Отправить «новые» товары в конец списка -->
+    <div id="step3" class="step active">
+      <h3>🔚 Шаг 3: Отправить «лишние» товары в конец списка</h3>
+      <p>Этот шаг нужно делать <b>после Шага 2</b>. Сравним твой JSON-файл с тем,
+         что сейчас в Firestore, найдём товары которых нет в JSON (это новые товары,
+         добавленные позже), и присвоим им <code>order</code> в самом конце списка.
+         После этого они будут внизу страницы, и ты потом расставишь их вручную через Редактор.</p>
+      <button id="findExtrasBtn" disabled>🔍 Найти «лишние» товары</button>
+      <div id="extrasInfo"></div>
+      <button id="pushExtrasBtn" class="success" style="display:none;">🚀 Отправить их в конец</button>
+    </div>
+
     <div class="log" id="log">Готов. Загружаю...</div>
   </div>
 
@@ -338,6 +350,175 @@
 
       applyBtn.textContent = '✅ Записано (' + written + ')';
       applyBtn.style.background = '#28a745';
+
+      // После Шага 2 разрешаем Шаг 3
+      document.getElementById('findExtrasBtn').disabled = false;
+    };
+
+    // ====== ШАГ 3: найти «лишние» товары и отправить их в конец ======
+    let extras = null;
+    const findExtrasBtn = document.getElementById('findExtrasBtn');
+    const pushExtrasBtn = document.getElementById('pushExtrasBtn');
+    const extrasInfoEl = document.getElementById('extrasInfo');
+
+    // Разрешаем кнопку поиска как только загружен файл (можно искать и без Шага 2)
+    uploadInput.addEventListener('change', function () {
+      setTimeout(function () {
+        if (uploadedData) findExtrasBtn.disabled = false;
+      }, 100);
+    });
+
+    findExtrasBtn.onclick = async function () {
+      if (!uploadedData || !uploadedData.items) {
+        alert('Сначала загрузите JSON-файл в Шаге 2');
+        return;
+      }
+
+      findExtrasBtn.disabled = true;
+      findExtrasBtn.textContent = '⏳ Сравниваю...';
+
+      try {
+        await ensureAdminAuth();
+      } catch (e) {
+        log('❌ Не удалось войти: ' + e.message, 'err');
+        findExtrasBtn.disabled = false;
+        findExtrasBtn.textContent = '🔍 Найти «лишние» товары';
+        return;
+      }
+
+      log('🔍 Загружаю список всех товаров из Firestore...', 'info');
+      let snap;
+      try {
+        snap = await db.collection('products').get();
+      } catch (e) {
+        log('❌ Не удалось загрузить товары: ' + e.message, 'err');
+        findExtrasBtn.disabled = false;
+        findExtrasBtn.textContent = '🔍 Найти «лишние» товары';
+        return;
+      }
+
+      const allFirestore = [];
+      snap.forEach(function (doc) {
+        const d = doc.data() || {};
+        allFirestore.push({ id: doc.id, title: d.title || '', order: typeof d.order === 'number' ? d.order : null });
+      });
+      log('  📦 В Firestore: ' + allFirestore.length + ' товаров', 'info');
+
+      const jsonIds = new Set(uploadedData.items.map(function (x) { return x.id; }));
+      const extrasFound = allFirestore.filter(function (p) { return !jsonIds.has(p.id); });
+
+      const maxOrderInJson = uploadedData.items.reduce(function (m, x) {
+        return typeof x.order === 'number' && x.order > m ? x.order : m;
+      }, 0);
+      const maxOrderInFs = allFirestore.reduce(function (m, x) {
+        return typeof x.order === 'number' && x.order > m ? x.order : m;
+      }, 0);
+      const baseMax = Math.max(maxOrderInJson, maxOrderInFs);
+
+      // Сортируем экстра-товары по существующему order (если есть) затем по id,
+      // чтобы порядок их назначения был детерминированным
+      extrasFound.sort(function (a, b) {
+        const ao = a.order == null ? 999999 : a.order;
+        const bo = b.order == null ? 999999 : b.order;
+        if (ao !== bo) return ao - bo;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+
+      extras = extrasFound.map(function (p, idx) {
+        return {
+          id: p.id,
+          title: p.title,
+          oldOrder: p.order,
+          newOrder: baseMax + 100 + idx + 1 // +100 чтобы был запас и легко отличить
+        };
+      });
+
+      log('  ✨ Лишних (не в JSON): ' + extras.length, 'ok');
+
+      let html = '<div class="stat-box">📦 Всего в Firestore: <b>' + allFirestore.length + '</b></div>' +
+                 '<div class="stat-box">📋 В твоём JSON: <b>' + uploadedData.items.length + '</b></div>' +
+                 '<div class="stat-box">✨ Лишних (отправим в конец): <b>' + extras.length + '</b></div>' +
+                 '<div class="stat-box">📍 Новый order будет начинаться с: <b>' + (baseMax + 100 + 1) + '</b></div>';
+
+      if (extras.length > 0) {
+        html += '<details style="margin-top:8px;"><summary style="cursor:pointer;color:#007bff;font-size:13px;">' +
+                '👁 Показать список товаров</summary><div style="max-height:200px;overflow-y:auto;margin-top:8px;font-size:12px;">';
+        extras.slice(0, 100).forEach(function (e) {
+          html += '<div style="padding:4px 8px;border-bottom:1px solid #eee;">' +
+                  '<b>' + (e.title || e.id) + '</b> &nbsp; ' +
+                  '<span style="color:#999;">order: ' + e.oldOrder + ' → ' + e.newOrder + '</span></div>';
+        });
+        if (extras.length > 100) {
+          html += '<div style="padding:4px 8px;color:#999;">...и ещё ' + (extras.length - 100) + '</div>';
+        }
+        html += '</div></details>';
+      }
+
+      extrasInfoEl.innerHTML = html;
+
+      findExtrasBtn.disabled = false;
+      findExtrasBtn.textContent = '🔍 Найти «лишние» товары';
+
+      if (extras.length > 0) {
+        pushExtrasBtn.style.display = 'inline-block';
+      } else {
+        log('  Все товары уже в JSON — нечего исправлять', 'ok');
+      }
+    };
+
+    pushExtrasBtn.onclick = async function () {
+      if (!extras || extras.length === 0) {
+        alert('Сначала нажми «Найти лишние товары»');
+        return;
+      }
+      if (!confirm('Отправить ' + extras.length + ' товаров в конец списка?\n\n' +
+                   'Им будут присвоены новые значения order, чтобы они оказались ' +
+                   'в самом низу страницы. Это перезапишет их текущий order. Операция необратима.')) {
+        return;
+      }
+
+      pushExtrasBtn.disabled = true;
+      pushExtrasBtn.textContent = '⏳ Запись...';
+
+      log('🚀 Отправляю ' + extras.length + ' товаров в конец...', 'info');
+
+      const BATCH_SIZE = 400;
+      let written = 0;
+      let failed = 0;
+
+      for (let i = 0; i < extras.length; i += BATCH_SIZE) {
+        const chunk = extras.slice(i, i + BATCH_SIZE);
+        const batch = db.batch();
+        const ids = [];
+        for (const it of chunk) {
+          batch.update(db.collection('products').doc(it.id), { order: it.newOrder });
+          ids.push(it.id);
+        }
+        try {
+          await batch.commit();
+          written += ids.length;
+          log('  ✅ Записано ' + written + '/' + extras.length, 'ok');
+        } catch (e) {
+          log('  ⚠️ Батч упал (' + e.message + '), пробую по одному...', 'err');
+          for (const id of ids) {
+            try {
+              const it = extras.find(function (x) { return x.id === id; });
+              await db.collection('products').doc(id).update({ order: it.newOrder });
+              written++;
+            } catch (e2) {
+              failed++;
+              log('    ❌ ' + id + ': ' + e2.message, 'err');
+            }
+          }
+        }
+      }
+
+      log('────────────────', 'info');
+      log('✅ Готово! Отправлено в конец: ' + written + ', ошибок: ' + failed,
+          failed > 0 ? 'err' : 'ok');
+      log('Открой главный сайт — лишние товары теперь внизу списка.', 'info');
+
+      pushExtrasBtn.textContent = '✅ Готово (' + written + ')';
     };
   </script>
 </body>
