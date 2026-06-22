@@ -949,7 +949,17 @@ async function returnStockForItem(orderId, productId, qty) {
   const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
   const hasDeductions = itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0;
   if (!hasStock && !hasWarehouse && !hasDeductions) return;
-  
+
+  // Загружаем список приостановленных складов (индивидуальная пауза).
+  // На такие склады возврат не производим — они заморожены.
+  // Деление по складам в warehouseDeductions сохраняем как есть, чтобы
+  // после снятия паузы вручную (или новым возвратом) можно было вернуть.
+  const pausedWhIds = new Set();
+  try {
+    const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
+    whSnap.forEach(d => pausedWhIds.add(d.id));
+  } catch(e) {}
+
   const ws = product.warehouseStock || {};
 
   const updates = []; // Собираем промисы для параллельной записи
@@ -958,6 +968,8 @@ async function returnStockForItem(orderId, productId, qty) {
     let remaining = qty;
     for (const whId of Object.keys(itemDed)) {
       if (remaining <= 0) break;
+      // Приостановленный склад пропускаем — НЕ возвращаем на него.
+      if (pausedWhIds.has(whId)) continue;
       const dedQty = itemDed[whId] || 0;
       const returnQty = Math.min(remaining, dedQty);
       ws[whId] = (ws[whId] || 0) + returnQty;
@@ -967,7 +979,16 @@ async function returnStockForItem(orderId, productId, qty) {
     }
     if (remaining > 0) {
       const primaryWhId = await getCachedPrimaryWhId();
-      const fallbackWh = primaryWhId || Object.keys(ws)[0];
+      // Fallback-склад — главный, если он сам не на паузе; иначе любой
+      // не-приостановленный из ws. Если все недоступны — оставляем
+      // remaining в itemDed (он уже там лежит после цикла выше — мы не
+      // увеличили ws, не уменьшили itemDed на эту часть).
+      let fallbackWh = null;
+      if (primaryWhId && !pausedWhIds.has(primaryWhId)) {
+        fallbackWh = primaryWhId;
+      } else {
+        fallbackWh = Object.keys(ws).find(id => !pausedWhIds.has(id)) || null;
+      }
       if (fallbackWh) ws[fallbackWh] = (ws[fallbackWh] || 0) + remaining;
     }
 
@@ -981,7 +1002,9 @@ async function returnStockForItem(orderId, productId, qty) {
     }
   } else {
     const primaryWhId = await getCachedPrimaryWhId();
+    // Если главный склад на паузе — не возвращаем, иначе обычное поведение.
     if (primaryWhId) {
+      if (pausedWhIds.has(primaryWhId)) return;
       ws[primaryWhId] = (ws[primaryWhId] || 0) + qty;
     } else {
       await db.collection('products').doc(productId).update({
@@ -1090,6 +1113,14 @@ async function returnStockFromOrder(orderData) {
 
   const primaryWhId = await getCachedPrimaryWhId();
 
+  // Загружаем список приостановленных складов (индивидуальная пауза).
+  // Возврат на такие склады НЕ производим — они заморожены.
+  const pausedWhIds = new Set();
+  try {
+    const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
+    whSnap.forEach(d => pausedWhIds.add(d.id));
+  } catch(e) {}
+
   const batch = db.batch();
 
   // Собираем все productId: из items + из deductions
@@ -1121,15 +1152,19 @@ async function returnStockFromOrder(orderData) {
     let returnQty = 0;
 
     if (itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0) {
-      // Есть данные о складах — возвращаем на те же склады
+      // Есть данные о складах — возвращаем на те же склады,
+      // ПРОПУСКАЯ приостановленные (на них не льём).
       for (const [whId, qty] of Object.entries(itemDed)) {
+        if (pausedWhIds.has(whId)) continue;
         ws[whId] = (ws[whId] || 0) + qty;
         returnQty += qty;
       }
     } else if (item && item.qty > 0) {
-      // Нет deductions — возвращаем на главный склад
+      // Нет deductions — возвращаем на главный склад, если он не на паузе.
+      // Если главный на паузе — пропускаем возврат для этого товара.
       returnQty = item.qty;
       if (primaryWhId) {
+        if (pausedWhIds.has(primaryWhId)) continue;
         ws[primaryWhId] = (ws[primaryWhId] || 0) + returnQty;
       } else {
         batch.update(db.collection('products').doc(productId), {
