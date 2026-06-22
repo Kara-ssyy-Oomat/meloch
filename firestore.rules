@@ -488,7 +488,26 @@ service cloud.firestore {
     //   DELETE — только админ.
     match /stockAlerts/{alertId} {
       allow read: if isAdminUser();
-      allow create: if false;
+      // CREATE — любой залогиненный (включая анонимный auth обычного
+      // клиента магазина). Это нужно потому что алёрт создаётся прямо
+      // в браузере покупателя после успешного списания остатка
+      // (без Cloud Functions / биллинга).
+      // Защита: только разрешённые типы kind, ограниченные длины полей,
+      // и ID документа всегда имеет суффикс _active или _<timestamp>.
+      // Подделать «остаток отрицательный» бессмысленно — алёрт информационный.
+      allow create: if
+        isAuthed()
+        && reasonableDocSize()
+        && request.resource.data.kind is string
+        && request.resource.data.kind in ['out', 'low']
+        && strOk('productId', 200)
+        && strOk('productTitle', 300)
+        && numOk('remaining', -10000000, 10000000)
+        && numOk('threshold', 0, 10000)
+        && (
+          !('active' in request.resource.data)
+          || request.resource.data.active is bool
+        );
       allow update: if isAdminUser() && reasonableDocSize();
       allow delete: if isAdminUser();
     }

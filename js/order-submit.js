@@ -383,6 +383,83 @@ document.getElementById('submitOrder').onclick = async () => {
 
     await batch.commit();
 
+    // === АЛЁРТЫ ОБ ОСТАТКАХ (создаются прямо на клиенте, без Cloud Functions) ===
+    // Логика:
+    //   • Если после списания stock стал <= 0 — создаём stockAlert kind='out'.
+    //   • Если был > порога, стал <= порога и > 0 — создаём kind='low'.
+    //   • Используем Firestore-транзакцию + ID документа {productId}_{kind}_active,
+    //     чтобы при одновременных заказах двух клиентов алёрт создался ровно ОДИН раз.
+    //   • Алёрты создаются ТОЛЬКО для товаров, у которых склад настроен
+    //     (есть warehouseStock) — иначе считаем что лимит не отслеживается.
+    //   • Ошибки записи алёрта не должны валить заказ — обёрнуто в try/catch.
+    try {
+      if (stockDeducted) {
+        let lowStockThreshold = 5;
+        try {
+          const settingsDoc = await db.collection('settings').doc('warehouse').get();
+          if (settingsDoc.exists) {
+            const t = settingsDoc.data().lowStockThreshold;
+            if (typeof t === 'number' && isFinite(t) && t >= 0) {
+              lowStockThreshold = Math.floor(t);
+            }
+          }
+        } catch (e) { /* используем дефолт 5 */ }
+
+        for (const item of cart) {
+          const localProduct = products.find(p => p.id === item.id);
+          if (!localProduct) continue;
+          if (localProduct.blocked === true) continue;
+          const hasWh = localProduct.warehouseStock
+            && typeof localProduct.warehouseStock === 'object'
+            && Object.keys(localProduct.warehouseStock).length > 0;
+          if (!hasWh) continue;
+          if (typeof localProduct.stock !== 'number' || !isFinite(localProduct.stock)) continue;
+
+          const need = Math.max(0, Math.floor(item.qty || 0));
+          if (need <= 0) continue;
+          const wasStock = Math.floor(localProduct.stock);
+          const newStock = Math.max(0, wasStock - need);
+
+          let kind = null;
+          if (wasStock > 0 && newStock <= 0) {
+            kind = 'out';
+          } else if (
+            wasStock > lowStockThreshold
+            && newStock > 0
+            && newStock <= lowStockThreshold
+          ) {
+            kind = 'low';
+          }
+          if (!kind) continue;
+
+          const activeId = item.id + '_' + kind + '_active';
+          const alertRef = db.collection('stockAlerts').doc(activeId);
+          try {
+            await db.runTransaction(async (tx) => {
+              const snap = await tx.get(alertRef);
+              if (snap.exists) return;
+              tx.set(alertRef, {
+                productId: item.id,
+                productTitle: localProduct.title || item.title || 'Товар',
+                kind: kind,
+                remaining: newStock,
+                threshold: lowStockThreshold,
+                active: true,
+                resolved: false,
+                timestamp: Date.now(),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+              });
+            });
+            console.log('📣 stockAlert ' + kind + ' создан для:', localProduct.title || item.id);
+          } catch (e) {
+            console.warn('stockAlert не создан (' + kind + '):', e && e.message);
+          }
+        }
+      }
+    } catch (alertErr) {
+      console.warn('stockAlerts: общая ошибка, заказ не затронут:', alertErr && alertErr.message);
+    }
+
     const driverInfo = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
     const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfo}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
