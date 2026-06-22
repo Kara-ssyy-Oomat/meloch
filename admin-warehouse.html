@@ -840,6 +840,20 @@
       <div class="spinner"></div>
       Загрузка складов...
     </div>
+
+    <!-- ===================== ЗОНА ОПАСНОСТИ ===================== -->
+    <details id="dangerZone" style="margin-top:40px; border:2px dashed #c62828; border-radius:12px; padding:12px 16px; background:#fff5f5;">
+      <summary style="cursor:pointer; font-weight:700; color:#c62828; font-size:14px; user-select:none; outline:none;">
+        ⚠️ Зона опасности — расширенные действия (нажмите, чтобы раскрыть)
+      </summary>
+      <div style="padding-top:14px; color:#555; font-size:13px; line-height:1.5;">
+        <p style="margin:0 0 12px;"><strong style="color:#c62828;">Внимание!</strong> Эти действия необратимы. Используйте только когда уверены, что точно понимаете последствия. Например — сделать <em>один раз</em> сброс остатков после ошибки заморозки склада, и потом завести остатки заново.</p>
+        <button
+          onclick="openResetStocksModal()"
+          style="background:#c62828; color:#fff; border:none; padding:12px 18px; border-radius:8px; cursor:pointer; font-weight:700; font-size:14px;"
+        >🗑️ Сбросить остатки товаров до нуля…</button>
+      </div>
+    </details>
   </div>
 
   <!-- Таб 2: Товары по складам -->
@@ -888,6 +902,58 @@
 
   <!-- Кнопка добавления склада -->
   <button class="add-warehouse-btn" onclick="showAddWarehouseModal()" title="Добавить склад">+</button>
+
+  <!-- Модальное окно: Сброс остатков (опасная операция) -->
+  <div class="modal-overlay" id="resetStocksModal">
+    <div class="modal-content" style="max-width:560px;">
+      <div class="modal-header" style="background:#ffebee; border-bottom:1px solid #ffcdd2;">
+        <h2 style="color:#c62828; margin:0;">⚠️ Сброс остатков</h2>
+        <button class="modal-close" onclick="closeResetStocksModal()">×</button>
+      </div>
+      <div class="modal-body" style="padding:18px;">
+        <div style="background:#fff8e1; border-left:4px solid #ff9800; padding:10px 12px; border-radius:6px; margin-bottom:14px;">
+          <div style="font-weight:700; color:#e65100; margin-bottom:4px;">⚠️ Действие необратимо</div>
+          <div style="font-size:13px; color:#555; line-height:1.5;">У всех выбранных товаров будут обнулены остатки (поле <code>stock</code> и <code>warehouseStock</code>). Сами товары, цены, фото, категории — НЕ удаляются.</div>
+        </div>
+
+        <label style="display:block; font-weight:600; margin-bottom:6px; color:#333;">Что обнулить?</label>
+        <select id="resetScopeSelect" onchange="onResetScopeChange()" style="width:100%; padding:10px; border:2px solid #ddd; border-radius:8px; font-size:14px; margin-bottom:14px;">
+          <option value="all">🌐 Все остатки на всех складах</option>
+          <option value="single">📦 Только один склад</option>
+        </select>
+
+        <div id="resetWarehousePickerWrap" style="display:none; margin-bottom:14px;">
+          <label style="display:block; font-weight:600; margin-bottom:6px; color:#333;">Выберите склад</label>
+          <select id="resetWarehouseSelect" style="width:100%; padding:10px; border:2px solid #ddd; border-radius:8px; font-size:14px;"></select>
+        </div>
+
+        <label style="display:block; font-weight:600; margin-bottom:6px; color:#333;">
+          Для подтверждения введите фразу: <code style="background:#ffebee; padding:2px 6px; border-radius:4px; color:#c62828;">СБРОСИТЬ ОСТАТКИ</code>
+        </label>
+        <input
+          type="text"
+          id="resetConfirmInput"
+          oninput="onResetConfirmInputChange()"
+          autocomplete="off"
+          placeholder="Введите фразу точно..."
+          style="width:100%; padding:10px; border:2px solid #ddd; border-radius:8px; font-size:14px; margin-bottom:14px; box-sizing:border-box;"
+        >
+
+        <div id="resetPreview" style="font-size:13px; color:#666; padding:8px 10px; background:#f5f5f5; border-radius:6px; margin-bottom:8px;">
+          Загрузка статистики…
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" onclick="closeResetStocksModal()">Отмена</button>
+        <button
+          id="resetConfirmBtn"
+          onclick="doResetStocks()"
+          disabled
+          style="background:#bdbdbd; color:#fff; border:none; padding:10px 18px; border-radius:8px; cursor:not-allowed; font-weight:700;"
+        >🗑️ Сбросить</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Модальное окно: Добавить/Редактировать склад -->
   <div class="modal-overlay" id="warehouseModal">
@@ -2403,6 +2469,242 @@ document.addEventListener('DOMContentLoaded', function() {
   // (чтобы не мешать первичной отрисовке складов/товаров).
   setTimeout(() => { loadStockAlerts().catch(() => {}); }, 1500);
 });
+
+// ==================== ЗОНА ОПАСНОСТИ: СБРОС ОСТАТКОВ ====================
+// Тройная защита от случайного запуска:
+//   1) Кнопка спрятана внутри <details>, нужно явно раскрыть «Зону опасности».
+//   2) Нужно ВРУЧНУЮ ввести фразу-подтверждение слово-в-слово.
+//   3) Кнопка «Сбросить» становится активной только когда фраза введена,
+//      и после нажатия запускается финальный confirm() от браузера.
+//   4) Сама запись в Firestore происходит batch'ами по 500 (лимит Firestore),
+//      и каждый товар обновляется ТОЛЬКО полями stock=0, warehouseStock={}.
+//      Никакие другие поля не трогаются.
+
+const RESET_CONFIRM_PHRASE = 'СБРОСИТЬ ОСТАТКИ';
+let _resetCountdownTimer = null;
+let _resetCountdownLeft = 0;
+
+function openResetStocksModal() {
+  // Сбрасываем состояние модалки на чистое
+  const scope = document.getElementById('resetScopeSelect');
+  const input = document.getElementById('resetConfirmInput');
+  const btn = document.getElementById('resetConfirmBtn');
+  scope.value = 'all';
+  input.value = '';
+  btn.disabled = true;
+  btn.style.background = '#bdbdbd';
+  btn.style.cursor = 'not-allowed';
+  btn.textContent = '🗑️ Сбросить';
+  document.getElementById('resetWarehousePickerWrap').style.display = 'none';
+  // Заполняем селект складов
+  const whSelect = document.getElementById('resetWarehouseSelect');
+  whSelect.innerHTML = warehouses.map(w =>
+    `<option value="${w.id}">${esc(w.name) || 'Без названия'}${w.id === primaryWarehouseId ? ' ⭐' : ''}</option>`
+  ).join('');
+  updateResetPreview();
+  document.getElementById('resetStocksModal').classList.add('active');
+}
+
+function closeResetStocksModal() {
+  document.getElementById('resetStocksModal').classList.remove('active');
+  if (_resetCountdownTimer) {
+    clearInterval(_resetCountdownTimer);
+    _resetCountdownTimer = null;
+  }
+}
+
+function onResetScopeChange() {
+  const scope = document.getElementById('resetScopeSelect').value;
+  document.getElementById('resetWarehousePickerWrap').style.display = (scope === 'single') ? 'block' : 'none';
+  updateResetPreview();
+  // При смене scope сбрасываем подтверждение
+  document.getElementById('resetConfirmInput').value = '';
+  onResetConfirmInputChange();
+}
+
+function updateResetPreview() {
+  const preview = document.getElementById('resetPreview');
+  const scope = document.getElementById('resetScopeSelect').value;
+  let count = 0;
+  let totalUnits = 0;
+  if (scope === 'all') {
+    products.forEach(p => {
+      if (typeof p.stock === 'number' && p.stock > 0) {
+        count++;
+        totalUnits += p.stock;
+      } else if (p.warehouseStock && typeof p.warehouseStock === 'object') {
+        const sum = Object.values(p.warehouseStock).reduce((s, v) => s + (Number(v) || 0), 0);
+        if (sum > 0) { count++; totalUnits += sum; }
+      }
+    });
+    preview.innerHTML = `Будет обнулено остатков у <strong>${count}</strong> товаров (всего <strong>${totalUnits.toLocaleString()}</strong> единиц).`;
+  } else {
+    const whId = document.getElementById('resetWarehouseSelect').value;
+    if (!whId) { preview.textContent = 'Выберите склад…'; return; }
+    products.forEach(p => {
+      const q = (p.warehouseStock && p.warehouseStock[whId]) || 0;
+      if (q > 0) { count++; totalUnits += q; }
+    });
+    const wh = warehouses.find(w => w.id === whId);
+    preview.innerHTML = `На складе <strong>${esc(wh ? wh.name : '?')}</strong> будет обнулено остатков у <strong>${count}</strong> товаров (всего <strong>${totalUnits.toLocaleString()}</strong> единиц).`;
+  }
+}
+
+function onResetConfirmInputChange() {
+  const val = document.getElementById('resetConfirmInput').value.trim();
+  const btn = document.getElementById('resetConfirmBtn');
+  if (val === RESET_CONFIRM_PHRASE) {
+    // Стартует обратный отсчёт 5 секунд
+    if (_resetCountdownTimer) clearInterval(_resetCountdownTimer);
+    _resetCountdownLeft = 5;
+    btn.disabled = true;
+    btn.style.background = '#ef9a9a';
+    btn.style.cursor = 'wait';
+    btn.textContent = `⏳ Можно нажать через ${_resetCountdownLeft}…`;
+    _resetCountdownTimer = setInterval(() => {
+      _resetCountdownLeft--;
+      if (_resetCountdownLeft <= 0) {
+        clearInterval(_resetCountdownTimer);
+        _resetCountdownTimer = null;
+        btn.disabled = false;
+        btn.style.background = '#c62828';
+        btn.style.cursor = 'pointer';
+        btn.textContent = '🗑️ Сбросить';
+      } else {
+        btn.textContent = `⏳ Можно нажать через ${_resetCountdownLeft}…`;
+      }
+    }, 1000);
+  } else {
+    if (_resetCountdownTimer) { clearInterval(_resetCountdownTimer); _resetCountdownTimer = null; }
+    btn.disabled = true;
+    btn.style.background = '#bdbdbd';
+    btn.style.cursor = 'not-allowed';
+    btn.textContent = '🗑️ Сбросить';
+  }
+}
+
+// Слушатель на изменение склада в селекте — пересчёт превью
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'resetWarehouseSelect') {
+    updateResetPreview();
+    document.getElementById('resetConfirmInput').value = '';
+    onResetConfirmInputChange();
+  }
+});
+
+async function doResetStocks() {
+  const scope = document.getElementById('resetScopeSelect').value;
+  const whId = (scope === 'single') ? document.getElementById('resetWarehouseSelect').value : null;
+  if (scope === 'single' && !whId) {
+    alert('Выберите склад');
+    return;
+  }
+  const phrase = document.getElementById('resetConfirmInput').value.trim();
+  if (phrase !== RESET_CONFIRM_PHRASE) {
+    alert('Фраза подтверждения введена неверно');
+    return;
+  }
+  // Финальный браузерный confirm — четвёртый барьер
+  const scopeText = (scope === 'all')
+    ? 'ВСЕ остатки на ВСЕХ складах'
+    : `остатки на складе «${(warehouses.find(w => w.id === whId) || {}).name || '?'}»`;
+  if (!confirm(`Точно обнулить ${scopeText}? Это необратимо!`)) return;
+
+  const btn = document.getElementById('resetConfirmBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Обнуление…';
+  btn.style.background = '#999';
+  btn.style.cursor = 'wait';
+
+  try {
+    const targets = [];
+    if (scope === 'all') {
+      products.forEach(p => {
+        const hasStock = typeof p.stock === 'number' && p.stock !== 0;
+        const hasWs = p.warehouseStock && typeof p.warehouseStock === 'object' && Object.keys(p.warehouseStock).length > 0;
+        if (hasStock || hasWs) targets.push(p);
+      });
+    } else {
+      products.forEach(p => {
+        const ws = p.warehouseStock || {};
+        if ((ws[whId] || 0) > 0) targets.push(p);
+      });
+    }
+
+    if (targets.length === 0) {
+      alert('Нечего обнулять — все товары уже с нулевым остатком в этой области.');
+      closeResetStocksModal();
+      return;
+    }
+
+    // Делаем batch'ами по 400 (запас от лимита 500), параллельно
+    const BATCH_SIZE = 400;
+    let updated = 0;
+    for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+      const slice = targets.slice(i, i + BATCH_SIZE);
+      const batch = db.batch();
+      for (const p of slice) {
+        const ref = db.collection('products').doc(p.id);
+        if (scope === 'all') {
+          // Обнуляем И stock И warehouseStock полностью
+          batch.update(ref, { stock: 0, warehouseStock: {} });
+        } else {
+          // Обнуляем только указанный склад; пересчитываем общий stock
+          const newWs = Object.assign({}, p.warehouseStock || {});
+          delete newWs[whId];
+          const newTotal = Object.values(newWs).reduce((s, v) => s + (Number(v) || 0), 0);
+          batch.update(ref, { warehouseStock: newWs, stock: newTotal });
+        }
+      }
+      await batch.commit();
+      updated += slice.length;
+      btn.textContent = `⏳ Обнулено ${updated} / ${targets.length}…`;
+    }
+
+    // Записываем аудит-лог одной записью (для истории — кто и когда обнулил)
+    try {
+      const adminEmail = (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'unknown';
+      await db.collection('warehouseAuditLog').add({
+        action: 'reset_stocks',
+        scope: scope,
+        warehouseId: whId || null,
+        warehouseName: whId ? ((warehouses.find(w => w.id === whId) || {}).name || '') : null,
+        affectedProducts: updated,
+        adminEmail: adminEmail,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        timestamp: Date.now()
+      });
+    } catch (auditErr) {
+      console.warn('warehouseAuditLog запись не удалась:', auditErr.message);
+    }
+
+    closeResetStocksModal();
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'success',
+        title: 'Готово!',
+        html: `Обнулены остатки у <strong>${updated}</strong> товаров.<br>Теперь можно завести их заново через раздел «Товары» или «Склады → товары».`,
+        timer: 5000
+      });
+    } else {
+      alert(`Обнулены остатки у ${updated} товаров.`);
+    }
+
+    // Перезагружаем товары и перерисовываем UI
+    await loadProducts();
+    updateStats();
+    renderWarehouses();
+    if (currentTab === 'products') renderProductsStock();
+  } catch (e) {
+    console.error('Сброс остатков провалился:', e);
+    alert('Ошибка при сбросе: ' + (e && e.message ? e.message : e));
+    btn.disabled = false;
+    btn.textContent = '🗑️ Сбросить';
+    btn.style.background = '#c62828';
+    btn.style.cursor = 'pointer';
+  }
+}
 </script>
 
 </body>

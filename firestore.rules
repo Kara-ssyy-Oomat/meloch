@@ -486,6 +486,23 @@ service cloud.firestore {
     //   UPDATE — только админ (пометка "обработано", добавление комментария).
     //   CREATE — запрещён клиентам (создаёт только Cloud Function).
     //   DELETE — только админ.
+    // =========================================================
+    //                  WAREHOUSE AUDIT LOG
+    // =========================================================
+    // История опасных операций со складом (сброс остатков и т.п.).
+    // Пишет только админ через UI «Зона опасности», читает тоже только админ.
+    match /warehouseAuditLog/{logId} {
+      allow read: if isAdminUser();
+      allow create: if isAdminUser() && reasonableDocSize()
+        && strOk('action', 100)
+        && strOk('scope', 50)
+        && strOk('warehouseId', 200)
+        && strOk('warehouseName', 200)
+        && strOk('adminEmail', 200)
+        && numOk('affectedProducts', 0, 10000000);
+      allow update, delete: if isAdminUser();
+    }
+
     match /stockAlerts/{alertId} {
       allow read: if isAdminUser();
       // CREATE — любой залогиненный (включая анонимный auth обычного
