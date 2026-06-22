@@ -76,6 +76,10 @@ exports.processNotificationQueue = functions.firestore
         await sendAdminNotification(notif);
       } else if (notif.type === 'broadcast') {
         await sendBroadcastNotification(notif);
+      } else if (notif.type === 'admin_stock_out') {
+        await sendStockAdminNotification(notif, 'out');
+      } else if (notif.type === 'admin_low_stock') {
+        await sendStockAdminNotification(notif, 'low');
       }
 
       await snap.ref.update({
@@ -312,6 +316,244 @@ async function sendBroadcastNotification(notif) {
   }
 
   console.log(`Broadcast: ${successCount} OK, ${failCount} ошибок`);
+}
+
+// ==================== УВЕДОМЛЕНИЕ АДМИНУ ОБ ОСТАТКАХ ====================
+// kind = 'out' (товар закончился) | 'low' (низкий остаток)
+async function sendStockAdminNotification(notif, kind) {
+  // Собираем все админ-токены так же, как делает sendAdminNotification.
+  const adminTokens = await db.collection('pushTokens')
+    .where('role', '==', 'admin').limit(100).get();
+  const adminTokens2 = await db.collection('adminPushTokens').limit(100).get();
+
+  const tokens = new Set();
+  adminTokens.forEach(doc => {
+    if (doc.data().token) tokens.add(doc.data().token);
+  });
+  adminTokens2.forEach(doc => {
+    if (doc.data().token) tokens.add(doc.data().token);
+  });
+
+  const tokenArray = [...tokens];
+  if (tokenArray.length === 0) {
+    console.log('⚠️ Нет админ-токенов для stock-уведомления');
+    return;
+  }
+
+  const productTitle = (notif.productTitle || 'Товар').toString().slice(0, 150);
+  const remaining = (typeof notif.remaining === 'number') ? notif.remaining : null;
+
+  let title;
+  let body;
+  if (kind === 'out') {
+    title = '❌ Закончился товар';
+    body = `${productTitle} — остаток 0. Пополните склад.`;
+  } else {
+    title = '⚠️ Заканчивается товар';
+    const left = remaining !== null ? ` (осталось ${remaining})` : '';
+    body = `${productTitle}${left}. Скоро потребуется пополнение.`;
+  }
+
+  console.log('📤 Stock-уведомление (' + kind + ') →', tokenArray.length, 'админам:', productTitle);
+
+  const invalidTokens = [];
+  for (const token of tokenArray) {
+    const message = buildWebPushMessage(token, title, body, {
+      type: kind === 'out' ? 'admin_stock_out' : 'admin_low_stock',
+      productId: notif.productId || '',
+      url: '/admin-warehouse.html',
+      tag: 'stock-' + (notif.productId || 'unknown') + '-' + kind
+    });
+
+    try {
+      await admin.messaging().send(message);
+    } catch (error) {
+      console.error('❌ Stock-push ошибка:', token.substring(0, 20) + '...', error.code);
+      if (error.code === 'messaging/invalid-registration-token' ||
+          error.code === 'messaging/registration-token-not-registered') {
+        invalidTokens.push(token);
+      }
+    }
+  }
+
+  for (const t of invalidTokens) {
+    await db.collection('adminPushTokens').doc(t).delete().catch(() => {});
+    await db.collection('pushTokens').doc(t).delete().catch(() => {});
+  }
+
+  console.log(`Stock push (${kind}): ${tokenArray.length - invalidTokens.length}/${tokenArray.length} OK`);
+}
+
+// ==================== ТРИГГЕР: ИЗМЕНЕНИЕ ОСТАТКА ТОВАРА ====================
+// Срабатывает на любое обновление документа products/{id}.
+// Логика:
+//   • БЫЛО > 0, СТАЛО ≤ 0  → создаём stockAlerts (out) + push админам.
+//   • БЫЛО > порога, СТАЛО ≤ порога, но > 0 → создаём stockAlerts (low) + push.
+// Дубликаты подавляются через документ stockAlerts/{productId}_{kind}_active.
+// Когда товар пополнили (стало > порога) — активный алёрт автоматически
+// помечается resolved=true, чтобы при следующем падении снова сработало.
+//
+// Порог "мало" по умолчанию = 5, может быть переопределён в
+// settings/warehouse.lowStockThreshold (число).
+const DEFAULT_LOW_STOCK_THRESHOLD = 5;
+
+async function getLowStockThreshold() {
+  try {
+    const doc = await db.collection('settings').doc('warehouse').get();
+    if (doc.exists) {
+      const t = doc.data().lowStockThreshold;
+      if (typeof t === 'number' && isFinite(t) && t >= 0 && t <= 10000) return Math.floor(t);
+    }
+  } catch (e) {
+    // fallthrough — используем дефолт
+  }
+  return DEFAULT_LOW_STOCK_THRESHOLD;
+}
+
+function _toFiniteInt(v) {
+  if (typeof v !== 'number' || !isFinite(v)) return null;
+  return Math.floor(v);
+}
+
+exports.notifyOnStockChange = functions.firestore
+  .document('products/{productId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data() || {};
+    const after = change.after.data() || {};
+
+    const beforeStock = _toFiniteInt(before.stock);
+    const afterStock = _toFiniteInt(after.stock);
+
+    // Если у товара stock не задан как число — учёт не ведётся, выходим.
+    if (afterStock === null) return null;
+
+    // Не алёртим товары, у которых склад не настроен (нет warehouseStock).
+    // Это совпадает с логикой order-submit.js: такие товары считаются
+    // "безлимитными" и не требуют контроля остатка.
+    const hasWarehouseSetup = after.warehouseStock
+      && typeof after.warehouseStock === 'object'
+      && Object.keys(after.warehouseStock).length > 0;
+    if (!hasWarehouseSetup) return null;
+
+    // Заблокированные вручную товары — не алёртим (админ и так знает).
+    if (after.blocked === true) return null;
+
+    const threshold = await getLowStockThreshold();
+    const productId = context.params.productId;
+    const productTitle = (after.title || after.name || 'Товар').toString();
+
+    const wasOut = (beforeStock !== null && beforeStock <= 0);
+    const isOut = afterStock <= 0;
+    const wasLow = (beforeStock !== null && beforeStock <= threshold);
+    const isLow = afterStock <= threshold && afterStock > 0;
+
+    // 1) Переход в "закончился"
+    if (!wasOut && isOut) {
+      await createStockAlert({
+        productId,
+        productTitle,
+        kind: 'out',
+        remaining: afterStock,
+        threshold
+      });
+    }
+    // 2) Переход в "мало" (не было мало, стало мало, но не ноль).
+    //    Не дублируем с "out": если уже ушли ниже нуля — там сразу 'out'.
+    else if (!wasLow && isLow && !isOut) {
+      await createStockAlert({
+        productId,
+        productTitle,
+        kind: 'low',
+        remaining: afterStock,
+        threshold
+      });
+    }
+
+    // 3) Если товар пополнили — закрываем активные алёрты.
+    //    Это позволит при следующем падении снова отправить push
+    //    (иначе deduplication заблокировал бы повторное уведомление).
+    if (afterStock > threshold) {
+      await resolveActiveAlerts(productId).catch(e =>
+        console.error('resolveActiveAlerts error:', e.message));
+    }
+
+    return null;
+  });
+
+// Создание stockAlert с защитой от дублей: документ с фиксированным id
+// {productId}_{kind}_active существует только пока алёрт активен.
+// Если он уже есть — пропускаем (не шлём дубль push).
+async function createStockAlert({ productId, productTitle, kind, remaining, threshold }) {
+  const activeKey = `${productId}_${kind}_active`;
+  const activeRef = db.collection('stockAlerts').doc(activeKey);
+
+  try {
+    // Транзакция, чтобы исключить гонку при двух одновременных заказах.
+    const created = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(activeRef);
+      if (snap.exists) return false;
+      tx.set(activeRef, {
+        productId,
+        productTitle,
+        kind,
+        remaining: remaining,
+        threshold: threshold,
+        active: true,
+        resolved: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        timestamp: Date.now()
+      });
+      return true;
+    });
+
+    if (!created) {
+      console.log(`stockAlert ${activeKey} уже активен — push не дублируем`);
+      return;
+    }
+
+    // Кладём задачу в очередь уведомлений — её подхватит processNotificationQueue.
+    await db.collection('notificationQueue').add({
+      type: kind === 'out' ? 'admin_stock_out' : 'admin_low_stock',
+      productId,
+      productTitle,
+      remaining,
+      status: 'pending',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      timestamp: Date.now()
+    });
+
+    console.log(`📣 stockAlert создан: ${kind} ${productTitle} (${remaining})`);
+  } catch (e) {
+    console.error('createStockAlert error:', e.message);
+  }
+}
+
+// Закрываем все активные алёрты товара при пополнении остатка.
+async function resolveActiveAlerts(productId) {
+  const keys = [`${productId}_out_active`, `${productId}_low_active`];
+  const batch = db.batch();
+  let touched = 0;
+  for (const k of keys) {
+    const ref = db.collection('stockAlerts').doc(k);
+    const snap = await ref.get();
+    if (!snap.exists) continue;
+    // Сохраняем историю в отдельный документ stockAlerts/{productId}_{kind}_{ts}
+    const data = snap.data();
+    const historyId = `${productId}_${data.kind}_${data.timestamp || Date.now()}`;
+    batch.set(db.collection('stockAlerts').doc(historyId), {
+      ...data,
+      active: false,
+      resolved: true,
+      resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+      resolvedAtMs: Date.now()
+    });
+    batch.delete(ref);
+    touched++;
+  }
+  if (touched > 0) {
+    await batch.commit();
+    console.log(`✅ resolved ${touched} stockAlerts для ${productId}`);
+  }
 }
 
 // ===================================================================

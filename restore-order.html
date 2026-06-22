@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Восстановление порядка товаров — Кербен</title>
+
+  <!-- Firebase SDK (нужен только в GitHub-режиме для записи в Firestore) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+      margin: 0; padding: 20px; min-height: 100vh;
+    }
+    .container {
+      max-width: 720px; margin: 0 auto;
+      background: white; border-radius: 16px; padding: 30px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    }
+    h1 { color: #2c3e50; margin: 0 0 8px; font-size: 24px; }
+    .mode-badge {
+      display: inline-block; padding: 4px 12px; border-radius: 20px;
+      font-size: 12px; font-weight: 700; margin-bottom: 20px;
+    }
+    .mode-local { background: #fff3e0; color: #e65100; }
+    .mode-github { background: #e3f2fd; color: #1565c0; }
+    .step {
+      background: #f8f9fa; border-left: 4px solid #007bff;
+      padding: 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;
+    }
+    .step.active { border-left-color: #28a745; background: #f0fff4; }
+    .step.disabled { opacity: 0.5; }
+    .step h3 { margin: 0 0 8px; color: #495057; font-size: 16px; }
+    .step p { margin: 4px 0; color: #666; font-size: 14px; line-height: 1.5; }
+    button {
+      background: #007bff; color: white; border: none;
+      padding: 12px 24px; border-radius: 8px; cursor: pointer;
+      font-size: 14px; font-weight: 600; margin-top: 10px;
+    }
+    button:hover { background: #0056b3; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button.danger { background: #dc3545; }
+    button.danger:hover { background: #c82333; }
+    button.success { background: #28a745; }
+    button.success:hover { background: #218838; }
+    input[type=file] {
+      display: block; padding: 8px; border: 2px dashed #007bff;
+      border-radius: 8px; background: #f0f8ff; margin-top: 8px; width: 100%;
+    }
+    .stat-box {
+      background: white; border: 1px solid #dee2e6; border-radius: 8px;
+      padding: 12px; margin: 8px 0; display: flex; justify-content: space-between;
+    }
+    .stat-box b { color: #007bff; }
+    .log {
+      background: #1a1a1a; color: #4ec9b0; font-family: monospace;
+      font-size: 12px; padding: 12px; border-radius: 8px;
+      max-height: 200px; overflow-y: auto; margin-top: 12px;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .log .err { color: #f48771; }
+    .log .ok { color: #4ec9b0; }
+    .log .info { color: #9cdcfe; }
+    .warning {
+      background: #fff3cd; border: 1px solid #ffc107; color: #856404;
+      padding: 12px; border-radius: 8px; margin: 12px 0; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 Восстановление порядка товаров</h1>
+    <div id="modeBadge" class="mode-badge">⏳ определяю режим...</div>
+
+    <!-- ШАГ 1: Скачать кэш в файл -->
+    <div id="step1" class="step active">
+      <h3>📥 Шаг 1: Скачать порядок из локального кэша</h3>
+      <p>Здесь в браузере уже лежат данные товаров с «правильным» порядком —
+         нажми кнопку и они сохранятся в JSON-файл.</p>
+      <div id="step1Info"></div>
+      <button id="downloadBtn" disabled>📥 Скачать order-backup.json</button>
+    </div>
+
+    <!-- ШАГ 2: Загрузить файл и применить к Firestore -->
+    <div id="step2" class="step active">
+      <h3>📤 Шаг 2: Загрузить порядок в Firestore</h3>
+      <p>Выбери скачанный <code>order-backup.json</code> и нажми «Применить».
+         Это работает прямо тут же — Firestore доступен по HTTPS даже с локального файла.</p>
+      <div class="warning" id="step2Warning" style="display:none;">
+        ⚠️ Если Firebase откажется логинить с локального файла (ошибка
+         <code>auth/unauthorized-domain</code>) — залей файл <b>restore-order.html</b>
+         на GitHub и открой его там, тогда сработает.
+      </div>
+      <input type="file" id="uploadInput" accept="application/json,.json">
+      <div id="uploadInfo"></div>
+      <button id="applyBtn" class="success" disabled>🚀 Применить порядок в Firestore</button>
+    </div>
+
+    <!-- ШАГ 3: Отправить «новые» товары в конец списка -->
+    <div id="step3" class="step active">
+      <h3>🔚 Шаг 3: Отправить «лишние» товары в конец списка</h3>
+      <p>Этот шаг нужно делать <b>после Шага 2</b>. Сравним твой JSON-файл с тем,
+         что сейчас в Firestore, найдём товары которых нет в JSON (это новые товары,
+         добавленные позже), и присвоим им <code>order</code> в самом конце списка.
+         После этого они будут внизу страницы, и ты потом расставишь их вручную через Редактор.</p>
+      <button id="findExtrasBtn" disabled>🔍 Найти «лишние» товары</button>
+      <div id="extrasInfo"></div>
+      <button id="pushExtrasBtn" class="success" style="display:none;">🚀 Отправить их в конец</button>
+    </div>
+
+    <div class="log" id="log">Готов. Загружаю...</div>
+  </div>
+
+  <script>
+    // ====== firebase init ======
+    const firebaseConfig = {
+      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+      authDomain: "svoysayet.firebaseapp.com",
+      projectId: "svoysayet",
+      storageBucket: "svoysayet.firebasestorage.app",
+      messagingSenderId: "450143000217",
+      appId: "1:450143000217:web:7495cefaea0b94966e8a08"
+    };
+    const ADMIN_EMAIL = 'admin@kerben.local';
+
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const isFile = location.protocol === 'file:';
+    const logEl = document.getElementById('log');
+    function log(msg, cls) {
+      const span = document.createElement('span');
+      if (cls) span.className = cls;
+      span.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg + '\n';
+      logEl.appendChild(span);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // ====== индикатор режима ======
+    const badge = document.getElementById('modeBadge');
+    if (isFile) {
+      badge.textContent = '💻 Локальный режим (file://) — оба шага доступны';
+      badge.className = 'mode-badge mode-local';
+      document.getElementById('step2Warning').style.display = 'block';
+    } else {
+      badge.textContent = '🌐 ' + location.host + ' — оба шага доступны';
+      badge.className = 'mode-badge mode-github';
+    }
+
+    // ====== ШАГ 1: чтение из localStorage и скачивание ======
+    function loadLocalCache() {
+      try {
+        const raw = localStorage.getItem('cachedProducts');
+        if (!raw) {
+          document.getElementById('step1Info').innerHTML =
+            '<div class="warning">❌ В localStorage этого браузера нет ключа <code>cachedProducts</code>. ' +
+            'Открой главный сайт (<code>index.html</code>) в этом же браузере хотя бы раз, чтобы кэш заполнился.</div>';
+          log('cachedProducts не найден в localStorage', 'err');
+          return null;
+        }
+        const products = JSON.parse(raw);
+        if (!Array.isArray(products) || products.length === 0) {
+          document.getElementById('step1Info').innerHTML =
+            '<div class="warning">❌ Кэш пустой.</div>';
+          log('cachedProducts пустой', 'err');
+          return null;
+        }
+        // Считаем сколько товаров имеют order
+        const withOrder = products.filter(p => typeof p.order === 'number').length;
+        const withoutOrder = products.length - withOrder;
+        document.getElementById('step1Info').innerHTML =
+          '<div class="stat-box">📦 Товаров в кэше: <b>' + products.length + '</b></div>' +
+          '<div class="stat-box">✅ С полем order: <b>' + withOrder + '</b></div>' +
+          '<div class="stat-box">⚠️ Без поля order (будут пропущены): <b>' + withoutOrder + '</b></div>';
+        log('Кэш загружен: ' + products.length + ' товаров, с order: ' + withOrder, 'ok');
+        return products;
+      } catch (e) {
+        log('Ошибка чтения кэша: ' + e.message, 'err');
+        return null;
+      }
+    }
+
+    function downloadAsJSON(products) {
+      // Сохраняем только нужные поля для экономии веса файла
+      const minimal = products
+        .filter(p => p && p.id && typeof p.order === 'number')
+        .map(p => ({ id: p.id, title: p.title || '', order: p.order }));
+      const json = JSON.stringify({
+        exportedAt: Date.now(),
+        exportedAtIso: new Date().toISOString(),
+        source: 'localStorage.cachedProducts',
+        count: minimal.length,
+        items: minimal
+      }, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'order-backup-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      log('✅ Файл скачан: ' + a.download, 'ok');
+    }
+
+    // Шаг 1 работает везде — где-то есть кэш в localStorage, где-то его нет.
+    {
+      const products = loadLocalCache();
+      if (products) {
+        document.getElementById('downloadBtn').disabled = false;
+        document.getElementById('downloadBtn').onclick = function () {
+          downloadAsJSON(products);
+        };
+      }
+    }
+
+    // ====== ШАГ 2: загрузка JSON и запись в Firestore ======
+    let uploadedData = null;
+    const uploadInput = document.getElementById('uploadInput');
+    const applyBtn = document.getElementById('applyBtn');
+
+    uploadInput.addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (ev) {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (!data.items || !Array.isArray(data.items)) {
+            throw new Error('В файле нет массива items');
+          }
+          uploadedData = data;
+          const expDate = data.exportedAtIso || new Date(data.exportedAt || 0).toISOString();
+          document.getElementById('uploadInfo').innerHTML =
+            '<div class="stat-box">📂 Файл: <b>' + file.name + '</b></div>' +
+            '<div class="stat-box">📅 Создан: <b>' + expDate + '</b></div>' +
+            '<div class="stat-box">📦 Записей: <b>' + data.items.length + '</b></div>';
+          log('✅ Файл загружен: ' + data.items.length + ' товаров', 'ok');
+          applyBtn.disabled = false;
+        } catch (err) {
+          log('❌ Не удалось разобрать файл: ' + err.message, 'err');
+          alert('Не удалось разобрать JSON: ' + err.message);
+        }
+      };
+      reader.onerror = function () {
+        log('❌ Ошибка чтения файла', 'err');
+      };
+      reader.readAsText(file);
+    });
+
+    async function ensureAdminAuth() {
+      // Если уже залогинены как админ — ок
+      const cur = firebase.auth().currentUser;
+      if (cur && cur.email && cur.email.toLowerCase() === ADMIN_EMAIL) {
+        return cur;
+      }
+      // Иначе — спрашиваем пароль
+      const password = prompt('Введите пароль администратора для записи в Firestore:');
+      if (!password) throw new Error('Отменено пользователем');
+      try {
+        const cred = await firebase.auth().signInWithEmailAndPassword(ADMIN_EMAIL, password);
+        log('✅ Вход как админ выполнен', 'ok');
+        return cred.user;
+      } catch (e) {
+        if (e.code === 'auth/user-not-found') {
+          const cred = await firebase.auth().createUserWithEmailAndPassword(ADMIN_EMAIL, password);
+          log('✅ Админ создан в Firebase Auth', 'ok');
+          return cred.user;
+        }
+        throw e;
+      }
+    }
+
+    applyBtn.onclick = async function () {
+      if (!uploadedData || !uploadedData.items) {
+        alert('Сначала загрузите файл');
+        return;
+      }
+      if (!confirm('Записать ' + uploadedData.items.length + ' значений order в Firestore?\n\n' +
+                   'Это перезапишет текущие значения order у всех товаров из файла. ' +
+                   'Операция необратима.')) {
+        return;
+      }
+
+      applyBtn.disabled = true;
+      applyBtn.textContent = '⏳ Запись...';
+
+      try {
+        await ensureAdminAuth();
+      } catch (e) {
+        log('❌ Не удалось войти: ' + e.message, 'err');
+        alert('Не удалось войти как админ: ' + e.message);
+        applyBtn.disabled = false;
+        applyBtn.textContent = '🚀 Применить порядок в Firestore';
+        return;
+      }
+
+      const items = uploadedData.items;
+      log('🚀 Начинаю запись ' + items.length + ' товаров...', 'info');
+
+      // Пишем батчами по 400 (лимит Firestore = 500)
+      const BATCH_SIZE = 400;
+      let written = 0;
+      let failed = 0;
+      let notFound = 0;
+
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const chunk = items.slice(i, i + BATCH_SIZE);
+        const batch = db.batch();
+        const ids = [];
+        for (const it of chunk) {
+          if (!it.id || typeof it.order !== 'number') continue;
+          batch.update(db.collection('products').doc(it.id), { order: it.order });
+          ids.push(it.id);
+        }
+        try {
+          await batch.commit();
+          written += ids.length;
+          log('  ✅ Записано ' + written + '/' + items.length, 'ok');
+        } catch (e) {
+          // Если падает — может быть из-за not-found документа. Пробуем по одному.
+          log('  ⚠️ Батч упал (' + e.message + '), пробую по одному...', 'err');
+          for (const id of ids) {
+            try {
+              const it = items.find(x => x.id === id);
+              await db.collection('products').doc(id).update({ order: it.order });
+              written++;
+            } catch (e2) {
+              if (e2.code === 'not-found') {
+                notFound++;
+              } else {
+                failed++;
+                log('    ❌ ' + id + ': ' + e2.message, 'err');
+              }
+            }
+          }
+        }
+      }
+
+      log('────────────────', 'info');
+      log('✅ Готово! Записано: ' + written + ', не найдено в Firestore: ' + notFound + ', ошибок: ' + failed,
+          failed > 0 ? 'err' : 'ok');
+      log('Открой главный сайт — порядок должен совпадать с локальным.', 'info');
+
+      applyBtn.textContent = '✅ Записано (' + written + ')';
+      applyBtn.style.background = '#28a745';
+
+      // После Шага 2 разрешаем Шаг 3
+      document.getElementById('findExtrasBtn').disabled = false;
+    };
+
+    // ====== ШАГ 3: найти «лишние» товары и отправить их в конец ======
+    let extras = null;
+    const findExtrasBtn = document.getElementById('findExtrasBtn');
+    const pushExtrasBtn = document.getElementById('pushExtrasBtn');
+    const extrasInfoEl = document.getElementById('extrasInfo');
+
+    // Разрешаем кнопку поиска как только загружен файл (можно искать и без Шага 2)
+    uploadInput.addEventListener('change', function () {
+      setTimeout(function () {
+        if (uploadedData) findExtrasBtn.disabled = false;
+      }, 100);
+    });
+
+    findExtrasBtn.onclick = async function () {
+      if (!uploadedData || !uploadedData.items) {
+        alert('Сначала загрузите JSON-файл в Шаге 2');
+        return;
+      }
+
+      findExtrasBtn.disabled = true;
+      findExtrasBtn.textContent = '⏳ Сравниваю...';
+
+      try {
+        await ensureAdminAuth();
+      } catch (e) {
+        log('❌ Не удалось войти: ' + e.message, 'err');
+        findExtrasBtn.disabled = false;
+        findExtrasBtn.textContent = '🔍 Найти «лишние» товары';
+        return;
+      }
+
+      log('🔍 Загружаю список всех товаров из Firestore...', 'info');
+      let snap;
+      try {
+        snap = await db.collection('products').get();
+      } catch (e) {
+        log('❌ Не удалось загрузить товары: ' + e.message, 'err');
+        findExtrasBtn.disabled = false;
+        findExtrasBtn.textContent = '🔍 Найти «лишние» товары';
+        return;
+      }
+
+      const allFirestore = [];
+      snap.forEach(function (doc) {
+        const d = doc.data() || {};
+        allFirestore.push({ id: doc.id, title: d.title || '', order: typeof d.order === 'number' ? d.order : null });
+      });
+      log('  📦 В Firestore: ' + allFirestore.length + ' товаров', 'info');
+
+      const jsonIds = new Set(uploadedData.items.map(function (x) { return x.id; }));
+      const extrasFound = allFirestore.filter(function (p) { return !jsonIds.has(p.id); });
+
+      const maxOrderInJson = uploadedData.items.reduce(function (m, x) {
+        return typeof x.order === 'number' && x.order > m ? x.order : m;
+      }, 0);
+      const maxOrderInFs = allFirestore.reduce(function (m, x) {
+        return typeof x.order === 'number' && x.order > m ? x.order : m;
+      }, 0);
+      const baseMax = Math.max(maxOrderInJson, maxOrderInFs);
+
+      // Сортируем экстра-товары по существующему order (если есть) затем по id,
+      // чтобы порядок их назначения был детерминированным
+      extrasFound.sort(function (a, b) {
+        const ao = a.order == null ? 999999 : a.order;
+        const bo = b.order == null ? 999999 : b.order;
+        if (ao !== bo) return ao - bo;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+
+      extras = extrasFound.map(function (p, idx) {
+        return {
+          id: p.id,
+          title: p.title,
+          oldOrder: p.order,
+          newOrder: baseMax + 100 + idx + 1 // +100 чтобы был запас и легко отличить
+        };
+      });
+
+      log('  ✨ Лишних (не в JSON): ' + extras.length, 'ok');
+
+      let html = '<div class="stat-box">📦 Всего в Firestore: <b>' + allFirestore.length + '</b></div>' +
+                 '<div class="stat-box">📋 В твоём JSON: <b>' + uploadedData.items.length + '</b></div>' +
+                 '<div class="stat-box">✨ Лишних (отправим в конец): <b>' + extras.length + '</b></div>' +
+                 '<div class="stat-box">📍 Новый order будет начинаться с: <b>' + (baseMax + 100 + 1) + '</b></div>';
+
+      if (extras.length > 0) {
+        html += '<details style="margin-top:8px;"><summary style="cursor:pointer;color:#007bff;font-size:13px;">' +
+                '👁 Показать список товаров</summary><div style="max-height:200px;overflow-y:auto;margin-top:8px;font-size:12px;">';
+        extras.slice(0, 100).forEach(function (e) {
+          html += '<div style="padding:4px 8px;border-bottom:1px solid #eee;">' +
+                  '<b>' + (e.title || e.id) + '</b> &nbsp; ' +
+                  '<span style="color:#999;">order: ' + e.oldOrder + ' → ' + e.newOrder + '</span></div>';
+        });
+        if (extras.length > 100) {
+          html += '<div style="padding:4px 8px;color:#999;">...и ещё ' + (extras.length - 100) + '</div>';
+        }
+        html += '</div></details>';
+      }
+
+      extrasInfoEl.innerHTML = html;
+
+      findExtrasBtn.disabled = false;
+      findExtrasBtn.textContent = '🔍 Найти «лишние» товары';
+
+      if (extras.length > 0) {
+        pushExtrasBtn.style.display = 'inline-block';
+      } else {
+        log('  Все товары уже в JSON — нечего исправлять', 'ok');
+      }
+    };
+
+    pushExtrasBtn.onclick = async function () {
+      if (!extras || extras.length === 0) {
+        alert('Сначала нажми «Найти лишние товары»');
+        return;
+      }
+      if (!confirm('Отправить ' + extras.length + ' товаров в конец списка?\n\n' +
+                   'Им будут присвоены новые значения order, чтобы они оказались ' +
+                   'в самом низу страницы. Это перезапишет их текущий order. Операция необратима.')) {
+        return;
+      }
+
+      pushExtrasBtn.disabled = true;
+      pushExtrasBtn.textContent = '⏳ Запись...';
+
+      log('🚀 Отправляю ' + extras.length + ' товаров в конец...', 'info');
+
+      const BATCH_SIZE = 400;
+      let written = 0;
+      let failed = 0;
+
+      for (let i = 0; i < extras.length; i += BATCH_SIZE) {
+        const chunk = extras.slice(i, i + BATCH_SIZE);
+        const batch = db.batch();
+        const ids = [];
+        for (const it of chunk) {
+          batch.update(db.collection('products').doc(it.id), { order: it.newOrder });
+          ids.push(it.id);
+        }
+        try {
+          await batch.commit();
+          written += ids.length;
+          log('  ✅ Записано ' + written + '/' + extras.length, 'ok');
+        } catch (e) {
+          log('  ⚠️ Батч упал (' + e.message + '), пробую по одному...', 'err');
+          for (const id of ids) {
+            try {
+              const it = extras.find(function (x) { return x.id === id; });
+              await db.collection('products').doc(id).update({ order: it.newOrder });
+              written++;
+            } catch (e2) {
+              failed++;
+              log('    ❌ ' + id + ': ' + e2.message, 'err');
+            }
+          }
+        }
+      }
+
+      log('────────────────', 'info');
+      log('✅ Готово! Отправлено в конец: ' + written + ', ошибок: ' + failed,
+          failed > 0 ? 'err' : 'ok');
+      log('Открой главный сайт — лишние товары теперь внизу списка.', 'info');
+
+      pushExtrasBtn.textContent = '✅ Готово (' + written + ')';
+    };
+  </script>
+</body>
+</html>

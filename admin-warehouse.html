@@ -831,6 +831,7 @@
     <button class="tab-btn active" data-tab="warehouses" onclick="switchTab('warehouses')">📦 Склады</button>
     <button class="tab-btn" data-tab="products" onclick="switchTab('products')">🏷️ Товары</button>
     <button class="tab-btn" data-tab="movements" onclick="switchTab('movements')">🔄 Движения</button>
+    <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts')" style="position:relative;">🔔 Уведомления<span id="alertsBadge" style="display:none; position:absolute; top:-4px; right:-4px; background:#e53935; color:#fff; min-width:18px; height:18px; padding:0 5px; border-radius:9px; font-size:11px; line-height:18px; font-weight:700;">0</span></button>
   </div>
 
   <!-- Таб 1: Список складов -->
@@ -858,6 +859,30 @@
     <div id="movementsList" class="empty-state">
       <div class="emoji">📋</div>
       <p>История перемещений</p>
+    </div>
+  </div>
+
+  <!-- Таб 4: Уведомления об остатках -->
+  <div id="tab-alerts" class="content tab-content" style="display:none;">
+    <div style="background:#fff8e1; border:1px solid #ffe082; border-radius:10px; padding:12px; margin-bottom:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div style="font-size:24px;">⚙️</div>
+      <div style="flex:1; min-width:180px;">
+        <div style="font-weight:700; color:#f57f17; font-size:14px;">Порог "мало осталось"</div>
+        <div style="font-size:12px; color:#666;">Уведомление придёт когда остаток опустится до или ниже этого значения.</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <input type="number" id="lowStockThresholdInput" min="0" max="10000" value="5" style="width:80px; padding:6px 8px; border:2px solid #ffd54f; border-radius:6px; font-size:14px; text-align:center;">
+        <button onclick="saveLowStockThreshold()" style="background:#ff9800; color:#fff; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-weight:600;">Сохранить</button>
+      </div>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap;">
+      <button onclick="setAlertsFilter('active')" id="alertsFilterActive" class="alerts-filter-btn alerts-filter-active" style="padding:8px 14px; border:none; border-radius:8px; cursor:pointer; font-weight:600; background:#1a237e; color:#fff;">🔴 Активные</button>
+      <button onclick="setAlertsFilter('resolved')" id="alertsFilterResolved" class="alerts-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">✅ Обработанные</button>
+      <button onclick="loadStockAlerts(true)" style="margin-left:auto; padding:8px 14px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer;">🔄 Обновить</button>
+    </div>
+    <div id="alertsList" class="loader">
+      <div class="spinner"></div>
+      Загрузка уведомлений...
     </div>
   </div>
 
@@ -994,6 +1019,9 @@ function esc(str) {
 let warehouses = [];
 let products = [];
 let movements = [];
+let stockAlerts = []; // Уведомления о низком/нулевом остатке
+let alertsFilter = 'active'; // 'active' | 'resolved'
+let lowStockThreshold = 5; // Порог "мало"
 let currentTab = 'warehouses';
 let selectedWarehouseFilter = 'all';
 let stockChanges = {}; // {productId: qty} для текущего склада
@@ -1233,6 +1261,8 @@ function switchTab(tab) {
     renderProductsStock();
   } else if (tab === 'movements') {
     renderMovements();
+  } else if (tab === 'alerts') {
+    loadStockAlerts();
   }
 }
 
@@ -2199,6 +2229,180 @@ function renderMovements() {
   
   container.innerHTML = html;
 }
+
+// ==================== УВЕДОМЛЕНИЯ ОБ ОСТАТКАХ (ТАБ 4) ====================
+async function loadStockAlerts(forceReload) {
+  const container = document.getElementById('alertsList');
+  if (container && (!stockAlerts.length || forceReload)) {
+    container.innerHTML = '<div class="loader"><div class="spinner"></div>Загрузка уведомлений...</div>';
+  }
+  try {
+    // Загружаем последние 200 алёртов — больше админу читать незачем.
+    const snap = await db.collection('stockAlerts')
+      .orderBy('timestamp', 'desc')
+      .limit(200)
+      .get();
+    stockAlerts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.error('Не удалось загрузить stockAlerts:', e.message);
+    stockAlerts = [];
+  }
+  renderStockAlerts();
+  refreshAlertsBadge();
+}
+
+function setAlertsFilter(f) {
+  alertsFilter = f;
+  document.getElementById('alertsFilterActive').classList.toggle('alerts-filter-active', f === 'active');
+  document.getElementById('alertsFilterResolved').classList.toggle('alerts-filter-active', f === 'resolved');
+  // Простое переключение цветов (не используем CSS-класс, чтобы не плодить правила).
+  const activeBtn = document.getElementById('alertsFilterActive');
+  const resolvedBtn = document.getElementById('alertsFilterResolved');
+  if (f === 'active') {
+    activeBtn.style.background = '#1a237e'; activeBtn.style.color = '#fff'; activeBtn.style.border = 'none';
+    resolvedBtn.style.background = '#fff'; resolvedBtn.style.color = '#555'; resolvedBtn.style.border = '1px solid #ddd';
+  } else {
+    resolvedBtn.style.background = '#1a237e'; resolvedBtn.style.color = '#fff'; resolvedBtn.style.border = 'none';
+    activeBtn.style.background = '#fff'; activeBtn.style.color = '#555'; activeBtn.style.border = '1px solid #ddd';
+  }
+  renderStockAlerts();
+}
+
+function renderStockAlerts() {
+  const container = document.getElementById('alertsList');
+  if (!container) return;
+
+  const list = stockAlerts.filter(a => {
+    const isActive = (a.active === true) || (a.id && a.id.endsWith('_active'));
+    return alertsFilter === 'active' ? isActive : !isActive;
+  });
+
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="emoji">${alertsFilter === 'active' ? '✅' : '📭'}</div>
+        <p>${alertsFilter === 'active' ? 'Все товары в наличии' : 'Нет обработанных уведомлений'}</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  let currentDate = '';
+
+  list.forEach(a => {
+    const ts = a.timestamp || (a.createdAt && a.createdAt.seconds ? a.createdAt.seconds * 1000 : Date.now());
+    const date = new Date(ts).toLocaleDateString('ru-RU');
+    if (date !== currentDate) {
+      currentDate = date;
+      html += `<div style="font-weight:700; color:#666; padding:14px 0 6px; font-size:13px; border-bottom:1px solid #eee;">${date}</div>`;
+    }
+    const time = new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+    const isOut = a.kind === 'out';
+    const color = isOut ? '#c62828' : '#e65100';
+    const bg = isOut ? '#ffebee' : '#fff3e0';
+    const icon = isOut ? '❌' : '⚠️';
+    const label = isOut ? 'Товар закончился' : `Мало осталось (порог ${a.threshold || 5})`;
+    const remaining = (typeof a.remaining === 'number') ? a.remaining : null;
+    const isActive = (a.active === true) || (a.id && a.id.endsWith('_active'));
+
+    html += `
+      <div style="display:flex; align-items:center; gap:12px; padding:12px; margin-bottom:8px; border-radius:10px; background:${bg}; border-left:4px solid ${color};">
+        <div style="font-size:28px;">${icon}</div>
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:700; font-size:14px; color:#222; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(a.productTitle || 'Товар')}</div>
+          <div style="font-size:12px; color:${color}; font-weight:600; margin-top:2px;">${label}${remaining !== null ? ' • остаток: ' + remaining : ''}</div>
+          <div style="font-size:11px; color:#999; margin-top:2px;">${time}${!isActive && a.resolvedAtMs ? ' • обработано ' + new Date(a.resolvedAtMs).toLocaleString('ru-RU') : ''}</div>
+        </div>
+        ${isActive ? `<button onclick="markAlertResolved('${a.id}')" style="background:${color}; color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:12px; white-space:nowrap;">✓ Обработано</button>` : ''}
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+async function markAlertResolved(alertId) {
+  if (!alertId) return;
+  try {
+    const ref = db.collection('stockAlerts').doc(alertId);
+    const snap = await ref.get();
+    if (!snap.exists) return;
+    const data = snap.data();
+    const historyId = `${data.productId || 'unknown'}_${data.kind || 'out'}_${data.timestamp || Date.now()}`;
+    const batch = db.batch();
+    batch.set(db.collection('stockAlerts').doc(historyId), {
+      ...data,
+      active: false,
+      resolved: true,
+      resolvedAtMs: Date.now(),
+      resolvedByAdmin: true
+    });
+    batch.delete(ref);
+    await batch.commit();
+    await loadStockAlerts(true);
+  } catch (e) {
+    console.error('markAlertResolved error:', e.message);
+    alert('Не удалось пометить уведомление: ' + e.message);
+  }
+}
+
+function refreshAlertsBadge() {
+  const badge = document.getElementById('alertsBadge');
+  if (!badge) return;
+  const activeCount = stockAlerts.filter(a => (a.active === true) || (a.id && a.id.endsWith('_active'))).length;
+  if (activeCount > 0) {
+    badge.style.display = 'inline-block';
+    badge.textContent = activeCount > 99 ? '99+' : String(activeCount);
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+async function loadLowStockThreshold() {
+  try {
+    const doc = await db.collection('settings').doc('warehouse').get();
+    if (doc.exists) {
+      const t = doc.data().lowStockThreshold;
+      if (typeof t === 'number' && isFinite(t) && t >= 0 && t <= 10000) {
+        lowStockThreshold = Math.floor(t);
+      }
+    }
+  } catch (e) { /* используем дефолт */ }
+  const input = document.getElementById('lowStockThresholdInput');
+  if (input) input.value = lowStockThreshold;
+}
+
+async function saveLowStockThreshold() {
+  const input = document.getElementById('lowStockThresholdInput');
+  if (!input) return;
+  const v = parseInt(input.value, 10);
+  if (!isFinite(v) || v < 0 || v > 10000) {
+    alert('Введите число от 0 до 10000');
+    return;
+  }
+  try {
+    await db.collection('settings').doc('warehouse').set({ lowStockThreshold: v }, { merge: true });
+    lowStockThreshold = v;
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({ icon: 'success', title: 'Сохранено', timer: 1200, showConfirmButton: false });
+    } else {
+      alert('Порог сохранён: ' + v);
+    }
+  } catch (e) {
+    alert('Ошибка сохранения: ' + e.message);
+  }
+}
+
+// При первой загрузке страницы — подтягиваем порог и считаем
+// активные алёрты для бейджа на табе, даже если админ ещё не открывал вкладку.
+document.addEventListener('DOMContentLoaded', function() {
+  loadLowStockThreshold().catch(() => {});
+  // Тихая фоновая загрузка алёртов через 1.5с после открытия страницы
+  // (чтобы не мешать первичной отрисовке складов/товаров).
+  setTimeout(() => { loadStockAlerts().catch(() => {}); }, 1500);
+});
 </script>
 
 </body>

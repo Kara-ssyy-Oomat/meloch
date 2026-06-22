@@ -459,17 +459,38 @@ service cloud.firestore {
       allow create: if
         reasonableDocSize()
         && request.resource.data.type is string
-        && request.resource.data.type in ['chat', 'admin_chat', 'broadcast']
+        && request.resource.data.type in ['chat', 'admin_chat', 'broadcast', 'admin_stock_out', 'admin_low_stock']
         && strOk('title', 200)
         && strOk('body', 1000)
         && strOk('clientId', 200)
         && strOk('targetClientId', 200)
         && strOk('clientName', 200)
+        && strOk('productId', 200)
+        && strOk('productTitle', 300)
+        && numOk('remaining', -10000000, 10000000)
         && (
           !('status' in request.resource.data)
           || request.resource.data.status == 'pending'
         );
       allow update, delete: if isAdminUser();
+    }
+
+    // =========================================================
+    //                       STOCK ALERTS
+    // =========================================================
+    // Алёрты «товар закончился / мало осталось».
+    // Создаются Cloud Function notifyOnStockChange (Admin SDK игнорирует
+    // эти правила), но клиент тоже должен иметь возможность пометить
+    // алёрт обработанным из admin-warehouse.html.
+    //   READ   — только админ.
+    //   UPDATE — только админ (пометка "обработано", добавление комментария).
+    //   CREATE — запрещён клиентам (создаёт только Cloud Function).
+    //   DELETE — только админ.
+    match /stockAlerts/{alertId} {
+      allow read: if isAdminUser();
+      allow create: if false;
+      allow update: if isAdminUser() && reasonableDocSize();
+      allow delete: if isAdminUser();
     }
 
     // =========================================================
