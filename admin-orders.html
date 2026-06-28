@@ -855,6 +855,7 @@ async function updateOrderStatus(orderId, newStatus) {
       return;
     }
     const orderData = orderDoc.data();
+    orderData._orderRef = db.collection('orders').doc(orderId);
     const oldStatus = orderData.status;
 
     // Если переводим в "Отменён" и заказ ещё не был отменён — возвращаем товары на склад
@@ -1101,11 +1102,16 @@ async function returnStockFromOrder(orderData) {
   // Если при оформлении заказа товары не списывались — не возвращаем
   if (orderData.stockDeducted === false) return;
 
-  // Проверяем паузу складов — если приостановлено, не возвращаем (товары не списывались)
-  try {
-    const whSettings = await db.collection('settings').doc('warehouse').get();
-    if (whSettings.exists && whSettings.data().paused === true) return;
-  } catch(e) {}
+  // Проверяем: если stockDeducted === true, значит товары БЫЛИ списаны,
+  // и мы ОБЯЗАНЫ их вернуть — даже если сейчас склады на паузе.
+  // Глобальная пауза блокирует возврат ТОЛЬКО если заказ был создан во время паузы
+  // (тогда stockDeducted === false и мы уже вышли выше).
+  const globalPausedNow = await (async () => {
+    try {
+      const whSettings = await db.collection('settings').doc('warehouse').get();
+      return whSettings.exists && whSettings.data().paused === true;
+    } catch(e) { return false; }
+  })();
 
   const deductions = orderData.warehouseDeductions || {};
   const items = orderData.items || [];
@@ -1113,22 +1119,22 @@ async function returnStockFromOrder(orderData) {
 
   const primaryWhId = await getCachedPrimaryWhId();
 
-  // Загружаем список приостановленных складов (индивидуальная пауза).
-  // Возврат на такие склады НЕ производим — они заморожены.
+  // Загружаем индивидуально приостановленные склады.
+  // При глобальной паузе мы всё равно возвращаем (товар был списан до паузы).
   const pausedWhIds = new Set();
-  try {
-    const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
-    whSnap.forEach(d => pausedWhIds.add(d.id));
-  } catch(e) {}
+  if (!globalPausedNow) {
+    try {
+      const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
+      whSnap.forEach(d => pausedWhIds.add(d.id));
+    } catch(e) {}
+  }
 
   const batch = db.batch();
 
-  // Собираем все productId: из items + из deductions
   const allProductIds = new Set();
   items.forEach(i => { if (i.id) allProductIds.add(i.id); });
   Object.keys(deductions).forEach(pid => allProductIds.add(pid));
 
-  // Параллельно читаем все товары
   const productIds = [...allProductIds];
   const productDocs = await Promise.all(
     productIds.map(pid => db.collection('products').doc(pid).get())
@@ -1140,7 +1146,6 @@ async function returnStockFromOrder(orderData) {
     if (!productDoc.exists) continue;
     const product = productDoc.data();
     
-    // Если у товара не было ни stock, ни warehouseStock — он без лимита, не трогаем
     const hasStock = typeof product.stock === 'number';
     const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
     const itemDed = deductions[productId];
@@ -1151,20 +1156,26 @@ async function returnStockFromOrder(orderData) {
     const item = items.find(i => i.id === productId);
     let returnQty = 0;
 
-    if (itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0) {
-      // Есть данные о складах — возвращаем на те же склады,
-      // ПРОПУСКАЯ приостановленные (на них не льём).
+    if (hasDeductions) {
       for (const [whId, qty] of Object.entries(itemDed)) {
-        if (pausedWhIds.has(whId)) continue;
+        if (!globalPausedNow && pausedWhIds.has(whId)) {
+          // Склад на индивидуальной паузе — ищем фоллбэк
+          const fallbackWh = primaryWhId && !pausedWhIds.has(primaryWhId)
+            ? primaryWhId
+            : Object.keys(ws).find(id => !pausedWhIds.has(id)) || null;
+          if (fallbackWh) {
+            ws[fallbackWh] = (ws[fallbackWh] || 0) + qty;
+            returnQty += qty;
+          }
+          continue;
+        }
         ws[whId] = (ws[whId] || 0) + qty;
         returnQty += qty;
       }
     } else if (item && item.qty > 0) {
-      // Нет deductions — возвращаем на главный склад, если он не на паузе.
-      // Если главный на паузе — пропускаем возврат для этого товара.
       returnQty = item.qty;
       if (primaryWhId) {
-        if (pausedWhIds.has(primaryWhId)) continue;
+        if (!globalPausedNow && pausedWhIds.has(primaryWhId)) continue;
         ws[primaryWhId] = (ws[primaryWhId] || 0) + returnQty;
       } else {
         batch.update(db.collection('products').doc(productId), {
@@ -1181,12 +1192,11 @@ async function returnStockFromOrder(orderData) {
         stock: newTotal 
       });
 
-      // Движение: возврат
       const movRef = db.collection('warehouseMovements').doc();
       batch.set(movRef, {
         productId,
         productTitle: item ? item.title : product.title || '',
-        warehouseId: (itemDed ? Object.keys(itemDed)[0] : primaryWhId) || '',
+        warehouseId: (hasDeductions ? Object.keys(itemDed)[0] : primaryWhId) || '',
         warehouseName: '',
         type: 'return',
         qty: returnQty,
@@ -1197,6 +1207,11 @@ async function returnStockFromOrder(orderData) {
         note: 'Возврат при отмене заказа'
       });
     }
+  }
+
+  // Очищаем warehouseDeductions в заказе, чтобы предотвратить повторный возврат
+  if (orderData._orderRef) {
+    batch.update(orderData._orderRef, { warehouseDeductions: {} });
   }
 
   await batch.commit();
@@ -1224,6 +1239,7 @@ async function deleteOrder(orderId) {
     const orderDoc = await db.collection('orders').doc(orderId).get();
     if (orderDoc.exists) {
       const orderData = orderDoc.data();
+      orderData._orderRef = db.collection('orders').doc(orderId);
       if (orderData.status !== 'cancelled') {
         await returnStockFromOrder(orderData);
       }

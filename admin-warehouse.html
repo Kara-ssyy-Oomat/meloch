@@ -1266,11 +1266,11 @@ function updateStats() {
     if (total > 0) {
       qty = total;
       totalStock += total;
-      if (total <= 5) lowStockCount++;
+      if (total <= lowStockThreshold) lowStockCount++;
     } else if (typeof p.stock === 'number' && p.stock > 0) {
       qty = p.stock;
       totalStock += p.stock;
-      if (p.stock <= 5) lowStockCount++;
+      if (p.stock <= lowStockThreshold) lowStockCount++;
     }
     if (qty > 0) {
       totalCost += qty * (p.costPrice || 0);
@@ -1294,7 +1294,7 @@ function showLowStockModal() {
     let qty = 0;
     if (total > 0) qty = total;
     else if (typeof p.stock === 'number' && p.stock > 0) qty = p.stock;
-    if (qty > 0 && qty <= 5) lowItems.push({ title: p.title || 'Без названия', image: p.image || '', category: p.category || '', qty, price: p.price || 0 });
+    if (qty > 0 && qty <= lowStockThreshold) lowItems.push({ title: p.title || 'Без названия', image: p.image || '', category: p.category || '', qty, price: p.price || 0 });
   });
   lowItems.sort((a, b) => a.qty - b.qty);
   const container = document.getElementById('lowStockList');
@@ -2098,7 +2098,7 @@ function renderProductsStock() {
     // Индикатор остатка
     let indicatorClass = 'green';
     if (totalStock <= 0) indicatorClass = 'red';
-    else if (totalStock <= 5) indicatorClass = 'yellow';
+    else if (totalStock <= lowStockThreshold) indicatorClass = 'yellow';
     
     // Бейджи по складам
     let badgesHtml = '';
@@ -2547,9 +2547,9 @@ async function fixZeroStockProducts() {
 //   2) Нужно ВРУЧНУЮ ввести фразу-подтверждение слово-в-слово.
 //   3) Кнопка «Сбросить» становится активной только когда фраза введена,
 //      и после нажатия запускается финальный confirm() от браузера.
-//   4) Сама запись в Firestore происходит batch'ами по 500 (лимит Firestore),
-//      и каждый товар обновляется ТОЛЬКО полями stock=0, warehouseStock={}.
-//      Никакие другие поля не трогаются.
+//   4) Сама запись в Firestore происходит batch'ами по 400,
+//      и каждый товар обновляется УДАЛЕНИЕМ полей stock и warehouseStock
+//      через FieldValue.delete(). Никакие другие поля не трогаются.
 
 const RESET_CONFIRM_PHRASE = 'СБРОСИТЬ ОСТАТКИ';
 let _resetCountdownTimer = null;

@@ -532,13 +532,24 @@ document.getElementById('submitOrder').onclick = async () => {
     localStorage.removeItem('cart');
 
     // Обновляем остатки локально и перерисовываем UI
+    // Только если реально списали (stockDeducted), иначе UI покажет неверные данные
     try {
-      for (const orderedItem of orderData.cart) {
-        const p = products.find(x => x.id === orderedItem.id);
-        if (!p) continue;
-        if (typeof p.stock === 'number' && isFinite(p.stock)) {
+      if (stockDeducted) {
+        for (const orderedItem of orderData.cart) {
+          const p = products.find(x => x.id === orderedItem.id);
+          if (!p) continue;
+          if (typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
+          if (getEffectiveStock(p) === null) continue;
           const nextStock = Math.max(0, Math.floor(p.stock) - Math.max(0, Math.floor(orderedItem.qty || 0)));
           p.stock = nextStock;
+          // Обновляем warehouseStock локально если есть данные о списаниях
+          if (warehouseDeductions[orderedItem.id] && p.warehouseStock) {
+            for (const [whId, qty] of Object.entries(warehouseDeductions[orderedItem.id])) {
+              if (typeof p.warehouseStock[whId] === 'number') {
+                p.warehouseStock[whId] = Math.max(0, p.warehouseStock[whId] - qty);
+              }
+            }
+          }
         }
       }
       renderProducts();
