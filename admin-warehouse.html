@@ -852,6 +852,14 @@
           onclick="openResetStocksModal()"
           style="background:#c62828; color:#fff; border:none; padding:12px 18px; border-radius:8px; cursor:pointer; font-weight:700; font-size:14px;"
         >🗑️ Сбросить остатки товаров до нуля…</button>
+
+        <div style="margin-top:14px; padding-top:14px; border-top:1px dashed #ef9a9a;">
+          <p style="margin:0 0 8px; font-size:12px; color:#888;">Если после сброса все товары показывают «Нет в наличии» — нажмите кнопку ниже, чтобы снять ограничение остатков и сделать товары снова доступными.</p>
+          <button
+            onclick="fixZeroStockProducts()"
+            style="background:#1565c0; color:#fff; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px;"
+          >🔓 Разблокировать товары с остатком 0</button>
+        </div>
       </div>
     </details>
   </div>
@@ -2470,6 +2478,69 @@ document.addEventListener('DOMContentLoaded', function() {
   setTimeout(() => { loadStockAlerts().catch(() => {}); }, 1500);
 });
 
+// ==================== РАЗБЛОКИРОВКА ТОВАРОВ С stock=0 ====================
+// Удаляет поля stock и warehouseStock у товаров, где stock=0 и
+// warehouseStock пустой или отсутствует. После этого getEffectiveStock()
+// вернёт null (без лимита) и товары снова появятся на сайте.
+async function fixZeroStockProducts() {
+  const confirm1 = confirm(
+    'Все товары с нулевым остатком станут доступны для покупки (без ограничений).\n\n' +
+    'Продолжить?'
+  );
+  if (!confirm1) return;
+
+  try {
+    // Ищем товары у которых stock=0 и warehouseStock пустой/{} или отсутствует
+    const targets = products.filter(p => {
+      if (typeof p.stock !== 'number') return false;
+      if (p.stock !== 0) return false;
+      const ws = p.warehouseStock;
+      const wsEmpty = !ws || typeof ws !== 'object' || Object.keys(ws).length === 0
+        || Object.values(ws).every(v => !v || v <= 0);
+      return wsEmpty;
+    });
+
+    if (targets.length === 0) {
+      alert('Нет товаров для разблокировки — все уже в порядке.');
+      return;
+    }
+
+    const BATCH_SIZE = 400;
+    let fixed = 0;
+    for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+      const slice = targets.slice(i, i + BATCH_SIZE);
+      const batch = db.batch();
+      for (const p of slice) {
+        batch.update(db.collection('products').doc(p.id), {
+          stock: firebase.firestore.FieldValue.delete(),
+          warehouseStock: firebase.firestore.FieldValue.delete()
+        });
+      }
+      await batch.commit();
+      fixed += slice.length;
+    }
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'success',
+        title: 'Готово!',
+        html: `Разблокировано <strong>${fixed}</strong> товаров. Они снова доступны для покупки.`,
+        timer: 4000
+      });
+    } else {
+      alert('Разблокировано ' + fixed + ' товаров.');
+    }
+
+    await loadProducts();
+    updateStats();
+    renderWarehouses();
+    if (currentTab === 'products') renderProductsStock();
+  } catch (e) {
+    console.error('fixZeroStockProducts error:', e);
+    alert('Ошибка: ' + (e && e.message ? e.message : e));
+  }
+}
+
 // ==================== ЗОНА ОПАСНОСТИ: СБРОС ОСТАТКОВ ====================
 // Тройная защита от случайного запуска:
 //   1) Кнопка спрятана внутри <details>, нужно явно раскрыть «Зону опасности».
@@ -2646,14 +2717,28 @@ async function doResetStocks() {
       for (const p of slice) {
         const ref = db.collection('products').doc(p.id);
         if (scope === 'all') {
-          // Обнуляем И stock И warehouseStock полностью
-          batch.update(ref, { stock: 0, warehouseStock: {} });
+          // УДАЛЯЕМ поля stock и warehouseStock полностью (не ставим 0).
+          // Без этих полей getEffectiveStock() вернёт null — «без лимита»,
+          // и товары останутся доступными для покупки на сайте.
+          // Когда заново заведёшь остатки — поля появятся и контроль включится.
+          batch.update(ref, {
+            stock: firebase.firestore.FieldValue.delete(),
+            warehouseStock: firebase.firestore.FieldValue.delete()
+          });
         } else {
-          // Обнуляем только указанный склад; пересчитываем общий stock
+          // Удаляем только указанный склад из warehouseStock; пересчитываем stock.
+          // Если после удаления складов не осталось — удаляем оба поля целиком.
           const newWs = Object.assign({}, p.warehouseStock || {});
           delete newWs[whId];
-          const newTotal = Object.values(newWs).reduce((s, v) => s + (Number(v) || 0), 0);
-          batch.update(ref, { warehouseStock: newWs, stock: newTotal });
+          const remaining = Object.values(newWs).reduce((s, v) => s + (Number(v) || 0), 0);
+          if (Object.keys(newWs).length === 0) {
+            batch.update(ref, {
+              stock: firebase.firestore.FieldValue.delete(),
+              warehouseStock: firebase.firestore.FieldValue.delete()
+            });
+          } else {
+            batch.update(ref, { warehouseStock: newWs, stock: remaining });
+          }
         }
       }
       await batch.commit();
