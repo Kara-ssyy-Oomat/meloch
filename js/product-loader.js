@@ -141,16 +141,23 @@ function getEffectiveStock(product) {
   if (!product) return null;
   if (warehousePaused) return null;
   if (typeof product.stock !== 'number' || !isFinite(product.stock)) return null;
+
+  const ws = product.warehouseStock;
+  const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
+
+  // Если stock <= 0 и склад не настроен (нет warehouseStock или пустой {}) —
+  // значит складской учёт фактически не ведётся → безлимит.
+  // Это покрывает случай после сброса остатков и возобновления работы склада.
+  if (product.stock <= 0 && !hasWarehouseSetup) return null;
+
   // Если нет приостановленных складов — обычный остаток
   if (pausedWarehouseIds.size === 0) return Math.max(0, Math.floor(product.stock));
+
   // Если есть разбивка по складам — проверяем
-  const ws = product.warehouseStock;
-  if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
-    // Если товар есть на приостановленном складе — безлимит
+  if (hasWarehouseSetup) {
     for (const whId of Object.keys(ws)) {
       if (pausedWarehouseIds.has(whId)) return null;
     }
-    // Иначе обычный остаток
     return Math.max(0, Math.floor(product.stock));
   }
   // Нет разбивки по складам — возвращаем общий остаток

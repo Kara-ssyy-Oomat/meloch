@@ -111,8 +111,7 @@ function renderFavoritesPage() {
     if (!product || product.blocked) return;
     validCount++;
     
-    const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-    const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+    const stock = typeof getEffectiveStock === 'function' ? getEffectiveStock(product) : (typeof product.stock === 'number' && isFinite(product.stock) ? Math.max(0, Math.floor(product.stock)) : null);
     const outOfStock = stock !== null && stock <= 0;
     const unitLabel = product.isPack ? 'пачка' : 'шт';
     const buyDisabledAttr = outOfStock ? 'disabled' : '';
@@ -178,9 +177,11 @@ function addToCartFromFavorites(productId) {
     if (qtyInput) qtyInput.value = qty;
   }
   
-  // Проверка остатка
-  const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-  const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+  const stock = typeof getEffectiveStock === 'function' ? getEffectiveStock(product) : (typeof product.stock === 'number' && isFinite(product.stock) ? Math.max(0, Math.floor(product.stock)) : null);
+  if (stock !== null && stock <= 0) {
+    Swal.fire('Ошибка', 'Нет в наличии', 'warning');
+    return;
+  }
   if (stock !== null && qty > stock) {
     Swal.fire('Ошибка', `Доступно только ${stock} шт`, 'warning');
     return;
@@ -286,8 +287,7 @@ function addAllFavoritesToCart() {
     const product = products.find(p => p.id === productId);
     if (!product || product.blocked) return;
     
-    const hasStock = typeof product.stock === 'number' && isFinite(product.stock);
-    const stock = hasStock ? Math.max(0, Math.floor(product.stock)) : null;
+    const stock = typeof getEffectiveStock === 'function' ? getEffectiveStock(product) : (typeof product.stock === 'number' && isFinite(product.stock) ? Math.max(0, Math.floor(product.stock)) : null);
     if (stock !== null && stock <= 0) return;
     
     // Добавляем минимальное количество товара

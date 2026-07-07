@@ -303,6 +303,7 @@
     
     let cart = JSON.parse(localStorage.getItem('cart') || '[]');
     let products = [];
+    let productsLoadedOk = false;
     let primaryWarehouseId = '';
     let warehousePaused = false;
     let pausedWarehouseIds = new Set();
@@ -342,30 +343,15 @@
     }
     
     async function loadProducts() {
-      // ОПТИМИЗАЦИЯ COSTS: раньше каждое открытие корзины перечитывало
-      // ВСЕ товары из Firestore (часто это сотни/тысячи документов).
-      // Теперь сначала пытаемся взять их из общего кэша product-loader.js
-      // (localStorage 'cachedProducts'), и только если кэш протух —
-      // идём в Firestore.
       const LS_PRODUCTS_KEY = 'cachedProducts';
       const LS_PRODUCTS_TIME_KEY = 'cachedProductsTime';
       const LS_WH_SETTINGS_KEY = 'cartWhSettings';
       const LS_MIN_ORDER_KEY = 'minOrderSettings';
       const LS_PAUSED_WH_IDS_KEY = 'pausedWarehouseIds';
-      const CACHE_MS = 600000; // 10 минут — как у product-loader.js
+      const CACHE_MS = 900000; // 15 минут — синхронизировано с product-loader.js FRESH_DURATION
 
-      // 1) Мгновенно показываем корзину из localStorage-кэша
-      let usedCache = false;
+      // 1) Мгновенно загружаем настройки склада из localStorage
       try {
-        const lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0');
-        if (Date.now() - lsTime < CACHE_MS) {
-          const lsProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
-          if (lsProducts.length > 0) {
-            products = lsProducts;
-            usedCache = true;
-          }
-        }
-        // Настройки склада
         const whCached = JSON.parse(localStorage.getItem(LS_WH_SETTINGS_KEY) || 'null');
         if (whCached) {
           primaryWarehouseId = whCached.primaryWarehouseId || '';
@@ -378,22 +364,46 @@
         }
         const pwCached = JSON.parse(localStorage.getItem(LS_PAUSED_WH_IDS_KEY) || '[]');
         pausedWarehouseIds = new Set(Array.isArray(pwCached) ? pwCached : []);
-      } catch (e) { /* localStorage недоступен */ }
+      } catch (e) {}
 
-      // Если есть свежий кэш — рендерим сразу и не ходим в Firestore.
+      // 2) Пробуем свежий кэш товаров
+      let usedCache = false;
+      try {
+        const lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0');
+        if (Date.now() - lsTime < CACHE_MS) {
+          const lsProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
+          if (lsProducts.length > 0) {
+            products = lsProducts;
+            productsLoadedOk = true;
+            usedCache = true;
+          }
+        }
+      } catch (e) {}
+
       if (usedCache) {
         renderCart();
         return;
       }
 
-      // 2) Кэш протух — загружаем из Firestore (один раз, потом снова кэш)
+      // 3) Кэш протух — загружаем из Firestore
+      // ВАЖНО: ждём Firebase Auth (без auth правила вернут permission-denied
+      // и products останется пустым — все товары будут «удалены» из корзины)
+      if (typeof kerbenWaitForAuth === 'function') {
+        try { await kerbenWaitForAuth(); } catch(e) {}
+      }
+
       try {
         const [snapshot, settingsDoc, minOrderDoc] = await Promise.all([
-          db.collection('products').get(),
+          db.collection('products').limit(5000).get(),
           db.collection('settings').doc('warehouse').get(),
           db.collection('settings').doc('minOrder').get()
         ]);
         products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        if (products.length > 0) {
+          productsLoadedOk = true;
+        }
+
         if (settingsDoc.exists) {
           primaryWarehouseId = settingsDoc.data().primaryWarehouseId || '';
           warehousePaused = settingsDoc.data().paused === true;
@@ -413,7 +423,6 @@
             }));
           } catch(e) {}
         }
-        // Сохраняем товары в общий кэш (как product-loader.js)
         try {
           const lightProducts = products.map(p => ({
             id: p.id, title: p.title, price: p.price, image: p.image,
@@ -421,12 +430,25 @@
             optPrice: p.optPrice, optQty: p.optQty, oldPrice: p.oldPrice,
             isPack: p.isPack, packQty: p.packQty,
             blocked: p.blocked, minQty: p.minQty, sellerId: p.sellerId,
-            unitsPerBox: p.unitsPerBox, warehouseStock: p.warehouseStock || null
+            unitsPerBox: p.unitsPerBox, warehouseStock: p.warehouseStock || null,
+            costPrice: p.costPrice, sellerName: p.sellerName
           }));
           localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
           localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
         } catch(e) {}
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error('[Cart] Ошибка загрузки товаров из Firestore:', e);
+        // Фоллбэк: берём ЛЮБОЙ кэш из localStorage (даже устаревший) —
+        // лучше устаревшие данные, чем пустой products и «все товары удалены»
+        try {
+          const fallbackProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
+          if (fallbackProducts.length > 0) {
+            products = fallbackProducts;
+            productsLoadedOk = true;
+            console.log('[Cart] Используем устаревший кэш:', fallbackProducts.length, 'товаров');
+          }
+        } catch(e2) {}
+      }
 
       try {
         const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
@@ -445,7 +467,10 @@
       const clearBtn = document.querySelector('.clear-btn');
       
       // Удаляем заблокированные/удалённые товары из корзины
-      if (products.length > 0) {
+      // ТОЛЬКО если товары были реально загружены (productsLoadedOk).
+      // Без этой проверки пустой products (из-за ошибки сети/auth)
+      // ложно помечает ВСЕ товары в корзине как «удалённые».
+      if (productsLoadedOk && products.length > 0) {
         const removedTitles = [];
         const validCart = cart.filter(item => {
           const product = products.find(p => p.id === item.id);
@@ -907,36 +932,47 @@
       submitBtn.textContent = '⏳ Проверка товаров...';
 
       try {
-        // Проверяем все товары в корзине
+        // Если товары не были загружены — пробуем загрузить перед валидацией
+        if (!productsLoadedOk || products.length === 0) {
+          submitBtn.textContent = '⏳ Загрузка товаров...';
+          await loadProducts();
+        }
+
         const validCart = [];
         const problems = { blocked: [], deleted: [], outOfStock: [] };
-        
-        for (const cartItem of cart) {
-          const product = products.find(p => p.id === cartItem.id);
-          if (!product) {
-            problems.deleted.push(cartItem.title);
-          } else if (product.blocked) {
-            problems.blocked.push(cartItem.title);
-          } else if (!warehousePaused && typeof product.stock === 'number' && isFinite(product.stock)) {
-            // Проверяем остаток только если склад не на паузе
-            const ws = product.warehouseStock;
-            const onPausedWh = ws && typeof ws === 'object' && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId));
-            if (onPausedWh) {
-              // Товар на приостановленном складе — безлимит
-              validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
-            } else {
+
+        // Валидацию товаров делаем ТОЛЬКО если товары реально загружены.
+        // Если products пуст (ошибка сети/auth) — пропускаем проверку
+        // и отправляем заказ как есть (серверная логика отловит проблемы).
+        if (productsLoadedOk && products.length > 0) {
+          for (const cartItem of cart) {
+            const product = products.find(p => p.id === cartItem.id);
+            if (!product) {
+              problems.deleted.push(cartItem.title);
+            } else if (product.blocked) {
+              problems.blocked.push(cartItem.title);
+            } else if (!warehousePaused && typeof product.stock === 'number' && isFinite(product.stock)) {
+              const ws = product.warehouseStock;
+              const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
+              const onPausedWh = hasWarehouseSetup && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId));
               const stock = Math.max(0, Math.floor(product.stock));
-            if (stock <= 0) {
-              problems.outOfStock.push(`${cartItem.title} (нет в наличии)`);
-            } else if ((cartItem.qty || 0) > stock) {
-              problems.outOfStock.push(`${cartItem.title} (доступно ${stock} шт)`);
+              if (onPausedWh || (stock <= 0 && !hasWarehouseSetup)) {
+                validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
+              } else if (stock <= 0) {
+                problems.outOfStock.push(`${cartItem.title} (нет в наличии)`);
+              } else if ((cartItem.qty || 0) > stock) {
+                problems.outOfStock.push(`${cartItem.title} (доступно ${stock} шт)`);
+              } else {
+                validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
+              }
             } else {
               validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
             }
-            }
-          } else {
-            validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
           }
+        } else {
+          // Товары не удалось загрузить — принимаем заказ без проверки
+          console.warn('[Cart] Товары не загружены — пропускаем валидацию, отправляем заказ как есть');
+          validCart.push(...cart.map(item => ({ ...item })));
         }
         
         // Обработка проблемных товаров
@@ -974,12 +1010,15 @@
         const total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
         const currentTime = new Date().toLocaleString();
 
+        // Поиск партнёра — с таймаутом 3 сек (не блокируем заказ)
         let partner = getCurrentPartner();
         if (!partner && referredBy) partner = referredBy;
         if (!partner && phone) {
           try {
-            const cad = await db.collection('clientAgents').doc(phone).get();
-            if (cad.exists) partner = cad.data().agentName;
+            const agentPromise = db.collection('clientAgents').doc(phone).get();
+            const timeoutPromise = new Promise(r => setTimeout(() => r(null), 3000));
+            const cad = await Promise.race([agentPromise, timeoutPromise]);
+            if (cad && cad.exists) partner = cad.data().agentName;
           } catch(e) {}
         }
         if (referredBy) try { localStorage.setItem('savedReferredBy', referredBy); } catch(e) {}
@@ -995,25 +1034,24 @@
           const localProduct = products.find(p => p.id === item.id);
           const hasLocalStock = localProduct && typeof localProduct.stock === 'number' && isFinite(localProduct.stock);
           if (!hasLocalStock) continue;
-          // Если склад приостановлен — не списываем
           if (warehousePaused) continue;
           const ws = localProduct.warehouseStock;
-          if (ws && typeof ws === 'object' && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId))) continue;
+          const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
+          if (hasWarehouseSetup && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId))) continue;
+          const localStock = Math.max(0, Math.floor(localProduct.stock));
+          if (localStock <= 0 && !hasWarehouseSetup) continue;
           const need = Math.max(0, Math.floor(item.qty || 0));
           if (need <= 0) throw new Error(`Некорректное количество: ${item.title}`);
-          const localStock = Math.max(0, Math.floor(localProduct.stock));
           if (localStock < need) throw new Error(`Недостаточно остатка: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
           
           stockDeducted = true;
           const productRef = db.collection('products').doc(item.id);
 
-          // Списание со складов
           if (ws && typeof ws === 'object') {
             let remaining = need;
             const updatedWs = { ...ws };
             const itemDeductions = {};
 
-            // Если есть главный склад — списываем сначала с него
             if (primaryWarehouseId && updatedWs[primaryWarehouseId] > 0) {
               const deduct = Math.min(remaining, updatedWs[primaryWarehouseId]);
               updatedWs[primaryWarehouseId] -= deduct;
@@ -1021,7 +1059,6 @@
               itemDeductions[primaryWarehouseId] = deduct;
             }
 
-            // Если на главном не хватило — добираем с остальных
             if (remaining > 0) {
               const otherWh = Object.entries(updatedWs)
                 .filter(([whId, qty]) => qty > 0 && whId !== primaryWarehouseId)
@@ -1061,9 +1098,41 @@
           warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
         });
 
-        await batch.commit();
+        // batch.commit() с таймаутом 20 сек — при зависшем Firestore не
+        // блокируем UI навечно. Если таймаут сработал — заказ МОЖЕТ быть
+        // записан (Firestore дописывает в фоне), поэтому корзину очищаем.
+        const commitPromise = batch.commit();
+        const commitTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('__TIMEOUT__')), 20000)
+        );
+        try {
+          await Promise.race([commitPromise, commitTimeout]);
+        } catch (commitErr) {
+          if (commitErr && commitErr.message === '__TIMEOUT__') {
+            console.warn('[Cart] batch.commit() таймаут 20с — заказ мог быть сохранён');
+            Swal.fire({
+              icon: 'warning',
+              title: 'Заказ отправляется...',
+              html: 'Сервер отвечает медленно. Заказ скорее всего будет доставлен.<br>Если не придёт — попробуйте ещё раз.',
+              confirmButtonText: 'Понятно',
+              confirmButtonColor: '#4CAF50'
+            });
+            // Очищаем корзину — заказ мог записаться
+            cart.length = 0; saveCart(); renderCart();
+            submitBtn.disabled = false; submitBtn.style.opacity = '1'; submitBtn.textContent = originalText;
+            return;
+          }
+          throw commitErr;
+        }
 
-        // Сразу показываем клиенту успех — отправка в Telegram идёт в фоне
+        // ============ ЗАКАЗ УСПЕШНО СОХРАНЁН ============
+        // Сразу: показываем успех + очищаем корзину + разблокируем кнопку
+        // Всё некритичное (авторегистрация, PDF) идёт в фоне без await
+
+        // Сохраняем данные для PDF/Telegram ДО очистки корзины
+        const orderData = { name, phone, address, driverName, driverPhone, cart: [...cart], total, currentTime };
+        const driverInfoText = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
+
         Swal.fire({
           icon: 'success',
           title: 'Заказ принят! ✅',
@@ -1072,126 +1141,102 @@
           showConfirmButton: false
         });
 
-        // Сохраняем данные пользователя
-        localStorage.setItem('userData', JSON.stringify({ name, phone, address, driverName, driverPhone }));
-
-        // Сохраняем в историю
-        saveOrderToHistory({
-          name, phone, address, driverName: driverName || null, driverPhone: driverPhone || null,
-          items: [...cart], total, timestamp: Date.now(), time: currentTime, status: 'pending'
-        });
-
-        // Если заказ >= минимума, сохраняем флаг обхода на сутки
-        try {
-          if (minOrderEnabled && minOrderAmount > 0 && total >= minOrderAmount) {
-            const endOfDay = new Date();
-            endOfDay.setHours(23, 59, 59, 999);
-            localStorage.setItem('minOrderBypass', JSON.stringify({
-              phone: phone,
-              until: endOfDay.getTime()
-            }));
-          }
-        } catch(e) {}
-
-        // Авторегистрация клиента
-        let _autoCustomerId = null;
-        try {
-          const normalizedPhone = phone.replace(/[^\d+]/g, '');
-          const nPhone = normalizedPhone.startsWith('0') ? '+996' + normalizedPhone.substring(1) : 
-                         normalizedPhone.startsWith('+') ? normalizedPhone : 
-                         normalizedPhone.startsWith('996') ? '+' + normalizedPhone : '+996' + normalizedPhone;
-          
-          // Готовим passwordHash вместо plaintext (новые rules запрещают
-          // поле password в БД).
-          const _autoPwd = nPhone.slice(-4);
-          const _autoPwdHash = (typeof _hashCustomerPassword === 'function')
-            ? await _hashCustomerPassword(_autoPwd, nPhone)
-            : null;
-
-          // Привязка к Firebase auth.uid (для строгих rules: update только владельцу).
-          let _curUid = null;
-          try {
-            if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
-            if (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) {
-              _curUid = firebase.auth().currentUser.uid;
-            }
-          } catch(e) {}
-
-          const customerDoc = await db.collection('customers').doc(nPhone).get();
-          if (!customerDoc.exists) {
-            const newCustomer = {
-              name, phone: nPhone, address,
-              registeredAt: firebase.firestore.FieldValue.serverTimestamp(),
-              totalOrders: 1, totalSpent: total,
-              createdAt: Date.now()
-            };
-            if (_autoPwdHash) newCustomer.passwordHash = _autoPwdHash;
-            if (_curUid) newCustomer.firebaseUid = _curUid;
-            await db.collection('customers').doc(nPhone).set(newCustomer);
-            _autoCustomerId = nPhone;
-          } else {
-            // Существующий клиент. Новые rules разрешают update только
-            // владельцу (firebaseUid == auth.uid). Поэтому сначала
-            // ОДНИМ отдельным запросом привязываем firebaseUid (если его
-            // ещё нет) — это проходит через "migration branch" правил, —
-            // и только потом вторым запросом обновляем имя/адрес/счётчики
-            // (это уже пройдёт через owner branch).
-            const existingData = customerDoc.data() || {};
-            let _canUpdate = true;
-            if (_curUid && !existingData.firebaseUid) {
-              try {
-                await db.collection('customers').doc(nPhone).update({
-                  firebaseUid: _curUid
-                });
-              } catch (e) {
-                console.warn('[cart] не удалось привязать firebaseUid (док. чужой?):', e && e.message);
-                _canUpdate = false;
-              }
-            } else if (existingData.firebaseUid && _curUid && existingData.firebaseUid !== _curUid) {
-              // Документ принадлежит другому пользователю — не трогаем
-              _canUpdate = false;
-            }
-            if (_canUpdate) {
-              try {
-                await db.collection('customers').doc(nPhone).update({
-                  name, address,
-                  totalOrders: firebase.firestore.FieldValue.increment(1),
-                  totalSpent: firebase.firestore.FieldValue.increment(total)
-                });
-              } catch (e) {
-                console.warn('[cart] не удалось обновить customer:', e && e.message);
-              }
-            }
-            _autoCustomerId = nPhone;
-          }
-          
-          // ВАЖНО: Сохраняем customerData для PersistProfile (чтобы profile.html находил данные)
-          const customerDataForProfile = {
-            id: _autoCustomerId,
-            name: name,
-            phone: nPhone,
-            address: address || '',
-            createdAt: Date.now()
-          };
-          try { localStorage.setItem('customerData', JSON.stringify(customerDataForProfile)); } catch(e) {}
-          if (window.PersistProfile) {
-            window.PersistProfile.save(customerDataForProfile);
-          }
-          console.log('[Cart] ✅ Профиль клиента сохранён для profile.html');
-        } catch(e) { console.log('Customer update error:', e); }
-
-        // Отправка уведомления в Telegram (фоново — без блокировки UI)
-        const driverInfoText = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
-        const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfoText}\nТовары:\n${items}\n\nИтого: ${total} сом`;
-
-        const orderData = { name, phone, address, driverName, driverPhone, cart: [...cart], total, currentTime };
-
-        // Очищаем корзину СРАЗУ, чтобы клиент видел чистую корзину
+        // Очищаем корзину СРАЗУ
         cart.length = 0;
         saveCart();
         renderCart();
 
-        // Фоновая отправка PDF с фото — клиент уже видит "Заказ принят"
+        // Разблокируем кнопку СРАЗУ
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '1';
+        submitBtn.textContent = originalText;
+
+        // ============ ВСЁ НИЖЕ — ФОНОВОЕ (fire-and-forget) ============
+
+        // Сохраняем данные пользователя (синхронно, мгновенно)
+        localStorage.setItem('userData', JSON.stringify({ name, phone, address, driverName, driverPhone }));
+
+        saveOrderToHistory({
+          name, phone, address, driverName: driverName || null, driverPhone: driverPhone || null,
+          items: orderData.cart, total, timestamp: Date.now(), time: currentTime, status: 'pending'
+        });
+
+        try {
+          if (minOrderEnabled && minOrderAmount > 0 && total >= minOrderAmount) {
+            const endOfDay = new Date();
+            endOfDay.setHours(23, 59, 59, 999);
+            localStorage.setItem('minOrderBypass', JSON.stringify({ phone, until: endOfDay.getTime() }));
+          }
+        } catch(e) {}
+
+        // Авторегистрация клиента — ФОНОВО (не блокируем UI)
+        (async function _bgCustomerReg() {
+          try {
+            const normalizedPhone = phone.replace(/[^\d+]/g, '');
+            const nPhone = normalizedPhone.startsWith('0') ? '+996' + normalizedPhone.substring(1) : 
+                           normalizedPhone.startsWith('+') ? normalizedPhone : 
+                           normalizedPhone.startsWith('996') ? '+' + normalizedPhone : '+996' + normalizedPhone;
+            
+            const _autoPwd = nPhone.slice(-4);
+            const _autoPwdHash = (typeof _hashCustomerPassword === 'function')
+              ? await _hashCustomerPassword(_autoPwd, nPhone)
+              : null;
+
+            let _curUid = null;
+            try {
+              if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+              if (typeof firebase !== 'undefined' && firebase.auth && firebase.auth().currentUser) {
+                _curUid = firebase.auth().currentUser.uid;
+              }
+            } catch(e) {}
+
+            const customerDoc = await db.collection('customers').doc(nPhone).get();
+            if (!customerDoc.exists) {
+              const newCustomer = {
+                name, phone: nPhone, address,
+                registeredAt: firebase.firestore.FieldValue.serverTimestamp(),
+                totalOrders: 1, totalSpent: total,
+                createdAt: Date.now()
+              };
+              if (_autoPwdHash) newCustomer.passwordHash = _autoPwdHash;
+              if (_curUid) newCustomer.firebaseUid = _curUid;
+              await db.collection('customers').doc(nPhone).set(newCustomer);
+            } else {
+              const existingData = customerDoc.data() || {};
+              let _canUpdate = true;
+              if (_curUid && !existingData.firebaseUid) {
+                try {
+                  await db.collection('customers').doc(nPhone).update({ firebaseUid: _curUid });
+                } catch (e) {
+                  console.warn('[cart] не удалось привязать firebaseUid:', e && e.message);
+                  _canUpdate = false;
+                }
+              } else if (existingData.firebaseUid && _curUid && existingData.firebaseUid !== _curUid) {
+                _canUpdate = false;
+              }
+              if (_canUpdate) {
+                try {
+                  await db.collection('customers').doc(nPhone).update({
+                    name, address,
+                    totalOrders: firebase.firestore.FieldValue.increment(1),
+                    totalSpent: firebase.firestore.FieldValue.increment(total)
+                  });
+                } catch (e) {
+                  console.warn('[cart] не удалось обновить customer:', e && e.message);
+                }
+              }
+            }
+            
+            const customerDataForProfile = {
+              id: nPhone, name, phone: nPhone, address: address || '', createdAt: Date.now()
+            };
+            try { localStorage.setItem('customerData', JSON.stringify(customerDataForProfile)); } catch(e) {}
+            if (window.PersistProfile) window.PersistProfile.save(customerDataForProfile);
+            console.log('[Cart] ✅ Профиль клиента сохранён');
+          } catch(e) { console.log('Customer update error:', e); }
+        })();
+
+        // Фоновая отправка PDF с фото
         loadCartExportLibs().then(() => {
           if (typeof sendOrderAsPDF === 'function') {
             sendOrderAsPDF(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
