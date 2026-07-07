@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.5.2-orders-ram-cache-fix'; // Фикс: текущая вкладка не теряет свой RAM-кэш заказов при правках
+const CACHE_VERSION = 'kerben-v4.6.0-cart-submit-fix'; // Фикс: зависание отправки заказа + ложное удаление товаров из корзины
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
