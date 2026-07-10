@@ -144,17 +144,72 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   // ===== КОНЕЦ БЛОКИРОВКИ ЗУМА =====
   
-  // Автозаполнение поля "Кто порекомендовал"
-  const referredByInput = document.getElementById('referredBy');
-  if (referredByInput) {
-    try {
-      const savedReferredBy = localStorage.getItem('savedReferredBy');
-      if (savedReferredBy && !getCurrentPartner()) {
-        referredByInput.value = savedReferredBy;
-        referredByInput.style.borderColor = '#28a745';
-        referredByInput.style.background = '#f0fff4';
+  // Загрузка списка агентов в выпадающий список "Кто порекомендовал"
+  const referredBySelect = document.getElementById('referredBy');
+  if (referredBySelect) {
+    (async function loadAgentsIntoSelect(attempt) {
+      attempt = attempt || 1;
+      console.log('[Agents] Попытка загрузки списка агентов #' + attempt);
+      try {
+        if (typeof db === 'undefined' || !db) {
+          console.warn('[Agents] db ещё не готов, повтор через 1 сек');
+          if (attempt < 10) return setTimeout(() => loadAgentsIntoSelect(attempt + 1), 1000);
+          return;
+        }
+        if (typeof kerbenWaitForAuth === 'function') {
+          console.log('[Agents] Ждём Firebase Auth...');
+          await kerbenWaitForAuth();
+          console.log('[Agents] Firebase Auth готов, делаем запрос');
+        }
+        const snap = await db.collection('agents').get();
+        console.log('[Agents] Получено документов:', snap.size);
+
+        const agents = [];
+        snap.forEach(doc => {
+          const d = doc.data();
+          console.log('[Agents] Агент:', doc.id, 'name=', d.name, 'active=', d.active);
+          // Показываем ВСЕХ, кроме явно заблокированных (active === false)
+          if (d.name && d.active !== false) {
+            agents.push({ id: doc.id, name: d.name });
+          }
+        });
+
+        // Удаляем ранее добавленные опции (кроме первой — placeholder)
+        while (referredBySelect.options.length > 1) {
+          referredBySelect.remove(1);
+        }
+
+        agents.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        agents.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.name;
+          opt.textContent = a.name;
+          referredBySelect.appendChild(opt);
+        });
+        console.log('[Agents] Добавлено в список:', agents.length, 'агент(ов)');
+
+        // Автовыбор сохранённого агента
+        const savedReferredBy = localStorage.getItem('savedReferredBy');
+        const urlPartner = typeof getCurrentPartner === 'function' ? getCurrentPartner() : null;
+        const preselect = urlPartner || savedReferredBy;
+        if (preselect) {
+          for (let i = 0; i < referredBySelect.options.length; i++) {
+            if (referredBySelect.options[i].value === preselect) {
+              referredBySelect.value = preselect;
+              referredBySelect.style.borderColor = '#28a745';
+              referredBySelect.style.background = '#f0fff4';
+              break;
+            }
+          }
+        }
+      } catch(e) {
+        console.error('[Agents] Ошибка загрузки:', e && e.message ? e.message : e);
+        // Повторяем через 2 сек (max 3 попытки)
+        if (attempt < 3) {
+          setTimeout(() => loadAgentsIntoSelect(attempt + 1), 2000);
+        }
       }
-    } catch(e) {}
+    })();
   }
 
   try {
