@@ -298,9 +298,9 @@ document.getElementById('submitOrder').onclick = async () => {
     submitBtn.textContent = 'Отправка в базу...';
 
     const orderRef = db.collection('orders').doc();
-    const batch = db.batch();
     let stockDeducted = false;
     const warehouseDeductions = {};
+    const stockUpdatesList = []; // [ref, data] для фонового обновления
 
     for (const item of cart) {
       const localProduct = products.find(p => p.id === item.id);
@@ -327,7 +327,7 @@ document.getElementById('submitOrder').onclick = async () => {
 
       stockDeducted = true;
       const productRef = db.collection('products').doc(item.id);
-      batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(-need) });
+      const updateData = { stock: firebase.firestore.FieldValue.increment(-need) };
 
       // === СПИСАНИЕ СО СКЛАДОВ ===
       const ws = localProduct.warehouseStock;
@@ -336,7 +336,7 @@ document.getElementById('submitOrder').onclick = async () => {
         const sortedWarehouses = Object.entries(ws)
           .filter(([, qty]) => qty > 0)
           .sort((a, b) => b[1] - a[1]);
-        
+
         const updatedWs = { ...ws };
         const itemDeductions = {};
         for (const [whId, whQty] of sortedWarehouses) {
@@ -346,15 +346,24 @@ document.getElementById('submitOrder').onclick = async () => {
           remaining -= deduct;
           itemDeductions[whId] = deduct;
         }
-        
+
         if (Object.keys(itemDeductions).length > 0) {
           warehouseDeductions[item.id] = itemDeductions;
         }
-        batch.update(productRef, { warehouseStock: updatedWs });
+        updateData.warehouseStock = updatedWs;
       }
+      stockUpdatesList.push([productRef, updateData]);
     }
 
-    batch.set(orderRef, {
+    // Ждём Firebase Auth перед записью — иначе запрос без токена может висеть
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(); } catch (e) {}
+    }
+
+    // ШАГ 1: сохраняем ЗАКАЗ отдельно (быстрая, критичная запись).
+    // Остатки товаров обновляем в фоне после — на медленном 4G совместный
+    // batch легко превышал 20 сек и клиент видел "сервер медленно отвечает".
+    await orderRef.set({
       name,
       phone,
       address,
@@ -381,7 +390,19 @@ document.getElementById('submitOrder').onclick = async () => {
       warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
     });
 
-    await batch.commit();
+    // ШАГ 2: обновляем остатки товаров в фоне (не блокируем UI).
+    if (stockUpdatesList.length > 0) {
+      (async function() {
+        try {
+          const stockBatch = db.batch();
+          for (const [ref, data] of stockUpdatesList) stockBatch.update(ref, data);
+          await stockBatch.commit();
+          console.log('[Order] Остатки обновлены в фоне:', stockUpdatesList.length, 'товар(ов)');
+        } catch (e) {
+          console.warn('[Order] Ошибка обновления остатков (не критично):', e && e.message);
+        }
+      })();
+    }
 
     // === АЛЁРТЫ ОБ ОСТАТКАХ (создаются прямо на клиенте, без Cloud Functions) ===
     // Логика:

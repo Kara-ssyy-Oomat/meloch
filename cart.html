@@ -1023,11 +1023,18 @@
         }
         if (referredBy) try { localStorage.setItem('savedReferredBy', referredBy); } catch(e) {}
 
-        // Batch: списание остатков + сохранение заказа
+        // ============ ГОТОВИМ ЗАКАЗ И СПИСАНИЕ ОСТАТКОВ ============
         submitBtn.textContent = '⏳ Сохранение...';
+
+        // КРИТИЧНО: ждём Firebase Auth перед записью. Иначе запрос
+        // может уйти без auth-токена и висеть до таймаута.
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(); } catch(e) {}
+        }
+
         const orderRef = db.collection('orders').doc();
-        const batch = db.batch();
         const warehouseDeductions = {};
+        const stockUpdates = []; // список [productRef, updateData] для фонового обновления
         let stockDeducted = false;
 
         for (const item of cart) {
@@ -1043,7 +1050,7 @@
           const need = Math.max(0, Math.floor(item.qty || 0));
           if (need <= 0) throw new Error(`Некорректное количество: ${item.title}`);
           if (localStock < need) throw new Error(`Недостаточно остатка: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
-          
+
           stockDeducted = true;
           const productRef = db.collection('products').doc(item.id);
 
@@ -1077,13 +1084,13 @@
             }
 
             const newTotal = Object.values(updatedWs).reduce((s, v) => s + (v || 0), 0);
-            batch.update(productRef, { stock: newTotal, warehouseStock: updatedWs });
+            stockUpdates.push([productRef, { stock: newTotal, warehouseStock: updatedWs }]);
           } else {
-            batch.update(productRef, { stock: firebase.firestore.FieldValue.increment(-need) });
+            stockUpdates.push([productRef, { stock: firebase.firestore.FieldValue.increment(-need) }]);
           }
         }
 
-        batch.set(orderRef, {
+        const orderPayload = {
           name, phone, address,
           driverName: driverName || null, driverPhone: driverPhone || null,
           items: cart.map(item => ({
@@ -1096,33 +1103,77 @@
           partner: partner || null, referredBy: referredBy || null,
           stockDeducted,
           warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
-        });
+        };
 
-        // batch.commit() с таймаутом 20 сек — при зависшем Firestore не
-        // блокируем UI навечно. Если таймаут сработал — заказ МОЖЕТ быть
-        // записан (Firestore дописывает в фоне), поэтому корзину очищаем.
-        const commitPromise = batch.commit();
-        const commitTimeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__TIMEOUT__')), 20000)
+        // ============ ШАГ 1: сохраняем ЗАКАЗ отдельно (быстро, критично) ============
+        // Раньше заказ и обновление остатков всех товаров шли одним batch,
+        // и на мобильном 4G коммит легко превышал 20 сек. Теперь заказ пишем
+        // отдельным быстрым запросом — а остатки обновляем в фоне после.
+        const _snapshotCart = [...cart];
+        const orderCommitPromise = orderRef.set(orderPayload);
+        const orderTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('__TIMEOUT__')), 45000)
         );
         try {
-          await Promise.race([commitPromise, commitTimeout]);
+          await Promise.race([orderCommitPromise, orderTimeout]);
+          console.log('[Cart] Заказ сохранён:', orderRef.id);
         } catch (commitErr) {
           if (commitErr && commitErr.message === '__TIMEOUT__') {
-            console.warn('[Cart] batch.commit() таймаут 20с — заказ мог быть сохранён');
+            console.warn('[Cart] Заказ пишется дольше 45с — продолжаем в фоне');
+            // Продолжаем ждать в фоне и, если запись всё же пройдёт,
+            // — отправляем Telegram и очищаем корзину.
+            orderCommitPromise
+              .then(() => {
+                console.log('[Cart] Заказ дописан в фоне:', orderRef.id);
+                cart.length = 0; saveCart(); renderCart();
+                if (typeof sendOrderAsPDF === 'function') {
+                  sendOrderAsPDF(name, phone, address, driverName, driverPhone,
+                    _snapshotCart, total, currentTime).catch(() => {});
+                }
+                Swal.fire({
+                  icon: 'success',
+                  title: 'Заказ принят ✅',
+                  text: 'Он был отправлен с задержкой, но всё дошло.',
+                  timer: 3000, showConfirmButton: false
+                });
+              })
+              .catch((e) => {
+                console.error('[Cart] Заказ так и не сохранился:', e && e.message);
+                Swal.fire({
+                  icon: 'error',
+                  title: 'Заказ не отправлен',
+                  html: 'Сеть очень медленная. Проверьте интернет и попробуйте ещё раз.<br>Корзина сохранена.',
+                  confirmButtonText: 'Понятно'
+                });
+              });
+            // UI: не пугаем клиента "может быть", а честно говорим "ждём"
             Swal.fire({
-              icon: 'warning',
-              title: 'Заказ отправляется...',
-              html: 'Сервер отвечает медленно. Заказ скорее всего будет доставлен.<br>Если не придёт — попробуйте ещё раз.',
+              icon: 'info',
+              title: 'Отправляем заказ...',
+              html: 'Сеть медленная. Заказ уходит в фоне — можете свернуть браузер.<br>Мы покажем когда придёт подтверждение.',
               confirmButtonText: 'Понятно',
               confirmButtonColor: '#4CAF50'
             });
-            // Очищаем корзину — заказ мог записаться
-            cart.length = 0; saveCart(); renderCart();
             submitBtn.disabled = false; submitBtn.style.opacity = '1'; submitBtn.textContent = originalText;
             return;
           }
           throw commitErr;
+        }
+
+        // ============ ШАГ 2: обновляем ОСТАТКИ в фоне (некритично) ============
+        // Даже если склад не обновится сразу — заказ уже принят.
+        // Обновляем товары по одному, чтобы не блокировать UI.
+        if (stockUpdates.length > 0) {
+          (async function() {
+            try {
+              const stockBatch = db.batch();
+              for (const [ref, data] of stockUpdates) stockBatch.update(ref, data);
+              await stockBatch.commit();
+              console.log('[Cart] Остатки обновлены в фоне:', stockUpdates.length, 'товар(ов)');
+            } catch (e) {
+              console.warn('[Cart] Ошибка обновления остатков (не критично):', e && e.message);
+            }
+          })();
         }
 
         // ============ ЗАКАЗ УСПЕШНО СОХРАНЁН ============
