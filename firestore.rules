@@ -265,6 +265,22 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    // agentPayouts — выплаты агентам от компании. Создаются админом
+    // в admin-agents.html.
+    // READ — только залогиненный (админ и агенты видят выплаты).
+    // CREATE/UPDATE — только админ, с валидацией.
+    // DELETE — только админ.
+    match /agentPayouts/{id} {
+      allow read: if isAuthed();
+      allow create, update: if isAdminUser()
+        && reasonableDocSize()
+        && strOk('agentId', 200)
+        && strOk('agentName', 200)
+        && numOk('amount', 0, 1000000000)
+        && reasonableTimestamp();
+      allow delete: if isAdminUser();
+    }
+
     // =========================================================
     //                          ORDERS
     // =========================================================
