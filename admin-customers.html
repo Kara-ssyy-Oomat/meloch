@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}.main-container{height:100vh!important}</style>')</script>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Данные клиентов - Кербен</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
+  <script src="js/app-check.js?v=2"></script>
+  <script src="js/auth.js?v=2"></script>
+  <script src="js/admin-reauth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    input, textarea, select { font-family: inherit; font-size: 16px; }
+    .swal2-container { z-index: 999999 !important; }
+
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 56px);
+      background: #fff;
+    }
+
+    .page-header {
+      background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .page-header h1 { margin: 0; font-size: 22px; }
+    .page-header p { margin: 5px 0 0; opacity: 0.9; font-size: 14px; }
+    .back-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      font-size: 28px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      padding: 15px;
+      background: #f8f9fa;
+      flex-shrink: 0;
+    }
+    .stat-card {
+      background: white;
+      padding: 14px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    .stat-card .label { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .stat-card .value { font-size: 24px; font-weight: 700; }
+    .stat-card .value.teal { color: #0d9488; }
+    .stat-card .value.blue { color: #007bff; }
+    .stat-card .value.orange { color: #fd7e14; }
+
+    .filters-panel {
+      padding: 15px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+    .controls-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .controls-row input {
+      padding: 10px 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      flex: 1;
+      min-width: 200px;
+      max-width: 360px;
+    }
+    .controls-row button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      background: #0d9488;
+      color: white;
+    }
+
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 15px;
+    }
+
+    .customer-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 12px;
+      overflow: hidden;
+      border: 1px solid #eee;
+    }
+    .customer-card.admin-card {
+      border-color: #0d9488;
+      background: #f0fdfa;
+    }
+    .customer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .customer-info h3 {
+      margin: 0 0 6px 0;
+      font-size: 16px;
+      color: #333;
+      word-break: break-word;
+    }
+    .customer-info p {
+      margin: 3px 0;
+      font-size: 13px;
+      color: #555;
+      word-break: break-word;
+    }
+    .customer-info .muted { color: #888; font-size: 12px; }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge-admin { background: #ccfbf1; color: #0f766e; }
+    .badge-hash { background: #e0e7ff; color: #3730a3; }
+    .badge-plain { background: #fef3c7; color: #92400e; }
+
+    .customer-body {
+      padding: 12px 16px;
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      color: #444;
+    }
+    .customer-body .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .customer-body .label {
+      color: #888;
+      min-width: 90px;
+    }
+    .customer-body .val {
+      font-weight: 500;
+      color: #222;
+      word-break: break-all;
+    }
+    .password-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background: #f8fafc;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .customer-actions {
+      padding: 12px 16px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      border-top: 1px solid #f0f0f0;
+      background: #fafafa;
+    }
+    .customer-actions button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .btn-edit { background: #0d9488; color: white; }
+    .btn-delete { background: #dc3545; color: white; }
+    .btn-copy { background: #64748b; color: white; }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    .empty-state .icon { font-size: 64px; margin-bottom: 15px; }
+
+    @media (max-width: 600px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .controls-row { flex-direction: column; align-items: stretch; }
+      .controls-row input { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="main-container">
+  <div class="page-header">
+    <div>
+      <h1>👤 Данные клиентов</h1>
+      <p>Список зарегистрированных клиентов</p>
+    </div>
+    <button class="back-btn" onclick="window.location.href='profile.html'" aria-label="Назад">←</button>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="label">👥 Всего</div>
+      <div class="value teal" id="statTotal">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">📅 За 7 дней</div>
+      <div class="value blue" id="statWeek">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">🔑 С открытым паролем</div>
+      <div class="value orange" id="statPlain">0</div>
+    </div>
+  </div>
+
+  <div class="filters-panel">
+    <div class="controls-row">
+      <input type="text" id="searchCustomer" placeholder="🔍 Поиск: имя, телефон, адрес..." oninput="filterCustomers()">
+      <button type="button" onclick="loadCustomers()">🔄 Обновить</button>
+    </div>
+  </div>
+
+  <div class="content-area" id="customersContainer">
+    <div class="empty-state">
+      <div class="icon">⏳</div>
+      <p>Загрузка клиентов...</p>
+    </div>
+  </div>
+</div>
+
+<script src="js/bottom-nav.js?v=28"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+  authDomain: "svoysayet.firebaseapp.com",
+  projectId: "svoysayet",
+  storageBucket: "svoysayet.firebasestorage.app",
+  messagingSenderId: "450143000217",
+  appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+  measurementId: "G-Y8VG9E29FY"
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+if (typeof kerbenStartAppCheckSetup === 'function') kerbenStartAppCheckSetup(db);
+
+let customers = [];
+let filteredCustomers = [];
+
+function escapeHtml(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizePhone(phone) {
+  if (!phone) return '';
+  let normalized = String(phone).replace(/[^\d+]/g, '');
+  if (normalized.startsWith('0')) {
+    normalized = '+996' + normalized.substring(1);
+  }
+  if (!normalized.startsWith('+')) {
+    if (normalized.startsWith('996')) {
+      normalized = '+' + normalized;
+    } else {
+      normalized = '+996' + normalized;
+    }
+  }
+  return normalized;
+}
+
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text || ''));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashCustomerPassword(password, phoneSalt) {
+  if (!password) return '';
+  try {
+    const enc = new TextEncoder();
+    const baseKey = await crypto.subtle.importKey(
+      'raw', enc.encode(String(password)),
+      { name: 'PBKDF2' }, false, ['deriveBits']
+    );
+    const bits = await crypto.subtle.deriveBits({
+      name: 'PBKDF2',
+      salt: enc.encode('kerben_v1:' + (phoneSalt || '')),
+      iterations: 100000,
+      hash: 'SHA-256'
+    }, baseKey, 256);
+    return 'pbkdf2$' + Array.from(new Uint8Array(bits))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    return 'sha256$' + await sha256(String(password) + ':' + (phoneSalt || ''));
+  }
+}
+
+function formatDate(ts) {
+  if (!ts) return '—';
+  let d;
+  if (typeof ts === 'number') d = new Date(ts);
+  else if (ts && typeof ts.toDate === 'function') d = ts.toDate();
+  else d = new Date(ts);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+function getPasswordDisplay(c) {
+  if (c.password && typeof c.password === 'string') {
+    return { text: c.password, kind: 'plain' };
+  }
+  if (c.passwordHash) {
+    return { text: 'хеширован (нельзя показать)', kind: 'hash' };
+  }
+  return { text: 'не задан', kind: 'none' };
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadCustomers();
+});
+
+async function loadCustomers() {
+  const container = document.getElementById('customersContainer');
+  container.innerHTML = `
+    <div class="empty-state">
+      <div class="icon">⏳</div>
+      <p>Загрузка клиентов...</p>
+    </div>
+  `;
+
+  try {
+    if (typeof kerbenWaitForAuth === 'function') {
+      await kerbenWaitForAuth();
+    }
+
+    // Лимит 2000 — защита от случайной выгрузки огромной коллекции
+    const snapshot = await db.collection('customers').limit(2000).get();
+    customers = [];
+    snapshot.forEach(doc => {
+      const data = doc.data() || {};
+      customers.push({
+        id: doc.id,
+        name: data.name || '',
+        phone: data.phone || '',
+        address: data.address || '',
+        email: data.email || '',
+        password: data.password || null,
+        passwordHash: data.passwordHash || null,
+        createdAt: data.createdAt || null,
+        ordersCount: data.ordersCount || 0,
+        totalSpent: data.totalSpent || 0,
+        isAdmin: !!data.isAdmin,
+        firebaseUid: data.firebaseUid || '',
+        lastOrderAt: data.lastOrderAt || null
+      });
+    });
+
+    customers.sort((a, b) => {
+      const ta = typeof a.createdAt === 'number' ? a.createdAt : 0;
+      const tb = typeof b.createdAt === 'number' ? b.createdAt : 0;
+      return tb - ta;
+    });
+
+    updateStats();
+    filterCustomers();
+  } catch (error) {
+    console.error('Ошибка загрузки клиентов:', error);
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">❌</div>
+        <p>Ошибка загрузки: ${escapeHtml(error.message || error)}</p>
+        <p style="margin-top:8px;font-size:13px;">Убедитесь, что вы вошли как администратор</p>
+      </div>
+    `;
+  }
+}
+
+function updateStats() {
+  document.getElementById('statTotal').textContent = customers.length;
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  document.getElementById('statWeek').textContent = customers.filter(c => {
+    const t = typeof c.createdAt === 'number' ? c.createdAt : 0;
+    return t >= weekAgo;
+  }).length;
+  document.getElementById('statPlain').textContent = customers.filter(c => !!c.password).length;
+}
+
+function filterCustomers() {
+  const q = (document.getElementById('searchCustomer').value || '').trim().toLowerCase();
+  if (!q) {
+    filteredCustomers = customers.slice();
+  } else {
+    filteredCustomers = customers.filter(c => {
+      const hay = [
+        c.name, c.phone, c.address, c.email,
+        c.password || '', c.id
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  renderCustomers();
+}
+
+function renderCustomers() {
+  const container = document.getElementById('customersContainer');
+
+  if (!filteredCustomers.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">👤</div>
+        <p>${customers.length ? 'Ничего не найдено' : 'Клиентов пока нет'}</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = filteredCustomers.map(c => {
+    const pwd = getPasswordDisplay(c);
+    const pwdBadge = pwd.kind === 'plain'
+      ? '<span class="badge badge-plain">открытый пароль</span>'
+      : (pwd.kind === 'hash' ? '<span class="badge badge-hash">хеш</span>' : '');
+    const adminBadge = c.isAdmin ? '<span class="badge badge-admin">Админ</span>' : '';
+
+    return `
+      <div class="customer-card ${c.isAdmin ? 'admin-card' : ''}" data-id="${escapeHtml(c.id)}">
+        <div class="customer-header">
+          <div class="customer-info">
+            <h3>${escapeHtml(c.name || 'Без имени')}${adminBadge}${pwdBadge}</h3>
+            <p>📱 ${escapeHtml(c.phone || '—')}</p>
+            <p class="muted">ID: ${escapeHtml(c.id)}</p>
+          </div>
+        </div>
+        <div class="customer-body">
+          <div class="row"><span class="label">📍 Адрес</span><span class="val">${escapeHtml(c.address || '—')}</span></div>
+          <div class="row"><span class="label">🔑 Пароль</span><span class="val password-val">${escapeHtml(pwd.text)}</span></div>
+          <div class="row"><span class="label">📅 Регистрация</span><span class="val">${escapeHtml(formatDate(c.createdAt))}</span></div>
+          <div class="row"><span class="label">🛒 Заказов</span><span class="val">${escapeHtml(String(c.ordersCount || 0))} · ${escapeHtml(String(c.totalSpent || 0))} сом</span></div>
+          ${c.email ? `<div class="row"><span class="label">✉️ Email</span><span class="val">${escapeHtml(c.email)}</span></div>` : ''}
+        </div>
+        <div class="customer-actions">
+          <button type="button" class="btn-edit" onclick="editCustomer('${escapeHtml(c.id)}')">✏️ Изменить</button>
+          <button type="button" class="btn-copy" onclick="copyCustomerData('${escapeHtml(c.id)}')">📋 Копировать</button>
+          <button type="button" class="btn-delete" onclick="deleteCustomer('${escapeHtml(c.id)}')">🗑️ Удалить</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function findCustomer(id) {
+  return customers.find(c => c.id === id);
+}
+
+async function copyCustomerData(id) {
+  const c = findCustomer(id);
+  if (!c) return;
+  const pwd = getPasswordDisplay(c);
+  const text = [
+    `Имя: ${c.name || ''}`,
+    `Телефон: ${c.phone || ''}`,
+    `Адрес: ${c.address || ''}`,
+    `Пароль: ${pwd.text}`,
+    `ID: ${c.id}`,
+    `Регистрация: ${formatDate(c.createdAt)}`
+  ].join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    Swal.fire({ icon: 'success', title: 'Скопировано', timer: 1200, showConfirmButton: false });
+  } catch (e) {
+    Swal.fire('Данные клиента', `<pre style="text-align:left;white-space:pre-wrap;">${escapeHtml(text)}</pre>`, 'info');
+  }
+}
+
+async function editCustomer(id) {
+  const c = findCustomer(id);
+  if (!c) return;
+
+  const pwd = getPasswordDisplay(c);
+  const result = await Swal.fire({
+    title: '✏️ Изменить данные клиента',
+    html: `
+      <div style="text-align:left; font-size:14px;">
+        <p style="margin:0 0 12px; color:#0f766e; background:#f0fdfa; padding:10px; border-radius:8px;">
+          Меняются данные <b>только этого</b> клиента (ID: ${escapeHtml(c.id)}). Остальные клиенты не затрагиваются.
+        </p>
+        <label style="display:block; margin:0 0 4px; font-weight:600;">👤 Имя</label>
+        <input id="editCustName" value="${escapeHtml(c.name || '')}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:12px; box-sizing:border-box;">
+
+        <label style="display:block; margin:0 0 4px; font-weight:600;">📱 Телефон</label>
+        <input id="editCustPhone" value="${escapeHtml(c.phone || '')}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:12px; box-sizing:border-box;">
+
+        <label style="display:block; margin:0 0 4px; font-weight:600;">📍 Адрес</label>
+        <input id="editCustAddress" value="${escapeHtml(c.address || '')}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:12px; box-sizing:border-box;">
+
+        <label style="display:block; margin:0 0 4px; font-weight:600;">🔑 Пароль</label>
+        <input id="editCustPassword" type="text" placeholder="${pwd.kind === 'hash' ? 'Оставьте пустым, чтобы не менять (сейчас хеш)' : 'Оставьте пустым, чтобы не менять'}" value="${pwd.kind === 'plain' ? escapeHtml(c.password || '') : ''}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:6px; box-sizing:border-box;">
+        <div style="font-size:12px; color:#666;">
+          ${pwd.kind === 'hash'
+            ? 'Сейчас пароль хранится как хеш — показать его нельзя. Введите новый, чтобы сменить.'
+            : 'Если поле пустое — пароль не меняется.'}
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Сохранить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#0d9488',
+    focusConfirm: false,
+    preConfirm: () => {
+      const name = (document.getElementById('editCustName').value || '').trim();
+      const phone = (document.getElementById('editCustPhone').value || '').trim();
+      const address = (document.getElementById('editCustAddress').value || '').trim();
+      const password = (document.getElementById('editCustPassword').value || '').trim();
+
+      if (!name) {
+        Swal.showValidationMessage('Введите имя');
+        return false;
+      }
+      if (!phone) {
+        Swal.showValidationMessage('Введите телефон');
+        return false;
+      }
+      return { name, phone, address, password };
+    }
+  });
+
+  if (!result.isConfirmed || !result.value) return;
+
+  const { name, phone, address, password } = result.value;
+  const normalizedPhone = normalizePhone(phone);
+
+  try {
+    Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+
+    // Телефон меняем только у ЭТОГО документа; проверяем, что номер не занят другим клиентом
+    if (normalizedPhone !== normalizePhone(c.phone || '')) {
+      const dup = await db.collection('customers')
+        .where('phone', '==', normalizedPhone)
+        .limit(1)
+        .get();
+      if (!dup.empty && dup.docs[0].id !== c.id) {
+        Swal.fire('Ошибка', 'Этот номер уже занят другим клиентом', 'error');
+        return;
+      }
+    }
+
+    const update = {
+      name: name,
+      phone: normalizedPhone,
+      address: address || ''
+    };
+
+    // Пароль: только если админ что-то ввёл — пишем новый хеш только в этот документ
+    if (password) {
+      update.passwordHash = await hashCustomerPassword(password, normalizedPhone);
+      update.password = firebase.firestore.FieldValue.delete();
+    }
+
+    await db.collection('customers').doc(c.id).update(update);
+
+    // Обновляем локальный список только этого клиента
+    const idx = customers.findIndex(x => x.id === c.id);
+    if (idx !== -1) {
+      customers[idx].name = name;
+      customers[idx].phone = normalizedPhone;
+      customers[idx].address = address || '';
+      if (password) {
+        customers[idx].passwordHash = update.passwordHash;
+        customers[idx].password = null;
+      }
+    }
+
+    updateStats();
+    filterCustomers();
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Сохранено',
+      html: `Данные клиента <b>${escapeHtml(name)}</b> обновлены.<br><span style="font-size:13px;color:#666;">У остальных клиентов ничего не изменилось.</span>`,
+      timer: 2200,
+      showConfirmButton: false
+    });
+  } catch (error) {
+    console.error('Ошибка сохранения клиента:', error);
+    Swal.fire('Ошибка', error.message || 'Не удалось сохранить', 'error');
+  }
+}
+
+async function deleteCustomer(id) {
+  const c = findCustomer(id);
+  if (!c) return;
+
+  if (c.isAdmin) {
+    Swal.fire('Нельзя', 'Администратора удалять нельзя', 'warning');
+    return;
+  }
+
+  const result = await Swal.fire({
+    title: '🗑️ Удалить клиента?',
+    html: `Будет удалён только клиент <strong>${escapeHtml(c.name || c.phone)}</strong>. Остальные не затронуты.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Удалить',
+    confirmButtonColor: '#dc3545',
+    cancelButtonText: 'Отмена'
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+    await db.collection('customers').doc(c.id).delete();
+    customers = customers.filter(x => x.id !== c.id);
+    updateStats();
+    filterCustomers();
+    Swal.fire({ icon: 'success', title: 'Удалён', timer: 1400, showConfirmButton: false });
+  } catch (error) {
+    console.error('Ошибка удаления:', error);
+    Swal.fire('Ошибка', error.message || 'Не удалось удалить', 'error');
+  }
+}
+</script>
+
+</body>
+</html>

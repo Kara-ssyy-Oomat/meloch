@@ -169,11 +169,9 @@ async function _restoreCustomerFromCloud(cookieData) {
     const doc = snapshot.docs[0];
     const data = doc.data() || {};
 
-    // Если имя есть в cookie и не совпадает с базой, не восстанавливаем
-    const cookieName = (cookieData.name || '').trim().toLowerCase();
-    const dbName = (data.name || '').trim().toLowerCase();
-    if (cookieName && dbName && cookieName !== dbName) return null;
-
+    // Берём актуальные поля из облака (админ мог изменить имя/адрес).
+    // Раньше при несовпадении имени с cookie восстановление отменялось —
+    // после правок админа клиент оставался со старыми локальными данными.
     return {
       id: doc.id,
       name: data.name || cookieData.name || '',
@@ -220,6 +218,55 @@ function initCustomerAuth() {
   }
 }
 
+// Подтянуть свежие name/phone/address из Firestore ТОЛЬКО для текущего
+// клиента (по его document id). Нужно, чтобы правки админа в
+// admin-customers.html сразу попадали к этому клиенту, а не ко всем.
+async function _syncCurrentCustomerFromCloud() {
+  if (!currentCustomer || !currentCustomer.id) return;
+  if (typeof db === 'undefined' || !db) return;
+
+  try {
+    if (typeof kerbenWaitForAuth === 'function') {
+      await kerbenWaitForAuth();
+    }
+    const doc = await db.collection('customers').doc(currentCustomer.id).get();
+    if (!doc.exists) return;
+
+    const data = doc.data() || {};
+    let changed = false;
+
+    if (typeof data.name === 'string' && data.name && data.name !== currentCustomer.name) {
+      currentCustomer.name = data.name;
+      changed = true;
+    }
+    if (typeof data.phone === 'string' && data.phone && data.phone !== currentCustomer.phone) {
+      currentCustomer.phone = data.phone;
+      changed = true;
+    }
+    if (typeof data.address === 'string' && data.address !== (currentCustomer.address || '')) {
+      currentCustomer.address = data.address;
+      changed = true;
+    }
+    if (typeof data.ordersCount === 'number') {
+      currentCustomer.ordersCount = data.ordersCount;
+    }
+    if (typeof data.totalSpent === 'number') {
+      currentCustomer.totalSpent = data.totalSpent;
+    }
+
+    if (changed) {
+      _saveCustomerData();
+      updateCustomerUI();
+      if (typeof fillOrderFormWithCustomerData === 'function') {
+        fillOrderFormWithCustomerData();
+      }
+      console.log('[Auth] Профиль синхронизирован из облака для клиента', currentCustomer.id);
+    }
+  } catch (e) {
+    console.warn('[Auth] sync from cloud failed (не критично):', e && e.message);
+  }
+}
+
 // Применить загруженные данные клиента
 function _initWithCustomerData(data) {
   if (!data || !data.phone) return;
@@ -237,6 +284,9 @@ function _initWithCustomerData(data) {
   if (currentCustomer && currentCustomer.id) {
     _bindCustomerDocToFirebaseUid(currentCustomer.id, currentCustomer)
       .catch(e => console.warn('[Auth] auto-bind firebaseUid failed (не критично):', e && e.message));
+    // Подтянуть изменения, которые админ мог сделать на сайте
+    // (имя / телефон / адрес) — только для ЭТОГО клиента по id.
+    _syncCurrentCustomerFromCloud();
   }
   
   updateCustomerUI();
