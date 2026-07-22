@@ -256,9 +256,19 @@ async function _syncCurrentCustomerFromCloud() {
 
     if (changed) {
       _saveCustomerData();
+      // Обновляем и userData (им заполняется форма заказа в app-init.js),
+      // иначе после правки админа в поле «телефон» останется старый номер
+      // и заказ уйдёт со старым.
+      try {
+        const ud = JSON.parse(localStorage.getItem('userData') || '{}') || {};
+        if (currentCustomer.name) ud.name = currentCustomer.name;
+        if (currentCustomer.phone) ud.phone = currentCustomer.phone;
+        if (typeof currentCustomer.address === 'string') ud.address = currentCustomer.address;
+        localStorage.setItem('userData', JSON.stringify(ud));
+      } catch (e) {}
       updateCustomerUI();
       if (typeof fillOrderFormWithCustomerData === 'function') {
-        fillOrderFormWithCustomerData();
+        fillOrderFormWithCustomerData(true);
       }
       console.log('[Auth] Профиль синхронизирован из облака для клиента', currentCustomer.id);
     }
@@ -1816,16 +1826,20 @@ function updateCustomerUI() {
 }
 
 // Заполнение формы заказа данными клиента
-function fillOrderFormWithCustomerData() {
+// force=true — перезаписать поля формы (после правки админа в облаке).
+// force=false — как раньше: заполнять только пустые поля.
+function fillOrderFormWithCustomerData(force) {
   if (!currentCustomer) return;
-  
+
   const nameInput = document.getElementById('name');
   const phoneInput = document.getElementById('phone');
   const addressInput = document.getElementById('address');
-  
-  if (nameInput && !nameInput.value) nameInput.value = currentCustomer.name;
-  if (phoneInput && !phoneInput.value) phoneInput.value = currentCustomer.phone;
-  if (addressInput && !addressInput.value && currentCustomer.address) addressInput.value = currentCustomer.address;
+
+  if (nameInput && (force || !nameInput.value)) nameInput.value = currentCustomer.name || '';
+  if (phoneInput && (force || !phoneInput.value)) phoneInput.value = currentCustomer.phone || '';
+  if (addressInput && (force || !addressInput.value) && (force || currentCustomer.address)) {
+    addressInput.value = currentCustomer.address || '';
+  }
 }
 
 // Нормализация телефона
