@@ -375,11 +375,40 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
   console.log(`[StockDeduct] ${orderId}: ${anyDeducted ? 'done' : 'skipped'} (${items.length} позиций)`);
 }
 
-exports.deductStockOnOrderCreate = functions.firestore
+// Максимальный возраст события, при котором CF ещё пытается повторить.
+// Firebase v1 по умолчанию не ретраит — включён failurePolicy: true.
+// Если событие старше — прекращаем повторы, чтобы не жечь деньги вечно.
+const MAX_EVENT_AGE_MS = 30 * 60 * 1000; // 30 минут
+
+exports.deductStockOnOrderCreate = functions
+  .runWith({
+    // ВКЛЮЧАЕМ ретрай: без него разовый сбой Firestore = склад не списан.
+    // Идемпотентность защищена: claim + stockDeductionProcessedIds.
+    failurePolicy: true,
+    timeoutSeconds: 120,
+    memory: '256MB'
+  })
+  .firestore
   .document('orders/{orderId}')
   .onCreate(async (snap, context) => {
     const orderId = context.params.orderId;
     const data = snap.data() || {};
+
+    // Если событие слишком старое — не повторяем (защита от бесконечных retry).
+    // Заказ можно будет обработать вручную через админ-панель.
+    try {
+      const ts = context.timestamp ? Date.parse(context.timestamp) : Date.now();
+      if (isFinite(ts) && (Date.now() - ts) > MAX_EVENT_AGE_MS) {
+        console.warn(`[StockDeduct] ${orderId}: событие старше ${MAX_EVENT_AGE_MS}ms, пропускаем retry`);
+        await db.collection('orders').doc(orderId).update({
+          stockDeductionStatus: 'failed',
+          stockDeductionError: 'retry_expired',
+          stockDeductionFinishedAt: Date.now()
+        }).catch(() => {});
+        return null;
+      }
+    } catch (e) { /* если не смогли распарсить — продолжаем */ }
+
     // Только полностью завершённые статусы — выход.
     // stockDeducted===true без done — частичный прогресс, его дожимает retry.
     if (data.stockDeductionStatus === 'done'
@@ -392,12 +421,9 @@ exports.deductStockOnOrderCreate = functions.firestore
       await processOrderStockDeduction(orderId, data);
     } catch (e) {
       console.error(`[StockDeduct] onCreate ${orderId}:`, e.message);
-      // Пробрасываем — Firebase повторит триггер
+      // Пробрасываем — Firebase повторит триггер (failurePolicy=true)
       throw e;
     }
     return null;
   });
-
-// Подстраховка по расписанию НЕ включаем — лишние деньги (Cloud Scheduler).
-// Надёжность: onCreate + throw → Firebase сам повторяет; идемпотентность по товарам.
 

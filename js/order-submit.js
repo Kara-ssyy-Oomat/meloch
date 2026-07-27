@@ -296,18 +296,10 @@ document.getElementById('submitOrder').onclick = async () => {
 
     // Заказ быстро. Склад списывает только Cloud Function (deductStockOnOrderCreate).
     // Клиент НЕ пишет остатки → нет двойного списания и нет «зависшего» фона.
+    // Валидация корзины (наличие, остатки) уже сделана выше в блоке проверки товаров.
     submitBtn.textContent = 'Отправка в базу...';
 
     const orderRef = db.collection('orders').doc();
-
-    // Локальная проверка остатков (без записи в Firestore)
-    if (typeof prepareStockUpdatesFromCart === 'function') {
-      prepareStockUpdatesFromCart(cart, products, {
-        warehousePaused: typeof warehousePaused !== 'undefined' && warehousePaused,
-        pausedWarehouseIds: typeof pausedWarehouseIds !== 'undefined' ? pausedWarehouseIds : new Set(),
-        primaryWarehouseId: typeof primaryWarehouseId !== 'undefined' ? primaryWarehouseId : ''
-      });
-    }
 
     // Ждём Firebase Auth перед записью — иначе запрос без токена может висеть
     if (typeof kerbenWaitForAuth === 'function') {

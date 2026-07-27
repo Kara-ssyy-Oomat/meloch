@@ -361,6 +361,16 @@ service cloud.firestore {
           !('status' in request.resource.data)
           || request.resource.data.status == 'pending'
         )
+        // ЗАЩИТА: клиент НЕ может подделать статус списания, чтобы обойти
+        // Cloud Function и получить товары без списания со склада.
+        && (
+          !('stockDeductionStatus' in request.resource.data)
+          || request.resource.data.stockDeductionStatus == 'pending'
+        )
+        && (
+          !('stockDeducted' in request.resource.data)
+          || request.resource.data.stockDeducted == false
+        )
         && !isPhoneBlocked(request.resource.data.phone);
     }
 

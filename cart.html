@@ -1035,14 +1035,7 @@
 
         const orderRef = db.collection('orders').doc();
 
-        // Локальная проверка остатков (без записи в Firestore)
-        if (typeof prepareStockUpdatesFromCart === 'function') {
-          prepareStockUpdatesFromCart(cart, products, {
-            warehousePaused: warehousePaused,
-            pausedWarehouseIds: pausedWarehouseIds,
-            primaryWarehouseId: primaryWarehouseId
-          });
-        }
+        // Валидация корзины (наличие, остатки) уже сделана выше в блоке проверки товаров.
 
         const orderPayload = {
           name, phone, address,
