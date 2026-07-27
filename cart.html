@@ -232,6 +232,7 @@
   <script src="js/bot-blocker.js?v=1"></script>
   <script src="js/background-pause.js?v=1"></script>
   <script src="js/products-cache.js?v=3"></script>
+  <script src="js/stock-deduct.js?v=1"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при отправке заказа -->
@@ -1023,7 +1024,7 @@
         }
         if (referredBy) try { localStorage.setItem('savedReferredBy', referredBy); } catch(e) {}
 
-        // ============ ГОТОВИМ ЗАКАЗ И СПИСАНИЕ ОСТАТКОВ ============
+        // ============ ЗАКАЗ + СКЛАД В ФОНЕ (с повторами) ============
         submitBtn.textContent = '⏳ Сохранение...';
 
         // КРИТИЧНО: ждём Firebase Auth перед записью. Иначе запрос
@@ -1033,62 +1034,16 @@
         }
 
         const orderRef = db.collection('orders').doc();
-        const warehouseDeductions = {};
-        const stockUpdates = []; // список [productRef, updateData] для фонового обновления
-        let stockDeducted = false;
 
-        for (const item of cart) {
-          const localProduct = products.find(p => p.id === item.id);
-          const hasLocalStock = localProduct && typeof localProduct.stock === 'number' && isFinite(localProduct.stock);
-          if (!hasLocalStock) continue;
-          if (warehousePaused) continue;
-          const ws = localProduct.warehouseStock;
-          const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
-          if (hasWarehouseSetup && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId))) continue;
-          const localStock = Math.max(0, Math.floor(localProduct.stock));
-          if (localStock <= 0 && !hasWarehouseSetup) continue;
-          const need = Math.max(0, Math.floor(item.qty || 0));
-          if (need <= 0) throw new Error(`Некорректное количество: ${item.title}`);
-          if (localStock < need) throw new Error(`Недостаточно остатка: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
-
-          stockDeducted = true;
-          const productRef = db.collection('products').doc(item.id);
-
-          if (ws && typeof ws === 'object') {
-            let remaining = need;
-            const updatedWs = { ...ws };
-            const itemDeductions = {};
-
-            if (primaryWarehouseId && updatedWs[primaryWarehouseId] > 0) {
-              const deduct = Math.min(remaining, updatedWs[primaryWarehouseId]);
-              updatedWs[primaryWarehouseId] -= deduct;
-              remaining -= deduct;
-              itemDeductions[primaryWarehouseId] = deduct;
-            }
-
-            if (remaining > 0) {
-              const otherWh = Object.entries(updatedWs)
-                .filter(([whId, qty]) => qty > 0 && whId !== primaryWarehouseId)
-                .sort((a, b) => b[1] - a[1]);
-              for (const [whId, whQty] of otherWh) {
-                if (remaining <= 0) break;
-                const deduct = Math.min(remaining, whQty);
-                updatedWs[whId] -= deduct;
-                remaining -= deduct;
-                itemDeductions[whId] = deduct;
-              }
-            }
-
-            if (Object.keys(itemDeductions).length > 0) {
-              warehouseDeductions[item.id] = itemDeductions;
-            }
-
-            const newTotal = Object.values(updatedWs).reduce((s, v) => s + (v || 0), 0);
-            stockUpdates.push([productRef, { stock: newTotal, warehouseStock: updatedWs }]);
-          } else {
-            stockUpdates.push([productRef, { stock: firebase.firestore.FieldValue.increment(-need) }]);
-          }
-        }
+        const prepared = prepareStockUpdatesFromCart(cart, products, {
+          warehousePaused: warehousePaused,
+          pausedWarehouseIds: pausedWarehouseIds,
+          primaryWarehouseId: primaryWarehouseId
+        });
+        const stockUpdates = prepared.stockUpdates;
+        const warehouseDeductions = prepared.warehouseDeductions;
+        const stockDeducted = prepared.stockDeducted;
+        const processedIds = stockUpdates.map(([ref]) => ref.id);
 
         const orderPayload = {
           name, phone, address,
@@ -1102,13 +1057,13 @@
           total, timestamp: Date.now(), time: currentTime, status: 'pending',
           partner: partner || null, referredBy: referredBy || null,
           stockDeducted,
+          stockDeductionStatus: stockDeducted ? 'done' : 'skipped',
+          stockDeductionProcessedIds: processedIds,
+          stockDeductedProductIds: processedIds,
           warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
         };
 
-        // ============ ШАГ 1: сохраняем ЗАКАЗ отдельно (быстро, критично) ============
-        // Раньше заказ и обновление остатков всех товаров шли одним batch,
-        // и на мобильном 4G коммит легко превышал 20 сек. Теперь заказ пишем
-        // отдельным быстрым запросом — а остатки обновляем в фоне после.
+        // Пишем заказ быстро. Склад — в фоне с повторами.
         const _snapshotCart = [...cart];
         const orderCommitPromise = orderRef.set(orderPayload);
         const orderTimeout = new Promise((_, reject) =>
@@ -1120,11 +1075,12 @@
         } catch (commitErr) {
           if (commitErr && commitErr.message === '__TIMEOUT__') {
             console.warn('[Cart] Заказ пишется дольше 45с — продолжаем в фоне');
-            // Продолжаем ждать в фоне и, если запись всё же пройдёт,
-            // — отправляем Telegram и очищаем корзину.
             orderCommitPromise
               .then(() => {
                 console.log('[Cart] Заказ дописан в фоне:', orderRef.id);
+                if (typeof commitStockUpdatesWithRetry === 'function') {
+                  commitStockUpdatesWithRetry(stockUpdates, 'Cart');
+                }
                 cart.length = 0; saveCart(); renderCart();
                 if (typeof sendOrderAsPDF === 'function') {
                   sendOrderAsPDF(name, phone, address, driverName, driverPhone,
@@ -1146,7 +1102,6 @@
                   confirmButtonText: 'Понятно'
                 });
               });
-            // UI: не пугаем клиента "может быть", а честно говорим "ждём"
             Swal.fire({
               icon: 'info',
               title: 'Отправляем заказ...',
@@ -1160,21 +1115,33 @@
           throw commitErr;
         }
 
-        // ============ ШАГ 2: обновляем ОСТАТКИ в фоне (некритично) ============
-        // Даже если склад не обновится сразу — заказ уже принят.
-        // Обновляем товары по одному, чтобы не блокировать UI.
-        if (stockUpdates.length > 0) {
-          (async function() {
-            try {
-              const stockBatch = db.batch();
-              for (const [ref, data] of stockUpdates) stockBatch.update(ref, data);
-              await stockBatch.commit();
-              console.log('[Cart] Остатки обновлены в фоне:', stockUpdates.length, 'товар(ов)');
-            } catch (e) {
-              console.warn('[Cart] Ошибка обновления остатков (не критично):', e && e.message);
-            }
-          })();
+        // Списание склада в фоне с повторами
+        if (typeof commitStockUpdatesWithRetry === 'function') {
+          commitStockUpdatesWithRetry(stockUpdates, 'Cart');
         }
+
+        // Оптимистично обновляем локальный кэш остатков (UI)
+        try {
+          for (const orderedItem of _snapshotCart) {
+            const p = products.find(x => x.id === orderedItem.id);
+            if (!p || typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
+            if (warehousePaused) continue;
+            const need = Math.max(0, Math.floor(orderedItem.qty || 0));
+            p.stock = Math.max(0, Math.floor(p.stock) - need);
+            if (p.warehouseStock && typeof p.warehouseStock === 'object') {
+              let rem = need;
+              const entries = Object.entries(p.warehouseStock)
+                .filter(([, q]) => q > 0)
+                .sort((a, b) => b[1] - a[1]);
+              for (const [whId, whQty] of entries) {
+                if (rem <= 0) break;
+                const d = Math.min(rem, whQty);
+                p.warehouseStock[whId] = whQty - d;
+                rem -= d;
+              }
+            }
+          }
+        } catch (e) {}
 
         // ============ ЗАКАЗ УСПЕШНО СОХРАНЁН ============
         // Сразу: показываем успех + очищаем корзину + разблокируем кнопку

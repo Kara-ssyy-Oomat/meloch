@@ -1,10 +1,10 @@
 // ===================================================================
 // КЕРБЕН B2B Market — Cloud Functions
 // ===================================================================
-//   • processNotificationQueue — push-уведомления через FCM.
-//   • telegramProxy             — прокси к Telegram API. Токен бота
-//                                 хранится в Firebase Secret Manager,
-//                                 в коде клиента/репозитории его нет.
+//   • processNotificationQueue   — push-уведомления через FCM.
+//   • notifyOnStockChange        — алёрты low/out по остаткам.
+//   • deductStockOnOrderCreate — в codebase functions-stock
+//   • telegramProxy              — прокси к Telegram API (Secret Manager).
 // ===================================================================
 
 const functions = require('firebase-functions');

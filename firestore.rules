@@ -316,6 +316,12 @@ service cloud.firestore {
           && fieldUnchanged('referredBy')
           && fieldUnchanged('warehouseDeductions')
           && fieldUnchanged('stockDeducted')
+          && fieldUnchanged('stockDeductionStatus')
+          && fieldUnchanged('stockDeductionStartedAt')
+          && fieldUnchanged('stockDeductionFinishedAt')
+          && fieldUnchanged('stockDeductionError')
+          && fieldUnchanged('stockDeductedProductIds')
+          && fieldUnchanged('stockDeductionProcessedIds')
           && (
             !('status' in request.resource.data)
             || request.resource.data.status == resource.data.status

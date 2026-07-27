@@ -294,75 +294,27 @@ document.getElementById('submitOrder').onclick = async () => {
       } catch(e) {}
     }
 
-    // Списание остатков + сохранение заказа
+    // Заказ быстро + склад в фоне с повторами (CF ждёт Blaze; статус done,
+    // чтобы будущий CF не списал повторно).
     submitBtn.textContent = 'Отправка в базу...';
 
     const orderRef = db.collection('orders').doc();
-    let stockDeducted = false;
-    const warehouseDeductions = {};
-    const stockUpdatesList = []; // [ref, data] для фонового обновления
 
-    for (const item of cart) {
-      const localProduct = products.find(p => p.id === item.id);
-      const hasLocalStock = localProduct && typeof localProduct.stock === 'number' && isFinite(localProduct.stock);
-      if (!hasLocalStock) continue;
-
-      // Если склад приостановлен — не списываем остатки
-      if (getEffectiveStock(localProduct) === null) continue;
-
-      // Если склад не настроен (stock=0, нет warehouseStock) — пропускаем списание
-      const hasWarehouseSetup = localProduct.warehouseStock && typeof localProduct.warehouseStock === 'object' && Object.keys(localProduct.warehouseStock).length > 0;
-      const localStock = Math.max(0, Math.floor(localProduct.stock));
-      if (localStock <= 0 && !hasWarehouseSetup) continue;
-
-      const need = Math.max(0, Math.floor(item.qty || 0));
-      if (need <= 0) {
-        throw new Error(`Некорректное количество: ${item.title}`);
-      }
-
-      // Предварительная проверка по локальному кэшу
-      if (localStock < need) {
-        throw new Error(`Недостаточно остатка для товара: ${localProduct.title || item.title}. Доступно ${localStock} шт`);
-      }
-
-      stockDeducted = true;
-      const productRef = db.collection('products').doc(item.id);
-      const updateData = { stock: firebase.firestore.FieldValue.increment(-need) };
-
-      // === СПИСАНИЕ СО СКЛАДОВ ===
-      const ws = localProduct.warehouseStock;
-      if (ws && typeof ws === 'object') {
-        let remaining = need;
-        const sortedWarehouses = Object.entries(ws)
-          .filter(([, qty]) => qty > 0)
-          .sort((a, b) => b[1] - a[1]);
-
-        const updatedWs = { ...ws };
-        const itemDeductions = {};
-        for (const [whId, whQty] of sortedWarehouses) {
-          if (remaining <= 0) break;
-          const deduct = Math.min(remaining, whQty);
-          updatedWs[whId] = whQty - deduct;
-          remaining -= deduct;
-          itemDeductions[whId] = deduct;
-        }
-
-        if (Object.keys(itemDeductions).length > 0) {
-          warehouseDeductions[item.id] = itemDeductions;
-        }
-        updateData.warehouseStock = updatedWs;
-      }
-      stockUpdatesList.push([productRef, updateData]);
-    }
+    const prepared = prepareStockUpdatesFromCart(cart, products, {
+      warehousePaused: typeof warehousePaused !== 'undefined' && warehousePaused,
+      pausedWarehouseIds: typeof pausedWarehouseIds !== 'undefined' ? pausedWarehouseIds : new Set(),
+      primaryWarehouseId: typeof primaryWarehouseId !== 'undefined' ? primaryWarehouseId : ''
+    });
+    const stockUpdatesList = prepared.stockUpdates;
+    const warehouseDeductions = prepared.warehouseDeductions;
+    const stockDeducted = prepared.stockDeducted;
+    const processedIds = stockUpdatesList.map(([ref]) => ref.id);
 
     // Ждём Firebase Auth перед записью — иначе запрос без токена может висеть
     if (typeof kerbenWaitForAuth === 'function') {
       try { await kerbenWaitForAuth(); } catch (e) {}
     }
 
-    // ШАГ 1: сохраняем ЗАКАЗ отдельно (быстрая, критичная запись).
-    // Остатки товаров обновляем в фоне после — на медленном 4G совместный
-    // batch легко превышал 20 сек и клиент видел "сервер медленно отвечает".
     await orderRef.set({
       name,
       phone,
@@ -387,102 +339,16 @@ document.getElementById('submitOrder').onclick = async () => {
       partner: partner || null,
       referredBy: referredBy || null,
       stockDeducted,
+      stockDeductionStatus: stockDeducted ? 'done' : 'skipped',
+      stockDeductionProcessedIds: processedIds,
+      stockDeductedProductIds: processedIds,
       warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
     });
 
-    // ШАГ 2: обновляем остатки товаров в фоне (не блокируем UI).
-    if (stockUpdatesList.length > 0) {
-      (async function() {
-        try {
-          const stockBatch = db.batch();
-          for (const [ref, data] of stockUpdatesList) stockBatch.update(ref, data);
-          await stockBatch.commit();
-          console.log('[Order] Остатки обновлены в фоне:', stockUpdatesList.length, 'товар(ов)');
-        } catch (e) {
-          console.warn('[Order] Ошибка обновления остатков (не критично):', e && e.message);
-        }
-      })();
+    // Списание в фоне с повторами — UI не ждёт
+    if (typeof commitStockUpdatesWithRetry === 'function') {
+      commitStockUpdatesWithRetry(stockUpdatesList, 'Order');
     }
-
-    // === АЛЁРТЫ ОБ ОСТАТКАХ (создаются прямо на клиенте, без Cloud Functions) ===
-    // Логика:
-    //   • Если после списания stock стал <= 0 — создаём stockAlert kind='out'.
-    //   • Если был > порога, стал <= порога и > 0 — создаём kind='low'.
-    //   • Используем Firestore-транзакцию + ID документа {productId}_{kind}_active,
-    //     чтобы при одновременных заказах двух клиентов алёрт создался ровно ОДИН раз.
-    //   • Алёрты создаются ТОЛЬКО для товаров, у которых склад настроен
-    //     (есть warehouseStock) — иначе считаем что лимит не отслеживается.
-    //   • Ошибки записи алёрта не должны валить заказ — обёрнуто в try/catch.
-    try {
-      if (stockDeducted) {
-        let lowStockThreshold = 5;
-        try {
-          const settingsDoc = await db.collection('settings').doc('warehouse').get();
-          if (settingsDoc.exists) {
-            const t = settingsDoc.data().lowStockThreshold;
-            if (typeof t === 'number' && isFinite(t) && t >= 0) {
-              lowStockThreshold = Math.floor(t);
-            }
-          }
-        } catch (e) { /* используем дефолт 5 */ }
-
-        for (const item of cart) {
-          const localProduct = products.find(p => p.id === item.id);
-          if (!localProduct) continue;
-          if (localProduct.blocked === true) continue;
-          const hasWh = localProduct.warehouseStock
-            && typeof localProduct.warehouseStock === 'object'
-            && Object.keys(localProduct.warehouseStock).length > 0;
-          if (!hasWh) continue;
-          if (typeof localProduct.stock !== 'number' || !isFinite(localProduct.stock)) continue;
-
-          const need = Math.max(0, Math.floor(item.qty || 0));
-          if (need <= 0) continue;
-          const wasStock = Math.floor(localProduct.stock);
-          const newStock = Math.max(0, wasStock - need);
-
-          let kind = null;
-          if (wasStock > 0 && newStock <= 0) {
-            kind = 'out';
-          } else if (
-            wasStock > lowStockThreshold
-            && newStock > 0
-            && newStock <= lowStockThreshold
-          ) {
-            kind = 'low';
-          }
-          if (!kind) continue;
-
-          const activeId = item.id + '_' + kind + '_active';
-          const alertRef = db.collection('stockAlerts').doc(activeId);
-          try {
-            await db.runTransaction(async (tx) => {
-              const snap = await tx.get(alertRef);
-              if (snap.exists) return;
-              tx.set(alertRef, {
-                productId: item.id,
-                productTitle: localProduct.title || item.title || 'Товар',
-                kind: kind,
-                remaining: newStock,
-                threshold: lowStockThreshold,
-                active: true,
-                resolved: false,
-                timestamp: Date.now(),
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-              });
-            });
-            console.log('📣 stockAlert ' + kind + ' создан для:', localProduct.title || item.id);
-          } catch (e) {
-            console.warn('stockAlert не создан (' + kind + '):', e && e.message);
-          }
-        }
-      }
-    } catch (alertErr) {
-      console.warn('stockAlerts: общая ошибка, заказ не затронут:', alertErr && alertErr.message);
-    }
-
-    const driverInfo = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
-    const msg = `Новый заказ:\nИмя: ${name}\nТелефон: ${phone}\nАдрес: ${address}${driverInfo}\nТовары:\n${items}\n\nИтого: ${total} сом`;
 
     // Сразу показываем успех клиенту — отправка в Telegram идёт в фоне
     Swal.fire({
@@ -552,24 +418,26 @@ document.getElementById('submitOrder').onclick = async () => {
     updateCart();
     localStorage.removeItem('cart');
 
-    // Обновляем остатки локально и перерисовываем UI
-    // Только если реально списали (stockDeducted), иначе UI покажет неверные данные
+    // Оптимистично минусуем остатки в локальном UI (сервер спишет в Firestore)
     try {
-      if (stockDeducted) {
-        for (const orderedItem of orderData.cart) {
-          const p = products.find(x => x.id === orderedItem.id);
-          if (!p) continue;
-          if (typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
-          if (getEffectiveStock(p) === null) continue;
-          const nextStock = Math.max(0, Math.floor(p.stock) - Math.max(0, Math.floor(orderedItem.qty || 0)));
-          p.stock = nextStock;
-          // Обновляем warehouseStock локально если есть данные о списаниях
-          if (warehouseDeductions[orderedItem.id] && p.warehouseStock) {
-            for (const [whId, qty] of Object.entries(warehouseDeductions[orderedItem.id])) {
-              if (typeof p.warehouseStock[whId] === 'number') {
-                p.warehouseStock[whId] = Math.max(0, p.warehouseStock[whId] - qty);
-              }
-            }
+      for (const orderedItem of orderData.cart) {
+        const p = products.find(x => x.id === orderedItem.id);
+        if (!p) continue;
+        if (typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
+        if (typeof getEffectiveStock === 'function' && getEffectiveStock(p) === null) continue;
+        const need = Math.max(0, Math.floor(orderedItem.qty || 0));
+        const nextStock = Math.max(0, Math.floor(p.stock) - need);
+        p.stock = nextStock;
+        if (p.warehouseStock && typeof p.warehouseStock === 'object') {
+          let rem = need;
+          const entries = Object.entries(p.warehouseStock)
+            .filter(([, q]) => q > 0)
+            .sort((a, b) => b[1] - a[1]);
+          for (const [whId, whQty] of entries) {
+            if (rem <= 0) break;
+            const d = Math.min(rem, whQty);
+            p.warehouseStock[whId] = whQty - d;
+            rem -= d;
           }
         }
       }

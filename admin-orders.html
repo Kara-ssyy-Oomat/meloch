@@ -1099,8 +1099,35 @@ async function deductStockForItem(orderId, productId, qty) {
 
 // Возврат товаров на склад из заказа
 async function returnStockFromOrder(orderData) {
+  // Если списание ещё в процессе на сервере — подождём, иначе вернём «пусто»
+  if (orderData.stockDeducted !== true
+      && (orderData.stockDeductionStatus === 'pending'
+          || orderData.stockDeductionStatus === 'processing'
+          || orderData.stockDeductionStatus === 'failed')) {
+    const ref = orderData._orderRef;
+    if (ref) {
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+          const fresh = await ref.get();
+          if (!fresh.exists) break;
+          const d = fresh.data() || {};
+          Object.assign(orderData, d);
+          if (orderData.stockDeducted === true
+              || orderData.stockDeductionStatus === 'done'
+              || orderData.stockDeductionStatus === 'skipped'
+              || orderData.stockDeductionStatus === 'skipped_cancelled') {
+            break;
+          }
+        } catch (e) { break; }
+      }
+    }
+  }
+
   // Если при оформлении заказа товары не списывались — не возвращаем
   if (orderData.stockDeducted === false) return;
+  if (orderData.stockDeductionStatus === 'skipped'
+      || orderData.stockDeductionStatus === 'skipped_cancelled') return;
 
   // Проверяем: если stockDeducted === true, значит товары БЫЛИ списаны,
   // и мы ОБЯЗАНЫ их вернуть — даже если сейчас склады на паузе.

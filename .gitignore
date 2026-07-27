@@ -5,6 +5,7 @@
 # ---------- Зависимости и сборка ----------
 node_modules/
 functions/node_modules/
+functions-stock/node_modules/
 **/node_modules/
 dist/
 build/
