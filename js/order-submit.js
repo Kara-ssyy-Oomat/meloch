@@ -294,21 +294,20 @@ document.getElementById('submitOrder').onclick = async () => {
       } catch(e) {}
     }
 
-    // Заказ быстро + склад в фоне с повторами (CF ждёт Blaze; статус done,
-    // чтобы будущий CF не списал повторно).
+    // Заказ быстро. Склад списывает только Cloud Function (deductStockOnOrderCreate).
+    // Клиент НЕ пишет остатки → нет двойного списания и нет «зависшего» фона.
     submitBtn.textContent = 'Отправка в базу...';
 
     const orderRef = db.collection('orders').doc();
 
-    const prepared = prepareStockUpdatesFromCart(cart, products, {
-      warehousePaused: typeof warehousePaused !== 'undefined' && warehousePaused,
-      pausedWarehouseIds: typeof pausedWarehouseIds !== 'undefined' ? pausedWarehouseIds : new Set(),
-      primaryWarehouseId: typeof primaryWarehouseId !== 'undefined' ? primaryWarehouseId : ''
-    });
-    const stockUpdatesList = prepared.stockUpdates;
-    const warehouseDeductions = prepared.warehouseDeductions;
-    const stockDeducted = prepared.stockDeducted;
-    const processedIds = stockUpdatesList.map(([ref]) => ref.id);
+    // Локальная проверка остатков (без записи в Firestore)
+    if (typeof prepareStockUpdatesFromCart === 'function') {
+      prepareStockUpdatesFromCart(cart, products, {
+        warehousePaused: typeof warehousePaused !== 'undefined' && warehousePaused,
+        pausedWarehouseIds: typeof pausedWarehouseIds !== 'undefined' ? pausedWarehouseIds : new Set(),
+        primaryWarehouseId: typeof primaryWarehouseId !== 'undefined' ? primaryWarehouseId : ''
+      });
+    }
 
     // Ждём Firebase Auth перед записью — иначе запрос без токена может висеть
     if (typeof kerbenWaitForAuth === 'function') {
@@ -338,17 +337,10 @@ document.getElementById('submitOrder').onclick = async () => {
       status: 'pending',
       partner: partner || null,
       referredBy: referredBy || null,
-      stockDeducted,
-      stockDeductionStatus: stockDeducted ? 'done' : 'skipped',
-      stockDeductionProcessedIds: processedIds,
-      stockDeductedProductIds: processedIds,
-      warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
+      stockDeducted: false,
+      stockDeductionStatus: 'pending',
+      warehouseDeductions: null
     });
-
-    // Списание в фоне с повторами — UI не ждёт
-    if (typeof commitStockUpdatesWithRetry === 'function') {
-      commitStockUpdatesWithRetry(stockUpdatesList, 'Order');
-    }
 
     // Сразу показываем успех клиенту — отправка в Telegram идёт в фоне
     Swal.fire({
@@ -418,7 +410,7 @@ document.getElementById('submitOrder').onclick = async () => {
     updateCart();
     localStorage.removeItem('cart');
 
-    // Оптимистично минусуем остатки в локальном UI (сервер спишет в Firestore)
+    // Оптимистично минусуем остатки в локальном UI (Firestore спишет Cloud Function)
     try {
       for (const orderedItem of orderData.cart) {
         const p = products.find(x => x.id === orderedItem.id);

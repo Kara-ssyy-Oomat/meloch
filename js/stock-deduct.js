@@ -1,12 +1,12 @@
 // ===================================================================
-// КЕРБЕН — фоновое списание склада с клиента (пока CF без Blaze)
-// Заказ уже сохранён → UI не ждёт. Batch + повторы, без двойного списания
-// на стороне CF (заказ пишется со stockDeductionStatus: 'done').
+// КЕРБЕН — проверка остатков перед заказом (без записи в Firestore).
+// Списание делает только Cloud Function: deductStockOnOrderCreate.
 // ===================================================================
 
 /**
- * Готовит обновления остатков по корзине (локальный кэш products).
- * @returns {{ stockUpdates: Array<[ref, data]>, warehouseDeductions: object, stockDeducted: boolean }}
+ * Проверяет корзину по локальному кэшу products и готовит данные списания
+ * (на клиенте используется только для валидации / UI).
+ * @returns {{ stockUpdates: Array, warehouseDeductions: object, stockDeducted: boolean }}
  */
 function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
   opts = opts || {};
@@ -44,6 +44,8 @@ function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
     }
 
     stockDeducted = true;
+    // Данные ниже — только для локальной проверки / совместимости; в Firestore
+    // склад пишет Cloud Function.
     const productRef = db.collection('products').doc(item.id);
 
     if (hasWarehouseSetup) {
@@ -94,49 +96,4 @@ function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
   return { stockUpdates: stockUpdates, warehouseDeductions: warehouseDeductions, stockDeducted: stockDeducted };
 }
 
-/**
- * Коммит остатков в фоне с повторами. Не блокирует UI.
- */
-function commitStockUpdatesWithRetry(stockUpdates, label) {
-  label = label || 'Stock';
-  if (!stockUpdates || !stockUpdates.length) {
-    return Promise.resolve(true);
-  }
-
-  var maxAttempts = 5;
-
-  function attempt(n) {
-    var stockBatch = db.batch();
-    for (var i = 0; i < stockUpdates.length; i++) {
-      stockBatch.update(stockUpdates[i][0], stockUpdates[i][1]);
-    }
-    return stockBatch.commit()
-      .then(function () {
-        console.log('[' + label + '] Остатки списаны (попытка ' + n + '):', stockUpdates.length);
-        return true;
-      })
-      .catch(function (e) {
-        console.warn('[' + label + '] Ошибка списания попытка ' + n + ':', e && e.message);
-        if (n >= maxAttempts) {
-          console.error('[' + label + '] Списание НЕ удалось после ' + maxAttempts + ' попыток');
-          return false;
-        }
-        var delay = Math.min(15000, 800 * Math.pow(2, n - 1));
-        return new Promise(function (resolve) {
-          setTimeout(function () {
-            resolve(attempt(n + 1));
-          }, delay);
-        });
-      });
-  }
-
-  // fire-and-forget обёртка
-  (function () {
-    attempt(1).catch(function () {});
-  })();
-
-  return true;
-}
-
 window.prepareStockUpdatesFromCart = prepareStockUpdatesFromCart;
-window.commitStockUpdatesWithRetry = commitStockUpdatesWithRetry;

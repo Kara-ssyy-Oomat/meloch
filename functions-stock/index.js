@@ -398,9 +398,6 @@ exports.deductStockOnOrderCreate = functions.firestore
     return null;
   });
 
-// Подстраховка по расписанию отключена: Cloud Scheduler требует Blaze-план.
-// Надёжность дают:
-//   1) onCreate + throw → Firebase сам повторяет триггер
-//   2) идемпотентность по stockDeductionProcessedIds (без двойного списания)
-// На Blaze можно вернуть exports.retryPendingStockDeductions (pubsub schedule).
+// Подстраховка по расписанию НЕ включаем — лишние деньги (Cloud Scheduler).
+// Надёжность: onCreate + throw → Firebase сам повторяет; идемпотентность по товарам.
 

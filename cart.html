@@ -232,7 +232,7 @@
   <script src="js/bot-blocker.js?v=1"></script>
   <script src="js/background-pause.js?v=1"></script>
   <script src="js/products-cache.js?v=3"></script>
-  <script src="js/stock-deduct.js?v=1"></script>
+  <script src="js/stock-deduct.js?v=2"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при отправке заказа -->
@@ -1024,7 +1024,7 @@
         }
         if (referredBy) try { localStorage.setItem('savedReferredBy', referredBy); } catch(e) {}
 
-        // ============ ЗАКАЗ + СКЛАД В ФОНЕ (с повторами) ============
+        // ============ ЗАКАЗ БЫСТРО; склад списывает только Cloud Function ============
         submitBtn.textContent = '⏳ Сохранение...';
 
         // КРИТИЧНО: ждём Firebase Auth перед записью. Иначе запрос
@@ -1035,15 +1035,14 @@
 
         const orderRef = db.collection('orders').doc();
 
-        const prepared = prepareStockUpdatesFromCart(cart, products, {
-          warehousePaused: warehousePaused,
-          pausedWarehouseIds: pausedWarehouseIds,
-          primaryWarehouseId: primaryWarehouseId
-        });
-        const stockUpdates = prepared.stockUpdates;
-        const warehouseDeductions = prepared.warehouseDeductions;
-        const stockDeducted = prepared.stockDeducted;
-        const processedIds = stockUpdates.map(([ref]) => ref.id);
+        // Локальная проверка остатков (без записи в Firestore)
+        if (typeof prepareStockUpdatesFromCart === 'function') {
+          prepareStockUpdatesFromCart(cart, products, {
+            warehousePaused: warehousePaused,
+            pausedWarehouseIds: pausedWarehouseIds,
+            primaryWarehouseId: primaryWarehouseId
+          });
+        }
 
         const orderPayload = {
           name, phone, address,
@@ -1056,14 +1055,12 @@
           })),
           total, timestamp: Date.now(), time: currentTime, status: 'pending',
           partner: partner || null, referredBy: referredBy || null,
-          stockDeducted,
-          stockDeductionStatus: stockDeducted ? 'done' : 'skipped',
-          stockDeductionProcessedIds: processedIds,
-          stockDeductedProductIds: processedIds,
-          warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
+          stockDeducted: false,
+          stockDeductionStatus: 'pending',
+          warehouseDeductions: null
         };
 
-        // Пишем заказ быстро. Склад — в фоне с повторами.
+        // Пишем только заказ. Списание — deductStockOnOrderCreate на сервере.
         const _snapshotCart = [...cart];
         const orderCommitPromise = orderRef.set(orderPayload);
         const orderTimeout = new Promise((_, reject) =>
@@ -1078,9 +1075,6 @@
             orderCommitPromise
               .then(() => {
                 console.log('[Cart] Заказ дописан в фоне:', orderRef.id);
-                if (typeof commitStockUpdatesWithRetry === 'function') {
-                  commitStockUpdatesWithRetry(stockUpdates, 'Cart');
-                }
                 cart.length = 0; saveCart(); renderCart();
                 if (typeof sendOrderAsPDF === 'function') {
                   sendOrderAsPDF(name, phone, address, driverName, driverPhone,
@@ -1115,12 +1109,7 @@
           throw commitErr;
         }
 
-        // Списание склада в фоне с повторами
-        if (typeof commitStockUpdatesWithRetry === 'function') {
-          commitStockUpdatesWithRetry(stockUpdates, 'Cart');
-        }
-
-        // Оптимистично обновляем локальный кэш остатков (UI)
+        // Оптимистично обновляем локальный кэш остатков (только UI; Firestore спишет CF)
         try {
           for (const orderedItem of _snapshotCart) {
             const p = products.find(x => x.id === orderedItem.id);
