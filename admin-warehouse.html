@@ -878,9 +878,18 @@
 
   <!-- Таб 3: История движений -->
   <div id="tab-movements" class="content tab-content" style="display:none;">
+    <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap;">
+      <button onclick="setMovementsFilter('all')" id="movFilterAll" class="mov-filter-btn" style="padding:8px 14px; border:none; border-radius:8px; cursor:pointer; font-weight:600; background:#1a237e; color:#fff;">📋 Все</button>
+      <button onclick="setMovementsFilter('sale')" id="movFilterSale" class="mov-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">🛒 Продажи</button>
+      <button onclick="setMovementsFilter('receipt')" id="movFilterReceipt" class="mov-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">📥 Приход</button>
+      <button onclick="setMovementsFilter('transfer')" id="movFilterTransfer" class="mov-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">🔄 Перемещения</button>
+      <button onclick="setMovementsFilter('return')" id="movFilterReturn" class="mov-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">↩️ Возвраты</button>
+      <button onclick="loadMovements(true)" style="margin-left:auto; padding:8px 14px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer;">🔄 Обновить</button>
+    </div>
+    <input type="text" id="movementsSearch" placeholder="🔍 Поиск: товар, клиент, телефон, номер заказа..." oninput="renderMovements()" style="width:100%; padding:10px 12px; margin-bottom:12px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
     <div id="movementsList" class="empty-state">
       <div class="emoji">📋</div>
-      <p>История перемещений</p>
+      <p>История склада</p>
     </div>
   </div>
 
@@ -1093,6 +1102,7 @@ function esc(str) {
 let warehouses = [];
 let products = [];
 let movements = [];
+let movementsFilter = 'all'; // 'all' | 'sale' | 'receipt' | 'transfer' | 'return' | 'adjustment'
 let stockAlerts = []; // Уведомления о низком/нулевом остатке
 let alertsFilter = 'active'; // 'active' | 'resolved'
 let lowStockThreshold = 5; // Порог "мало"
@@ -1231,17 +1241,33 @@ async function loadProducts() {
   } catch(e) {}
 }
 
-async function loadMovements() {
+async function loadMovements(forceRender) {
   try {
+    // 300 — глубже история продаж/приходов, но не бьёт по чтениям.
     const snap = await db.collection('warehouseMovements')
       .orderBy('createdAt', 'desc')
-      .limit(100)
+      .limit(300)
       .get();
     movements = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (e) {
     movements = [];
-    console.log('Коллекция warehouseMovements пока пуста');
+    console.log('Не удалось загрузить warehouseMovements:', e.message);
   }
+  if (forceRender) renderMovements();
+}
+
+function setMovementsFilter(f) {
+  movementsFilter = f;
+  ['All','Sale','Receipt','Transfer','Return'].forEach(k => {
+    const btn = document.getElementById('movFilter' + k);
+    if (!btn) return;
+    const key = k.toLowerCase();
+    const active = (movementsFilter === 'all' && key === 'all') || (movementsFilter === key);
+    btn.style.background = active ? '#1a237e' : '#fff';
+    btn.style.color = active ? '#fff' : '#555';
+    btn.style.border = active ? 'none' : '1px solid #ddd';
+  });
+  renderMovements();
 }
 
 // ==================== СТАТИСТИКА ====================
@@ -2229,33 +2255,54 @@ async function editProductStock(productId) {
 }
 
 // ==================== ИСТОРИЯ ДВИЖЕНИЙ (ТАБ 3) ====================
+function _movDateMs(m) {
+  if (m && m.createdAtMs) return m.createdAtMs;
+  if (m && m.createdAt && m.createdAt.seconds) return m.createdAt.seconds * 1000;
+  return 0;
+}
+
 function renderMovements() {
   const container = document.getElementById('movementsList');
-  
-  if (movements.length === 0) {
+  if (!container) return;
+
+  const searchEl = document.getElementById('movementsSearch');
+  const q = ((searchEl && searchEl.value) || '').trim().toLowerCase();
+
+  const filtered = movements.filter(m => {
+    if (movementsFilter !== 'all' && m.type !== movementsFilter) return false;
+    if (!q) return true;
+    const hay = [
+      m.productTitle, m.customerName, m.customerPhone, m.orderId,
+      m.warehouseName, m.fromWarehouseName, m.toWarehouseName, m.note
+    ].map(x => (x || '').toString().toLowerCase()).join(' ');
+    return hay.includes(q);
+  });
+
+  if (filtered.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         <div class="emoji">📋</div>
         <p>Нет движений</p>
-        <p style="font-size:13px; margin-top:8px;">История появится после первого перемещения</p>
+        <p style="font-size:13px; margin-top:8px;">История появится после первой продажи/прихода</p>
       </div>
     `;
     return;
   }
-  
+
   let html = '';
   let currentDate = '';
-  
-  movements.forEach(m => {
-    // Дата-разделитель
-    const date = m.createdAt ? new Date(m.createdAt.seconds * 1000).toLocaleDateString('ru-RU') : 'Неизвестно';
+
+  filtered.forEach(m => {
+    const ms = _movDateMs(m);
+    const dObj = ms ? new Date(ms) : null;
+    const date = dObj ? dObj.toLocaleDateString('ru-RU') : 'Неизвестно';
+    const time = dObj ? dObj.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+
     if (date !== currentDate) {
       currentDate = date;
       html += `<div style="font-weight:700; color:#666; padding:12px 0 6px; font-size:13px; border-bottom:1px solid #eee;">${date}</div>`;
     }
-    
-    const time = m.createdAt ? new Date(m.createdAt.seconds * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
-    
+
     let icon, description, color;
     switch (m.type) {
       case 'transfer':
@@ -2270,8 +2317,13 @@ function renderMovements() {
         break;
       case 'sale':
         icon = '🛒';
-        description = `Продажа: ${esc(m.warehouseName)}`;
+        description = m.warehouseName ? `Продажа: ${esc(m.warehouseName)}` : 'Продажа';
         color = '#e65100';
+        break;
+      case 'return':
+        icon = '↩️';
+        description = m.warehouseName ? `Возврат: ${esc(m.warehouseName)}` : 'Возврат';
+        color = '#6a1b9a';
         break;
       case 'adjustment':
         icon = '✏️';
@@ -2283,24 +2335,41 @@ function renderMovements() {
         description = esc(m.note) || 'Движение';
         color = '#666';
     }
-    
+
+    // Клиент + заказ (для sale / return)
+    let clientLine = '';
+    if (m.customerName || m.customerPhone || m.orderId) {
+      const parts = [];
+      if (m.customerName) parts.push(esc(m.customerName));
+      if (m.customerPhone) parts.push(esc(m.customerPhone));
+      if (m.orderId) {
+        const short = String(m.orderId).slice(-6);
+        parts.push(`<a href="admin-orders.html?order=${encodeURIComponent(m.orderId)}" style="color:#1a237e; text-decoration:none; font-weight:600;">#${esc(short)}</a>`);
+      }
+      clientLine = `<div style="font-size:12px; color:#555; margin-top:2px;">${parts.join(' · ')}</div>`;
+    }
+
+    const dir = m.direction === 'in' ? '+' : '-';
+    const dirColor = m.direction === 'in' ? '#2e7d32' : '#c62828';
+
     html += `
-      <div style="display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid #f5f5f5;">
-        <div style="font-size:24px;">${icon}</div>
+      <div style="display:flex; align-items:flex-start; gap:12px; padding:12px 0; border-bottom:1px solid #f5f5f5;">
+        <div style="font-size:24px; line-height:1;">${icon}</div>
         <div style="flex:1; min-width:0;">
-          <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(m.productTitle)}</div>
+          <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(m.productTitle) || 'Без названия'}</div>
           <div style="font-size:12px; color:${color}; font-weight:600;">${description}</div>
-          <div style="font-size:11px; color:#999;">${time}</div>
+          ${clientLine}
+          <div style="font-size:11px; color:#999; margin-top:2px;">${time}</div>
         </div>
         <div style="text-align:center; min-width:50px;">
-          <div style="font-size:18px; font-weight:700; color:${m.direction === 'in' ? '#2e7d32' : '#c62828'};">
-            ${m.direction === 'in' ? '+' : '-'}${m.qty}
+          <div style="font-size:18px; font-weight:700; color:${dirColor};">
+            ${dir}${m.qty}
           </div>
         </div>
       </div>
     `;
   });
-  
+
   container.innerHTML = html;
 }
 

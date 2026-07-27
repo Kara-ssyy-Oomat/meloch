@@ -1219,19 +1219,27 @@ async function returnStockFromOrder(orderData) {
         stock: newTotal 
       });
 
-      const movRef = db.collection('warehouseMovements').doc();
+      const returnWhId = (hasDeductions ? Object.keys(itemDed)[0] : primaryWhId) || '';
+      const orderId = orderData.id || (orderData._orderRef && orderData._orderRef.id) || '';
+      const movRef = db.collection('warehouseMovements').doc(
+        orderId ? `return_${orderId}_${productId}` : undefined
+      );
       batch.set(movRef, {
         productId,
         productTitle: item ? item.title : product.title || '',
-        warehouseId: (hasDeductions ? Object.keys(itemDed)[0] : primaryWhId) || '',
+        warehouseId: returnWhId,
         warehouseName: '',
         type: 'return',
         qty: returnQty,
         direction: 'in',
         oldQty: 0,
         newQty: returnQty,
+        orderId,
+        customerName: orderData.name || '',
+        customerPhone: orderData.phone || '',
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        note: 'Возврат при отмене заказа'
+        createdAtMs: Date.now(),
+        note: `Возврат по заказу #${orderId ? orderId.slice(-6) : ''}`
       });
     }
   }

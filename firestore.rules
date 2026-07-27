@@ -618,6 +618,18 @@ service cloud.firestore {
     }
 
     // =========================================================
+    //             WAREHOUSE MOVEMENTS (история склада)
+    // =========================================================
+    // Пишется Cloud Function (Admin SDK — rules игнорируются) и админом
+    // из admin-warehouse.html (приход, перемещение, корректировка).
+    // Клиент-покупатель никогда сюда не пишет.
+    match /warehouseMovements/{movId} {
+      allow read: if isAdminUser();
+      allow create, update: if isAdminUser() && reasonableDocSize();
+      allow delete: if isAdminUser();
+    }
+
+    // =========================================================
     //                ВСЁ ОСТАЛЬНОЕ — НАГЛУХО
     // =========================================================
     match /{document=**} {

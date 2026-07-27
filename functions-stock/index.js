@@ -30,6 +30,7 @@ async function _loadWarehouseContext() {
   let warehousePaused = false;
   let primaryWarehouseId = '';
   const pausedWhIds = new Set();
+  const warehouseNames = {}; // id -> name (для истории движений)
   try {
     const settingsSnap = await db.collection('settings').doc('warehouse').get();
     if (settingsSnap.exists) {
@@ -41,12 +42,16 @@ async function _loadWarehouseContext() {
     console.warn('[StockDeduct] settings/warehouse:', e.message);
   }
   try {
-    const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
-    whSnap.forEach((d) => pausedWhIds.add(d.id));
+    const whSnap = await db.collection('warehouses').get();
+    whSnap.forEach((d) => {
+      const data = d.data() || {};
+      if (data.paused === true) pausedWhIds.add(d.id);
+      warehouseNames[d.id] = data.name || '';
+    });
   } catch (e) {
-    console.warn('[StockDeduct] warehouses paused:', e.message);
+    console.warn('[StockDeduct] warehouses:', e.message);
   }
-  return { warehousePaused, primaryWarehouseId, pausedWhIds };
+  return { warehousePaused, primaryWarehouseId, pausedWhIds, warehouseNames };
 }
 
 /**
@@ -101,12 +106,16 @@ async function _claimOrderForStockDeduction(orderRef) {
 /**
  * Списание одного товара (транзакция). Возвращает map warehouseId→qty или null
  * если товар без учёта остатка / склад на паузе.
+ *
+ * meta = { orderId, orderShortId, customerName, customerPhone, address, productTitle }
+ * — используется для записи в warehouseMovements (история продаж).
  */
-async function _deductOneProduct(productId, needQty, ctx) {
+async function _deductOneProduct(productId, needQty, ctx, meta) {
   const need = Math.max(0, Math.floor(needQty || 0));
   if (!productId || need <= 0) return null;
 
   const productRef = db.collection('products').doc(productId);
+  meta = meta || {};
 
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(productRef);
@@ -129,10 +138,33 @@ async function _deductOneProduct(productId, needQty, ctx) {
       }
     }
 
+    const title = product.title || meta.productTitle || '';
+
     if (!hasWarehouseSetup) {
       tx.update(productRef, {
         stock: admin.firestore.FieldValue.increment(-need)
       });
+      // Одна запись движения без разбивки по складам.
+      // ID детерминирован → повторный запуск не создаст дубль.
+      if (meta.orderId) {
+        const movRef = db.collection('warehouseMovements').doc(`sale_${meta.orderId}_${productId}`);
+        tx.set(movRef, {
+          type: 'sale',
+          direction: 'out',
+          productId,
+          productTitle: title,
+          warehouseId: '',
+          warehouseName: '',
+          qty: need,
+          orderId: meta.orderId,
+          customerName: meta.customerName || '',
+          customerPhone: meta.customerPhone || '',
+          address: meta.address || '',
+          note: `Продажа по заказу #${meta.orderShortId || meta.orderId.slice(-6)}`,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAtMs: Date.now()
+        });
+      }
       return {};
     }
 
@@ -177,6 +209,31 @@ async function _deductOneProduct(productId, needQty, ctx) {
       warehouseStock: updatedWs,
       stock: newTotal
     });
+
+    // Запись истории — по одной строке на каждый склад.
+    // Детерминированный ID = защита от дублей при retry.
+    if (meta.orderId) {
+      for (const [whId, qty] of Object.entries(itemDeductions)) {
+        if (!qty) continue;
+        const movRef = db.collection('warehouseMovements').doc(`sale_${meta.orderId}_${productId}_${whId}`);
+        tx.set(movRef, {
+          type: 'sale',
+          direction: 'out',
+          productId,
+          productTitle: title,
+          warehouseId: whId,
+          warehouseName: (ctx.warehouseNames && ctx.warehouseNames[whId]) || '',
+          qty,
+          orderId: meta.orderId,
+          customerName: meta.customerName || '',
+          customerPhone: meta.customerPhone || '',
+          address: meta.address || '',
+          note: `Продажа по заказу #${meta.orderShortId || meta.orderId.slice(-6)}`,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          createdAtMs: Date.now()
+        });
+      }
+    }
     return itemDeductions;
   });
 }
@@ -266,6 +323,15 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
   );
   let anyDeducted = orderData.stockDeducted === true || deductedIds.size > 0;
 
+  // Мета для записи истории продаж (warehouseMovements).
+  const meta = {
+    orderId,
+    orderShortId: orderId.slice(-6),
+    customerName: orderData.name || '',
+    customerPhone: orderData.phone || '',
+    address: orderData.address || ''
+  };
+
   // Последовательно — транзакции Firestore; надёжнее параллели при лимитах
   for (const item of items) {
     if (!item || !item.id) continue;
@@ -279,7 +345,9 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
       continue;
     }
     try {
-      const ded = await _deductOneProduct(item.id, qty, ctx);
+      const ded = await _deductOneProduct(item.id, qty, ctx, Object.assign({}, meta, {
+        productTitle: item.title || ''
+      }));
       processedIds.add(item.id);
       if (ded === null) {
         // Товар без учёта / пауза — только прогресс, без списания
