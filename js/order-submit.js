@@ -152,19 +152,10 @@ document.getElementById('submitOrder').onclick = async () => {
         blockedItems.push(cartItem.title);
       } else if (getEffectiveStock(product) !== null) {
         const stock = getEffectiveStock(product);
-        // Если stock === 0 и склад не настроен — пропускаем проверку (товар доступен)
-        const hasWarehouseSetup = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
-        if (stock <= 0 && !hasWarehouseSetup) {
-          // Склад не настроен — разрешаем заказ без ограничений
-          validCart.push({
-            ...cartItem,
-            title: product.title,
-            price: product.price,
-            costPrice: product.costPrice || 0,
-            sellerId: product.sellerId || cartItem.sellerId || null,
-            sellerName: product.sellerName || cartItem.sellerName || null
-          });
-        } else if (stock <= 0) {
+        // stock === 0 всегда означает «нет в наличии» (в т.ч. без warehouseStock).
+        // Если склад работает (не на паузе) и остаток отслеживается — не даём
+        // оформить заказ на распроданный/незаведённый товар.
+        if (stock <= 0) {
           outOfStockItems.push(`${cartItem.title} (нет в наличии)`);
         } else if ((cartItem.qty || 0) > stock) {
           outOfStockItems.push(`${cartItem.title} (доступно ${stock} шт)`);
@@ -257,14 +248,17 @@ document.getElementById('submitOrder').onclick = async () => {
     
     submitBtn.textContent = 'Отправка...';
     
-    const items = cart.map(i => {
+    // let (не const) — эти значения могут быть пересчитаны после
+    // финальной проверки остатков (см. блок «ФИНАЛЬНАЯ ПРОВЕРКА» ниже),
+    // если часть товаров пришлось убрать или урезать по количеству.
+    let items = cart.map(i => {
       const product = products.find(p => p.id === i.id);
       const unitLabel = (product && product.isPack) ? 'пачка' : 'шт';
       const packInfo = (product && product.isPack && product.packQty) ? ` (~${product.packQty} шт/пачка)` : '';
       const variantInfo = i.variant ? ` [${i.variant}]` : '';
       return `${i.title}${variantInfo}${packInfo} — ${i.qty} ${unitLabel} × ${i.price} сом = ${i.qty * i.price} сом`;
     }).join('\n');
-    const total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+    let total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
     const currentTime = new Date().toLocaleString();
 
     // Получаем партнера из URL (если есть) или из поля формы
@@ -294,9 +288,139 @@ document.getElementById('submitOrder').onclick = async () => {
       } catch(e) {}
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // ФИНАЛЬНАЯ ПРОВЕРКА ОСТАТКОВ ПРОТИВ БД (защита от гонок)
+    //
+    // Локальный кэш товаров может быть до 15-30 минут старым. Пока клиент
+    // размышлял, кто-то другой мог уже купить последнюю штуку. Читаем
+    // свежий stock только по товарам корзины (обычно 1-10 doc.get,
+    // параллельно ~100-300 мс), сравниваем с нужным количеством:
+    //   • товар исчез или stock=0 → УБИРАЕМ из корзины
+    //   • нужно 5, а осталось 3 → УРЕЗАЕМ количество до 3
+    //   • всё ок → пропускаем без изменений
+    //
+    // Если ВСЕ товары корзины оказались недоступны → заказ ВСЁ РАВНО
+    // создаётся (по требованию заказчика), но с флагом `unfulfilledOrder`
+    // и статусом `unfulfilled` — админ видит потерянную продажу, склад
+    // не списывается. Клиенту показывается сообщение «менеджер свяжется».
+    //
+    // Пропускаем всю проверку если склад глобально на паузе (безлимит).
+    // ══════════════════════════════════════════════════════════════════
+    let orderAdjustments = [];     // строки для истории (админ увидит в заказе)
+    let isUnfulfilledOrder = false; // весь заказ ушёл в никуда — только заявка
+    // Снимок корзины ДО корректировки — если всё удалим, восстановим,
+    // чтобы админ видел что именно клиент хотел заказать.
+    const originalCartSnapshot = cart.map(i => ({ ...i }));
+
+    if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
+      submitBtn.textContent = '⏳ Проверка остатков...';
+      try {
+        const freshDocs = await Promise.all(
+          cart.map(item => db.collection('products').doc(item.id).get())
+        );
+        const summaryLinesHtml = []; // для toast (с <strong>)
+        const summaryLinesText = []; // для истории заказа (без HTML)
+        const newCart = [];
+        for (let i = 0; i < freshDocs.length; i++) {
+          const cartItem = cart[i];
+          const snap = freshDocs[i];
+          if (!snap.exists) {
+            summaryLinesHtml.push('🗑️ <strong>' + cartItem.title + '</strong> — товар удалён, убран из корзины');
+            summaryLinesText.push('🗑️ ' + cartItem.title + ' — товар удалён из каталога');
+            continue;
+          }
+          const p = snap.data();
+          // Обновляем локальный кэш чтобы UI сразу отражал актуальные остатки
+          const localP = products.find(x => x.id === cartItem.id);
+          if (localP) {
+            if (p.stock !== undefined) localP.stock = p.stock;
+            if (p.warehouseStock !== undefined) localP.warehouseStock = p.warehouseStock;
+          }
+          // stock не число → безлимит, пропускаем
+          if (typeof p.stock !== 'number' || !isFinite(p.stock)) {
+            newCart.push(cartItem);
+            continue;
+          }
+          // Все склады товара на паузе → считаем безлимитным
+          const ws = p.warehouseStock;
+          const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
+          if (hasWarehouseSetup) {
+            const allPaused = Object.keys(ws).every(whId =>
+              (typeof pausedWarehouseIds !== 'undefined') && pausedWarehouseIds.has(whId)
+            );
+            if (allPaused) {
+              newCart.push(cartItem);
+              continue;
+            }
+          }
+          const freshStock = Math.max(0, Math.floor(p.stock));
+          const need = Math.max(0, Math.floor(cartItem.qty || 0));
+          if (freshStock <= 0) {
+            summaryLinesHtml.push('😔 <strong>' + cartItem.title + '</strong> — только что закончился, убран из корзины');
+            summaryLinesText.push('😔 ' + cartItem.title + ' × ' + need + ' — распродано в момент оформления');
+          } else if (freshStock < need) {
+            summaryLinesHtml.push('⚠️ <strong>' + cartItem.title + '</strong> — было ' + need + ' → осталось только ' + freshStock);
+            summaryLinesText.push('⚠️ ' + cartItem.title + ' — хотели ' + need + ', отгружено ' + freshStock);
+            newCart.push({ ...cartItem, qty: freshStock });
+          } else {
+            newCart.push(cartItem);
+          }
+        }
+
+        // Есть корректировки → фиксируем для админа + обновляем корзину
+        if (summaryLinesHtml.length > 0) {
+          orderAdjustments = summaryLinesText.slice();
+
+          if (newCart.length === 0) {
+            // ВЕСЬ заказ невыполним. НЕ блокируем — создаём как unfulfilled.
+            // Восстанавливаем корзину чтобы админ видел что клиент хотел.
+            isUnfulfilledOrder = true;
+            cart.length = 0;
+            cart.push(...originalCartSnapshot);
+            // total/items не пересчитываем — они по-прежнему соответствуют
+            // «хотелке» клиента (см. верх функции).
+          } else {
+            // Часть товаров можно отправить → работаем как раньше:
+            // подрезаем корзину и показываем неблокирующий toast.
+            cart.length = 0;
+            cart.push(...newCart);
+            if (typeof saveCart === 'function') try { saveCart(); } catch(e) {}
+            if (typeof updateCart === 'function') try { updateCart(); } catch(e) {}
+            if (typeof renderProducts === 'function') try { renderProducts(); } catch(e) {}
+
+            // Пересчитываем total/items — они уйдут в orderRef.set / историю
+            total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+            items = cart.map(i => {
+              const product = products.find(p => p.id === i.id);
+              const unitLabel = (product && product.isPack) ? 'пачка' : 'шт';
+              const packInfo = (product && product.isPack && product.packQty) ? ` (~${product.packQty} шт/пачка)` : '';
+              const variantInfo = i.variant ? ` [${i.variant}]` : '';
+              return `${i.title}${variantInfo}${packInfo} — ${i.qty} ${unitLabel} × ${i.price} сом = ${i.qty * i.price} сом`;
+            }).join('\n');
+
+            Swal.fire({
+              toast: true,
+              position: 'top',
+              icon: 'warning',
+              title: 'Корзина обновлена',
+              html: summaryLinesHtml.join('<br>') +
+                '<div style="margin-top:6px; color:#2e7d32; font-weight:700;">Заказ на ' + total.toLocaleString() + ' сом</div>',
+              timer: 8000,
+              timerProgressBar: true,
+              showConfirmButton: false,
+              showCloseButton: true
+            });
+          }
+        }
+      } catch (freshErr) {
+        // Ошибка сети при проверке — не блокируем оформление.
+        // Cloud Function на сервере сработает как последний барьер.
+        console.warn('[Order] Не удалось перепроверить остатки перед заказом:', freshErr);
+      }
+    }
+
     // Заказ быстро. Склад списывает только Cloud Function (deductStockOnOrderCreate).
     // Клиент НЕ пишет остатки → нет двойного списания и нет «зависшего» фона.
-    // Валидация корзины (наличие, остатки) уже сделана выше в блоке проверки товаров.
     submitBtn.textContent = 'Отправка в базу...';
 
     const orderRef = db.collection('orders').doc();
@@ -326,22 +450,44 @@ document.getElementById('submitOrder').onclick = async () => {
       total,
       timestamp: Date.now(),
       time: currentTime,
-      status: 'pending',
+      status: isUnfulfilledOrder ? 'unfulfilled' : 'pending',
       partner: partner || null,
       referredBy: referredBy || null,
       stockDeducted: false,
+      // stockDeductionStatus ВСЕГДА 'pending' — так требуют правила Firestore
+      // (клиент не может подделать статус списания). Для unfulfilled-заказов
+      // Cloud Function проверяет data.status и пропускает списание, ставя
+      // stockDeductionStatus='skipped_unfulfilled' сама.
       stockDeductionStatus: 'pending',
-      warehouseDeductions: null
+      warehouseDeductions: null,
+      // Информация для админа: что было скорректировано / что клиент хотел
+      orderAdjustments: orderAdjustments.length > 0 ? orderAdjustments : null,
+      unfulfilledOrder: isUnfulfilledOrder || null,
+      unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
     });
 
-    // Сразу показываем успех клиенту — отправка в Telegram идёт в фоне
-    Swal.fire({
-      icon: 'success',
-      title: 'Заказ принят! ✅',
-      text: 'Ваш заказ успешно отправлен.',
-      timer: 2500,
-      showConfirmButton: false
-    });
+    // Показываем клиенту итог — разный текст для успеха и unfulfilled
+    if (isUnfulfilledOrder) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Ваш запрос зарегистрирован',
+        html: '<div style="text-align:left; margin-top:6px;">' +
+          '<div style="color:#c62828; font-weight:600; margin-bottom:8px;">К сожалению, все товары были распроданы прямо в момент оформления:</div>' +
+          '<div style="font-size:13px; color:#555; line-height:1.6;">' + orderAdjustments.join('<br>') + '</div>' +
+          '<div style="background:#e3f2fd; border-left:3px solid #1976d2; padding:10px; margin-top:12px; border-radius:4px; font-size:13px; color:#1565c0;">📞 Наш менеджер свяжется с вами по указанному номеру и подскажет альтернативы или сроки поставки.</div>' +
+          '</div>',
+        confirmButtonText: 'Понятно',
+        confirmButtonColor: '#28a745'
+      });
+    } else {
+      Swal.fire({
+        icon: 'success',
+        title: 'Заказ принят! ✅',
+        text: 'Ваш заказ успешно отправлен.',
+        timer: 2500,
+        showConfirmButton: false
+      });
+    }
 
     // Автоматическая регистрация/вход после первого заказа
     if (typeof autoRegisterAfterOrder === 'function') {

@@ -957,7 +957,13 @@
               const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
               const onPausedWh = hasWarehouseSetup && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId));
               const stock = Math.max(0, Math.floor(product.stock));
-              if (onPausedWh || (stock <= 0 && !hasWarehouseSetup)) {
+              // Товар в валидную корзину только если:
+              //   1) все его склады на паузе (склад не отслеживается → безлимит), ИЛИ
+              //   2) остаток > 0 и хватает на нужное количество.
+              // stock === 0 без warehouseStock РАНЬШЕ трактовался как «безлимит» —
+              // это была причина, по которой распроданные товары можно было
+              // продолжать заказывать. Теперь 0 всегда = «нет в наличии».
+              if (onPausedWh) {
                 validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
               } else if (stock <= 0) {
                 problems.outOfStock.push(`${cartItem.title} (нет в наличии)`);
@@ -1001,14 +1007,17 @@
 
         submitBtn.textContent = '⏳ Отправка...';
 
-        const items = cart.map(i => {
+        // let (не const) — пересчитываются после финальной проверки остатков
+        // (см. блок «ФИНАЛЬНАЯ ПРОВЕРКА» ниже), если пришлось автоматически
+        // урезать количество или убрать распроданные товары.
+        let items = cart.map(i => {
           const product = products.find(p => p.id === i.id);
           const unitLabel = (product && product.isPack) ? 'пачка' : 'шт';
           const packInfo = (product && product.isPack && product.packQty) ? ` (~${product.packQty} шт/пачка)` : '';
           const variantInfo = i.variant ? ` [${i.variant}]` : '';
           return `${i.title}${variantInfo}${packInfo} — ${i.qty} ${unitLabel} × ${i.price} сом = ${i.qty * i.price} сом`;
         }).join('\n');
-        const total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+        let total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
         const currentTime = new Date().toLocaleString();
 
         // Поиск партнёра — с таймаутом 3 сек (не блокируем заказ)
@@ -1023,6 +1032,117 @@
           } catch(e) {}
         }
         if (referredBy) try { localStorage.setItem('savedReferredBy', referredBy); } catch(e) {}
+
+        // ══════════════════════════════════════════════════════════════════
+        // ФИНАЛЬНАЯ ПРОВЕРКА ОСТАТКОВ ПРОТИВ БД (защита от гонок)
+        // Автоматически:
+        //   • товар исчез/распродан → УБИРАЕМ из корзины
+        //   • нужно 5, а осталось 3 → УРЕЗАЕМ до 3
+        //   • всё ок → без изменений
+        // Если ВСЯ корзина оказалась недоступна → заказ ВСЁ РАВНО создаётся
+        // как unfulfilled, чтобы админ видел потерянную продажу. Склад не
+        // списывается, клиенту показывается сообщение «менеджер свяжется».
+        // ══════════════════════════════════════════════════════════════════
+        let orderAdjustments = [];
+        let isUnfulfilledOrder = false;
+        const originalCartSnapshot = cart.map(i => ({ ...i }));
+
+        if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
+          submitBtn.textContent = '⏳ Проверка остатков...';
+          try {
+            const freshDocs = await Promise.all(
+              cart.map(item => db.collection('products').doc(item.id).get())
+            );
+            const summaryLinesHtml = [];
+            const summaryLinesText = [];
+            const newCart = [];
+            for (let i = 0; i < freshDocs.length; i++) {
+              const cartItem = cart[i];
+              const snap = freshDocs[i];
+              if (!snap.exists) {
+                summaryLinesHtml.push('🗑️ <strong>' + cartItem.title + '</strong> — товар удалён, убран из корзины');
+                summaryLinesText.push('🗑️ ' + cartItem.title + ' — товар удалён из каталога');
+                continue;
+              }
+              const p = snap.data();
+              const localP = products.find(x => x.id === cartItem.id);
+              if (localP) {
+                if (p.stock !== undefined) localP.stock = p.stock;
+                if (p.warehouseStock !== undefined) localP.warehouseStock = p.warehouseStock;
+              }
+              if (typeof p.stock !== 'number' || !isFinite(p.stock)) {
+                newCart.push(cartItem);
+                continue;
+              }
+              const ws = p.warehouseStock;
+              const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
+              if (hasWarehouseSetup) {
+                const allPaused = Object.keys(ws).every(whId =>
+                  (typeof pausedWarehouseIds !== 'undefined') && pausedWarehouseIds.has(whId)
+                );
+                if (allPaused) {
+                  newCart.push(cartItem);
+                  continue;
+                }
+              }
+              const freshStock = Math.max(0, Math.floor(p.stock));
+              const need = Math.max(0, Math.floor(cartItem.qty || 0));
+              if (freshStock <= 0) {
+                summaryLinesHtml.push('😔 <strong>' + cartItem.title + '</strong> — только что закончился, убран из корзины');
+                summaryLinesText.push('😔 ' + cartItem.title + ' × ' + need + ' — распродано в момент оформления');
+              } else if (freshStock < need) {
+                summaryLinesHtml.push('⚠️ <strong>' + cartItem.title + '</strong> — было ' + need + ' → осталось только ' + freshStock);
+                summaryLinesText.push('⚠️ ' + cartItem.title + ' — хотели ' + need + ', отгружено ' + freshStock);
+                newCart.push({ ...cartItem, qty: freshStock });
+              } else {
+                newCart.push(cartItem);
+              }
+            }
+
+            if (summaryLinesHtml.length > 0) {
+              orderAdjustments = summaryLinesText.slice();
+
+              if (newCart.length === 0) {
+                // Весь заказ невыполним → создаём как unfulfilled.
+                // Восстанавливаем корзину, чтобы админ видел что клиент хотел.
+                isUnfulfilledOrder = true;
+                cart.length = 0;
+                cart.push(...originalCartSnapshot);
+                // total/items не пересчитываем (они соответствуют «хотелке» клиента).
+              } else {
+                // Часть товаров всё ещё можно отправить — работаем как обычно.
+                cart.length = 0;
+                cart.push(...newCart);
+                if (typeof saveCart === 'function') try { saveCart(); } catch(e) {}
+                if (typeof renderCart === 'function') try { renderCart(); } catch(e) {}
+
+                total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+                items = cart.map(i => {
+                  const product = products.find(p => p.id === i.id);
+                  const unitLabel = (product && product.isPack) ? 'пачка' : 'шт';
+                  const packInfo = (product && product.isPack && product.packQty) ? ` (~${product.packQty} шт/пачка)` : '';
+                  const variantInfo = i.variant ? ` [${i.variant}]` : '';
+                  return `${i.title}${variantInfo}${packInfo} — ${i.qty} ${unitLabel} × ${i.price} сом = ${i.qty * i.price} сом`;
+                }).join('\n');
+
+                Swal.fire({
+                  toast: true,
+                  position: 'top',
+                  icon: 'warning',
+                  title: 'Корзина обновлена',
+                  html: summaryLinesHtml.join('<br>') +
+                    '<div style="margin-top:6px; color:#2e7d32; font-weight:700;">Заказ на ' + total.toLocaleString() + ' сом</div>',
+                  timer: 8000,
+                  timerProgressBar: true,
+                  showConfirmButton: false,
+                  showCloseButton: true
+                });
+              }
+            }
+          } catch (freshErr) {
+            console.warn('[Cart] Не удалось перепроверить остатки перед заказом:', freshErr);
+          }
+        }
 
         // ============ ЗАКАЗ БЫСТРО; склад списывает только Cloud Function ============
         submitBtn.textContent = '⏳ Сохранение...';
@@ -1046,11 +1166,19 @@
             costPrice: item.costPrice || 0, sellerId: item.sellerId || null,
             sellerName: item.sellerName || null, variant: item.variant || null
           })),
-          total, timestamp: Date.now(), time: currentTime, status: 'pending',
+          total, timestamp: Date.now(), time: currentTime,
+          status: isUnfulfilledOrder ? 'unfulfilled' : 'pending',
           partner: partner || null, referredBy: referredBy || null,
           stockDeducted: false,
+          // stockDeductionStatus ВСЕГДА 'pending' — так требуют правила Firestore
+          // (клиент не может подделать статус списания). Для unfulfilled-заказов
+          // Cloud Function проверяет data.status и пропускает списание сама.
           stockDeductionStatus: 'pending',
-          warehouseDeductions: null
+          warehouseDeductions: null,
+          // Для админа: что было скорректировано / что клиент хотел
+          orderAdjustments: orderAdjustments.length > 0 ? orderAdjustments : null,
+          unfulfilledOrder: isUnfulfilledOrder || null,
+          unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
         };
 
         // Пишем только заказ. Списание — deductStockOnOrderCreate на сервере.
@@ -1133,13 +1261,27 @@
         const orderData = { name, phone, address, driverName, driverPhone, cart: [...cart], total, currentTime };
         const driverInfoText = (driverName || driverPhone) ? `\nВодитель: ${driverName || '-'}\nТел. водителя: ${driverPhone || '-'}` : '';
 
-        Swal.fire({
-          icon: 'success',
-          title: 'Заказ принят! ✅',
-          text: 'Ваш заказ успешно отправлен.',
-          timer: 2200,
-          showConfirmButton: false
-        });
+        if (isUnfulfilledOrder) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Ваш запрос зарегистрирован',
+            html: '<div style="text-align:left; margin-top:6px;">' +
+              '<div style="color:#c62828; font-weight:600; margin-bottom:8px;">К сожалению, все товары были распроданы прямо в момент оформления:</div>' +
+              '<div style="font-size:13px; color:#555; line-height:1.6;">' + orderAdjustments.join('<br>') + '</div>' +
+              '<div style="background:#e3f2fd; border-left:3px solid #1976d2; padding:10px; margin-top:12px; border-radius:4px; font-size:13px; color:#1565c0;">📞 Наш менеджер свяжется с вами по указанному номеру и подскажет альтернативы или сроки поставки.</div>' +
+              '</div>',
+            confirmButtonText: 'Понятно',
+            confirmButtonColor: '#28a745'
+          });
+        } else {
+          Swal.fire({
+            icon: 'success',
+            title: 'Заказ принят! ✅',
+            text: 'Ваш заказ успешно отправлен.',
+            timer: 2200,
+            showConfirmButton: false
+          });
+        }
 
         // Очищаем корзину СРАЗУ
         cart.length = 0;

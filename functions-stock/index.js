@@ -70,7 +70,8 @@ async function _claimOrderForStockDeduction(orderRef) {
     // retry должен досписывать оставшиеся (по stockDeductionProcessedIds).
     if (d.stockDeductionStatus === 'done'
         || d.stockDeductionStatus === 'skipped'
-        || d.stockDeductionStatus === 'skipped_cancelled') {
+        || d.stockDeductionStatus === 'skipped_cancelled'
+        || d.stockDeductionStatus === 'skipped_unfulfilled') {
       return 'skip';
     }
 
@@ -127,8 +128,16 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
     const ws = product.warehouseStock;
     const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
 
-    // stock<=0 без складов = безлимит (как на клиенте)
-    if (product.stock <= 0 && !hasWarehouseSetup) return null;
+    // Защитная сеть: если товар распродан (stock<=0) и склад не разбит по
+    // warehouseStock — пропускаем списание (не уходим в отрицательный сток).
+    // На клиенте getEffectiveStock() теперь блокирует такие товары, но
+    // на случай race-condition (два заказа одновременно на последнюю единицу)
+    // или устаревшего кэша у клиента — тут финальный барьер.
+    if (product.stock <= 0 && !hasWarehouseSetup) {
+      console.warn('[StockDeduct] skip productId=' + productId +
+        ' — stock уже 0 без warehouseStock (возможен oversell). need=' + need);
+      return null;
+    }
 
     // Глобальная или индивидуальная пауза — не списываем
     if (ctx.warehousePaused) return null;
@@ -141,8 +150,22 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
     const title = product.title || meta.productTitle || '';
 
     if (!hasWarehouseSetup) {
+      // Защита от ухода stock в минус: списываем только то что реально есть.
+      // Если клиент заказал больше — логируем oversell, но stock не станет
+      // отрицательным.
+      const available = Math.max(0, Math.floor(product.stock));
+      const actualDeduct = Math.min(available, need);
+      if (actualDeduct < need) {
+        console.warn('[StockDeduct] OVERSELL productId=' + productId +
+          ' need=' + need + ' available=' + available +
+          ' shortfall=' + (need - actualDeduct));
+      }
+      if (actualDeduct <= 0) {
+        // Ничего не осталось для списания — просто выходим.
+        return null;
+      }
       tx.update(productRef, {
-        stock: admin.firestore.FieldValue.increment(-need)
+        stock: admin.firestore.FieldValue.increment(-actualDeduct)
       });
       // Одна запись движения без разбивки по складам.
       // ID детерминирован → повторный запуск не создаст дубль.
@@ -155,7 +178,7 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
           productTitle: title,
           warehouseId: '',
           warehouseName: '',
-          qty: need,
+          qty: actualDeduct,
           orderId: meta.orderId,
           customerName: meta.customerName || '',
           customerPhone: meta.customerPhone || '',
@@ -193,15 +216,15 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
       }
     }
 
-    // Если складов не хватило (перезаказ) — добиваем с главного / любого,
-    // чтобы сумма warehouseStock совпала с общим stock после списания.
+    // Если складов не хватило (oversell / гонка) — НЕ уводим ни один склад
+    // в отрицательный остаток. Просто логируем, что реально списали меньше
+    // чем заказано. itemDeductions уже содержит только то что реально ушло
+    // со складов — правильно для возврата при отмене.
     if (remaining > 0) {
-      const fallbackWh = (primaryId && !ctx.pausedWhIds.has(primaryId))
-        ? primaryId
-        : (Object.keys(updatedWs).find((id) => !ctx.pausedWhIds.has(id)) || primaryId || 'default');
-      updatedWs[fallbackWh] = (updatedWs[fallbackWh] || 0) - remaining;
-      itemDeductions[fallbackWh] = (itemDeductions[fallbackWh] || 0) + remaining;
-      remaining = 0;
+      console.warn('[StockDeduct] OVERSELL productId=' + productId +
+        ' need=' + need + ' shortfall=' + remaining +
+        ' (склады до списания: ' + JSON.stringify(ws) + ')');
+      // remaining оставляем > 0 только для лога — списывать больше нечего.
     }
 
     const newTotal = Object.values(updatedWs).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -481,7 +504,23 @@ exports.deductStockOnOrderCreate = functions
     // stockDeducted===true без done — частичный прогресс, его дожимает retry.
     if (data.stockDeductionStatus === 'done'
         || data.stockDeductionStatus === 'skipped'
-        || data.stockDeductionStatus === 'skipped_cancelled') {
+        || data.stockDeductionStatus === 'skipped_cancelled'
+        || data.stockDeductionStatus === 'skipped_unfulfilled') {
+      return null;
+    }
+
+    // Unfulfilled-заявка: клиент оформил заказ когда все товары были
+    // распроданы. Склад трогать НЕ НАДО (списывать нечего). Помечаем,
+    // что списание сознательно пропущено, чтобы retry больше не заходил.
+    if (data.status === 'unfulfilled') {
+      try {
+        await db.collection('orders').doc(orderId).update({
+          stockDeductionStatus: 'skipped_unfulfilled',
+          stockDeductionFinishedAt: Date.now()
+        });
+      } catch (e) {
+        console.warn('[StockDeduct] не смогли пометить unfulfilled:', e.message);
+      }
       return null;
     }
 

@@ -1122,11 +1122,148 @@ async function loadData() {
     await Promise.all([loadWarehouses(), loadProducts(), loadMovements(), loadPrimaryWarehouse()]);
     updateStats();
     renderWarehouses();
+    // Запускаем реалтайм-слушатель ПОСЛЕ первичной загрузки,
+    // чтобы не путаться со стартовыми данными.
+    startOrdersRealtimeListener();
   } catch (e) {
     console.error('Ошибка загрузки:', e);
     Swal.fire('Ошибка', 'Не удалось загрузить данные: ' + e.message, 'error');
   }
 }
+
+// ==================== РЕАЛТАЙМ-СЛУШАТЕЛЬ НОВЫХ ЗАКАЗОВ ====================
+// Как только клиент оформил заказ → Firestore сразу шлёт событие сюда.
+// Мы даём ~2.5 сек Cloud Function `deductStockOnOrderCreate` дописать
+// свежие остатки в БД, а потом читаем ТОЛЬКО затронутые товары (обычно
+// 1-10 doc.get, не все 2000) и обновляем UI страницы.
+//
+// Стоимость: 1 read на каждый НОВЫЙ заказ + 1 read на каждый затронутый
+// товар после списания. При 100 заказов/день ~ 300-500 reads/день на админа
+// — в сотни раз дешевле polling'а каждую минуту (1440 reads/день даже
+// при нулевой активности).
+//
+// Если заказов нет — 0 лишних чтений. Слушатель просто висит.
+let _ordersListenerUnsub = null;
+let _ordersListenerStartTime = 0;
+
+function startOrdersRealtimeListener() {
+  if (_ordersListenerUnsub) return; // уже запущен
+  _ordersListenerStartTime = Date.now();
+  try {
+    _ordersListenerUnsub = db.collection('orders')
+      .orderBy('timestamp', 'desc')
+      .limit(30)
+      .onSnapshot(snap => {
+        // ВАЖНО: первый снапшот доставляет ВСЕ подходящие доки как 'added'.
+        // Отсекаем их по timestamp < startTime — обрабатываем только
+        // реально новые заказы, появившиеся после открытия страницы.
+        snap.docChanges().forEach(change => {
+          if (change.type !== 'added') return;
+          const order = change.doc.data();
+          if (!order.timestamp || order.timestamp < _ordersListenerStartTime) return;
+          _handleNewOrderRealtime(order);
+        });
+      }, err => {
+        console.warn('[Realtime] Ошибка слушателя заказов:', err && err.message);
+      });
+    console.log('[Realtime] Слушатель новых заказов запущен');
+  } catch (e) {
+    console.warn('[Realtime] Не удалось запустить слушатель:', e);
+  }
+}
+
+async function _handleNewOrderRealtime(order) {
+  const productIds = Array.from(new Set(
+    (order.items || []).map(i => i && i.id).filter(Boolean)
+  ));
+  if (productIds.length === 0) return;
+
+  // Unfulfilled-заявка (все товары распроданы) — склад не будет тронут CF.
+  // Показываем красный toast чтобы админ пошёл в «Заказы».
+  if (order.status === 'unfulfilled') {
+    try {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'error',
+        title: '⚠️ Заявка на распроданный товар',
+        html: '<div style="font-size:12px; margin-top:4px; color:#555; max-width:280px;">' +
+          (order.name ? '<b>' + order.name + '</b>' : 'Клиент') +
+          ' пытался заказать распроданное. Свяжитесь по <b>' + (order.phone || '—') + '</b> — см. вкладку «Заказы».</div>',
+        timer: 10000,
+        timerProgressBar: true,
+        showConfirmButton: false,
+        showCloseButton: true
+      });
+    } catch(e) {}
+    return; // склад не трогаем, ничего не перезагружаем
+  }
+
+  // Ждём чтобы Cloud Function успела списать склад (обычно <1 сек, берём 2.5)
+  setTimeout(async () => {
+    try {
+      // Читаем ТОЛЬКО затронутые товары параллельно
+      const freshDocs = await Promise.all(
+        productIds.map(id => db.collection('products').doc(id).get())
+      );
+      let updated = 0;
+      freshDocs.forEach(doc => {
+        if (!doc.exists) return;
+        const idx = products.findIndex(p => p.id === doc.id);
+        if (idx !== -1) {
+          products[idx] = { id: doc.id, ...doc.data() };
+          updated++;
+        }
+      });
+      if (updated === 0) return;
+
+      // Обновляем LS-кэш — если админ рефрешнет страницу, тоже увидит свежее
+      try {
+        localStorage.setItem('cachedProducts', JSON.stringify(products));
+        localStorage.setItem('cachedProductsTime', String(Date.now()));
+      } catch(e) {}
+
+      // Перерисовываем текущую вкладку
+      try { updateStats(); } catch(e) {}
+      if (currentTab === 'warehouses') {
+        try { renderWarehouses(); } catch(e) {}
+      } else if (currentTab === 'products') {
+        try { renderProductsStock(); } catch(e) {}
+      } else if (currentTab === 'movements') {
+        // Догружаем свежие движения (там появится запись о продаже)
+        try { await loadMovements(true); } catch(e) {}
+      }
+
+      // Мягкий toast в углу — админ видит что случилось
+      const itemsText = (order.items || [])
+        .map(i => (i && i.title ? i.title : '?') + ' × ' + (i && i.qty || 0))
+        .join(', ');
+      try {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: '🛒 Новый заказ — склад обновлён',
+          html: '<div style="font-size:12px; margin-top:4px; color:#555; max-width:280px;">' +
+            (order.name ? '<b>' + order.name + '</b>: ' : '') + itemsText + '</div>',
+          timer: 6000,
+          timerProgressBar: true,
+          showConfirmButton: false,
+          showCloseButton: true
+        });
+      } catch(e) {}
+    } catch (e) {
+      console.warn('[Realtime] Ошибка обновления после нового заказа:', e);
+    }
+  }, 2500);
+}
+
+// Останавливаем слушатель при закрытии вкладки — чисто ради приличия
+window.addEventListener('beforeunload', () => {
+  if (typeof _ordersListenerUnsub === 'function') {
+    try { _ordersListenerUnsub(); } catch(e) {}
+  }
+});
 
 async function loadPrimaryWarehouse() {
   try {
@@ -1221,20 +1358,22 @@ async function toggleSingleWarehousePause(whId) {
 }
 
 async function loadProducts() {
-  // ОПТИМИЗАЦИЯ COSTS: общий кэш товаров (1 час) — экономит до 5000 reads
-  // при переходе между админ-страницами в течение часа.
-  try {
-    const lsTime = parseInt(localStorage.getItem('cachedProductsTime') || '0');
-    const lsProducts = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
-    if (Date.now() - lsTime < 3600000 && Array.isArray(lsProducts) && lsProducts.length > 0) {
-      products = lsProducts;
-      console.log('📦 Склад: товары из общего кэша (' + products.length + ' шт) — 0 Firestore reads');
-      return;
-    }
-  } catch(e) {}
-
+  // КЭША БОЛЬШЕ НЕТ. По требованию: администратор ВСЕГДА видит свежие
+  // остатки склада, без ожидания истечения кэша.
+  //
+  // Стоимость: одна полная загрузка = до 2000 reads. При 20 открытиях
+  // страницы в день это 40k reads/день на одного админа — на фоне
+  // тарифа Firebase Blaze копейки (~$0.02/месяц).
+  //
+  // Real-time listener (startOrdersRealtimeListener) поддерживает данные
+  // свежими в РАМе пока страница открыта. Полная загрузка нужна только
+  // на первый показ страницы.
+  //
+  // LS-кэш всё равно обновляем — он используется на публичном сайте
+  // (product-loader.js) и в других админ-страницах.
   const snap = await db.collection('products').limit(2000).get();
   products = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  console.log('📦 Склад: свежая загрузка ' + products.length + ' товаров из Firestore');
   try {
     localStorage.setItem('cachedProducts', JSON.stringify(products));
     localStorage.setItem('cachedProductsTime', String(Date.now()));

@@ -150,6 +150,7 @@
           <option value="all|yesterday">Вчера</option>
           <option value="all|week">Неделя</option>
           <option value="pending|all">🕐 Новые</option>
+          <option value="unfulfilled|all">⚠️ Нет в наличии</option>
           <option value="preparing|all">📦 Готовятся</option>
           <option value="logistics|all">🚚 Логистика</option>
           <option value="driver|all">🚗 Доставка</option>
@@ -597,13 +598,16 @@ async function loadOrdersManagement(forceRefresh = false) {
           ms
         ))
       ]);
-    const [recentSnapshot, pendingSnapshot, deletedSnapshot] = await Promise.all([
+    const [recentSnapshot, pendingSnapshot, unfulfilledSnapshot, deletedSnapshot] = await Promise.all([
       _withTimeout(db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(), 15000, 'recent'),
       _withTimeout(db.collection('orders').where('status', '==', 'pending').limit(500).get(), 15000, 'pending'),
+      // Заявки, где все товары распроданы (созданы клиентом, но склад не тронут).
+      // Их админ должен видеть отдельно, чтобы связаться с клиентом.
+      _withTimeout(db.collection('orders').where('status', '==', 'unfulfilled').limit(200).get(), 15000, 'unfulfilled'),
       _withTimeout(db.collection('orders').where('deleted', '==', true).limit(200).get(), 15000, 'deleted')
     ]);
 
-    if (recentSnapshot.empty && pendingSnapshot.empty && deletedSnapshot.empty) {
+    if (recentSnapshot.empty && pendingSnapshot.empty && unfulfilledSnapshot.empty && deletedSnapshot.empty) {
       ordersManagementAllOrders = [];
       listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:60px; font-size:16px;">📭 Заказов пока нет</div>';
       return;
@@ -616,6 +620,13 @@ async function loadOrdersManagement(forceRefresh = false) {
     });
     // Добавляем pending-заказы, которые могли не попасть в limit(200)
     pendingSnapshot.forEach(doc => {
+      if (!allMap[doc.id]) {
+        const data = doc.data();
+        allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
+      }
+    });
+    // Добавляем unfulfilled-заявки (заявки на отсутствующий товар)
+    unfulfilledSnapshot.forEach(doc => {
       if (!allMap[doc.id]) {
         const data = doc.data();
         allMap[doc.id] = { id: doc.id, ...data, timestamp: data.timestamp || Date.now() };
@@ -663,7 +674,10 @@ function createOrderCard(order, index) {
     logistics: { icon: '🚚', text: 'Логистика', color: '#9c27b0', bg: '#f3e5f5' },
     driver: { icon: '🚗', text: 'Доставка', color: '#00bcd4', bg: '#e0f7fa' },
     completed: { icon: '✓', text: 'Готов', color: '#4caf50', bg: '#e8f5e9' },
-    cancelled: { icon: '✕', text: 'Отменён', color: '#f44336', bg: '#ffebee' }
+    cancelled: { icon: '✕', text: 'Отменён', color: '#f44336', bg: '#ffebee' },
+    // Заявка от клиента когда все товары были распроданы в момент оформления.
+    // Склад не списан, менеджер должен связаться с клиентом.
+    unfulfilled: { icon: '⚠️', text: 'Нет в наличии', color: '#d32f2f', bg: '#ffebee' }
   };
   const st = statusMap[status] || statusMap.pending;
   
@@ -711,7 +725,26 @@ function createOrderCard(order, index) {
             <div style="font-size:11px; color:#888;">${itemsCount} шт</div>
           </div>
         </div>
-        
+
+        ${order.unfulfilledOrder ? `
+        <!-- Баннер: заявка на распроданный товар -->
+        <div style="background:#ffebee; border-left:4px solid #d32f2f; padding:10px 12px; border-radius:6px; margin-bottom:10px;">
+          <div style="font-size:13px; font-weight:600; color:#c62828; margin-bottom:4px;">⚠️ Заявка — товары были распроданы</div>
+          <div style="font-size:12px; color:#555; line-height:1.5;">
+            ${Array.isArray(order.orderAdjustments) ? order.orderAdjustments.map(s => '• ' + s).join('<br>') : ''}
+          </div>
+          <div style="font-size:11px; color:#1976d2; margin-top:6px; font-weight:600;">📞 Свяжитесь с клиентом и предложите альтернативы</div>
+        </div>
+        ` : (Array.isArray(order.orderAdjustments) && order.orderAdjustments.length ? `
+        <!-- Баннер: заказ был скорректирован -->
+        <div style="background:#fff3e0; border-left:4px solid #ff9800; padding:10px 12px; border-radius:6px; margin-bottom:10px;">
+          <div style="font-size:12px; font-weight:600; color:#e65100; margin-bottom:4px;">⚠️ Корзина клиента была скорректирована по остаткам:</div>
+          <div style="font-size:12px; color:#555; line-height:1.5;">
+            ${order.orderAdjustments.map(s => '• ' + s).join('<br>')}
+          </div>
+        </div>
+        ` : '')}
+
         <!-- Действия -->
         ${order.deleted ? `
         <div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:8px; text-align:center;">
@@ -724,6 +757,7 @@ function createOrderCard(order, index) {
         ` : `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
           <select onchange="updateOrderStatus('${order.id}', this.value); this.blur();" style="padding:8px 10px; border:1px solid #e0e0e0; border-radius:6px; font-size:12px; background:#fff; cursor:pointer; color:#333;">
+            ${status === 'unfulfilled' ? `<option value="unfulfilled" selected>⚠️ Нет в наличии</option>` : ''}
             <option value="pending" ${status === 'pending' ? 'selected' : ''}>🕐 Новый</option>
             <option value="preparing" ${status === 'preparing' ? 'selected' : ''}>📦 Готовится</option>
             <option value="logistics" ${status === 'logistics' ? 'selected' : ''}>🚚 Логистика</option>

@@ -35,12 +35,17 @@ function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
     if (hasWarehouseSetup && Object.keys(ws).some(whId => pausedSet.has && pausedSet.has(whId))) continue;
 
     const localStock = Math.max(0, Math.floor(localProduct.stock));
-    if (localStock <= 0 && !hasWarehouseSetup) continue;
 
     const need = Math.max(0, Math.floor(item.qty || 0));
     if (need <= 0) throw new Error('Некорректное количество: ' + (item.title || item.id));
+    // stock=0 (с warehouseStock или без) — всегда «нет в наличии».
+    // Раньше здесь был скип для случая без warehouseStock — из-за него
+    // распроданные товары можно было продолжать заказывать.
     if (localStock < need) {
-      throw new Error('Недостаточно остатка: ' + (localProduct.title || item.title) + '. Доступно ' + localStock + ' шт');
+      const short = localStock <= 0
+        ? 'Нет в наличии'
+        : 'Доступно ' + localStock + ' шт';
+      throw new Error('Недостаточно остатка: ' + (localProduct.title || item.title) + '. ' + short);
     }
 
     stockDeducted = true;

@@ -360,9 +360,14 @@ service cloud.firestore {
         && (
           !('status' in request.resource.data)
           || request.resource.data.status == 'pending'
+          // 'unfulfilled' — заявка на распроданный товар. Клиент создаёт её
+          // когда перед оформлением все товары корзины оказались недоступны.
+          // Склад не списывается (см. CF: проверка на data.status).
+          || request.resource.data.status == 'unfulfilled'
         )
         // ЗАЩИТА: клиент НЕ может подделать статус списания, чтобы обойти
         // Cloud Function и получить товары без списания со склада.
+        // Всегда должен быть 'pending' — CF сама решит что делать.
         && (
           !('stockDeductionStatus' in request.resource.data)
           || request.resource.data.stockDeductionStatus == 'pending'
