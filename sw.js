@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.7.1-cf-status-wait'; // Убран магический setTimeout(2500) — админ-склад теперь ждёт реального статуса CF
+const CACHE_VERSION = 'kerben-v4.8.0-pause-audit'; // При включении склада — сводка заказов не списанных за время паузы
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

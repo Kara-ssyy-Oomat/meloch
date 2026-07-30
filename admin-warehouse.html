@@ -1406,36 +1406,229 @@ function updatePauseButton() {
 
 async function toggleWarehousePause() {
   const newState = !warehousePaused;
-  const msg = newState
-    ? 'Приостановить склады?\n\nВсе товары будут отображаться без лимита остатка. Остатки на складах сохранятся, но не учитываются.'
-    : 'Включить склады?\n\nОстатки снова будут учитываться при заказах.';
-  
+
+  // ============ ВКЛЮЧЕНИЕ ============
+  // Перед включением показываем что было заказано во время паузы,
+  // чтобы админ мог вручную скорректировать остатки на списанные товары.
+  if (!newState) {
+    // Читаем pausedAt из настроек
+    let pausedAt = 0;
+    try {
+      const settingsSnap = await db.collection('settings').doc('warehouse').get();
+      if (settingsSnap.exists) pausedAt = Number(settingsSnap.data().pausedAt) || 0;
+    } catch(e) { console.warn('Не смогли прочитать pausedAt:', e); }
+
+    // Показываем модалку с пропущенными заказами (если pausedAt известен)
+    const proceed = await _showSkippedOrdersBeforeUnpause(pausedAt, null);
+    if (!proceed) return; // админ передумал
+
+    try {
+      await db.collection('settings').doc('warehouse').set({
+        paused: false,
+        pausedAt: null // очищаем чтобы след. пауза начала считать заново
+      }, { merge: true });
+      warehousePaused = false;
+      try { localStorage.setItem('warehousePaused', '0'); } catch(e) {}
+      updatePauseButton();
+      renderWarehouses();
+      Swal.fire({
+        icon: 'success',
+        title: 'Склады включены',
+        text: 'Остатки снова активны',
+        timer: 2000,
+        showConfirmButton: false
+      });
+    } catch(e) {
+      Swal.fire('Ошибка', 'Не удалось включить склады: ' + e.message, 'error');
+    }
+    return;
+  }
+
+  // ============ ПАУЗА ============
   const result = await Swal.fire({
-    title: newState ? '⏸ Приостановить?' : '▶ Включить?',
-    text: msg,
+    title: '⏸ Приостановить?',
+    text: 'Приостановить склады?\n\nВсе товары будут отображаться без лимита остатка. Остатки на складах сохранятся, но не учитываются.',
     icon: 'question',
     showCancelButton: true,
-    confirmButtonText: newState ? 'Приостановить' : 'Включить',
+    confirmButtonText: 'Приостановить',
     cancelButtonText: 'Отмена'
   });
   if (!result.isConfirmed) return;
-  
+
   try {
-    await db.collection('settings').doc('warehouse').set({ paused: newState }, { merge: true });
-    warehousePaused = newState;
-    try { localStorage.setItem('warehousePaused', newState ? '1' : '0'); } catch(e) {}
+    // Запоминаем момент паузы — по нему потом покажем пропущенные заказы
+    await db.collection('settings').doc('warehouse').set({
+      paused: true,
+      pausedAt: Date.now()
+    }, { merge: true });
+    warehousePaused = true;
+    try { localStorage.setItem('warehousePaused', '1'); } catch(e) {}
     updatePauseButton();
     renderWarehouses();
     Swal.fire({
       icon: 'success',
-      title: newState ? 'Склады приостановлены' : 'Склады включены',
-      text: newState ? 'Товары теперь без лимита' : 'Остатки снова активны',
+      title: 'Склады приостановлены',
+      text: 'Товары теперь без лимита',
       timer: 2000,
       showConfirmButton: false
     });
   } catch(e) {
-    Swal.fire('Ошибка', 'Не удалось изменить состояние: ' + e.message, 'error');
+    Swal.fire('Ошибка', 'Не удалось приостановить: ' + e.message, 'error');
   }
+}
+
+// ==================== ПРЕДУПРЕЖДЕНИЕ О ПРОПУЩЕННЫХ ЗАКАЗАХ ====================
+// Показывает модалку со списком товаров, которые заказали во время паузы,
+// но которые CF НЕ списала со склада (stockDeductionStatus === 'skipped').
+// Возвращает Promise<boolean>: true = админ подтвердил включение, false = отмена.
+//
+// filterWarehouseId: если передан — фильтруем только заказы, где хоть один
+// товар использует этот склад. Для глобальной паузы — null.
+async function _showSkippedOrdersBeforeUnpause(pausedAt, filterWarehouseId) {
+  // Если pausedAt не сохранён (пауза была установлена до этого фикса) —
+  // просто спрашиваем стандартное подтверждение включения
+  if (!pausedAt || pausedAt <= 0) {
+    const res = await Swal.fire({
+      title: '▶ Включить?',
+      text: 'Включить склады? Остатки снова будут учитываться при заказах.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Включить',
+      cancelButtonText: 'Отмена'
+    });
+    return res.isConfirmed;
+  }
+
+  // Показываем спиннер пока читаем
+  Swal.fire({
+    title: 'Анализируем заказы во время паузы...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  let skippedOrders = [];
+  try {
+    // Запрашиваем ВСЕ заказы созданные после паузы (обычно немного).
+    // Ограничение 500 на всякий случай — если пауза длилась дни.
+    const snap = await db.collection('orders')
+      .where('timestamp', '>=', pausedAt)
+      .orderBy('timestamp', 'desc')
+      .limit(500)
+      .get();
+    snap.forEach(doc => {
+      const d = doc.data() || {};
+      // Только те что реально не списались
+      if (d.stockDeductionStatus !== 'skipped') return;
+      // Пропускаем отменённые — их и не надо было списывать
+      if (d.status === 'cancelled' || d.status === 'Отменён' || d.status === 'Отменен') return;
+      // unfulfilled — распроданные, тоже не относятся к паузе
+      if (d.status === 'unfulfilled') return;
+      skippedOrders.push({ id: doc.id, ...d });
+    });
+  } catch(e) {
+    Swal.close();
+    console.error('Ошибка чтения заказов:', e);
+    const res = await Swal.fire({
+      title: '⚠️ Не смогли проверить пропущенные заказы',
+      html: 'Ошибка: <code>' + (e.message || e) + '</code><br><br>Включить склады всё равно?',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Включить',
+      cancelButtonText: 'Отмена'
+    });
+    return res.isConfirmed;
+  }
+
+  // Агрегируем по productId
+  const byProduct = {}; // { productId: { title, totalQty, orderCount, orderIds: [] } }
+  skippedOrders.forEach(order => {
+    (order.items || []).forEach(item => {
+      if (!item || !item.id) return;
+      // Для single-warehouse pause отфильтруем товары не с этого склада
+      if (filterWarehouseId) {
+        const p = products.find(x => x.id === item.id);
+        const ws = p && p.warehouseStock;
+        if (!ws || !ws.hasOwnProperty(filterWarehouseId)) return;
+      }
+      const key = item.id;
+      if (!byProduct[key]) {
+        byProduct[key] = {
+          title: item.title || (products.find(x => x.id === key) || {}).title || '?',
+          totalQty: 0,
+          orderCount: 0,
+          orderIds: []
+        };
+      }
+      byProduct[key].totalQty += Math.max(0, Math.floor(item.qty || 0));
+      byProduct[key].orderCount++;
+      byProduct[key].orderIds.push(order.id);
+    });
+  });
+
+  Swal.close();
+
+  const products_ = Object.entries(byProduct);
+  if (products_.length === 0) {
+    // Ничего не заказали за время паузы — просто включаем без лишних вопросов
+    const res = await Swal.fire({
+      title: '▶ Включить склады?',
+      html: '<div style="color:#4CAF50; font-weight:600;">✅ За время паузы новых заказов на товары со складским учётом не было.</div><br>Можно спокойно включать — рассинхрона нет.',
+      icon: 'success',
+      showCancelButton: true,
+      confirmButtonText: 'Включить',
+      cancelButtonText: 'Отмена'
+    });
+    return res.isConfirmed;
+  }
+
+  // Строим таблицу
+  products_.sort((a, b) => b[1].totalQty - a[1].totalQty);
+  let tableHtml = '<div style="max-height:300px; overflow-y:auto; margin-top:10px;">' +
+    '<table style="width:100%; border-collapse:collapse; font-size:13px;">' +
+    '<thead><tr style="background:#f5f5f5; position:sticky; top:0;">' +
+    '<th style="text-align:left; padding:6px; border-bottom:2px solid #ddd;">Товар</th>' +
+    '<th style="text-align:right; padding:6px; border-bottom:2px solid #ddd;">Заказано</th>' +
+    '<th style="text-align:right; padding:6px; border-bottom:2px solid #ddd;">Заказов</th>' +
+    '</tr></thead><tbody>';
+  products_.forEach(([pid, info]) => {
+    tableHtml += '<tr>' +
+      '<td style="padding:6px; border-bottom:1px solid #eee;">' + esc(info.title) + '</td>' +
+      '<td style="text-align:right; padding:6px; border-bottom:1px solid #eee; color:#d32f2f; font-weight:600;">' + info.totalQty + ' шт</td>' +
+      '<td style="text-align:right; padding:6px; border-bottom:1px solid #eee; color:#666;">' + info.orderCount + '</td>' +
+      '</tr>';
+  });
+  tableHtml += '</tbody></table></div>';
+
+  const totalItems = products_.reduce((s, [, i]) => s + i.totalQty, 0);
+  const totalOrders = skippedOrders.length;
+
+  const res = await Swal.fire({
+    title: '⚠️ Внимание: ' + totalOrders + ' заказ(ов) во время паузы',
+    html:
+      '<div style="text-align:left; font-size:14px;">' +
+      '<div style="background:#fff3e0; border-left:4px solid #f57c00; padding:10px; margin-bottom:12px; border-radius:4px;">' +
+        '<b>За время паузы CF НЕ списала эти товары со склада:</b><br>' +
+        '<span style="color:#d32f2f; font-size:16px; font-weight:700;">' + totalItems + ' шт</span> в ' + totalOrders + ' заказах.' +
+      '</div>' +
+      '<div style="color:#555; margin-bottom:8px;">Если эти товары уже <b>физически отгружены клиентам</b>, скорректируй остатки вручную (уменьши на указанное количество) <b>до</b> включения склада — иначе система будет думать что они всё ещё на складе.</div>' +
+      tableHtml +
+      '</div>',
+    icon: 'warning',
+    width: 600,
+    showCancelButton: true,
+    showDenyButton: true,
+    confirmButtonText: '▶ Включить всё равно',
+    denyButtonText: '📋 Открыть Заказы',
+    cancelButtonText: 'Отмена',
+    denyButtonColor: '#1976d2'
+  });
+
+  if (res.isDenied) {
+    // Открываем вкладку заказов чтобы админ мог их посмотреть
+    window.location.href = 'admin-orders.html';
+    return false;
+  }
+  return res.isConfirmed;
 }
 
 async function loadWarehouses() {
@@ -1447,25 +1640,43 @@ async function toggleSingleWarehousePause(whId) {
   const wh = warehouses.find(w => w.id === whId);
   if (!wh) return;
   const newState = !wh.paused;
-  const msg = newState
-    ? `Приостановить склад "${wh.name}"?\n\nТовары с этого склада не будут списываться при заказах.`
-    : `Включить склад "${wh.name}"?\n\nТовары снова будут списываться с этого склада.`;
+
+  // ============ ВКЛЮЧЕНИЕ конкретного склада ============
+  if (!newState) {
+    const pausedAt = Number(wh.pausedAt) || 0;
+    // Показываем что было заказано именно с этого склада во время его паузы
+    const proceed = await _showSkippedOrdersBeforeUnpause(pausedAt, whId);
+    if (!proceed) return;
+    try {
+      await db.collection('warehouses').doc(whId).update({ paused: false, pausedAt: null });
+      wh.paused = false;
+      wh.pausedAt = null;
+      renderWarehouses();
+      Swal.fire({ icon: 'success', title: 'Склад включён', timer: 1500, showConfirmButton: false });
+    } catch(e) {
+      Swal.fire('Ошибка', 'Не удалось включить: ' + e.message, 'error');
+    }
+    return;
+  }
+
+  // ============ ПАУЗА конкретного склада ============
   const result = await Swal.fire({
-    title: newState ? '⏸ Приостановить склад?' : '▶ Включить склад?',
-    text: msg,
+    title: '⏸ Приостановить склад?',
+    text: `Приостановить склад "${wh.name}"?\n\nТовары с этого склада не будут списываться при заказах.`,
     icon: 'question',
     showCancelButton: true,
-    confirmButtonText: newState ? 'Приостановить' : 'Включить',
+    confirmButtonText: 'Приостановить',
     cancelButtonText: 'Отмена'
   });
   if (!result.isConfirmed) return;
   try {
-    await db.collection('warehouses').doc(whId).update({ paused: newState });
-    wh.paused = newState;
+    await db.collection('warehouses').doc(whId).update({ paused: true, pausedAt: Date.now() });
+    wh.paused = true;
+    wh.pausedAt = Date.now();
     renderWarehouses();
-    Swal.fire({ icon: 'success', title: newState ? 'Склад приостановлен' : 'Склад включён', timer: 1500, showConfirmButton: false });
+    Swal.fire({ icon: 'success', title: 'Склад приостановлен', timer: 1500, showConfirmButton: false });
   } catch(e) {
-    Swal.fire('Ошибка', 'Не удалось изменить состояние: ' + e.message, 'error');
+    Swal.fire('Ошибка', 'Не удалось приостановить: ' + e.message, 'error');
   }
 }
 
