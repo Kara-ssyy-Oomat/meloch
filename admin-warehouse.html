@@ -627,8 +627,16 @@
         flex-direction: column;
         overflow: hidden;
       }
+      /* Кнопка «Сохранить остатки» должна быть выше нижней навигации сайта
+         (bottom-nav ≈ 60px). Раньше здесь было переопределение без +60px —
+         из-за него кнопку не было видно на телефоне.
+         Модалка занимает 100vh, а последние ~60px экрана перекрыты
+         фиксированной нижней навигацией — добавляем это к padding-bottom
+         футера, чтобы кнопка визуально оказалась выше панели. */
       #stockModal .modal-footer {
-        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+        background: #fff;
+        border-top: 1px solid #eee;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + 60px);
       }
 
       /* Модалка перемещения — на весь экран */
