@@ -1133,14 +1133,23 @@ async function loadData() {
 
 // ==================== РЕАЛТАЙМ-СЛУШАТЕЛЬ НОВЫХ ЗАКАЗОВ ====================
 // Как только клиент оформил заказ → Firestore сразу шлёт событие сюда.
-// Мы даём ~2.5 сек Cloud Function `deductStockOnOrderCreate` дописать
-// свежие остатки в БД, а потом читаем ТОЛЬКО затронутые товары (обычно
-// 1-10 doc.get, не все 2000) и обновляем UI страницы.
+// Мы НЕ угадываем таймером сколько работает Cloud Function
+// `deductStockOnOrderCreate`, а слушаем сам документ заказа: как только CF
+// проставит `stockDeductionStatus: 'done'` (или 'skipped_*' / 'failed') —
+// сразу читаем затронутые товары и обновляем UI.
 //
-// Стоимость: 1 read на каждый НОВЫЙ заказ + 1 read на каждый затронутый
-// товар после списания. При 100 заказов/день ~ 300-500 reads/день на админа
-// — в сотни раз дешевле polling'а каждую минуту (1440 reads/день даже
-// при нулевой активности).
+// Почему не setTimeout(2500):
+//   • CF может быть быстрее 2.5с → 2 секунды устаревшего UI напрасно
+//   • CF может быть медленнее (cold start / retry) → читаем СТАРЫЕ остатки
+//     и показываем ложный «склад обновлён» — админ принимает решение
+//     на неправдивых данных, риск овер-продажи
+//   • CF может упасть → тот же ложный «обновлён» без обновления
+//   • Retry CF через минуту вообще не будет отражён в UI до F5
+//
+// Стоимость: +1 read на новый заказ (первый снапшот подписки на orders/{id})
+// + 1 read на апдейт статуса + 1-10 reads на затронутые товары. Итого
+// ~5-15 reads на заказ. При 100 заказов/день ~1500 reads/день на админа —
+// на тарифе Blaze копейки (~$0.001/месяц).
 //
 // Если заказов нет — 0 лишних чтений. Слушатель просто висит.
 let _ordersListenerUnsub = null;
@@ -1161,7 +1170,8 @@ function startOrdersRealtimeListener() {
           if (change.type !== 'added') return;
           const order = change.doc.data();
           if (!order.timestamp || order.timestamp < _ordersListenerStartTime) return;
-          _handleNewOrderRealtime(order);
+          // Передаём doc целиком — нужен id для подписки на статус списания
+          _handleNewOrderRealtime(change.doc);
         });
       }, err => {
         console.warn('[Realtime] Ошибка слушателя заказов:', err && err.message);
@@ -1172,7 +1182,19 @@ function startOrdersRealtimeListener() {
   }
 }
 
-async function _handleNewOrderRealtime(order) {
+// Safety-таймаут: если CF не проставила статус за 30 сек (упала, застряла,
+// ретрайит очень долго) — читаем products как есть и предупреждаем админа
+// оранжевым тостом. 30 сек покрывает 99% случаев (cold start ~2с, retry ~10с),
+// но не заставляет админа ждать вечно если сервер лежит.
+const CF_STATUS_WAIT_TIMEOUT_MS = 30000;
+
+// Финальные статусы CF — при них уже точно можно читать products
+const CF_TERMINAL_OK_STATUSES = new Set(['done', 'skipped', 'skipped_cancelled']);
+const CF_TERMINAL_FAIL_STATUSES = new Set(['failed']);
+
+async function _handleNewOrderRealtime(orderDoc) {
+  const orderId = orderDoc.id;
+  const order = orderDoc.data() || {};
   const productIds = Array.from(new Set(
     (order.items || []).map(i => i && i.id).filter(Boolean)
   ));
@@ -1199,24 +1221,87 @@ async function _handleNewOrderRealtime(order) {
     return; // склад не трогаем, ничего не перезагружаем
   }
 
-  // Ждём чтобы Cloud Function успела списать склад (обычно <1 сек, берём 2.5)
-  setTimeout(async () => {
-    try {
-      // Читаем ТОЛЬКО затронутые товары параллельно
-      const freshDocs = await Promise.all(
-        productIds.map(id => db.collection('products').doc(id).get())
-      );
-      let updated = 0;
-      freshDocs.forEach(doc => {
-        if (!doc.exists) return;
-        const idx = products.findIndex(p => p.id === doc.id);
-        if (idx !== -1) {
-          products[idx] = { id: doc.id, ...doc.data() };
-          updated++;
-        }
-      });
-      if (updated === 0) return;
+  // Быстрый путь: CF могла уже успеть отработать до того как наш listener
+  // получил документ (Firestore не гарантирует порядок доставки). Проверяем
+  // статус прямо в первом снапшоте — если уже терминальный, обновляем сразу.
+  const initialStatus = order.stockDeductionStatus;
+  if (CF_TERMINAL_OK_STATUSES.has(initialStatus)) {
+    await _applyStockUpdateAfterOrder(order, productIds, { ok: true, status: initialStatus });
+    return;
+  }
+  if (CF_TERMINAL_FAIL_STATUSES.has(initialStatus)) {
+    await _applyStockUpdateAfterOrder(order, productIds, {
+      ok: false,
+      status: initialStatus,
+      error: order.stockDeductionError || ''
+    });
+    return;
+  }
 
+  // Иначе — подписываемся на документ заказа и ждём когда CF пропишет
+  // финальный статус. Это заменяет старый setTimeout(2500).
+  const orderRef = db.collection('orders').doc(orderId);
+  let finished = false;
+  let unsub = null;
+  let fallbackTimer = null;
+
+  const finish = async (statusInfo) => {
+    if (finished) return;
+    finished = true;
+    try { if (typeof unsub === 'function') unsub(); } catch(e) {}
+    if (fallbackTimer) { try { clearTimeout(fallbackTimer); } catch(e) {} }
+    await _applyStockUpdateAfterOrder(order, productIds, statusInfo);
+  };
+
+  try {
+    unsub = orderRef.onSnapshot(snap => {
+      if (!snap.exists) return;
+      const d = snap.data() || {};
+      const st = d.stockDeductionStatus;
+      if (CF_TERMINAL_OK_STATUSES.has(st)) {
+        finish({ ok: true, status: st });
+      } else if (CF_TERMINAL_FAIL_STATUSES.has(st)) {
+        finish({ ok: false, status: st, error: d.stockDeductionError || '' });
+      }
+      // 'pending' / 'processing' — CF ещё работает, продолжаем ждать
+    }, err => {
+      console.warn('[Realtime] Ошибка подписки на статус заказа:', err && err.message);
+      finish({ ok: false, status: 'listener_error' });
+    });
+  } catch (e) {
+    console.warn('[Realtime] Не смогли подписаться на заказ:', e);
+    finish({ ok: false, status: 'subscribe_failed' });
+    return;
+  }
+
+  fallbackTimer = setTimeout(() => {
+    if (!finished) {
+      console.warn('[Realtime] CF не проставила статус за ' +
+        (CF_STATUS_WAIT_TIMEOUT_MS / 1000) + 'с — обновляем принудительно');
+      finish({ ok: false, status: 'timeout' });
+    }
+  }, CF_STATUS_WAIT_TIMEOUT_MS);
+}
+
+// Отдельная функция чтобы не дублировать код в трёх ветках выше.
+// statusInfo = { ok: boolean, status: string, error?: string }
+async function _applyStockUpdateAfterOrder(order, productIds, statusInfo) {
+  try {
+    // Читаем ТОЛЬКО затронутые товары параллельно
+    const freshDocs = await Promise.all(
+      productIds.map(id => db.collection('products').doc(id).get())
+    );
+    let updated = 0;
+    freshDocs.forEach(doc => {
+      if (!doc.exists) return;
+      const idx = products.findIndex(p => p.id === doc.id);
+      if (idx !== -1) {
+        products[idx] = { id: doc.id, ...doc.data() };
+        updated++;
+      }
+    });
+
+    if (updated > 0) {
       // Обновляем LS-кэш — если админ рефрешнет страницу, тоже увидит свежее
       try {
         localStorage.setItem('cachedProducts', JSON.stringify(products));
@@ -1233,29 +1318,56 @@ async function _handleNewOrderRealtime(order) {
         // Догружаем свежие движения (там появится запись о продаже)
         try { await loadMovements(true); } catch(e) {}
       }
+    }
 
-      // Мягкий toast в углу — админ видит что случилось
-      const itemsText = (order.items || [])
-        .map(i => (i && i.title ? i.title : '?') + ' × ' + (i && i.qty || 0))
-        .join(', ');
-      try {
+    const itemsText = (order.items || [])
+      .map(i => (i && i.title ? i.title : '?') + ' × ' + (i && i.qty || 0))
+      .join(', ');
+    const customerPrefix = order.name ? '<b>' + order.name + '</b>: ' : '';
+
+    try {
+      if (statusInfo.ok) {
+        // CF успешно списала (или сознательно пропустила — товары без учёта)
         Swal.fire({
           toast: true,
           position: 'top-end',
           icon: 'success',
           title: '🛒 Новый заказ — склад обновлён',
           html: '<div style="font-size:12px; margin-top:4px; color:#555; max-width:280px;">' +
-            (order.name ? '<b>' + order.name + '</b>: ' : '') + itemsText + '</div>',
+            customerPrefix + itemsText + '</div>',
           timer: 6000,
           timerProgressBar: true,
           showConfirmButton: false,
           showCloseButton: true
         });
-      } catch(e) {}
-    } catch (e) {
-      console.warn('[Realtime] Ошибка обновления после нового заказа:', e);
-    }
-  }, 2500);
+      } else {
+        // CF не подтвердила успех — ЧЕСТНО предупреждаем, а не показываем
+        // ложный «обновлено». Раньше setTimeout(2500) молча показывал
+        // «обновлено» даже когда CF падала.
+        const reasonText = statusInfo.status === 'failed'
+          ? 'Cloud Function вернула ошибку: ' + (statusInfo.error || 'неизвестно')
+          : (statusInfo.status === 'timeout'
+              ? 'CF не ответила за 30 сек (возможно, ретраит на сервере)'
+              : 'связь с сервером прервана');
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'warning',
+          title: '⚠️ Заказ создан, но склад НЕ подтверждён',
+          html: '<div style="font-size:12px; margin-top:4px; color:#555; max-width:300px;">' +
+            customerPrefix + itemsText +
+            '<br><br><b>Причина:</b> ' + reasonText +
+            '<br>Обновите страницу через минуту — если CF ретрайит, всё догонит само.</div>',
+          timer: 12000,
+          timerProgressBar: true,
+          showConfirmButton: false,
+          showCloseButton: true
+        });
+      }
+    } catch(e) {}
+  } catch (e) {
+    console.warn('[Realtime] Ошибка обновления после нового заказа:', e);
+  }
 }
 
 // Останавливаем слушатель при закрытии вкладки — чисто ради приличия
