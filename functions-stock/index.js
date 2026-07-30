@@ -12,8 +12,11 @@ const db = admin.firestore();
 //         СКЛАД: ГАРАНТИРОВАННОЕ СПИСАНИЕ ПРИ ЗАКАЗЕ
 // -------------------------------------------------------------------
 // Клиент пишет только заказ (быстро). Остатки списывает сервер:
-//   • deductStockOnOrderCreate — сразу после создания заказа
-//   • retryPendingStockDeductions — подстраховка каждые 5 минут
+//   • deductStockOnOrderCreate — сразу после создания заказа.
+//     failurePolicy: true → Firebase АВТОМАТИЧЕСКИ ретраит с экспо-
+//     ненциальным backoff до 30 минут (см. MAX_EVENT_AGE_MS ниже).
+//     После 30 мин ретраи прекращаются, статус ставится 'failed'
+//     с ошибкой 'retry_expired' — админ должен обработать вручную.
 //
 // Идемпотентность: claim через stockDeductionStatus = processing,
 // повторный запуск не спишет дважды (stockDeducted / done / skipped).
