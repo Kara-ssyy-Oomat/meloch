@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.8.1-stock-btn-mobile'; // Фикс: кнопка «Сохранить остатки» больше не скрывается под нижней навигацией на телефоне
+const CACHE_VERSION = 'kerben-v4.8.2-stock-modal-height'; // Модалка остатков теперь ровно ВЫШЕ нижней навигации, кнопка видна
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

@@ -608,13 +608,18 @@
       .stock-filters-row { flex-wrap: wrap; gap: 6px !important; }
       .stock-filters-row select, .stock-filters-row input[type="number"] { font-size: 12px; padding: 4px 5px; }
 
-      /* Модалка остатков — на весь экран */
+      /* Модалка остатков — растягиваем на всю доступную площадь ВЫШЕ
+         нижней навигации сайта (bottom-nav = 56px + safe-area, z:9999).
+         Раньше модалка была 100vh и её низ (с кнопкой «Сохранить») уходил
+         ПОД bottom-nav → кнопка была невидима.
+         !important нужен чтобы победить inline style="max-height:95vh"
+         на .modal-content в HTML. */
       #stockModal { padding: 0; align-items: stretch; }
       #stockModal .modal-content {
-        max-width: 100%;
-        max-height: 100vh;
-        height: 100vh;
-        border-radius: 0;
+        max-width: 100% !important;
+        max-height: calc(100vh - 56px - env(safe-area-inset-bottom, 0px)) !important;
+        height: calc(100vh - 56px - env(safe-area-inset-bottom, 0px)) !important;
+        border-radius: 0 !important;
       }
       #stockModal #stockProductsList {
         max-height: none !important;
@@ -627,16 +632,13 @@
         flex-direction: column;
         overflow: hidden;
       }
-      /* Кнопка «Сохранить остатки» должна быть выше нижней навигации сайта
-         (bottom-nav ≈ 60px). Раньше здесь было переопределение без +60px —
-         из-за него кнопку не было видно на телефоне.
-         Модалка занимает 100vh, а последние ~60px экрана перекрыты
-         фиксированной нижней навигацией — добавляем это к padding-bottom
-         футера, чтобы кнопка визуально оказалась выше панели. */
+      /* Футер теперь просто внизу модалки — модалка уже не залезает
+         под навигацию, лишний padding не нужен. Оставляем только safe-area
+         на случай iPhone с home-индикатором. */
       #stockModal .modal-footer {
         background: #fff;
         border-top: 1px solid #eee;
-        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px) + 60px);
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
       }
 
       /* Модалка перемещения — на весь экран */
