@@ -608,37 +608,50 @@
       .stock-filters-row { flex-wrap: wrap; gap: 6px !important; }
       .stock-filters-row select, .stock-filters-row input[type="number"] { font-size: 12px; padding: 4px 5px; }
 
-      /* Модалка остатков — растягиваем на всю доступную площадь ВЫШЕ
-         нижней навигации сайта (bottom-nav = 56px + safe-area, z:9999).
-         Раньше модалка была 100vh и её низ (с кнопкой «Сохранить») уходил
-         ПОД bottom-nav → кнопка была невидима.
+      /* Модалка остатков — на весь экран.
          !important нужен чтобы победить inline style="max-height:95vh"
-         на .modal-content в HTML. */
+         на .modal-content в HTML. Используем 100dvh (dynamic viewport)
+         для корректной работы в мобильных браузерах с плавающими
+         URL/tab-барами (iOS Safari), с фолбэком на 100vh. */
       #stockModal { padding: 0; align-items: stretch; }
       #stockModal .modal-content {
         max-width: 100% !important;
-        max-height: calc(100vh - 56px - env(safe-area-inset-bottom, 0px)) !important;
-        height: calc(100vh - 56px - env(safe-area-inset-bottom, 0px)) !important;
+        max-height: 100vh !important;
+        max-height: 100dvh !important;
+        height: 100vh !important;
+        height: 100dvh !important;
         border-radius: 0 !important;
-      }
-      #stockModal #stockProductsList {
-        max-height: none !important;
-        flex: 1;
-        overflow-y: auto;
+        position: relative;
       }
       #stockModal .modal-body {
         flex: 1;
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        /* Место для fixed-футера и bottom-nav снизу, чтобы список
+           не уходил под них. Футер ~66px + bottom-nav 56px + safe-area
+           + 20px запас на всякий случай. */
+        padding-bottom: calc(86px + 56px + env(safe-area-inset-bottom, 0px)) !important;
       }
-      /* Футер теперь просто внизу модалки — модалка уже не залезает
-         под навигацию, лишний padding не нужен. Оставляем только safe-area
-         на случай iPhone с home-индикатором. */
-      #stockModal .modal-footer {
-        background: #fff;
-        border-top: 1px solid #eee;
-        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+      #stockModal #stockProductsList {
+        max-height: none !important;
+        flex: 1;
+        overflow-y: auto;
+      }
+      /* КЛЮЧЕВОЕ: футер прибит к экрану position:fixed НАД bottom-nav
+         (56px + safe-area) и z-index 10000 (выше nav'а 9999).
+         Так кнопка «Сохранить» ГАРАНТИРОВАНО видна независимо от
+         квирков 100vh/100dvh на мобильных браузерах. */
+      #stockModal.active .modal-footer {
+        position: fixed !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+        z-index: 10000 !important;
+        background: #fff !important;
+        border-top: 1px solid #ddd !important;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.08) !important;
+        padding: 10px 12px !important;
       }
 
       /* Модалка перемещения — на весь экран */

@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.8.2-stock-modal-height'; // Модалка остатков теперь ровно ВЫШЕ нижней навигации, кнопка видна
+const CACHE_VERSION = 'kerben-v4.8.3-stock-btn-fixed'; // Кнопка «Сохранить» прибита position:fixed над нижней навигацией — гарантированно видна
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
