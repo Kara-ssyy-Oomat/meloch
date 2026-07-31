@@ -1802,6 +1802,16 @@ function updateStats() {
   document.getElementById('statTotalCost').textContent = totalCost.toLocaleString();
   document.getElementById('statTotalRetail').textContent = totalRetail.toLocaleString();
   document.getElementById('statTotalWholesale').textContent = totalWholesale.toLocaleString();
+
+  // Обновляем бейдж уведомлений (live-подсчёт из текущих products)
+  try { refreshAlertsBadge(); } catch (e) {}
+  // Если сейчас открыта вкладка «Уведомления» — перерисуем live-список
+  try {
+    const alertsTab = document.getElementById('alertsList');
+    if (alertsTab && alertsTab.offsetParent !== null && alertsFilter === 'active') {
+      renderStockAlerts();
+    }
+  } catch (e) {}
 }
 
 function showLowStockModal() {
@@ -2982,14 +2992,74 @@ function setAlertsFilter(f) {
   renderStockAlerts();
 }
 
+// LIVE-вычисление активных алертов из текущего массива products[].
+// Раньше алерты брались ТОЛЬКО из коллекции stockAlerts, которая пишется
+// клиентом при покупке — если товар уже давно ниже порога, алерта не было.
+// Теперь смотрим реальное состояние: stock <= threshold или stock === 0.
+function _computeLiveActiveAlerts() {
+  const results = [];
+  const now = Date.now();
+  for (const p of products) {
+    if (!p) continue;
+    if (p.blocked === true) continue; // заблокирован админом — не считаем
+    // Безлимитные (без числа stock) — не показываем
+    if (typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
+    const s = Math.max(0, Math.floor(p.stock));
+    if (s === 0) {
+      results.push({
+        id: 'live_' + p.id + '_out',
+        productId: p.id,
+        productTitle: p.title || 'Без названия',
+        productImage: p.image || '',
+        productCategory: p.category || '',
+        kind: 'out',
+        remaining: 0,
+        threshold: lowStockThreshold,
+        timestamp: now,
+        active: true,
+        _live: true
+      });
+    } else if (s <= lowStockThreshold) {
+      results.push({
+        id: 'live_' + p.id + '_low',
+        productId: p.id,
+        productTitle: p.title || 'Без названия',
+        productImage: p.image || '',
+        productCategory: p.category || '',
+        kind: 'low',
+        remaining: s,
+        threshold: lowStockThreshold,
+        timestamp: now,
+        active: true,
+        _live: true
+      });
+    }
+  }
+  // Сортировка: сначала кончившиеся, потом по возрастанию остатка
+  results.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'out' ? -1 : 1;
+    return (a.remaining || 0) - (b.remaining || 0);
+  });
+  return results;
+}
+
 function renderStockAlerts() {
   const container = document.getElementById('alertsList');
   if (!container) return;
 
-  const list = stockAlerts.filter(a => {
-    const isActive = (a.active === true) || (a.id && a.id.endsWith('_active'));
-    return alertsFilter === 'active' ? isActive : !isActive;
-  });
+  let list;
+  if (alertsFilter === 'active') {
+    // Активные — live-вычисление из текущего состояния товаров.
+    // Так админ ВСЕГДА видит текущие проблемы, даже если алерт не был
+    // сгенерирован (никто недавно не покупал).
+    list = _computeLiveActiveAlerts();
+  } else {
+    // Обработанные — история из БД
+    list = stockAlerts.filter(a => {
+      const isActive = (a.active === true) || (a.id && a.id.endsWith('_active'));
+      return !isActive;
+    });
+  }
 
   if (list.length === 0) {
     container.innerHTML = `
@@ -3002,39 +3072,96 @@ function renderStockAlerts() {
   }
 
   let html = '';
-  let currentDate = '';
 
-  list.forEach(a => {
-    const ts = a.timestamp || (a.createdAt && a.createdAt.seconds ? a.createdAt.seconds * 1000 : Date.now());
-    const date = new Date(ts).toLocaleDateString('ru-RU');
-    if (date !== currentDate) {
-      currentDate = date;
-      html += `<div style="font-weight:700; color:#666; padding:14px 0 6px; font-size:13px; border-bottom:1px solid #eee;">${date}</div>`;
+  // Для live-алертов группируем по типу (закончились / мало осталось)
+  if (alertsFilter === 'active') {
+    const outItems = list.filter(a => a.kind === 'out');
+    const lowItems = list.filter(a => a.kind === 'low');
+
+    if (outItems.length > 0) {
+      html += `<div style="font-weight:700; color:#c62828; padding:14px 0 6px; font-size:13px; border-bottom:1px solid #ffcdd2;">❌ Закончились (${outItems.length})</div>`;
+      outItems.forEach(a => { html += _renderLiveAlertRow(a); });
     }
-    const time = new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    if (lowItems.length > 0) {
+      html += `<div style="font-weight:700; color:#e65100; padding:14px 0 6px; font-size:13px; border-bottom:1px solid #ffe0b2;">⚠️ Мало осталось (${lowItems.length}) — порог ${lowStockThreshold}</div>`;
+      lowItems.forEach(a => { html += _renderLiveAlertRow(a); });
+    }
+  } else {
+    // Обработанные — как раньше, с датами
+    let currentDate = '';
+    list.forEach(a => {
+      const ts = a.timestamp || (a.createdAt && a.createdAt.seconds ? a.createdAt.seconds * 1000 : Date.now());
+      const date = new Date(ts).toLocaleDateString('ru-RU');
+      if (date !== currentDate) {
+        currentDate = date;
+        html += `<div style="font-weight:700; color:#666; padding:14px 0 6px; font-size:13px; border-bottom:1px solid #eee;">${date}</div>`;
+      }
+      const time = new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      const isOut = a.kind === 'out';
+      const color = isOut ? '#c62828' : '#e65100';
+      const bg = isOut ? '#ffebee' : '#fff3e0';
+      const icon = isOut ? '❌' : '⚠️';
+      const label = isOut ? 'Товар закончился' : `Мало осталось (порог ${a.threshold || 5})`;
+      const remaining = (typeof a.remaining === 'number') ? a.remaining : null;
 
-    const isOut = a.kind === 'out';
-    const color = isOut ? '#c62828' : '#e65100';
-    const bg = isOut ? '#ffebee' : '#fff3e0';
-    const icon = isOut ? '❌' : '⚠️';
-    const label = isOut ? 'Товар закончился' : `Мало осталось (порог ${a.threshold || 5})`;
-    const remaining = (typeof a.remaining === 'number') ? a.remaining : null;
-    const isActive = (a.active === true) || (a.id && a.id.endsWith('_active'));
-
-    html += `
-      <div style="display:flex; align-items:center; gap:12px; padding:12px; margin-bottom:8px; border-radius:10px; background:${bg}; border-left:4px solid ${color};">
-        <div style="font-size:28px;">${icon}</div>
-        <div style="flex:1; min-width:0;">
-          <div style="font-weight:700; font-size:14px; color:#222; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(a.productTitle || 'Товар')}</div>
-          <div style="font-size:12px; color:${color}; font-weight:600; margin-top:2px;">${label}${remaining !== null ? ' • остаток: ' + remaining : ''}</div>
-          <div style="font-size:11px; color:#999; margin-top:2px;">${time}${!isActive && a.resolvedAtMs ? ' • обработано ' + new Date(a.resolvedAtMs).toLocaleString('ru-RU') : ''}</div>
+      html += `
+        <div style="display:flex; align-items:center; gap:12px; padding:12px; margin-bottom:8px; border-radius:10px; background:${bg}; border-left:4px solid ${color};">
+          <div style="font-size:28px;">${icon}</div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:700; font-size:14px; color:#222; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(a.productTitle || 'Товар')}</div>
+            <div style="font-size:12px; color:${color}; font-weight:600; margin-top:2px;">${label}${remaining !== null ? ' • остаток: ' + remaining : ''}</div>
+            <div style="font-size:11px; color:#999; margin-top:2px;">${time}${a.resolvedAtMs ? ' • обработано ' + new Date(a.resolvedAtMs).toLocaleString('ru-RU') : ''}</div>
+          </div>
         </div>
-        ${isActive ? `<button onclick="markAlertResolved('${a.id}')" style="background:${color}; color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:12px; white-space:nowrap;">✓ Обработано</button>` : ''}
-      </div>
-    `;
-  });
+      `;
+    });
+  }
 
   container.innerHTML = html;
+}
+
+// Рендер одной строки live-алерта. Открывает stock modal при клике для пополнения.
+function _renderLiveAlertRow(a) {
+  const isOut = a.kind === 'out';
+  const color = isOut ? '#c62828' : '#e65100';
+  const bg = isOut ? '#ffebee' : '#fff3e0';
+  const icon = isOut ? '❌' : '⚠️';
+  const imgPlaceholder = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 fill=%22%23f0f0f0%22/%3E%3Ctext x=%2212%22 y=%2216%22 text-anchor=%22middle%22 font-size=%2212%22%3E📦%3C/text%3E%3C/svg%3E';
+  const imgSrc = a.productImage || imgPlaceholder;
+
+  return `
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 12px; margin-bottom:6px; border-radius:10px; background:${bg}; border-left:4px solid ${color};">
+      <img src="${esc(imgSrc)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${imgPlaceholder}';" style="width:42px; height:42px; object-fit:cover; border-radius:6px; flex-shrink:0; background:#fff; border:1px solid #eee; cursor:pointer;" onclick="_openStockProductPreview('${a.productId}')">
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:700; font-size:14px; color:#222; word-break:break-word; line-height:1.25;">${icon} ${esc(a.productTitle || 'Товар')}</div>
+        <div style="font-size:12px; color:${color}; font-weight:600; margin-top:2px;">
+          ${isOut ? 'Нет на складе' : 'Осталось: ' + a.remaining + ' шт'}
+          ${a.productCategory ? ' • <span style="color:#888;">' + esc(a.productCategory) + '</span>' : ''}
+        </div>
+      </div>
+      <button onclick="_openStockModalForProduct('${a.productId}')" style="background:${color}; color:#fff; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:12px; white-space:nowrap;">📦 Пополнить</button>
+    </div>
+  `;
+}
+
+// Открыть модалку остатков основного склада с фокусом на конкретном товаре
+function _openStockModalForProduct(productId) {
+  const p = products.find(x => x.id === productId);
+  if (!p) { alert('Товар не найден в текущем списке'); return; }
+  // Выбираем главный склад (или первый доступный)
+  let targetWh = warehouses.find(w => w.id === primaryWarehouseId);
+  if (!targetWh) targetWh = warehouses.find(w => w.paused !== true);
+  if (!targetWh) targetWh = warehouses[0];
+  if (!targetWh) { alert('Нет доступных складов'); return; }
+  // Открываем модалку и подставляем поиск по названию товара
+  openStockModal(targetWh.id);
+  setTimeout(() => {
+    const search = document.getElementById('stockProductSearch');
+    if (search) {
+      search.value = p.title || '';
+      renderStockProducts(p.title || '');
+    }
+  }, 100);
 }
 
 async function markAlertResolved(alertId) {
@@ -3065,7 +3192,10 @@ async function markAlertResolved(alertId) {
 function refreshAlertsBadge() {
   const badge = document.getElementById('alertsBadge');
   if (!badge) return;
-  const activeCount = stockAlerts.filter(a => (a.active === true) || (a.id && a.id.endsWith('_active'))).length;
+  // Live-подсчёт: сколько товаров сейчас реально в статусе out/low
+  let activeCount = 0;
+  try { activeCount = _computeLiveActiveAlerts().length; }
+  catch (e) { activeCount = 0; }
   if (activeCount > 0) {
     badge.style.display = 'inline-block';
     badge.textContent = activeCount > 99 ? '99+' : String(activeCount);

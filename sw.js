@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.11.0-blocked-in-stock'; // Заблокированные товары показываются в модалке склада + авто-разблокировка при вводе остатка
+const CACHE_VERSION = 'kerben-v4.12.0-live-stock-alerts'; // Live-уведомления об остатках: считаются из текущего состояния products, а не только из журнала событий
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
