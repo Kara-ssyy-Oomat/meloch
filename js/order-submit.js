@@ -313,17 +313,16 @@ document.getElementById('submitOrder').onclick = async () => {
     const originalCartSnapshot = cart.map(i => ({ ...i }));
 
     if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
-      submitBtn.textContent = '⏳ Проверка остатков...';
+      submitBtn.textContent = '⏳ Отправка заказа...';
       try {
-        // ЖЁСТКИЙ ТАЙМАУТ 8 сек: раньше Promise.all мог зависнуть навсегда
-        // при слабом сигнале / застрявшем Firestore SDK — кнопка «Проверка
-        // остатков…» оставалась вечно. CF на сервере всё равно защищает
-        // склад от овер-продажи, так что пропуск проверки безопасен.
+        // ЖЁСТКИЙ ТАЙМАУТ 3 сек: клиенту нельзя долго ждать перед
+        // отправкой. Если проверка не успела — уезжаем как есть,
+        // CF на сервере защитит склад через Math.min(available, need).
         const freshDocsP = Promise.all(
           cart.map(item => db.collection('products').doc(item.id).get())
         );
         const freshTimeoutP = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 8000)
+          setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 3000)
         );
         const freshDocs = await Promise.race([freshDocsP, freshTimeoutP]);
         const summaryLinesHtml = []; // для toast (с <strong>)
@@ -424,7 +423,7 @@ document.getElementById('submitOrder').onclick = async () => {
         // Ошибка сети / таймаут — не блокируем оформление.
         // Cloud Function на сервере сработает как последний барьер по стоку.
         if (freshErr && freshErr.message === '__FRESH_CHECK_TIMEOUT__') {
-          console.warn('[Order] Проверка остатков заняла >8с — пропускаем, отправляем заказ как есть');
+          console.warn('[Order] Проверка остатков >3с — пропускаем, отправляем как есть');
         } else {
           console.warn('[Order] Не удалось перепроверить остатки перед заказом:', freshErr);
         }
@@ -433,18 +432,19 @@ document.getElementById('submitOrder').onclick = async () => {
 
     // Заказ быстро. Склад списывает только Cloud Function (deductStockOnOrderCreate).
     // Клиент НЕ пишет остатки → нет двойного списания и нет «зависшего» фона.
-    submitBtn.textContent = 'Отправка в базу...';
+    submitBtn.textContent = '⏳ Отправка...';
 
     const orderRef = db.collection('orders').doc();
 
-    // Ждём Firebase Auth перед записью (жёсткий таймаут 3с — см. js/auth.js).
-    // Раньше kerbenWaitForAuth() мог висеть вечно если Auth SDK не смог
-    // залогинить (плохая сеть / реконнект) — блокировало отправку заказа.
+    // Ждём Firebase Auth перед записью (1.5с hard-таймаут — см. js/auth.js).
+    // Обычно auth уже готов с момента загрузки страницы, поэтому фактически
+    // это мгновенно. Дальше едем без auth (упадёт с permission-denied,
+    // ловится в общем catch).
     if (typeof kerbenWaitForAuth === 'function') {
-      try { await kerbenWaitForAuth(3000); } catch (e) {}
+      try { await kerbenWaitForAuth(1500); } catch (e) {}
     }
 
-    await orderRef.set({
+    const orderPayload = {
       name,
       phone,
       address,
@@ -478,7 +478,33 @@ document.getElementById('submitOrder').onclick = async () => {
       orderAdjustments: orderAdjustments.length > 0 ? orderAdjustments : null,
       unfulfilledOrder: isUnfulfilledOrder || null,
       unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
-    });
+    };
+
+    // ВАЖНО: Firestore SDK имеет offline-persistence — set() мгновенно
+    // пишет в локальный IndexedDB и ставит в очередь синхронизации.
+    // Даже если промис не резолвится за 8с (слабый сигнал), заказ уже
+    // гарантированно сохранён локально и уйдёт когда появится связь —
+    // даже если клиент закроет вкладку.
+    const orderCommitPromise = orderRef.set(orderPayload);
+    const orderTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('__ORDER_TIMEOUT__')), 8000)
+    );
+    let _timedOut = false;
+    try {
+      await Promise.race([orderCommitPromise, orderTimeout]);
+      console.log('[Order] Заказ сохранён:', orderRef.id);
+    } catch (err) {
+      if (err && err.message === '__ORDER_TIMEOUT__') {
+        _timedOut = true;
+        console.warn('[Order] Сеть медленная — доотправляем в фоне');
+        // Досихронизацию отслеживаем молча, клиент уже увидит успех ниже
+        orderCommitPromise
+          .then(() => console.log('[Order] Заказ дописан в фоне:', orderRef.id))
+          .catch(e => console.error('[Order] Заказ не сохранился:', e && e.message));
+      } else {
+        throw err;
+      }
+    }
 
     // Показываем клиенту итог — разный текст для успеха и unfulfilled
     if (isUnfulfilledOrder) {

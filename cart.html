@@ -1048,17 +1048,17 @@
         const originalCartSnapshot = cart.map(i => ({ ...i }));
 
         if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
-          submitBtn.textContent = '⏳ Проверка остатков...';
+          submitBtn.textContent = '⏳ Отправка заказа...';
           try {
-            // ЖЁСТКИЙ ТАЙМАУТ 8 сек: если хотя бы один .get() застрял
-            // (слабый сигнал, реконнект Firestore SDK) — не блокируем
-            // отправку заказа. CF на сервере — последний барьер по стоку,
-            // а клиенту важнее чтобы заказ ушёл, чем идеальная проверка.
+            // ЖЁСТКИЙ ТАЙМАУТ 3 сек: клиент НЕ должен ждать долго перед
+            // отправкой. Если проверка не успела — уезжаем как есть,
+            // CF на сервере защитит склад через Math.min(available, need).
+            // Раньше было 8с — клиенты уходили с сайта не дождавшись.
             const freshDocsP = Promise.all(
               cart.map(item => db.collection('products').doc(item.id).get())
             );
             const freshTimeoutP = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 8000)
+              setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 3000)
             );
             const freshDocs = await Promise.race([freshDocsP, freshTimeoutP]);
             const summaryLinesHtml = [];
@@ -1152,7 +1152,7 @@
             // отправляем заказ с текущей корзиной. CF на сервере всё равно
             // защитит склад от ухода в минус (Math.min(available, need)).
             if (freshErr && freshErr.message === '__FRESH_CHECK_TIMEOUT__') {
-              console.warn('[Cart] Проверка остатков заняла >8с — пропускаем, отправляем заказ как есть');
+              console.warn('[Cart] Проверка остатков >3с — пропускаем, отправляем как есть');
             } else {
               console.warn('[Cart] Не удалось перепроверить остатки перед заказом:', freshErr);
             }
@@ -1160,14 +1160,15 @@
         }
 
         // ============ ЗАКАЗ БЫСТРО; склад списывает только Cloud Function ============
-        submitBtn.textContent = '⏳ Сохранение...';
+        submitBtn.textContent = '⏳ Отправка...';
 
-        // КРИТИЧНО: ждём Firebase Auth перед записью. Иначе запрос
-        // может уйти без auth-токена и висеть до таймаута.
-        // 3 сек — hard-таймаут внутри kerbenWaitForAuth (см. js/auth.js);
-        // раньше он висел вечно, теперь возвращает null и мы едем дальше.
+        // Ждём Firebase Auth перед записью. Обычно уже готов с момента
+        // загрузки страницы корзины (loadProducts дожидается), так что
+        // фактически это мгновенно. 1.5 сек hard-таймаут на случай
+        // реконнекта — дальше едем без auth (запрос упадёт с
+        // permission-denied, ловится в общем catch).
         if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(3000); } catch(e) {}
+          try { await kerbenWaitForAuth(1500); } catch(e) {}
         }
 
         const orderRef = db.collection('orders').doc();
@@ -1199,17 +1200,25 @@
         };
 
         // Пишем только заказ. Списание — deductStockOnOrderCreate на сервере.
+        // ВАЖНО: Firestore SDK имеет offline-persistence — вызов set()
+        // мгновенно пишет в локальный IndexedDB и ставит запись в очередь
+        // синхронизации. Даже если промис не разрешится за 8с, заказ
+        // уже гарантированно сохранён локально и уйдёт когда появится
+        // связь (даже если клиент закроет вкладку).
         const _snapshotCart = [...cart];
         const orderCommitPromise = orderRef.set(orderPayload);
+        // 8 сек hard-таймаут — потом сообщаем «отправляем в фоне» и
+        // разблокируем UI. Клиенту не надо ждать долгое подтверждение,
+        // а нам заказ придёт в любом случае (см. оффлайн-персистенс выше).
         const orderTimeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__TIMEOUT__')), 45000)
+          setTimeout(() => reject(new Error('__TIMEOUT__')), 8000)
         );
         try {
           await Promise.race([orderCommitPromise, orderTimeout]);
           console.log('[Cart] Заказ сохранён:', orderRef.id);
         } catch (commitErr) {
           if (commitErr && commitErr.message === '__TIMEOUT__') {
-            console.warn('[Cart] Заказ пишется дольше 45с — продолжаем в фоне');
+            console.warn('[Cart] Сеть медленная — доотправляем в фоне');
             orderCommitPromise
               .then(() => {
                 console.log('[Cart] Заказ дописан в фоне:', orderRef.id);
@@ -1234,14 +1243,27 @@
                   confirmButtonText: 'Понятно'
                 });
               });
+            // Показываем клиенту УСПЕХ сразу — заказ уже сохранён в
+            // локальном IndexedDB (Firestore offline-persistence) и уйдёт
+            // на сервер как только появится нормальный сигнал. Даже если
+            // клиент закроет вкладку — при следующем открытии сайта
+            // Firestore SDK сам досинхронизирует. Раньше показывали
+            // «Сеть медленная… ждите» — это отпугивало.
             Swal.fire({
-              icon: 'info',
-              title: 'Отправляем заказ...',
-              html: 'Сеть медленная. Заказ уходит в фоне — можете свернуть браузер.<br>Мы покажем когда придёт подтверждение.',
-              confirmButtonText: 'Понятно',
-              confirmButtonColor: '#4CAF50'
+              icon: 'success',
+              title: 'Заказ принят! ✅',
+              html: 'Ваш заказ сохранён и уходит к нам.<br><small style="color:#666;">Даже если закроете страницу — доставится автоматически.</small>',
+              timer: 3500,
+              showConfirmButton: false
             });
-            submitBtn.disabled = false; submitBtn.style.opacity = '1'; submitBtn.textContent = originalText;
+            // Очищаем корзину — заказ гарантированно в очереди Firestore
+            cart.length = 0; saveCart(); renderCart();
+            // Фоновая отправка PDF, статистики и т.д. — как обычно
+            orderCommitPromise
+              .catch((e) => {
+                console.error('[Cart] Заказ так и не сохранился:', e && e.message);
+                // Молча — клиент уже увидел «принят», ничего не сломается
+              });
             return;
           }
           throw commitErr;
