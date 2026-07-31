@@ -485,7 +485,23 @@ document.getElementById('submitOrder').onclick = async () => {
     // Даже если промис не резолвится за 8с (слабый сигнал), заказ уже
     // гарантированно сохранён локально и уйдёт когда появится связь —
     // даже если клиент закроет вкладку.
+
+    // ДОП. ЗАЩИТА: копия в localStorage на случай если Firestore
+    // persistence не работает (incognito и т.п.). При след. открытии
+    // сайта js/pending-orders.js досошлёт заказ.
+    if (typeof savePendingOrderBackup === 'function') {
+      try { savePendingOrderBackup(orderRef.id, orderPayload); } catch (e) {}
+    }
+
     const orderCommitPromise = orderRef.set(orderPayload);
+    // Как только Firestore подтвердит — убираем backup.
+    orderCommitPromise
+      .then(() => {
+        if (typeof removePendingOrderBackup === 'function') {
+          try { removePendingOrderBackup(orderRef.id); } catch (e) {}
+        }
+      })
+      .catch(() => {}); // ошибки обработаем в основном потоке
     const orderTimeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('__ORDER_TIMEOUT__')), 8000)
     );

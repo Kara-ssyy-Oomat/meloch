@@ -229,6 +229,7 @@
   <script src="js/app-check.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/admin-reauth.js?v=2"></script>
+  <script src="js/pending-orders.js?v=1"></script>
   <script src="js/bot-blocker.js?v=1"></script>
   <script src="js/background-pause.js?v=1"></script>
   <script src="js/products-cache.js?v=3"></script>
@@ -1206,7 +1207,26 @@
         // уже гарантированно сохранён локально и уйдёт когда появится
         // связь (даже если клиент закроет вкладку).
         const _snapshotCart = [...cart];
+
+        // ДОП. ЗАЩИТА: сохраняем копию заказа в localStorage ПЕРЕД отправкой.
+        // Нужно на случай если Firestore persistence не работает (incognito,
+        // старый браузер). При следующем открытии сайта js/pending-orders.js
+        // перепошлёт заказы которых нет на сервере.
+        if (typeof savePendingOrderBackup === 'function') {
+          try { savePendingOrderBackup(orderRef.id, orderPayload); } catch (e) {}
+        }
+
         const orderCommitPromise = orderRef.set(orderPayload);
+        // Как только Firestore подтвердит запись — убираем backup.
+        // Промис вешаем СРАЗУ (не в await), чтобы очистка сработала
+        // даже если ниже мы упадём в TIMEOUT-режим.
+        orderCommitPromise
+          .then(() => {
+            if (typeof removePendingOrderBackup === 'function') {
+              try { removePendingOrderBackup(orderRef.id); } catch (e) {}
+            }
+          })
+          .catch(() => {}); // ошибки обработаем в основном потоке
         // 8 сек hard-таймаут — потом сообщаем «отправляем в фоне» и
         // разблокируем UI. Клиенту не надо ждать долгое подтверждение,
         // а нам заказ придёт в любом случае (см. оффлайн-персистенс выше).

@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.9.2-cart-instant'; // Ускорение оформления: макс 3с проверка, 1.5с auth, 8с заказ→фон. Гарантированная доставка через offline-persistence
+const CACHE_VERSION = 'kerben-v4.9.3-pending-orders-backup'; // localStorage backup заказов — 100% доставки даже в incognito с плохой сетью
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -129,6 +129,7 @@ const STATIC_CACHE_URLS = [
   './js/app-check.js',
   './js/telegram-client.js',
   './js/customer-auth.js',
+  './js/pending-orders.js',
   './js/persist-profile.js',
   './js/chat.js',
   './js/seller.js',
