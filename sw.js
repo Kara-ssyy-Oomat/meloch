@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.10.0-manual-stock-deduct'; // Ручное списание со склада для заказов пришедших при паузе склада
+const CACHE_VERSION = 'kerben-v4.10.1-manual-deduct-shortage'; // Подробный отчёт о недостаче при ручном списании
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

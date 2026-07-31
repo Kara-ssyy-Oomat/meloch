@@ -1355,20 +1355,71 @@ async function manuallyDeductOrderStock(orderId) {
   });
 
   try {
-    // Callable Cloud Function — codebase 'stock' развернут в europe-west1 нет,
-    // используем дефолтный us-central1 регион (тот же где создана функция).
+    // Callable Cloud Function — codebase 'stock' развернут в us-central1.
     const callable = firebase.functions().httpsCallable('manualDeductOrderStock');
     const result = await callable({ orderId: orderId });
     const data = result && result.data ? result.data : {};
 
+    // Строим подробный отчёт по каждому товару
+    const perItem = Array.isArray(data.perItem) ? data.perItem : [];
+    const hasShortage = data.anyShortage === true;
+
+    const rows = perItem.map(x => {
+      const isOk = x.shortage === 0 && x.reason !== 'no_stock_tracking';
+      const isNoTrack = x.reason === 'no_stock_tracking';
+      const bg = isNoTrack ? '#f5f5f5' : (isOk ? '#e8f5e9' : '#ffebee');
+      const color = isNoTrack ? '#666' : (isOk ? '#2e7d32' : '#c62828');
+      const icon = isNoTrack ? '⚪' : (isOk ? '✅' : (x.deducted === 0 ? '❌' : '⚠️'));
+      const reasonText =
+        x.reason === 'ok' ? 'Списано полностью' :
+        x.reason === 'partial_stock' ? `На складе было только ${x.stockBefore}` :
+        x.reason === 'out_of_stock' ? 'Нет на складе' :
+        x.reason === 'product_deleted' ? 'Товар удалён из каталога' :
+        x.reason === 'no_stock_tracking' ? 'Без учёта склада' : '';
+      const titleEsc = String(x.title || x.id || '').replace(/</g, '&lt;');
+      return `
+        <tr style="background:${bg};">
+          <td style="padding:6px 8px; font-size:12px; color:${color};">${icon} ${titleEsc}</td>
+          <td style="padding:6px 8px; font-size:12px; text-align:center; font-weight:600;">${x.requested}</td>
+          <td style="padding:6px 8px; font-size:12px; text-align:center; font-weight:600; color:${color};">${x.deducted}</td>
+          <td style="padding:6px 8px; font-size:11px; color:#666;">${reasonText}</td>
+        </tr>`;
+    }).join('');
+
+    const shortageWarning = hasShortage ? `
+      <div style="background:#fff3e0; border-left:4px solid #ff9800; padding:10px; border-radius:6px; margin-bottom:12px;">
+        <div style="font-weight:700; color:#e65100; font-size:13px; margin-bottom:4px;">⚠️ На складе не хватило некоторых товаров</div>
+        <div style="font-size:12px; color:#555;">
+          Заказ, скорее всего, оформлен во время паузы склада, а сейчас там меньше товара.
+          <b>Склад в минус не ушёл</b> — списалось только то, что реально было.
+          Реши: доставить меньше / докупить / связаться с клиентом.
+        </div>
+      </div>` : '';
+
     Swal.fire({
-      icon: data.success ? 'success' : 'warning',
-      title: data.success ? '✅ Списано' : 'Готово с оговорками',
-      html: '<div style="text-align:left; font-size:13px;">' +
-        '<b>Статус:</b> ' + (data.status || 'unknown') + '<br>' +
-        '<b>Списано товаров:</b> ' + ((data.deductedProductIds || []).length) + '<br>' +
-        (data.warehouseDeductions ? '<br><small style="color:#666;">См. историю движений в разделе «Склад» → «Движения»</small>' : '') +
+      icon: hasShortage ? 'warning' : 'success',
+      title: hasShortage ? '⚠️ Частично списано' : '✅ Списано полностью',
+      html: '<div style="text-align:left; max-height:60vh; overflow-y:auto;">' +
+        shortageWarning +
+        '<div style="font-size:12px; color:#666; margin-bottom:6px;">' +
+          '<b>Всего заказано:</b> ' + (data.totalRequested || 0) + ' шт &nbsp;•&nbsp; ' +
+          '<b>Реально списано:</b> ' + (data.totalDeducted || 0) + ' шт' +
+        '</div>' +
+        (rows ? `
+        <table style="width:100%; border-collapse:collapse; border:1px solid #ddd; border-radius:6px; overflow:hidden;">
+          <thead>
+            <tr style="background:#eceff1;">
+              <th style="padding:6px 8px; font-size:11px; text-align:left;">Товар</th>
+              <th style="padding:6px 8px; font-size:11px; text-align:center;">Нужно</th>
+              <th style="padding:6px 8px; font-size:11px; text-align:center;">Списано</th>
+              <th style="padding:6px 8px; font-size:11px; text-align:left;">Комментарий</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>` : '<i style="color:#999;">Нет товаров для списания.</i>') +
+        '<div style="font-size:11px; color:#999; margin-top:10px;">💡 История движений: раздел «Склад» → «Движения»</div>' +
         '</div>',
+      width: 640,
       confirmButtonText: 'Понятно'
     });
 

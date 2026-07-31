@@ -588,6 +588,43 @@ exports.manualDeductOrderStock = functions
     // (из-за паузы склада) будут пересписаны.
     const alreadyDeducted = Array.isArray(order.stockDeductedProductIds)
       ? order.stockDeductedProductIds : [];
+    const alreadyDeductedSet = new Set(alreadyDeducted);
+
+    // СНАПШОТ ДО СПИСАНИЯ — нужен чтобы после узнать сколько реально
+    // списалось (для товаров без warehouseStock warehouseDeductions
+    // пустое, только stock уменьшается). Так админ увидит недостачу
+    // если товар заказан во время паузы а сейчас на складе меньше.
+    const items = Array.isArray(order.items) ? order.items : [];
+    const before = {};
+    await Promise.all(items.map(async (item) => {
+      if (!item || !item.id) return;
+      if (alreadyDeductedSet.has(item.id)) return;
+      const need = Math.max(0, Math.floor(item.qty || 0));
+      if (need <= 0) return;
+      try {
+        const pSnap = await db.collection('products').doc(item.id).get();
+        if (!pSnap.exists) {
+          before[item.id] = { need, title: item.title || item.id,
+            exists: false, stockBefore: 0, hasWarehouseSetup: false };
+          return;
+        }
+        const p = pSnap.data() || {};
+        const ws = p.warehouseStock;
+        const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
+        const stockBefore = (typeof p.stock === 'number' && isFinite(p.stock))
+          ? Math.max(0, Math.floor(p.stock)) : null; // null = товар без учёта
+        before[item.id] = {
+          need,
+          title: item.title || p.title || item.id,
+          exists: true,
+          stockBefore,
+          hasWarehouseSetup
+        };
+      } catch (e) {
+        console.warn(`[ManualDeduct] snapshot ${item.id}:`, e.message);
+      }
+    }));
+
     await orderRef.update({
       stockDeductionStatus: admin.firestore.FieldValue.delete(),
       stockDeductionError: admin.firestore.FieldValue.delete(),
@@ -605,6 +642,77 @@ exports.manualDeductOrderStock = functions
     // Читаем финальное состояние чтобы вернуть клиенту
     const finalSnap = await orderRef.get();
     const finalData = finalSnap.data() || {};
+    const warehouseDeductions = finalData.warehouseDeductions
+      && typeof finalData.warehouseDeductions === 'object'
+      ? finalData.warehouseDeductions : {};
+
+    // Считаем сколько реально списалось по каждому товару, чтобы найти недостачи.
+    // Для товаров с warehouseStock — сумма warehouseDeductions[itemId].
+    // Для товаров без разбивки — читаем текущий stock и сравниваем со снапшотом.
+    const perItem = [];
+    let totalRequested = 0;
+    let totalDeducted = 0;
+    let anyShortage = false;
+
+    for (const item of items) {
+      if (!item || !item.id) continue;
+      if (alreadyDeductedSet.has(item.id)) continue;
+      const snap = before[item.id];
+      if (!snap) continue;
+
+      const need = snap.need;
+      totalRequested += need;
+
+      // Товар удалён из каталога
+      if (!snap.exists) {
+        perItem.push({ id: item.id, title: snap.title, requested: need,
+          deducted: 0, shortage: need, reason: 'product_deleted' });
+        anyShortage = true;
+        continue;
+      }
+      // Товар без учёта склада (stock не число)
+      if (snap.stockBefore === null) {
+        perItem.push({ id: item.id, title: snap.title, requested: need,
+          deducted: 0, shortage: 0, reason: 'no_stock_tracking' });
+        continue;
+      }
+
+      let actualDeducted = 0;
+      if (snap.hasWarehouseSetup) {
+        const wd = warehouseDeductions[item.id];
+        if (wd && typeof wd === 'object') {
+          actualDeducted = Object.values(wd).reduce(
+            (s, v) => s + (Number(v) || 0), 0);
+        }
+      } else {
+        // Читаем текущий stock и вычисляем дельту
+        try {
+          const pNow = await db.collection('products').doc(item.id).get();
+          if (pNow.exists) {
+            const p = pNow.data() || {};
+            const stockAfter = (typeof p.stock === 'number' && isFinite(p.stock))
+              ? Math.max(0, Math.floor(p.stock)) : snap.stockBefore;
+            actualDeducted = Math.max(0, snap.stockBefore - stockAfter);
+          }
+        } catch (e) { /* silent */ }
+      }
+
+      totalDeducted += actualDeducted;
+      const shortage = Math.max(0, need - actualDeducted);
+      if (shortage > 0) anyShortage = true;
+
+      perItem.push({
+        id: item.id,
+        title: snap.title,
+        requested: need,
+        deducted: actualDeducted,
+        shortage: shortage,
+        stockBefore: snap.stockBefore,
+        reason: shortage > 0
+          ? (actualDeducted === 0 ? 'out_of_stock' : 'partial_stock')
+          : 'ok'
+      });
+    }
 
     return {
       success: true,
@@ -612,7 +720,12 @@ exports.manualDeductOrderStock = functions
       stockDeducted: finalData.stockDeducted === true,
       deductedProductIds: Array.isArray(finalData.stockDeductedProductIds)
         ? finalData.stockDeductedProductIds : [],
-      warehouseDeductions: finalData.warehouseDeductions || null
+      warehouseDeductions: warehouseDeductions,
+      // НОВОЕ: подробный отчёт для админа
+      totalRequested,
+      totalDeducted,
+      anyShortage,
+      perItem
     };
   });
 
