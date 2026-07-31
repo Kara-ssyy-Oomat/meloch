@@ -2127,7 +2127,10 @@ function renderStockProducts(filter = '') {
   const warehouseId = currentStockWarehouseId;
   const hideZero = document.getElementById('stockHideZero') && document.getElementById('stockHideZero').checked;
   
-  let filtered = products.filter(p => !p.blocked);
+  // ВАЖНО: заблокированные товары ТОЖЕ показываем — админ должен видеть
+  // их в модалке склада и мочь вписать остаток. При сохранении > 0
+  // товар автоматически разблокируется (см. saveStockChanges).
+  let filtered = products.slice();
   
   // Фильтр по категории
   const catFilter = document.getElementById('stockCategoryFilter') ? document.getElementById('stockCategoryFilter').value : '';
@@ -2189,15 +2192,28 @@ function renderStockProducts(filter = '') {
     const hasChange = stockChanges.hasOwnProperty(p.id);
     const displayStock = hasChange ? stockChanges[p.id] : originalStock;
     const imgSrc = p.image || imgPlaceholder;
-    
+
+    // Заблокированный товар: приглушённый фон + иконка 🚫 + подсказка что
+    // после ввода остатка > 0 он авто-разблокируется.
+    const isBlocked = p.blocked === true;
+    // Если админ уже вписал остаток > 0 — покажем что товар СЕЙЧАС же разблокируется.
+    const willUnblock = isBlocked && hasChange && stockChanges[p.id] > 0;
+    const rowStyle = isBlocked && !willUnblock
+      ? 'background:#fbe9e7; opacity:0.85;'
+      : (willUnblock ? 'background:#e8f5e9;' : '');
+
     html += `
-      <tr>
+      <tr style="${rowStyle}">
         <td>
           <div style="display:flex; align-items:center; gap:8px;">
-            <img src="${esc(imgSrc)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${imgPlaceholder}';" style="width:38px; height:38px; object-fit:cover; border-radius:6px; flex-shrink:0; background:#f5f5f5; border:1px solid #eee; cursor:pointer;" onclick="_openStockProductPreview('${p.id}')">
+            <div style="position:relative; flex-shrink:0;">
+              <img src="${esc(imgSrc)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='${imgPlaceholder}';" style="width:38px; height:38px; object-fit:cover; border-radius:6px; background:#f5f5f5; border:1px solid #eee; cursor:pointer; ${isBlocked && !willUnblock ? 'filter:grayscale(1);' : ''}" onclick="_openStockProductPreview('${p.id}')">
+              ${isBlocked ? `<span style="position:absolute; top:-4px; right:-4px; background:${willUnblock ? '#4caf50' : '#d32f2f'}; color:#fff; font-size:10px; width:16px; height:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; line-height:1;" title="${willUnblock ? 'Будет разблокирован при сохранении' : 'Товар заблокирован'}">${willUnblock ? '✓' : '🚫'}</span>` : ''}
+            </div>
             <div style="min-width:0; flex:1;">
               <div style="font-weight:600; font-size:13px; word-break:break-word; line-height:1.25;">${esc(p.title) || 'Без названия'}</div>
               <div style="font-size:11px; color:#999;">${esc(p.category)}</div>
+              ${isBlocked ? `<div style="font-size:10px; color:${willUnblock ? '#2e7d32' : '#c62828'}; font-weight:600; margin-top:2px;">${willUnblock ? '✓ авто-разблокируется при сохранении' : '🚫 заблокирован — впиши остаток чтобы разблокировать'}</div>` : ''}
             </div>
           </div>
         </td>
@@ -2303,7 +2319,14 @@ function stockMovement(productId, direction) {
       infoDiv.textContent = '';
     }
   }
-  
+
+  // Если товар заблокирован — перерисуем чтобы обновить бэйдж
+  // (🚫 красный → ✓ зелёный «авто-разблокируется при сохранении»)
+  if (product.blocked === true) {
+    const searchInput = document.getElementById('stockProductSearch');
+    renderStockProducts(searchInput ? searchInput.value : '');
+  }
+
   // Сбрасываем поле ввода на 1
   if (moveInput) moveInput.value = '1';
 }
@@ -2334,7 +2357,8 @@ async function saveStockChanges() {
     
     const batch = db.batch();
     const movementBatch = [];
-    
+    const autoUnblockedIds = []; // товары которые сейчас авто-разблокируем
+
     for (const productId of changedIds) {
       const newQty = stockChanges[productId];
       const product = products.find(p => p.id === productId);
@@ -2351,10 +2375,20 @@ async function saveStockChanges() {
       const totalStock = Object.values(ws).reduce((sum, v) => sum + (v || 0), 0);
       
       const productRef = db.collection('products').doc(productId);
-      batch.update(productRef, {
+      const updateData = {
         warehouseStock: ws,
         stock: totalStock
-      });
+      };
+
+      // АВТО-РАЗБЛОКИРОВКА: если товар был заблокирован и общий остаток
+      // теперь > 0 — автоматически снимаем блокировку. Админу удобно —
+      // вписал «Пополнение», товар сразу вернулся в витрину.
+      if (product.blocked === true && totalStock > 0) {
+        updateData.blocked = false;
+        autoUnblockedIds.push(productId);
+      }
+
+      batch.update(productRef, updateData);
       
       // Записываем движение
       if (diff !== 0) {
@@ -2381,9 +2415,25 @@ async function saveStockChanges() {
     }
     
     await batch.commit();
-    
-    Swal.fire({ icon: 'success', title: 'Остатки сохранены!', timer: 1500, showConfirmButton: false });
-    
+
+    // Обновляем локальный массив (иначе UI до loadProducts покажет старое)
+    autoUnblockedIds.forEach(id => {
+      const p = products.find(x => x.id === id);
+      if (p) p.blocked = false;
+    });
+
+    const unblockedMsg = autoUnblockedIds.length > 0
+      ? `<br><span style="color:#2e7d32; font-weight:600;">🔓 Разблокировано: ${autoUnblockedIds.length} товар(ов)</span>`
+      : '';
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Остатки сохранены!',
+      html: `Обновлено: ${changedIds.length}${unblockedMsg}`,
+      timer: autoUnblockedIds.length > 0 ? 2800 : 1500,
+      showConfirmButton: false
+    });
+
     closeStockModal();
     await loadProducts();
     updateStats();
