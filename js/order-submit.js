@@ -315,9 +315,17 @@ document.getElementById('submitOrder').onclick = async () => {
     if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
       submitBtn.textContent = '⏳ Проверка остатков...';
       try {
-        const freshDocs = await Promise.all(
+        // ЖЁСТКИЙ ТАЙМАУТ 8 сек: раньше Promise.all мог зависнуть навсегда
+        // при слабом сигнале / застрявшем Firestore SDK — кнопка «Проверка
+        // остатков…» оставалась вечно. CF на сервере всё равно защищает
+        // склад от овер-продажи, так что пропуск проверки безопасен.
+        const freshDocsP = Promise.all(
           cart.map(item => db.collection('products').doc(item.id).get())
         );
+        const freshTimeoutP = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 8000)
+        );
+        const freshDocs = await Promise.race([freshDocsP, freshTimeoutP]);
         const summaryLinesHtml = []; // для toast (с <strong>)
         const summaryLinesText = []; // для истории заказа (без HTML)
         const newCart = [];
@@ -413,9 +421,13 @@ document.getElementById('submitOrder').onclick = async () => {
           }
         }
       } catch (freshErr) {
-        // Ошибка сети при проверке — не блокируем оформление.
-        // Cloud Function на сервере сработает как последний барьер.
-        console.warn('[Order] Не удалось перепроверить остатки перед заказом:', freshErr);
+        // Ошибка сети / таймаут — не блокируем оформление.
+        // Cloud Function на сервере сработает как последний барьер по стоку.
+        if (freshErr && freshErr.message === '__FRESH_CHECK_TIMEOUT__') {
+          console.warn('[Order] Проверка остатков заняла >8с — пропускаем, отправляем заказ как есть');
+        } else {
+          console.warn('[Order] Не удалось перепроверить остатки перед заказом:', freshErr);
+        }
       }
     }
 
@@ -425,9 +437,11 @@ document.getElementById('submitOrder').onclick = async () => {
 
     const orderRef = db.collection('orders').doc();
 
-    // Ждём Firebase Auth перед записью — иначе запрос без токена может висеть
+    // Ждём Firebase Auth перед записью (жёсткий таймаут 3с — см. js/auth.js).
+    // Раньше kerbenWaitForAuth() мог висеть вечно если Auth SDK не смог
+    // залогинить (плохая сеть / реконнект) — блокировало отправку заказа.
     if (typeof kerbenWaitForAuth === 'function') {
-      try { await kerbenWaitForAuth(); } catch (e) {}
+      try { await kerbenWaitForAuth(3000); } catch (e) {}
     }
 
     await orderRef.set({
@@ -610,11 +624,16 @@ document.getElementById('submitOrder').onclick = async () => {
         localStorage.setItem('firestoreCooldownUntil', String(Date.now() + ms));
       }
     } catch (e) {}
-    
-    // Разблокируем кнопку при ошибке
-    submitBtn.disabled = false;
-    submitBtn.style.opacity = '1';
-    submitBtn.style.cursor = 'pointer';
-    submitBtn.textContent = originalText;
+  } finally {
+    // ВСЕГДА разблокируем кнопку — при успехе, ошибке и любых
+    // неожиданных исключениях. Раньше разблокировка была только в
+    // catch — если что-то падало посередине после успешной записи
+    // заказа, кнопка «⏳ Проверка остатков…» оставалась вечно.
+    try {
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '1';
+      submitBtn.style.cursor = 'pointer';
+      submitBtn.textContent = originalText;
+    } catch (e) {}
   }
 };

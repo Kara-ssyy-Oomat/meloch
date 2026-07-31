@@ -1050,9 +1050,17 @@
         if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
           submitBtn.textContent = '⏳ Проверка остатков...';
           try {
-            const freshDocs = await Promise.all(
+            // ЖЁСТКИЙ ТАЙМАУТ 8 сек: если хотя бы один .get() застрял
+            // (слабый сигнал, реконнект Firestore SDK) — не блокируем
+            // отправку заказа. CF на сервере — последний барьер по стоку,
+            // а клиенту важнее чтобы заказ ушёл, чем идеальная проверка.
+            const freshDocsP = Promise.all(
               cart.map(item => db.collection('products').doc(item.id).get())
             );
+            const freshTimeoutP = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 8000)
+            );
+            const freshDocs = await Promise.race([freshDocsP, freshTimeoutP]);
             const summaryLinesHtml = [];
             const summaryLinesText = [];
             const newCart = [];
@@ -1140,7 +1148,14 @@
               }
             }
           } catch (freshErr) {
-            console.warn('[Cart] Не удалось перепроверить остатки перед заказом:', freshErr);
+            // Если проверка не прошла (таймаут / сеть) — идём дальше,
+            // отправляем заказ с текущей корзиной. CF на сервере всё равно
+            // защитит склад от ухода в минус (Math.min(available, need)).
+            if (freshErr && freshErr.message === '__FRESH_CHECK_TIMEOUT__') {
+              console.warn('[Cart] Проверка остатков заняла >8с — пропускаем, отправляем заказ как есть');
+            } else {
+              console.warn('[Cart] Не удалось перепроверить остатки перед заказом:', freshErr);
+            }
           }
         }
 
@@ -1149,8 +1164,10 @@
 
         // КРИТИЧНО: ждём Firebase Auth перед записью. Иначе запрос
         // может уйти без auth-токена и висеть до таймаута.
+        // 3 сек — hard-таймаут внутри kerbenWaitForAuth (см. js/auth.js);
+        // раньше он висел вечно, теперь возвращает null и мы едем дальше.
         if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(); } catch(e) {}
+          try { await kerbenWaitForAuth(3000); } catch(e) {}
         }
 
         const orderRef = db.collection('orders').doc();
@@ -1396,11 +1413,17 @@
             localStorage.setItem('firestoreCooldownUntil', String(Date.now() + 45000));
           }
         } catch(e) {}
+      } finally {
+        // ВСЕГДА разблокируем кнопку — даже если что-то неожиданное
+        // упало посередине (например, Swal.fire бросил). Раньше при
+        // необработанной ошибке кнопка навсегда оставалась в состоянии
+        // «⏳ Проверка остатков…» / «⏳ Сохранение…».
+        try {
+          submitBtn.disabled = false;
+          submitBtn.style.opacity = '1';
+          submitBtn.textContent = originalText;
+        } catch (e) {}
       }
-      
-      submitBtn.disabled = false;
-      submitBtn.style.opacity = '1';
-      submitBtn.textContent = originalText;
     }
     
     document.addEventListener('DOMContentLoaded', () => {

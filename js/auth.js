@@ -196,23 +196,38 @@
   //
   // Возвращает промис, который резолвится за <500мс (обычно 50-200мс).
   // Если SDK не загружен — резолвится сразу.
-  global.kerbenWaitForAuth = function () {
+  global.kerbenWaitForAuth = function (timeoutMs) {
+    // ВАЖНО: раньше здесь комментарий обещал «жёсткий таймаут 3 сек», но
+    // его в коде НЕ БЫЛО — при плохой сети (слабый LTE, реконнект)
+    // kerbenEnsureSignedIn'у onAuthStateChanged мог не сработать вовсе,
+    // и любой вызов `await kerbenWaitForAuth()` висел вечно, блокируя
+    // отправку заказа. Теперь таймаут реальный: по умолчанию 3 секунды.
+    var maxMs = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 3000;
     try {
       if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
-        return Promise.resolve();
+        return Promise.resolve(null);
       }
       // Если уже есть user — мгновенно возвращаемся.
       const cur = firebase.auth().currentUser;
       if (cur) return Promise.resolve(cur);
-      // Запускаем процесс входа (если ещё не запущен) и ждём.
-      return (global.kerbenEnsureSignedIn ? global.kerbenEnsureSignedIn() : Promise.resolve())
-        // Жёсткий таймаут 3 сек — если что-то пошло не так, не будем
-        // зависать. Запрос пойдёт без auth (и упадёт с permission-denied,
-        // но это лучше чем бесконечная загрузка).
+
+      var authP = (global.kerbenEnsureSignedIn ? global.kerbenEnsureSignedIn() : Promise.resolve(null))
         .then(function (u) { return u; })
         .catch(function () { return null; });
+
+      var timeoutP = new Promise(function (resolve) {
+        setTimeout(function () {
+          // Возвращаем текущего user (может быть null если ещё не залогинен).
+          // Вызывающий код должен уметь работать без auth (правила Firestore
+          // отдадут permission-denied — это чётко ловимая ошибка).
+          try { resolve(firebase.auth().currentUser || null); }
+          catch (e) { resolve(null); }
+        }, maxMs);
+      });
+
+      return Promise.race([authP, timeoutP]);
     } catch (e) {
-      return Promise.resolve();
+      return Promise.resolve(null);
     }
   };
 
