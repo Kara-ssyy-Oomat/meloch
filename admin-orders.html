@@ -9,6 +9,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -745,6 +746,26 @@ function createOrderCard(order, index) {
         </div>
         ` : '')}
 
+        ${_shouldOfferManualStockDeduct(order) ? `
+        <!-- Баннер: заказ НЕ списан со склада — предлагаем списать вручную -->
+        <div style="background:#fffde7; border-left:4px solid #fbc02d; padding:10px 12px; border-radius:6px; margin-bottom:10px;">
+          <div style="font-size:13px; font-weight:600; color:#795548; margin-bottom:6px;">
+            📦 Заказ не списан со склада
+            <span style="font-size:11px; color:#999; font-weight:400;">
+              (${order.stockDeductionStatus === 'skipped_unfulfilled' ? 'все товары были распроданы'
+                : order.stockDeductionStatus === 'skipped' ? 'склад был на паузе или без учёта'
+                : 'списание не выполнялось'})
+            </span>
+          </div>
+          <div style="font-size:11px; color:#555; margin-bottom:8px; line-height:1.4;">
+            Если товары уже отгружены — нажми «Списать сейчас», чтобы уменьшить остатки на складе на количество из этого заказа.
+          </div>
+          <button onclick="manuallyDeductOrderStock('${order.id}')" style="width:100%; padding:9px 12px; background:linear-gradient(135deg,#f57c00,#ef6c00); color:#fff; border:none; border-radius:6px; font-size:13px; cursor:pointer; font-weight:600;">
+            🔽 Списать со склада сейчас
+          </button>
+        </div>
+        ` : ''}
+
         <!-- Действия -->
         ${order.deleted ? `
         <div style="background:#fff3e0; padding:10px; border-radius:8px; margin-bottom:8px; text-align:center;">
@@ -1284,6 +1305,90 @@ async function returnStockFromOrder(orderData) {
   }
 
   await batch.commit();
+}
+
+// ============================================================================
+//                РУЧНОЕ СПИСАНИЕ ЗАКАЗА СО СКЛАДА
+// ----------------------------------------------------------------------------
+// Показывать кнопку «Списать со склада сейчас» когда:
+//   • Заказ существует и не удалён / не отменён
+//   • stockDeducted !== true (реально не списан)
+//   • stockDeductionStatus не 'processing' (сейчас не идёт списание)
+//   • stockDeductionStatus не 'done' (успешно списан)
+//
+// Скрываем для отменённых — их и не надо списывать.
+// ============================================================================
+function _shouldOfferManualStockDeduct(order) {
+  if (!order) return false;
+  if (order.deleted) return false;
+  if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return false;
+  if (order.stockDeducted === true) return false;
+  const st = order.stockDeductionStatus;
+  if (st === 'processing') return false;
+  if (st === 'done') return false;
+  // Показываем для: skipped, skipped_unfulfilled, skipped_cancelled (странно, но
+  // если статус изменили обратно из cancelled), failed, pending (застряло), undefined
+  return true;
+}
+
+async function manuallyDeductOrderStock(orderId) {
+  const confirm = await Swal.fire({
+    title: 'Списать заказ со склада?',
+    html: '<div style="text-align:left; font-size:13px; color:#555;">' +
+      'Товары из этого заказа <b>сейчас же</b> уменьшатся с остатков на складе.<br><br>' +
+      '<span style="color:#c62828;">Делай только если товары уже отгружены клиенту!</span><br><br>' +
+      '<small style="color:#999;">Если на складе не хватает — спишется только то, что реально есть (в минус не уйдёт).</small>' +
+      '</div>',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: '🔽 Да, списать',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#f57c00'
+  });
+  if (!confirm.isConfirmed) return;
+
+  Swal.fire({
+    title: 'Списание...',
+    html: 'Проверяем остатки и делаем транзакции по складам',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    // Callable Cloud Function — codebase 'stock' развернут в europe-west1 нет,
+    // используем дефолтный us-central1 регион (тот же где создана функция).
+    const callable = firebase.functions().httpsCallable('manualDeductOrderStock');
+    const result = await callable({ orderId: orderId });
+    const data = result && result.data ? result.data : {};
+
+    Swal.fire({
+      icon: data.success ? 'success' : 'warning',
+      title: data.success ? '✅ Списано' : 'Готово с оговорками',
+      html: '<div style="text-align:left; font-size:13px;">' +
+        '<b>Статус:</b> ' + (data.status || 'unknown') + '<br>' +
+        '<b>Списано товаров:</b> ' + ((data.deductedProductIds || []).length) + '<br>' +
+        (data.warehouseDeductions ? '<br><small style="color:#666;">См. историю движений в разделе «Склад» → «Движения»</small>' : '') +
+        '</div>',
+      confirmButtonText: 'Понятно'
+    });
+
+    // Перезагружаем список заказов чтобы обновить статус и убрать баннер
+    if (typeof loadOrdersManagement === 'function') {
+      loadOrdersManagement();
+    }
+  } catch (e) {
+    console.error('[ManualDeduct] error:', e);
+    let msg = e && e.message ? e.message : 'Неизвестная ошибка';
+    // Firebase Functions callable оборачивает ошибку — код в e.code
+    if (e && e.code === 'permission-denied') {
+      msg = 'Требуются права админа. Перезайди через админ-логин.';
+    } else if (e && e.code === 'not-found') {
+      msg = 'Заказ не найден.';
+    } else if (e && e.code === 'failed-precondition') {
+      msg = e.message || 'Действие невозможно';
+    }
+    Swal.fire('Ошибка', msg, 'error');
+  }
 }
 
 // Мягкое удаление заказа (перемещение в архив)

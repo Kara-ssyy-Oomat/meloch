@@ -537,3 +537,82 @@ exports.deductStockOnOrderCreate = functions
     return null;
   });
 
+// ============================================================================
+//         РУЧНОЕ СПИСАНИЕ ЗАКАЗА (callable из админ-панели)
+// ----------------------------------------------------------------------------
+// Админ вызывает эту функцию для заказа, у которого stockDeductionStatus =
+// 'skipped' / 'skipped_unfulfilled' (заказ пришёл когда склад был на паузе,
+// или все товары были распроданы и админ теперь их пополнил).
+//
+// Логика:
+//   1) Проверяем что вызывает админ (Firebase Auth email == admin@kerben.local)
+//   2) Сбрасываем stockDeductionStatus и oчищаем processedIds (оставляем
+//      только реально списанные — deductedProductIds, чтобы не списать
+//      дважды при частичном списании)
+//   3) Вызываем processOrderStockDeduction — та же атомарная логика
+//      что и авто-списание, но принудительно
+//   4) Возвращаем результат админу
+// ============================================================================
+exports.manualDeductOrderStock = functions
+  .runWith({ timeoutSeconds: 120, memory: '256MB' })
+  .https.onCall(async (data, context) => {
+    // Auth check
+    if (!context.auth || !context.auth.token
+        || context.auth.token.email !== 'admin@kerben.local') {
+      throw new functions.https.HttpsError('permission-denied',
+        'Требуются права админа');
+    }
+
+    const orderId = data && data.orderId;
+    if (!orderId || typeof orderId !== 'string') {
+      throw new functions.https.HttpsError('invalid-argument',
+        'orderId обязателен');
+    }
+
+    const orderRef = db.collection('orders').doc(orderId);
+    const snap = await orderRef.get();
+    if (!snap.exists) {
+      throw new functions.https.HttpsError('not-found', 'Заказ не найден');
+    }
+    const order = snap.data() || {};
+
+    // Защита от списания отменённого заказа
+    if (_isCancelledStatus(order.status)) {
+      throw new functions.https.HttpsError('failed-precondition',
+        'Заказ отменён — списание невозможно. Сначала верните статус.');
+    }
+
+    // Сбрасываем состояние чтобы processOrderStockDeduction не пропустил.
+    // Ключевое: stockDeductionProcessedIds = stockDeductedProductIds —
+    // так уже списанные товары не будут списаны повторно, а пропущенные
+    // (из-за паузы склада) будут пересписаны.
+    const alreadyDeducted = Array.isArray(order.stockDeductedProductIds)
+      ? order.stockDeductedProductIds : [];
+    await orderRef.update({
+      stockDeductionStatus: admin.firestore.FieldValue.delete(),
+      stockDeductionError: admin.firestore.FieldValue.delete(),
+      stockDeductionProcessedIds: alreadyDeducted
+    });
+
+    try {
+      await processOrderStockDeduction(orderId);
+    } catch (e) {
+      console.error(`[ManualDeduct] ${orderId}:`, e.message);
+      throw new functions.https.HttpsError('internal',
+        'Ошибка списания: ' + e.message);
+    }
+
+    // Читаем финальное состояние чтобы вернуть клиенту
+    const finalSnap = await orderRef.get();
+    const finalData = finalSnap.data() || {};
+
+    return {
+      success: true,
+      status: finalData.stockDeductionStatus || 'unknown',
+      stockDeducted: finalData.stockDeducted === true,
+      deductedProductIds: Array.isArray(finalData.stockDeductedProductIds)
+        ? finalData.stockDeductedProductIds : [],
+      warehouseDeductions: finalData.warehouseDeductions || null
+    };
+  });
+
