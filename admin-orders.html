@@ -2674,8 +2674,14 @@ async function addProductToOrder(productId, productName, productPrice, productCo
       total
     });
 
-    // Списываем добавленный товар со склада
-    await deductStockForItem(orderId, productId, qty);
+    // Списываем добавленный товар со склада.
+    // Контекст oldQty=0 → newQty=qty попадёт в warehouseMovements, чтобы
+    // на странице «Движения» было видно, что это админ добавил товар в
+    // существующий заказ (а не первичная продажа с сайта).
+    await deductStockForItem(orderId, productId, qty, {
+      oldQty: 0, newQty: qty,
+      reason: `Добавление товара в заказ админом (+${qty} шт)`
+    });
     console.log('✅ Товар списан со склада:', productId, 'кол-во:', qty);
     
     if (Array.isArray(ordersManagementAllOrders)) {
