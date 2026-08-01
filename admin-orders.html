@@ -1978,9 +1978,13 @@ function closeOrderItemsDetailModal() {
 }
 
 // Обновить количество товара в заказе
-// Дебаунс для предотвращения частых запросов
-let updateQtyTimeout = null;
-let updatePriceTimeout = null;
+// Дебаунс для предотвращения частых запросов.
+// ВАЖНО: таймауты хранятся ПО КАЖДОМУ ТОВАРУ отдельно (key = orderId_itemIndex).
+// Раньше был единый глобальный таймаут — если админ быстро редактировал qty у
+// нескольких позиций одного заказа, первое изменение могло быть отменено и
+// потеряно (склад не корректировался, движения не писались).
+const updateQtyTimeouts = new Map();
+const updatePriceTimeouts = new Map();
 
 // Редактирование цены товара ТОЛЬКО в этом заказе (цены на сайте не меняются)
 async function updateOrderItemPrice(orderId, itemIndex, newPrice) {
@@ -2013,9 +2017,13 @@ async function updateOrderItemPrice(orderId, itemIndex, newPrice) {
     `;
   }
 
-  // Дебаунс — сохраняем в Firebase через 600мс
-  clearTimeout(updatePriceTimeout);
-  updatePriceTimeout = setTimeout(async () => {
+  // Дебаунс — сохраняем в Firebase через 600мс.
+  // Ключ таймаута индивидуальный для каждой позиции — правки разных
+  // товаров одного заказа больше не отменяют друг друга.
+  const priceTimeoutKey = `${orderId}_${itemIndex}`;
+  clearTimeout(updatePriceTimeouts.get(priceTimeoutKey));
+  updatePriceTimeouts.set(priceTimeoutKey, setTimeout(async () => {
+    updatePriceTimeouts.delete(priceTimeoutKey);
     try {
       const orderDoc = await db.collection('orders').doc(orderId).get();
       if (!orderDoc.exists) return;
@@ -2049,13 +2057,19 @@ async function updateOrderItemPrice(orderId, itemIndex, newPrice) {
       console.error('Ошибка обновления цены в заказе:', error);
       Swal.fire('Ошибка', 'Не удалось обновить цену', 'error');
     }
-  }, 600);
+  }, 600));
 }
 
 async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
   const qty = parseInt(newQty) || 0;
-  
-  // Моментально обновляем UI
+
+  // ВАЖНО: если поле пустое или qty <= 0 — считаем это ПРОМЕЖУТОЧНЫМ
+  // состоянием набора (пользователь стёр «20» и ещё не ввёл «2»).
+  // Раньше через ~500мс дебаунс успевал записать qty=0 в БД — тогда
+  // returnStockForItem возвращал на склад ВСЕ 20 шт. Потом «2» приходил
+  // с oldQty=0 и списывал 2. По балансу верно (нетто -2), но история
+  // движений вводила в заблуждение: возврат 20, потом продажа 2.
+  // Для полного удаления товара из заказа — кнопка 🗑 рядом с полем.
   const cardEl = document.getElementById(`itemQty_${orderId}_${itemIndex}`)?.closest('.order-item-card');
   if (cardEl) {
     const priceEl = cardEl.querySelector('[data-price]');
@@ -2091,9 +2105,17 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
     }
   }
   
-  // Дебаунс: сохраняем в Firebase только после паузы в вводе
-  clearTimeout(updateQtyTimeout);
-  updateQtyTimeout = setTimeout(async () => {
+  // Дебаунс: сохраняем в Firebase только после паузы в вводе.
+  // Ключ таймаута индивидуальный для каждой позиции — правки разных
+  // товаров одного заказа больше не отменяют друг друга.
+  const qtyTimeoutKey = `${orderId}_${itemIndex}`;
+  clearTimeout(updateQtyTimeouts.get(qtyTimeoutKey));
+
+  // Не коммитим qty <= 0 — см. комментарий выше. Только UI обновили.
+  if (qty <= 0) return;
+
+  updateQtyTimeouts.set(qtyTimeoutKey, setTimeout(async () => {
+    updateQtyTimeouts.delete(qtyTimeoutKey);
     try {
       const orderDoc = await db.collection('orders').doc(orderId).get();
       if (!orderDoc.exists) return;
@@ -2147,7 +2169,7 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
     } catch (error) {
       console.error('Ошибка обновления количества:', error);
     }
-  }, 500);
+  }, 500));
 }
 
 // Удалить товар из заказа через модальное окно
