@@ -975,8 +975,9 @@ async function getCachedPrimaryWhId() {
 }
 
 // Возврат одного товара на склад (главный или по deductions)
-async function returnStockForItem(orderId, productId, qty) {
+async function returnStockForItem(orderId, productId, qty, context) {
   if (!productId || !qty || qty <= 0) return;
+  context = context || {};
 
   // Параллельно читаем товар и заказ
   const [productDoc, orderDoc] = await Promise.all([
@@ -1018,6 +1019,10 @@ async function returnStockForItem(orderId, productId, qty) {
 
   const ws = product.warehouseStock || {};
 
+  // Куда конкретно вернули (whId → qty) — для записи в warehouseMovements.
+  // Ключ '' (пустая строка) означает возврат без привязки к складу (общий stock).
+  const returnedByWh = {};
+
   const updates = []; // Собираем промисы для параллельной записи
 
   if (itemDed && typeof itemDed === 'object') {
@@ -1032,6 +1037,7 @@ async function returnStockForItem(orderId, productId, qty) {
       itemDed[whId] = dedQty - returnQty;
       if (itemDed[whId] <= 0) delete itemDed[whId];
       remaining -= returnQty;
+      returnedByWh[whId] = (returnedByWh[whId] || 0) + returnQty;
     }
     if (remaining > 0) {
       const primaryWhId = await getCachedPrimaryWhId();
@@ -1045,7 +1051,10 @@ async function returnStockForItem(orderId, productId, qty) {
       } else {
         fallbackWh = Object.keys(ws).find(id => !pausedWhIds.has(id)) || null;
       }
-      if (fallbackWh) ws[fallbackWh] = (ws[fallbackWh] || 0) + remaining;
+      if (fallbackWh) {
+        ws[fallbackWh] = (ws[fallbackWh] || 0) + remaining;
+        returnedByWh[fallbackWh] = (returnedByWh[fallbackWh] || 0) + remaining;
+      }
     }
 
     if (Object.keys(itemDed).length === 0) delete deductions[productId];
@@ -1062,9 +1071,22 @@ async function returnStockForItem(orderId, productId, qty) {
     if (primaryWhId) {
       if (pausedWhIds.has(primaryWhId)) return;
       ws[primaryWhId] = (ws[primaryWhId] || 0) + qty;
+      returnedByWh[primaryWhId] = (returnedByWh[primaryWhId] || 0) + qty;
     } else {
       await db.collection('products').doc(productId).update({
         stock: firebase.firestore.FieldValue.increment(qty)
+      });
+      // Пишем движение без привязки к складу (общий stock)
+      await _logOrderStockMovement({
+        productId,
+        productTitle: product.title || '',
+        warehouseId: '',
+        type: 'return',
+        direction: 'in',
+        qty,
+        orderId,
+        orderData,
+        context
       });
       return;
     }
@@ -1073,11 +1095,85 @@ async function returnStockForItem(orderId, productId, qty) {
   const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
   updates.push(db.collection('products').doc(productId).update({ warehouseStock: ws, stock: newTotal }));
   await Promise.all(updates);
+
+  // Пишем движения в warehouseMovements — по каждому реально пополненному складу.
+  // Без этих записей на странице «Движения» ничего не отображается для правки qty.
+  const movementPromises = [];
+  for (const [whId, movQty] of Object.entries(returnedByWh)) {
+    if (!movQty || movQty <= 0) continue;
+    movementPromises.push(_logOrderStockMovement({
+      productId,
+      productTitle: product.title || '',
+      warehouseId: whId,
+      type: 'return',
+      direction: 'in',
+      qty: movQty,
+      orderId,
+      orderData,
+      context
+    }));
+  }
+  if (movementPromises.length) await Promise.all(movementPromises);
+}
+
+// Вспомогательная функция: пишет запись в warehouseMovements по факту
+// ручной корректировки заказа админом (изменение qty / удаление позиции).
+// Тип 'sale' / 'return' — соответствует стороне движения.
+async function _logOrderStockMovement(opts) {
+  try {
+    const {
+      productId, productTitle, warehouseId,
+      type, direction, qty,
+      orderId, orderData, context
+    } = opts;
+
+    // Имя склада (из глобального массива warehouses если он есть в этой странице)
+    let warehouseName = '';
+    try {
+      if (typeof warehouses !== 'undefined' && Array.isArray(warehouses)) {
+        const wh = warehouses.find(w => w.id === warehouseId);
+        if (wh) warehouseName = wh.name || '';
+      }
+    } catch(e) {}
+
+    const shortId = (orderId || '').slice(-6);
+    let note;
+    if (context && context.reason) {
+      note = context.reason + (shortId ? ` (заказ #${shortId})` : '');
+    } else if (context && context.oldQty != null && context.newQty != null) {
+      note = `Корректировка заказа #${shortId} (было ${context.oldQty}, стало ${context.newQty})`;
+    } else {
+      note = (type === 'return' ? 'Возврат' : 'Списание') +
+        ` по корректировке заказа${shortId ? ' #' + shortId : ''}`;
+    }
+
+    await db.collection('warehouseMovements').add({
+      productId,
+      productTitle: productTitle || '',
+      warehouseId: warehouseId || '',
+      warehouseName,
+      type,
+      qty,
+      direction,
+      oldQty: 0,
+      newQty: qty,
+      orderId: orderId || '',
+      customerName: (orderData && orderData.name) || '',
+      customerPhone: (orderData && orderData.phone) || '',
+      address: (orderData && orderData.address) || '',
+      note,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAtMs: Date.now()
+    });
+  } catch (e) {
+    console.warn('[warehouseMovements] не удалось записать движение:', e && e.message);
+  }
 }
 
 // Списание одного товара со склада (главный → остальные)
-async function deductStockForItem(orderId, productId, qty) {
+async function deductStockForItem(orderId, productId, qty, context) {
   if (!productId || !qty || qty <= 0) return;
+  context = context || {};
 
   // Параллельно: товар + главный склад + заказ + флаг паузы
   const [productDoc, primaryWhId, orderDoc, whSettings] = await Promise.all([
@@ -1092,6 +1188,7 @@ async function deductStockForItem(orderId, productId, qty) {
   if (whSettings.exists && whSettings.data().paused === true) return;
 
   const product = productDoc.data();
+  const orderData = orderDoc.exists ? orderDoc.data() : {};
   
   // Если у товара нет остатка и нет складов — он без лимита, не трогаем
   const hasStock = typeof product.stock === 'number';
@@ -1137,7 +1234,6 @@ async function deductStockForItem(orderId, productId, qty) {
 
   // Обновляем warehouseDeductions в заказе
   if (Object.keys(itemDeductions).length > 0 && orderDoc.exists) {
-    const orderData = orderDoc.data();
     const deductions = orderData.warehouseDeductions || {};
     if (deductions[productId]) {
       for (const [whId, dedQty] of Object.entries(itemDeductions)) {
@@ -1150,6 +1246,25 @@ async function deductStockForItem(orderId, productId, qty) {
   }
 
   await Promise.all(updates);
+
+  // Пишем движения в warehouseMovements — по каждому реально списанному складу.
+  // Без этих записей на странице «Движения» ничего не отображается для правки qty.
+  const movementPromises = [];
+  for (const [whId, movQty] of Object.entries(itemDeductions)) {
+    if (!movQty || movQty <= 0) continue;
+    movementPromises.push(_logOrderStockMovement({
+      productId,
+      productTitle: product.title || '',
+      warehouseId: whId,
+      type: 'sale',
+      direction: 'out',
+      qty: movQty,
+      orderId,
+      orderData,
+      context
+    }));
+  }
+  if (movementPromises.length) await Promise.all(movementPromises);
 }
 
 // Возврат товаров на склад из заказа
@@ -1709,7 +1824,10 @@ async function deleteSelectedOrderItems(orderId) {
       for (const removed of removedItems) {
         if (removed && removed.id && removed.qty > 0) {
           try {
-            await returnStockForItem(orderId, removed.id, removed.qty);
+            await returnStockForItem(orderId, removed.id, removed.qty, {
+              oldQty: removed.qty, newQty: 0,
+              reason: `Товар удалён из заказа (возврат ${removed.qty} шт)`
+            });
           } catch (e) {
             console.warn('Не удалось вернуть на склад:', removed.title, e);
           }
@@ -2000,12 +2118,15 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
         await db.collection('orders').doc(orderId).update({ items, total });
 
         // Потом корректируем склад (функция сама обновит warehouseDeductions)
+        // Контекст oldQty/newQty попадёт в запись warehouseMovements, чтобы
+        // на странице «Движения» было видно причину корректировки.
         const itemId = items[itemIndex].id;
         const diff = qty - oldQty;
+        const editCtx = { oldQty, newQty: qty, reason: `Корректировка количества в заказе (было ${oldQty}, стало ${qty})` };
         if (diff > 0 && itemId) {
-          await deductStockForItem(orderId, itemId, diff);
+          await deductStockForItem(orderId, itemId, diff, editCtx);
         } else if (diff < 0 && itemId) {
-          await returnStockForItem(orderId, itemId, Math.abs(diff));
+          await returnStockForItem(orderId, itemId, Math.abs(diff), editCtx);
         }
       } else {
         const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -2059,7 +2180,10 @@ async function deleteOrderItemFromModal(orderId, itemIndex) {
 
     // Возвращаем удалённый товар на склад
     if (removedItem && removedItem.id && removedItem.qty > 0 && orderData.status !== 'cancelled') {
-      await returnStockForItem(orderId, removedItem.id, removedItem.qty);
+      await returnStockForItem(orderId, removedItem.id, removedItem.qty, {
+        oldQty: removedItem.qty, newQty: 0,
+        reason: `Товар удалён из заказа (возврат ${removedItem.qty} шт)`
+      });
     }
     
     if (items.length === 0) {
