@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.13.0-strict-stock'; // Строгий склад: товар без stock при включённом складе теперь «нет в наличии», а не безлимит
+const CACHE_VERSION = 'kerben-v4.14.0-instant-update'; // Мгновенное обновление PWA: skipWaiting/claim в начале, message-listener, updateViaCache none
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -144,9 +144,16 @@ const STATIC_CACHE_URLS = [
 ];
 
 // Установка Service Worker
+// ВАЖНО: self.skipWaiting() вызываем ПЕРВЫМ, ДО кэширования. Иначе если
+// кэширование зависнет или упадёт, новый SW застрянет в waiting-стадии,
+// и клиент не получит обновление (пока не закроет все вкладки). Порядок:
+// skipWaiting → кэшируем в фоне. Даже если addAll упадёт — SW всё равно
+// активируется, а fetch-обработчик спокойно поработает без пре-кэша.
 self.addEventListener('install', (event) => {
   console.log('[SW] Установка Service Worker...');
-  
+  // Не ждём кэширования — сразу говорим «я готов заменить старый SW».
+  self.skipWaiting();
+
   event.waitUntil(
     Promise.all([
       // Кэшируем локальные файлы
@@ -164,7 +171,7 @@ self.addEventListener('install', (event) => {
       caches.open(FIREBASE_CACHE).then((cache) => {
         console.log('[SW] Кэширование Firebase SDK');
         return Promise.all(
-          FIREBASE_URLS.map(url => 
+          FIREBASE_URLS.map(url =>
             fetch(url).then(response => {
               if (response.ok) {
                 return cache.put(url, response);
@@ -174,24 +181,38 @@ self.addEventListener('install', (event) => {
         );
       })
     ])
-    .then(() => {
-      console.log('[SW] Service Worker установлен');
-      return self.skipWaiting();
-    })
-    .catch((error) => {
-      console.error('[SW] Ошибка при кэшировании:', error);
-    })
+    .then(() => { console.log('[SW] Пре-кэш готов'); })
+    .catch((error) => { console.error('[SW] Ошибка при пре-кэшировании (не критично):', error); })
   );
 });
 
+// Message-listener — страховка. Клиент из sw-register.js шлёт
+// { type: 'SKIP_WAITING' } или строку 'skipWaiting'. Если по какой-то
+// причине skipWaiting в install не отработал (например, был thrown в
+// waitUntil до вызова), клиент может форсировать активацию явно.
+self.addEventListener('message', (event) => {
+  const data = event.data;
+  if (data === 'skipWaiting' || (data && data.type === 'SKIP_WAITING')) {
+    console.log('[SW] Получен SKIP_WAITING от клиента — активируемся');
+    self.skipWaiting();
+  }
+});
+
 // Активация Service Worker
+// Клеймим клиентов ПЕРВЫМ (в параллель с чисткой старых кэшей), чтобы
+// controllerchange у клиента фигурнул как можно раньше и он мог
+// перезагрузиться. Чистка кэшей идёт в waitUntil — активация её ждёт,
+// но клиенты уже под управлением нового SW.
 self.addEventListener('activate', (event) => {
   console.log('[SW] Активация Service Worker...');
-  
+
   event.waitUntil(
-    caches.keys()
-      .then((cacheNames) => {
-        // Удаляем старые кэши (кроме Firebase и изображений)
+    Promise.all([
+      // 1) Берём контроль над всеми вкладками СРАЗУ (не ждём чистки кэшей)
+      self.clients.claim(),
+
+      // 2) Чистка старых кэшей — параллельно
+      caches.keys().then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
             if (cacheName !== CACHE_NAME && cacheName !== FIREBASE_CACHE && cacheName !== IMAGE_CACHE) {
@@ -200,11 +221,19 @@ self.addEventListener('activate', (event) => {
             }
           })
         );
-      })
-      .then(() => {
-        console.log('[SW] Service Worker активирован');
-        return self.clients.claim(); // Берём контроль над всеми вкладками
-      })
+      }),
+
+      // 3) Navigation Preload — ускоряет отдачу HTML при переходах
+      //    (позволяет SW параллельно запустить fetch пока сам SW стартует).
+      (async () => {
+        try {
+          if (self.registration.navigationPreload) {
+            await self.registration.navigationPreload.enable();
+            console.log('[SW] Navigation preload включён');
+          }
+        } catch (e) { console.log('[SW] Navigation preload недоступен:', e && e.message); }
+      })()
+    ]).then(() => { console.log('[SW] Service Worker активирован'); })
   );
 });
 
