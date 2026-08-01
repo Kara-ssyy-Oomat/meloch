@@ -23,18 +23,32 @@ function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
 
   for (const item of cartItems) {
     const localProduct = (productsList || []).find(p => p.id === item.id);
-    if (!localProduct || typeof localProduct.stock !== 'number' || !isFinite(localProduct.stock)) continue;
+    if (!localProduct) continue;
+
+    // Определяем эффективный остаток. null = безлимит (склады на паузе),
+    // число (включая 0) = остаток отслеживается.
+    let effective = null;
     if (typeof getEffectiveStock === 'function') {
-      if (getEffectiveStock(localProduct) === null) continue;
-    } else if (warehousePausedFlag) {
-      continue;
+      effective = getEffectiveStock(localProduct);
+      if (effective === null) continue; // безлимит → пропускаем списание
+    } else {
+      if (warehousePausedFlag) continue;
+      // Фолбэк без getEffectiveStock: склад ВКЛЮЧЁН и у товара нет stock →
+      // считаем «нет в наличии» (0), а не безлимит.
+      effective = (typeof localProduct.stock === 'number' && isFinite(localProduct.stock))
+        ? Math.max(0, Math.floor(localProduct.stock))
+        : 0;
     }
 
     const ws = localProduct.warehouseStock;
     const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
     if (hasWarehouseSetup && Object.keys(ws).some(whId => pausedSet.has && pausedSet.has(whId))) continue;
 
-    const localStock = Math.max(0, Math.floor(localProduct.stock));
+    // Локальный остаток берём из product.stock, если он есть; если поля нет —
+    // трактуем как 0 (склад включён → «нет в наличии»).
+    const localStock = (typeof localProduct.stock === 'number' && isFinite(localProduct.stock))
+      ? Math.max(0, Math.floor(localProduct.stock))
+      : 0;
 
     const need = Math.max(0, Math.floor(item.qty || 0));
     if (need <= 0) throw new Error('Некорректное количество: ' + (item.title || item.id));
