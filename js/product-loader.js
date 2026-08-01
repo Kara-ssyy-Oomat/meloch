@@ -139,17 +139,20 @@ function _stableProductOrderCompare(a, b) {
 // Возвращает null если остаток не отслеживается (безлимит), число если отслеживается
 function getEffectiveStock(product) {
   if (!product) return null;
+  // Склад полностью приостановлен → все товары «без лимита» (null).
   if (warehousePaused) return null;
-  if (typeof product.stock !== 'number' || !isFinite(product.stock)) return null;
+  // ВАЖНО: склад ВКЛЮЧЁН и у товара НЕТ поля stock → считаем «нет в наличии» (0),
+  // а НЕ безлимит. Это чтобы после включения склада товары, у которых админ
+  // ещё не завёл остаток, автоматически становились «нет в наличии», а не
+  // продавались бесконтрольно.
+  if (typeof product.stock !== 'number' || !isFinite(product.stock)) return 0;
 
   const ws = product.warehouseStock;
   const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
 
-  // ВАЖНО: stock === 0 всегда означает «нет в наличии», не «безлимит».
-  // Единственный способ сделать товар безлимитным — вообще удалить поле
-  // stock (typeof stock !== 'number', проверка выше). Именно это делает
-  // админ-кнопка «🔓 Разблокировать товары с stock=0» в admin-warehouse.html
-  // — она удаляет поля stock и warehouseStock через FieldValue.delete().
+  // ВАЖНО: и stock === 0, и отсутствие поля stock — оба означают «нет в наличии».
+  // Единственный способ сделать товар безлимитным — приостановить склад
+  // целиком через админку (warehousePaused = true).
 
   // Если нет приостановленных складов — обычный остаток
   if (pausedWarehouseIds.size === 0) return Math.max(0, Math.floor(product.stock));
