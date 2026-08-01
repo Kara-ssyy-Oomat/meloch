@@ -917,6 +917,15 @@
       <button onclick="loadMovements(true)" style="margin-left:auto; padding:8px 14px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer;">🔄 Обновить</button>
     </div>
     <input type="text" id="movementsSearch" placeholder="🔍 Поиск: товар, клиент, телефон, номер заказа..." oninput="renderMovements()" style="width:100%; padding:10px 12px; margin-bottom:12px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+    <!-- Панель массового отката: показывается только когда выбрана хотя бы одна запись -->
+    <div id="movementsUndoToolbar" style="display:none; position:sticky; top:0; z-index:5; padding:10px 12px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px; margin-bottom:10px; align-items:center; gap:10px; flex-wrap:wrap;">
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#795548; cursor:pointer; margin-right:auto;">
+        <input type="checkbox" id="movementsSelectAll" onchange="toggleAllVisibleMovements(this.checked)" style="width:18px; height:18px; cursor:pointer;">
+        <span>Выбрать все видимые</span>
+      </label>
+      <button onclick="clearMovementSelection()" style="padding:8px 14px; background:#fff; color:#555; border:1px solid #ddd; border-radius:6px; cursor:pointer; font-size:13px;">✕ Снять выбор</button>
+      <button id="movementsUndoBtn" onclick="undoSelectedMovements()" style="padding:8px 14px; background:linear-gradient(135deg,#f57c00,#ef6c00); color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:700;">↩️ Отменить выбранные</button>
+    </div>
     <div id="movementsList" class="empty-state">
       <div class="emoji">📋</div>
       <p>История склада</p>
@@ -1133,6 +1142,12 @@ let warehouses = [];
 let products = [];
 let movements = [];
 let movementsFilter = 'all'; // 'all' | 'sale' | 'receipt' | 'transfer' | 'return' | 'adjustment'
+// Выбранные записи движений для массовой отмены (bulk undo).
+// Живёт между рендерами, пока пользователь не нажал «Снять выбор» или не отменил их.
+const selectedMovementIds = new Set();
+// Типы движений, которые можно откатить вручную через кнопку «Отменить выбранные».
+// sale/return привязаны к заказу — их надо отменять через сам заказ.
+const UNDOABLE_MOV_TYPES = new Set(['adjustment', 'receipt', 'transfer']);
 let stockAlerts = []; // Уведомления о низком/нулевом остатке
 let alertsFilter = 'active'; // 'active' | 'resolved'
 let lowStockThreshold = 5; // Порог "мало"
@@ -2867,6 +2882,7 @@ function renderMovements() {
         <p style="font-size:13px; margin-top:8px;">История появится после первой продажи/прихода</p>
       </div>
     `;
+    _refreshMovementsToolbar();
     return;
   }
 
@@ -2933,11 +2949,25 @@ function renderMovements() {
     const dir = m.direction === 'in' ? '+' : '-';
     const dirColor = m.direction === 'in' ? '#2e7d32' : '#c62828';
 
+    // Чекбокс: только для типов, которые можно откатить, и не отменённых.
+    // Уже отменённые показываем полупрозрачно и зачёркнуто, без чекбокса.
+    const canUndo = UNDOABLE_MOV_TYPES.has(m.type) && !m.cancelled;
+    const isSelected = selectedMovementIds.has(m.id);
+    const rowStyle = m.cancelled
+      ? 'opacity:0.5; text-decoration:line-through;'
+      : (isSelected ? 'background:#fff8e1;' : '');
+    const undoOfNote = m.undoOfId ? `<span style="font-size:11px; color:#795548; background:#fff3e0; padding:2px 6px; border-radius:4px; margin-left:6px;">Отмена</span>` : '';
+    const cancelledNote = m.cancelled ? `<span style="font-size:11px; color:#c62828; background:#ffebee; padding:2px 6px; border-radius:4px; margin-left:6px;">Отменено</span>` : '';
+    const checkboxHtml = canUndo
+      ? `<input type="checkbox" class="mov-checkbox" data-mov-id="${esc(m.id)}" ${isSelected ? 'checked' : ''} onchange="toggleMovementSelection('${esc(m.id)}', this.checked)" style="width:18px; height:18px; cursor:pointer; margin-top:4px; flex-shrink:0;">`
+      : `<div style="width:18px; flex-shrink:0;"></div>`;
+
     html += `
-      <div style="display:flex; align-items:flex-start; gap:12px; padding:12px 0; border-bottom:1px solid #f5f5f5;">
+      <div style="display:flex; align-items:flex-start; gap:10px; padding:12px 0; border-bottom:1px solid #f5f5f5; ${rowStyle}">
+        ${checkboxHtml}
         <div style="font-size:24px; line-height:1;">${icon}</div>
         <div style="flex:1; min-width:0;">
-          <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(m.productTitle) || 'Без названия'}</div>
+          <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(m.productTitle) || 'Без названия'}${undoOfNote}${cancelledNote}</div>
           <div style="font-size:12px; color:${color}; font-weight:600;">${description}</div>
           ${clientLine}
           <div style="font-size:11px; color:#999; margin-top:2px;">${time}</div>
@@ -2952,6 +2982,217 @@ function renderMovements() {
   });
 
   container.innerHTML = html;
+  _refreshMovementsToolbar();
+}
+
+// -------------------- МАССОВАЯ ОТМЕНА ДВИЖЕНИЙ --------------------
+// Пользователь выбирает несколько записей чекбоксами и нажимает «Отменить
+// выбранные». Для каждой отменяемой записи создаётся ОБРАТНАЯ запись типа
+// 'adjustment' (audit trail), исходная помечается cancelled=true, склад
+// пересчитывается делтой. Продажи/возвраты по заказам не отменяются здесь —
+// их надо отменять в самом заказе.
+
+function toggleMovementSelection(movId, checked) {
+  if (checked) selectedMovementIds.add(movId);
+  else selectedMovementIds.delete(movId);
+  _refreshMovementsToolbar();
+}
+
+function toggleAllVisibleMovements(checked) {
+  document.querySelectorAll('.mov-checkbox').forEach(cb => {
+    const id = cb.dataset.movId;
+    if (!id) return;
+    cb.checked = checked;
+    if (checked) selectedMovementIds.add(id);
+    else selectedMovementIds.delete(id);
+  });
+  _refreshMovementsToolbar();
+}
+
+function clearMovementSelection() {
+  selectedMovementIds.clear();
+  document.querySelectorAll('.mov-checkbox').forEach(cb => { cb.checked = false; });
+  const selectAll = document.getElementById('movementsSelectAll');
+  if (selectAll) selectAll.checked = false;
+  _refreshMovementsToolbar();
+}
+
+function _refreshMovementsToolbar() {
+  const toolbar = document.getElementById('movementsUndoToolbar');
+  const btn = document.getElementById('movementsUndoBtn');
+  if (!toolbar || !btn) return;
+  const count = selectedMovementIds.size;
+  toolbar.style.display = count > 0 ? 'flex' : 'none';
+  btn.textContent = `↩️ Отменить выбранные (${count})`;
+
+  // Синхронизируем «Выбрать все» — активен если ВСЕ видимые чекбоксы выбраны
+  const selectAll = document.getElementById('movementsSelectAll');
+  if (selectAll) {
+    const allBoxes = Array.from(document.querySelectorAll('.mov-checkbox'));
+    const checked = allBoxes.filter(cb => cb.checked).length;
+    if (allBoxes.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else if (checked === allBoxes.length) {
+      selectAll.checked = true;
+      selectAll.indeterminate = false;
+    } else if (checked === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else {
+      selectAll.checked = false;
+      selectAll.indeterminate = true;
+    }
+  }
+}
+
+async function undoSelectedMovements() {
+  if (selectedMovementIds.size === 0) return;
+
+  // Достаём актуальные объекты движений из массива по id.
+  const byId = new Map(movements.map(m => [m.id, m]));
+  const targets = Array.from(selectedMovementIds)
+    .map(id => byId.get(id))
+    .filter(m => m && !m.cancelled && UNDOABLE_MOV_TYPES.has(m.type));
+
+  if (targets.length === 0) {
+    Swal.fire({
+      icon: 'info',
+      title: 'Нечего отменять',
+      text: 'Выбранные записи уже отменены или являются продажами/возвратами по заказам (их отменяй в самом заказе).'
+    });
+    return;
+  }
+
+  // Preview: показываем что именно откатим
+  const previewLines = targets.map(m => {
+    const dir = m.direction === 'in' ? '+' : '-';
+    const wh = m.warehouseName || m.fromWarehouseName || '—';
+    const to = m.toWarehouseName ? ` → ${esc(m.toWarehouseName)}` : '';
+    const t = m.type === 'transfer' ? 'Перемещение' : (m.type === 'receipt' ? 'Приход' : 'Корректировка');
+    return `• ${esc(m.productTitle || 'товар')}: ${t} ${dir}${m.qty} шт (${esc(wh)}${to})`;
+  }).join('<br>');
+  const skippedCount = selectedMovementIds.size - targets.length;
+
+  const { isConfirmed } = await Swal.fire({
+    title: `Отменить ${targets.length} действий?`,
+    html:
+      `<div style="text-align:left; max-height:300px; overflow-y:auto; font-size:13px; line-height:1.6;">${previewLines}</div>` +
+      (skippedCount > 0
+        ? `<div style="margin-top:12px; padding:8px 10px; background:#ffebee; color:#c62828; font-size:12px; border-radius:6px;">Пропущено ${skippedCount} записей (уже отменены или продажи/возвраты по заказам)</div>`
+        : ''),
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Да, отменить',
+    cancelButtonText: 'Не отменять',
+    confirmButtonColor: '#ef6c00'
+  });
+  if (!isConfirmed) return;
+
+  const btn = document.getElementById('movementsUndoBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Отменяем…'; }
+
+  // Группируем изменения по productId, чтобы читать товар один раз
+  // и корректно применять последовательность откатов.
+  const byProduct = new Map();
+  for (const m of targets) {
+    const arr = byProduct.get(m.productId) || [];
+    arr.push(m);
+    byProduct.set(m.productId, arr);
+  }
+
+  let doneCount = 0;
+  let errorCount = 0;
+
+  try {
+    // По каждому товару — одна транзакция (безопасно от гонок).
+    for (const [productId, movs] of byProduct.entries()) {
+      const productRef = db.collection('products').doc(productId);
+      try {
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(productRef);
+          if (!snap.exists) throw new Error('товар не найден');
+          const product = snap.data() || {};
+          const ws = Object.assign({}, product.warehouseStock || {});
+
+          for (const m of movs) {
+            if (m.type === 'transfer') {
+              const fromId = m.fromWarehouseId;
+              const toId = m.toWarehouseId;
+              if (!fromId || !toId) continue;
+              // Обратное перемещение: to → from
+              ws[toId] = Math.max(0, (ws[toId] || 0) - (m.qty || 0));
+              ws[fromId] = (ws[fromId] || 0) + (m.qty || 0);
+            } else {
+              // adjustment / receipt — реверсируем direction
+              const whId = m.warehouseId;
+              if (!whId) continue;
+              if (m.direction === 'in') {
+                ws[whId] = Math.max(0, (ws[whId] || 0) - (m.qty || 0));
+              } else {
+                ws[whId] = (ws[whId] || 0) + (m.qty || 0);
+              }
+            }
+          }
+          const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+          tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+
+          // Помечаем оригинал(ы) как отменённые и пишем обратные записи
+          for (const m of movs) {
+            const origRef = db.collection('warehouseMovements').doc(m.id);
+            tx.update(origRef, {
+              cancelled: true,
+              cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+              cancelledAtMs: Date.now()
+            });
+            const undoRef = db.collection('warehouseMovements').doc();
+            const revDirection = m.direction === 'in' ? 'out' : (m.direction === 'out' ? 'in' : 'in');
+            const whName = m.warehouseName || m.fromWarehouseName || '';
+            const whId = m.warehouseId || m.fromWarehouseId || '';
+            tx.set(undoRef, {
+              productId,
+              productTitle: m.productTitle || product.title || '',
+              warehouseId: whId,
+              warehouseName: whName,
+              type: 'adjustment',
+              qty: m.qty || 0,
+              direction: revDirection,
+              oldQty: 0,
+              newQty: m.qty || 0,
+              note: `Отмена: ${m.note || m.type}`,
+              undoOfId: m.id,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+              createdAtMs: Date.now()
+            });
+          }
+        });
+        doneCount += movs.length;
+      } catch (err) {
+        console.error('Не удалось откатить движения по товару', productId, err);
+        errorCount += movs.length;
+      }
+    }
+
+    if (doneCount > 0) {
+      Swal.fire({
+        icon: errorCount === 0 ? 'success' : 'warning',
+        title: errorCount === 0 ? 'Готово!' : 'Частично отменено',
+        html: `Отменено записей: <b>${doneCount}</b>` +
+          (errorCount > 0 ? `<br>С ошибкой: <b>${errorCount}</b>` : ''),
+        timer: 2500
+      });
+    } else {
+      Swal.fire('Ошибка', 'Не удалось отменить ни одну запись', 'error');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; }
+    clearMovementSelection();
+    // Перезагружаем движения и товары, чтобы UI показал актуальное состояние
+    await Promise.all([loadMovements(true), loadProducts()]);
+    if (typeof updateStats === 'function') updateStats();
+    if (typeof renderProductsStock === 'function' && currentTab === 'products') renderProductsStock();
+    if (typeof renderWarehouses === 'function') renderWarehouses();
+  }
 }
 
 // ==================== УВЕДОМЛЕНИЯ ОБ ОСТАТКАХ (ТАБ 4) ====================
