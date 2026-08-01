@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.14.0-instant-update'; // Мгновенное обновление PWA: skipWaiting/claim в начале, message-listener, updateViaCache none
+const CACHE_VERSION = 'kerben-v4.15.0-hide-oos-toggle'; // Тумблер «Скрывать нет в наличии от клиентов» + instant-update PWA
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

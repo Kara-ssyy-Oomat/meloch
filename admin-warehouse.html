@@ -945,6 +945,26 @@
         <button onclick="saveLowStockThreshold()" style="background:#ff9800; color:#fff; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-weight:600;">Сохранить</button>
       </div>
     </div>
+
+    <!-- НАСТРОЙКА: скрывать oos от клиентов -->
+    <div style="background:#e3f2fd; border:1px solid #90caf9; border-radius:10px; padding:12px; margin-bottom:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      <div style="font-size:24px;">👁️</div>
+      <div style="flex:1; min-width:180px;">
+        <div style="font-weight:700; color:#0d47a1; font-size:14px;">Скрывать "нет в наличии" от клиентов</div>
+        <div style="font-size:12px; color:#555; margin-top:2px;">
+          <b>ВКЛ:</b> товары с остатком 0 (или без остатка) НЕ показываются в каталоге.<br>
+          <b>ВЫКЛ:</b> показываются с бейджем «нет в наличии» (нельзя купить).<br>
+          <small style="color:#888;">Как только впишешь остаток — товар автоматически появится.</small>
+        </div>
+        <div id="hideOosStats" style="font-size:11px; color:#1565c0; font-weight:600; margin-top:4px;"></div>
+      </div>
+      <label class="switch" style="position:relative; display:inline-block; width:52px; height:28px; flex-shrink:0;">
+        <input type="checkbox" id="hideOosToggle" onchange="saveHideOutOfStock(this.checked)" style="opacity:0; width:0; height:0;">
+        <span id="hideOosSlider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#ccc; border-radius:28px; transition:.3s;">
+          <span style="position:absolute; content:''; height:20px; width:20px; left:4px; bottom:4px; background:white; border-radius:50%; transition:.3s; display:block;"></span>
+        </span>
+      </label>
+    </div>
     <div style="display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap;">
       <button onclick="setAlertsFilter('active')" id="alertsFilterActive" class="alerts-filter-btn alerts-filter-active" style="padding:8px 14px; border:none; border-radius:8px; cursor:pointer; font-weight:600; background:#1a237e; color:#fff;">🔴 Активные</button>
       <button onclick="setAlertsFilter('resolved')" id="alertsFilterResolved" class="alerts-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">✅ Обработанные</button>
@@ -1827,6 +1847,8 @@ function updateStats() {
       renderStockAlerts();
     }
   } catch (e) {}
+  // Обновляем счётчик скрытых oos-товаров в тумблере
+  try { _updateHideOosStats(); } catch (e) {}
 }
 
 function showLowStockModal() {
@@ -3480,10 +3502,93 @@ async function saveLowStockThreshold() {
   }
 }
 
+// ==================== СКРЫТИЕ oos ОТ КЛИЕНТОВ ====================
+// Локальный флаг для admin-warehouse.html. Читается/пишется в
+// settings/warehouse.hideOutOfStockForClients. Клиенты подхватывают его
+// через product-loader.js → renderProductsCore фильтрует товары с
+// getEffectiveStock() === 0.
+let _hideOosForClients = false;
+
+function _paintHideOosToggle(on) {
+  const cb = document.getElementById('hideOosToggle');
+  const slider = document.getElementById('hideOosSlider');
+  if (cb) cb.checked = on === true;
+  if (slider) {
+    slider.style.background = on ? '#2196f3' : '#ccc';
+    const knob = slider.querySelector('span');
+    if (knob) knob.style.left = on ? '28px' : '4px';
+  }
+}
+
+function _updateHideOosStats() {
+  const el = document.getElementById('hideOosStats');
+  if (!el) return;
+  // Считаем сколько товаров сейчас в статусе oos (нет остатка на складе).
+  // getEffectiveStock здесь недоступен (это админ-страница), но логика простая:
+  //   - blocked не считаем (у них своя логика)
+  //   - stock не число → «нет в наличии» (0 после последних правок getEffectiveStock)
+  //   - stock <= 0 → oos
+  let oosCount = 0;
+  for (const p of (products || [])) {
+    if (!p || p.blocked) continue;
+    const s = (typeof p.stock === 'number' && isFinite(p.stock)) ? Math.max(0, Math.floor(p.stock)) : 0;
+    if (s === 0) oosCount++;
+  }
+  if (_hideOosForClients) {
+    el.innerHTML = `🙈 Сейчас скрыто от клиентов: <b>${oosCount}</b> товар(ов)`;
+    el.style.color = '#d32f2f';
+  } else {
+    el.innerHTML = `👀 Показывается как «нет в наличии»: <b>${oosCount}</b> товар(ов)`;
+    el.style.color = '#1565c0';
+  }
+}
+
+async function loadHideOutOfStock() {
+  try {
+    const doc = await db.collection('settings').doc('warehouse').get();
+    if (doc.exists) {
+      _hideOosForClients = doc.data().hideOutOfStockForClients === true;
+    }
+  } catch (e) { /* оставляем дефолт false */ }
+  _paintHideOosToggle(_hideOosForClients);
+  _updateHideOosStats();
+}
+
+async function saveHideOutOfStock(on) {
+  const newVal = on === true;
+  // Оптимистичное обновление UI (мгновенно)
+  _hideOosForClients = newVal;
+  _paintHideOosToggle(newVal);
+  _updateHideOosStats();
+  try {
+    await db.collection('settings').doc('warehouse').set(
+      { hideOutOfStockForClients: newVal }, { merge: true }
+    );
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        icon: 'success',
+        title: newVal ? '🙈 Скрыто от клиентов' : '👀 Показывается клиентам',
+        html: newVal
+          ? 'Товары с остатком 0 теперь <b>не появятся</b> в каталоге.<br><small>Как только впишешь остаток — товар автоматически вернётся.</small>'
+          : 'Товары с остатком 0 теперь <b>показываются</b> клиентам с бейджем «нет в наличии».',
+        timer: 3000,
+        showConfirmButton: false
+      });
+    }
+  } catch (e) {
+    // Откат
+    _hideOosForClients = !newVal;
+    _paintHideOosToggle(!newVal);
+    _updateHideOosStats();
+    alert('Ошибка сохранения: ' + e.message);
+  }
+}
+
 // При первой загрузке страницы — подтягиваем порог и считаем
 // активные алёрты для бейджа на табе, даже если админ ещё не открывал вкладку.
 document.addEventListener('DOMContentLoaded', function() {
   loadLowStockThreshold().catch(() => {});
+  loadHideOutOfStock().catch(() => {});
   // Тихая фоновая загрузка алёртов через 1.5с после открытия страницы
   // (чтобы не мешать первичной отрисовке складов/товаров).
   setTimeout(() => { loadStockAlerts().catch(() => {}); }, 1500);

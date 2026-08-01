@@ -237,7 +237,24 @@ function renderProductsCore() {
   const fragment = document.createDocumentFragment();
   
   let filtered = isEditorMode ? products : products.filter(p => !p.blocked);
-  
+
+  // ГЛОБАЛЬНАЯ настройка админа: «Скрывать нет в наличии от клиентов».
+  // Хранится в settings/warehouse.hideOutOfStockForClients (см. product-loader.js).
+  // Применяется ТОЛЬКО в клиентском режиме (isEditorMode === false),
+  // чтобы админ в редакторе продолжал видеть все товары и мог править их.
+  // getEffectiveStock() возвращает:
+  //   • null → безлимит (склад на паузе целиком) — показываем
+  //   • 0    → нет в наличии — скрываем при флаге
+  //   • >0   → есть в наличии — показываем
+  if (!isEditorMode
+      && typeof hideOutOfStockForClients !== 'undefined'
+      && hideOutOfStockForClients === true) {
+    filtered = filtered.filter(p => {
+      const s = getEffectiveStock(p);
+      return s === null || s > 0;
+    });
+  }
+
   // Продавец в режиме редактора видит только свои товары
   if (isEditorMode && userRole === 'seller' && currentSeller) {
     filtered = products.filter(p => p.sellerId === currentSeller.id);

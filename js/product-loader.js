@@ -49,6 +49,14 @@ const LS_WH_PAUSED_KEY = 'warehousePaused';
 let pausedWarehouseIds = new Set();
 const LS_PAUSED_WH_IDS_KEY = 'pausedWarehouseIds';
 
+// Флаг: скрывать товары «нет в наличии» от клиентов (админ управляет
+// через admin-warehouse.html). При true — товары с getEffectiveStock() === 0
+// вообще не появляются на витрине. При false — показываются с бейджем
+// «нет в наличии» (нельзя добавить в корзину). Безлимитные и с остатком
+// >0 не зависят от этого флага. Дефолт: false — обратная совместимость.
+let hideOutOfStockForClients = false;
+const LS_HIDE_OOS_KEY = 'hideOutOfStockForClients';
+
 // ID главного склада (для отображения остатков на карточках)
 let primaryWarehouseId = '';
 
@@ -64,6 +72,7 @@ function loadWarehousePausedFromLS() {
     const raw = localStorage.getItem(LS_PAUSED_WH_IDS_KEY);
     pausedWarehouseIds = raw ? new Set(JSON.parse(raw)) : new Set();
   } catch(e) { pausedWarehouseIds = new Set(); }
+  try { hideOutOfStockForClients = localStorage.getItem(LS_HIDE_OOS_KEY) === '1'; } catch(e) {}
   try {
     const cached = JSON.parse(localStorage.getItem(LS_MIN_ORDER_KEY) || '{}');
     minOrderAmount = cached.amount || 0;
@@ -73,11 +82,15 @@ function loadWarehousePausedFromLS() {
 async function loadWarehousePausedFlag() {
   try {
     const doc = await db.collection('settings').doc('warehouse').get();
-    warehousePaused = doc.exists && doc.data().paused === true;
-    if (doc.exists && doc.data().primaryWarehouseId) {
-      primaryWarehouseId = doc.data().primaryWarehouseId;
+    const data = doc.exists ? doc.data() : {};
+    warehousePaused = data.paused === true;
+    if (data.primaryWarehouseId) {
+      primaryWarehouseId = data.primaryWarehouseId;
     }
+    // НОВОЕ: скрывать oos от клиентов
+    hideOutOfStockForClients = data.hideOutOfStockForClients === true;
     try { localStorage.setItem(LS_WH_PAUSED_KEY, warehousePaused ? '1' : '0'); } catch(e) {}
+    try { localStorage.setItem(LS_HIDE_OOS_KEY, hideOutOfStockForClients ? '1' : '0'); } catch(e) {}
   } catch(e) { /* при ошибке сети оставляем значение из localStorage */ }
   // Загружаем индивидуально приостановленные склады
   try {
