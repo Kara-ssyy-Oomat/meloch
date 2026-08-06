@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.15.0-hide-oos-toggle'; // Тумблер «Скрывать нет в наличии от клиентов» + instant-update PWA
+const CACHE_VERSION = 'kerben-v4.16.0-agent-order-flow'; // Агент оформляет заказ от клиента + автоподсказки + «Данные агентов»
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -113,6 +113,7 @@ const STATIC_CACHE_URLS = [
   './admin-sellers.html',
   './admin-categories.html',
   './admin-agents.html',
+  './admin-agents-data.html',
   './manifest.json',
   './css/styles.css',
   './js/filters.js',
