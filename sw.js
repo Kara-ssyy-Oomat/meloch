@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.16.0-agent-order-flow'; // Агент оформляет заказ от клиента + автоподсказки + «Данные агентов»
+const CACHE_VERSION = 'kerben-v4.16.1-fix-agent-profit-syntax'; // Фикс SyntaxError в agent-profit.html (литеральные \n)
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

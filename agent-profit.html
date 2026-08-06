@@ -1511,7 +1511,9 @@
         'cancelled': '#dc3545'
       };
       
-      listEl.innerHTML = filteredOrders.map(order => {\n        const isCancelled = order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен';\n        const profit = isCancelled ? 0 : Math.round((order.total || 0) * 0.02);
+      listEl.innerHTML = filteredOrders.map(order => {
+        const isCancelled = order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен';
+        const profit = isCancelled ? 0 : Math.round((order.total || 0) * 0.02);
         const date = order.time || new Date(order.timestamp).toLocaleString();
         const statusColor = statusColors[order.status] || '#666';
         const isRecent = (order.timestamp || 0) > oneDayAgo;
