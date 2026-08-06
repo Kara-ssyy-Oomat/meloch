@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}.main-container{height:100vh!important}</style>')</script>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Данные агентов - Кербен</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
+  <script src="js/app-check.js?v=2"></script>
+  <script src="js/auth.js?v=2"></script>
+  <script src="js/admin-reauth.js?v=2"></script>
+  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/background-pause.js?v=1"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    input, textarea, select { font-family: inherit; font-size: 16px; }
+    .swal2-container { z-index: 999999 !important; }
+
+    .main-container {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 56px);
+      background: #fff;
+    }
+
+    .page-header {
+      background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+      color: white;
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .page-header h1 { margin: 0; font-size: 22px; }
+    .page-header p { margin: 5px 0 0; opacity: 0.9; font-size: 14px; }
+    .back-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      font-size: 28px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      padding: 15px;
+      background: #f8f9fa;
+      flex-shrink: 0;
+    }
+    .stat-card {
+      background: white;
+      padding: 14px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    .stat-card .label { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .stat-card .value { font-size: 24px; font-weight: 700; }
+    .stat-card .value.purple { color: #9c27b0; }
+    .stat-card .value.blue { color: #007bff; }
+    .stat-card .value.green { color: #16a34a; }
+    .stat-card .value.red { color: #dc2626; }
+
+    .filters-panel {
+      padding: 15px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
+      flex-shrink: 0;
+    }
+    .controls-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .controls-row input {
+      padding: 10px 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      flex: 1;
+      min-width: 200px;
+      max-width: 360px;
+    }
+    .controls-row select {
+      padding: 10px 15px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      background: white;
+    }
+    .controls-row button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      background: #9c27b0;
+      color: white;
+    }
+
+    .content-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 15px;
+    }
+
+    .agent-card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 12px;
+      overflow: hidden;
+      border: 1px solid #eee;
+    }
+    .agent-card.blocked-card {
+      border-color: #dc2626;
+      background: #fef2f2;
+      opacity: 0.85;
+    }
+    .agent-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .agent-info h3 {
+      margin: 0 0 6px 0;
+      font-size: 16px;
+      color: #333;
+      word-break: break-word;
+    }
+    .agent-info p {
+      margin: 3px 0;
+      font-size: 13px;
+      color: #555;
+      word-break: break-word;
+    }
+    .agent-info .muted { color: #888; font-size: 12px; }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge-active { background: #dcfce7; color: #166534; }
+    .badge-blocked { background: #fee2e2; color: #991b1b; }
+    .badge-plain { background: #fef3c7; color: #92400e; }
+    .badge-hash { background: #e0e7ff; color: #3730a3; }
+
+    .agent-body {
+      padding: 12px 16px;
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      color: #444;
+    }
+    .agent-body .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .agent-body .label {
+      color: #888;
+      min-width: 110px;
+    }
+    .agent-body .val {
+      font-weight: 500;
+      color: #222;
+      word-break: break-all;
+    }
+    .password-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background: #f8fafc;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .agent-actions {
+      padding: 12px 16px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      border-top: 1px solid #f0f0f0;
+      background: #fafafa;
+    }
+    .agent-actions button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .btn-edit { background: #9c27b0; color: white; }
+    .btn-block { background: #f59e0b; color: white; }
+    .btn-unblock { background: #16a34a; color: white; }
+    .btn-delete { background: #dc3545; color: white; }
+    .btn-copy { background: #64748b; color: white; }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    .empty-state .icon { font-size: 64px; margin-bottom: 15px; }
+
+    @media (max-width: 600px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .controls-row { flex-direction: column; align-items: stretch; }
+      .controls-row input, .controls-row select { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="main-container">
+  <div class="page-header">
+    <div>
+      <h1>👥 Данные агентов</h1>
+      <p>Список зарегистрированных агентов и их логины</p>
+    </div>
+    <button class="back-btn" onclick="window.location.href='profile.html'" aria-label="Назад">←</button>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="label">👥 Всего</div>
+      <div class="value purple" id="statTotal">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">✅ Активные</div>
+      <div class="value green" id="statActive">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">🔒 Заблокированные</div>
+      <div class="value red" id="statBlocked">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">📅 За 7 дней</div>
+      <div class="value blue" id="statWeek">0</div>
+    </div>
+  </div>
+
+  <div class="filters-panel">
+    <div class="controls-row">
+      <input type="text" id="searchAgent" placeholder="🔍 Поиск: имя, телефон, пароль..." oninput="filterAgents()">
+      <select id="filterStatus" onchange="filterAgents()">
+        <option value="all">Все</option>
+        <option value="active">Только активные</option>
+        <option value="blocked">Только заблокированные</option>
+      </select>
+      <button type="button" onclick="loadAgents()">🔄 Обновить</button>
+    </div>
+  </div>
+
+  <div class="content-area" id="agentsContainer">
+    <div class="empty-state">
+      <div class="icon">⏳</div>
+      <p>Загрузка агентов...</p>
+    </div>
+  </div>
+</div>
+
+<script src="js/bottom-nav.js?v=28"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+  authDomain: "svoysayet.firebaseapp.com",
+  projectId: "svoysayet",
+  storageBucket: "svoysayet.firebasestorage.app",
+  messagingSenderId: "450143000217",
+  appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+  measurementId: "G-Y8VG9E29FY"
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+if (typeof kerbenStartAppCheckSetup === 'function') kerbenStartAppCheckSetup(db);
+
+let agents = [];
+let filteredAgents = [];
+
+function escapeHtml(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatDate(ts) {
+  if (!ts) return '—';
+  let d;
+  if (typeof ts === 'number') d = new Date(ts);
+  else if (ts && typeof ts.toDate === 'function') d = ts.toDate();
+  else d = new Date(ts);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
+
+// Пароль агента: обычно хранится в открытом виде (см. agent-profit.html — регистрация/вход).
+// На случай если у кого-то хеш — тоже поддержим.
+function getPasswordDisplay(a) {
+  if (a.password && typeof a.password === 'string') {
+    return { text: a.password, kind: 'plain' };
+  }
+  if (a.passwordHash) {
+    return { text: 'хеширован (нельзя показать)', kind: 'hash' };
+  }
+  return { text: 'не задан', kind: 'none' };
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadAgents();
+});
+
+async function loadAgents() {
+  const container = document.getElementById('agentsContainer');
+  container.innerHTML = `
+    <div class="empty-state">
+      <div class="icon">⏳</div>
+      <p>Загрузка агентов...</p>
+    </div>
+  `;
+
+  try {
+    if (typeof kerbenWaitForAuth === 'function') {
+      await kerbenWaitForAuth();
+    }
+
+    // Лимит 2000 — защита от случайной выгрузки огромной коллекции
+    const snapshot = await db.collection('agents').limit(2000).get();
+    agents = [];
+    snapshot.forEach(doc => {
+      const data = doc.data() || {};
+      agents.push({
+        id: doc.id,
+        name: data.name || '',
+        phone: data.phone || '',
+        email: data.email || '',
+        password: data.password || null,
+        passwordHash: data.passwordHash || null,
+        createdAt: data.createdAt || null,
+        active: data.active !== false // по умолчанию active = true
+      });
+    });
+
+    agents.sort((a, b) => {
+      const ta = typeof a.createdAt === 'number' ? a.createdAt : 0;
+      const tb = typeof b.createdAt === 'number' ? b.createdAt : 0;
+      return tb - ta;
+    });
+
+    updateStats();
+    filterAgents();
+  } catch (error) {
+    console.error('Ошибка загрузки агентов:', error);
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">❌</div>
+        <p>Ошибка загрузки: ${escapeHtml(error.message || error)}</p>
+        <p style="margin-top:8px;font-size:13px;">Убедитесь, что вы вошли как администратор</p>
+      </div>
+    `;
+  }
+}
+
+function updateStats() {
+  document.getElementById('statTotal').textContent = agents.length;
+  document.getElementById('statActive').textContent = agents.filter(a => a.active).length;
+  document.getElementById('statBlocked').textContent = agents.filter(a => !a.active).length;
+
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  document.getElementById('statWeek').textContent = agents.filter(a => {
+    const t = typeof a.createdAt === 'number' ? a.createdAt : 0;
+    return t >= weekAgo;
+  }).length;
+}
+
+function filterAgents() {
+  const q = (document.getElementById('searchAgent').value || '').trim().toLowerCase();
+  const status = document.getElementById('filterStatus').value;
+
+  filteredAgents = agents.filter(a => {
+    // Фильтр по статусу
+    if (status === 'active' && !a.active) return false;
+    if (status === 'blocked' && a.active) return false;
+
+    // Поиск по строке
+    if (q) {
+      const hay = [
+        a.name, a.phone, a.email,
+        a.password || '', a.id
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
+    }
+    return true;
+  });
+
+  renderAgents();
+}
+
+function renderAgents() {
+  const container = document.getElementById('agentsContainer');
+
+  if (!filteredAgents.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">👥</div>
+        <p>${agents.length ? 'Ничего не найдено' : 'Агентов пока нет'}</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = filteredAgents.map(a => {
+    const pwd = getPasswordDisplay(a);
+    const pwdBadge = pwd.kind === 'plain'
+      ? '<span class="badge badge-plain">открытый пароль</span>'
+      : (pwd.kind === 'hash' ? '<span class="badge badge-hash">хеш</span>' : '');
+    const statusBadge = a.active
+      ? '<span class="badge badge-active">✓ Активен</span>'
+      : '<span class="badge badge-blocked">🔒 Заблокирован</span>';
+
+    return `
+      <div class="agent-card ${a.active ? '' : 'blocked-card'}" data-id="${escapeHtml(a.id)}">
+        <div class="agent-header">
+          <div class="agent-info">
+            <h3>${escapeHtml(a.name || 'Без имени')}${statusBadge}${pwdBadge}</h3>
+            <p>📱 ${escapeHtml(a.phone || '—')}</p>
+            <p class="muted">ID: ${escapeHtml(a.id)}</p>
+          </div>
+        </div>
+        <div class="agent-body">
+          <div class="row"><span class="label">🔑 Пароль</span><span class="val password-val">${escapeHtml(pwd.text)}</span></div>
+          <div class="row"><span class="label">📅 Регистрация</span><span class="val">${escapeHtml(formatDate(a.createdAt))}</span></div>
+          ${a.email ? `<div class="row"><span class="label">✉️ Email</span><span class="val">${escapeHtml(a.email)}</span></div>` : ''}
+        </div>
+        <div class="agent-actions">
+          <button type="button" class="btn-edit" onclick="editAgent('${escapeHtml(a.id)}')">✏️ Изменить</button>
+          <button type="button" class="btn-copy" onclick="copyAgentData('${escapeHtml(a.id)}')">📋 Копировать</button>
+          ${a.active
+            ? `<button type="button" class="btn-block" onclick="toggleAgent('${escapeHtml(a.id)}', false)">🔒 Заблокировать</button>`
+            : `<button type="button" class="btn-unblock" onclick="toggleAgent('${escapeHtml(a.id)}', true)">🔓 Разблокировать</button>`}
+          <button type="button" class="btn-delete" onclick="deleteAgent('${escapeHtml(a.id)}')">🗑️ Удалить</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function findAgent(id) {
+  return agents.find(a => a.id === id);
+}
+
+async function copyAgentData(id) {
+  const a = findAgent(id);
+  if (!a) return;
+  const pwd = getPasswordDisplay(a);
+  const text = [
+    `Имя: ${a.name || ''}`,
+    `Телефон: ${a.phone || ''}`,
+    `Пароль: ${pwd.text}`,
+    `Статус: ${a.active ? 'Активен' : 'Заблокирован'}`,
+    `ID: ${a.id}`,
+    `Регистрация: ${formatDate(a.createdAt)}`
+  ].join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    Swal.fire({ icon: 'success', title: 'Скопировано', timer: 1200, showConfirmButton: false });
+  } catch (e) {
+    Swal.fire('Данные агента', `<pre style="text-align:left;white-space:pre-wrap;">${escapeHtml(text)}</pre>`, 'info');
+  }
+}
+
+async function editAgent(id) {
+  const a = findAgent(id);
+  if (!a) return;
+
+  const pwd = getPasswordDisplay(a);
+  const result = await Swal.fire({
+    title: '✏️ Изменить данные агента',
+    html: `
+      <div style="text-align:left; font-size:14px;">
+        <p style="margin:0 0 12px; color:#7b1fa2; background:#f3e5f5; padding:10px; border-radius:8px;">
+          Меняются данные <b>только этого</b> агента (ID: ${escapeHtml(a.id)}). Остальные агенты не затрагиваются.
+        </p>
+
+        <label style="display:block; margin:0 0 4px; font-weight:600;">👤 Имя</label>
+        <input id="editAgentName" value="${escapeHtml(a.name || '')}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:12px; box-sizing:border-box;">
+
+        <label style="display:block; margin:0 0 4px; font-weight:600;">📱 Телефон</label>
+        <input id="editAgentPhone" value="${escapeHtml(a.phone || '')}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:12px; box-sizing:border-box;">
+
+        <label style="display:block; margin:0 0 4px; font-weight:600;">🔑 Пароль</label>
+        <input id="editAgentPassword" type="text" placeholder="${pwd.kind === 'hash' ? 'Оставьте пустым, чтобы не менять (сейчас хеш)' : 'Оставьте пустым, чтобы не менять'}" value="${pwd.kind === 'plain' ? escapeHtml(a.password || '') : ''}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:6px; box-sizing:border-box;">
+        <div style="font-size:12px; color:#666;">
+          ${pwd.kind === 'hash'
+            ? 'Сейчас пароль хранится как хеш — показать его нельзя. Введите новый, чтобы сменить.'
+            : 'Если поле пустое — пароль не меняется.'}
+        </div>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Сохранить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#9c27b0',
+    focusConfirm: false,
+    preConfirm: () => {
+      const name = (document.getElementById('editAgentName').value || '').trim();
+      const phone = (document.getElementById('editAgentPhone').value || '').trim();
+      const password = (document.getElementById('editAgentPassword').value || '').trim();
+
+      if (!name) {
+        Swal.showValidationMessage('Введите имя');
+        return false;
+      }
+      if (!phone) {
+        Swal.showValidationMessage('Введите телефон');
+        return false;
+      }
+      return { name, phone, password };
+    }
+  });
+
+  if (!result.isConfirmed || !result.value) return;
+
+  const { name, phone, password } = result.value;
+
+  try {
+    Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+    if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+
+    // Проверяем, не занят ли новый номер другим агентом
+    if (phone !== (a.phone || '')) {
+      const dup = await db.collection('agents')
+        .where('phone', '==', phone)
+        .limit(2)
+        .get();
+      const takenByOther = dup.docs.some(d => d.id !== a.id);
+      if (takenByOther) {
+        Swal.fire('Ошибка', 'Этот номер уже занят другим агентом', 'error');
+        return;
+      }
+    }
+
+    const update = { name, phone };
+
+    // Пароль: только если админ что-то ввёл. Сохраняем в том же формате,
+    // в котором работает система авторизации агентов (agent-profit.html) —
+    // plain text в поле `password`. Старый passwordHash удаляем, если был.
+    if (password) {
+      update.password = password;
+      if (a.passwordHash) {
+        update.passwordHash = firebase.firestore.FieldValue.delete();
+      }
+    }
+
+    await db.collection('agents').doc(a.id).update(update);
+
+    // Обновляем локальный список только этого агента
+    const idx = agents.findIndex(x => x.id === a.id);
+    if (idx !== -1) {
+      agents[idx].name = name;
+      agents[idx].phone = phone;
+      if (password) {
+        agents[idx].password = password;
+        agents[idx].passwordHash = null;
+      }
+    }
+
+    updateStats();
+    filterAgents();
+
+    Swal.fire({
+      icon: 'success',
+      title: 'Сохранено',
+      html: `Данные агента <b>${escapeHtml(name)}</b> обновлены.<br><span style="font-size:13px;color:#666;">У остальных агентов ничего не изменилось.</span>`,
+      timer: 2200,
+      showConfirmButton: false
+    });
+  } catch (error) {
+    console.error('Ошибка сохранения агента:', error);
+    Swal.fire('Ошибка', error.message || 'Не удалось сохранить', 'error');
+  }
+}
+
+async function toggleAgent(id, activate) {
+  const a = findAgent(id);
+  if (!a) return;
+
+  const result = await Swal.fire({
+    title: activate ? '🔓 Разблокировать агента?' : '🔒 Заблокировать агента?',
+    html: `Агент <b>${escapeHtml(a.name || a.phone)}</b> ${activate ? 'снова сможет' : 'больше не сможет'} входить в систему.`,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: activate ? 'Разблокировать' : 'Заблокировать',
+    confirmButtonColor: activate ? '#16a34a' : '#f59e0b',
+    cancelButtonText: 'Отмена'
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+    await db.collection('agents').doc(a.id).update({ active: activate });
+    const idx = agents.findIndex(x => x.id === a.id);
+    if (idx !== -1) agents[idx].active = activate;
+    updateStats();
+    filterAgents();
+    Swal.fire({ icon: 'success', title: activate ? 'Разблокирован' : 'Заблокирован', timer: 1400, showConfirmButton: false });
+  } catch (error) {
+    console.error('Ошибка изменения статуса:', error);
+    Swal.fire('Ошибка', error.message || 'Не удалось изменить статус', 'error');
+  }
+}
+
+async function deleteAgent(id) {
+  const a = findAgent(id);
+  if (!a) return;
+
+  const result = await Swal.fire({
+    title: '🗑️ Удалить агента?',
+    html: `Будет удалён только агент <strong>${escapeHtml(a.name || a.phone)}</strong>. История его заказов и выплат сохранится.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Удалить',
+    confirmButtonColor: '#dc3545',
+    cancelButtonText: 'Отмена'
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
+    await db.collection('agents').doc(a.id).delete();
+    agents = agents.filter(x => x.id !== a.id);
+    updateStats();
+    filterAgents();
+    Swal.fire({ icon: 'success', title: 'Удалён', timer: 1400, showConfirmButton: false });
+  } catch (error) {
+    console.error('Ошибка удаления:', error);
+    Swal.fire('Ошибка', error.message || 'Не удалось удалить', 'error');
+  }
+}
+</script>
+
+</body>
+</html>

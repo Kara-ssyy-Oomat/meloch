@@ -676,8 +676,255 @@
       }
     });
     
+    // ============ АГЕНТ ============
+    // Если пользователь зарегистрирован как агент (localStorage.currentAgent),
+    // то при оформлении заказа он ВСЕГДА вводит данные клиента отдельно,
+    // а не использует свои личные данные из профиля. Это чтобы:
+    //   1) В заказе значилось имя/телефон/адрес КЛИЕНТА, а не агента.
+    //   2) Данные клиента НЕ перезаписывали профиль агента
+    //      (userData / customerData / PersistProfile остаются его).
+    function isAgentUser() {
+      try {
+        const raw = localStorage.getItem('currentAgent');
+        if (!raw) return false;
+        const a = JSON.parse(raw);
+        return !!(a && a.id && a.name);
+      } catch(e) { return false; }
+    }
+
+    function getAgentInfo() {
+      try {
+        const raw = localStorage.getItem('currentAgent');
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch(e) { return null; }
+    }
+
+    // ---- Список клиентов агента (для автозаполнения при след. заказах) ----
+    // Хранится в localStorage.agentClients как массив { name, phone, address, updatedAt }.
+    // Обновляется/добавляется КАЖДЫЙ раз, когда агент оформил заказ.
+    // Не смешивается с профилем самого агента (userData/customerData).
+    function _normalizePhoneKey(phone) {
+      return String(phone || '').replace(/\D/g, '');
+    }
+
+    function getAgentClients() {
+      try {
+        const raw = localStorage.getItem('agentClients');
+        if (raw) {
+          const arr = JSON.parse(raw);
+          if (Array.isArray(arr)) return arr;
+        }
+      } catch(e) {}
+      // Миграция из старого ключа agentLastClient (одиночная запись)
+      try {
+        const last = JSON.parse(localStorage.getItem('agentLastClient') || 'null');
+        if (last && last.name && last.phone) {
+          return [{ name: last.name, phone: last.phone, address: last.address || '', updatedAt: Date.now() }];
+        }
+      } catch(e) {}
+      return [];
+    }
+
+    function saveAgentClient(data) {
+      try {
+        if (!data || !data.name || !data.phone) return;
+        const list = getAgentClients();
+        const phoneKey = _normalizePhoneKey(data.phone);
+        if (!phoneKey) return;
+        const idx = list.findIndex(c => _normalizePhoneKey(c.phone) === phoneKey);
+        const record = {
+          name: String(data.name).trim(),
+          phone: String(data.phone).trim(),
+          address: String(data.address || '').trim(),
+          updatedAt: Date.now()
+        };
+        if (idx >= 0) {
+          list[idx] = { ...list[idx], ...record };
+        } else {
+          list.push(record);
+        }
+        // Недавние — вверху; ограничение 500 клиентов
+        list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        if (list.length > 500) list.length = 500;
+        localStorage.setItem('agentClients', JSON.stringify(list));
+        // Для обратной совместимости — также обновляем «последний клиент»
+        localStorage.setItem('agentLastClient', JSON.stringify(record));
+      } catch(e) {}
+    }
+
+    // Оставлено для обратной совместимости (первый диалог показывал ссылку
+    // «Заполнить последнего клиента», теперь используется getAgentClients).
+    function getAgentLastClient() {
+      try {
+        const raw = localStorage.getItem('agentLastClient');
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch(e) { return null; }
+    }
+
+    function saveAgentLastClient(data) { saveAgentClient(data); }
+
+    // ---- Поиск клиентов агента (для автоподсказок) ----
+    // Умеет:
+    //   • точное совпадение подстроки (fast path)
+    //   • fuzzy match: буквы запроса идут в правильном порядке в имени
+    //     (например «иля» → «Илья», «ali» → «Almazbek», и т.п.)
+    //   • поиск по имени, телефону, адресу
+    function _agentSearchNormalize(s) {
+      return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    function _agentSubsequenceMatch(query, target) {
+      // Все символы query встречаются в target в правильном порядке
+      let qi = 0;
+      for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+        if (target[ti] === query[qi]) qi++;
+      }
+      return qi === query.length;
+    }
+
+    function searchAgentClients(query, limit) {
+      const q = _agentSearchNormalize(query);
+      if (!q) return [];
+      const list = getAgentClients();
+      const qDigits = q.replace(/\D/g, '');
+      const scored = [];
+      for (const c of list) {
+        const nameN = _agentSearchNormalize(c.name);
+        const addressN = _agentSearchNormalize(c.address);
+        const phoneDigits = _normalizePhoneKey(c.phone);
+
+        let score = 0;
+        // 1) Точный префикс по имени — самый высокий приоритет
+        if (nameN.startsWith(q)) score = 100;
+        // 2) Подстрока в имени
+        else if (nameN.includes(q)) score = 80;
+        // 3) Телефон по цифрам (например «707» → +996 707 ...)
+        else if (qDigits && phoneDigits.includes(qDigits)) score = 70;
+        // 4) Подстрока в адресе
+        else if (addressN.includes(q)) score = 50;
+        // 5) Fuzzy по имени (буквы в правильном порядке)
+        else if (_agentSubsequenceMatch(q, nameN)) score = 30;
+
+        if (score > 0) {
+          scored.push({ client: c, score });
+        }
+      }
+      // Сортировка: по score (убывание), потом по updatedAt (свежие сверху)
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (b.client.updatedAt || 0) - (a.client.updatedAt || 0);
+      });
+      const max = limit || 8;
+      return scored.slice(0, max).map(x => x.client);
+    }
+
+    function _agentEscapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])
+      );
+    }
+
+    // Подключить автоподсказки к SweetAlert-форме заказа (только для агентов).
+    // Ищет по имени/телефону/адресу. Выпадающий список появляется прямо под
+    // тем полем, в котором пользователь сейчас печатает (перемещается по DOM).
+    // При клике по подсказке — все три поля (имя/телефон/адрес) заполняются.
+    // Все слушатели вешаются с AbortSignal — их автоматически снесёт cleanup()
+    // (вызывается из willClose SweetAlert), чтобы не было утечек памяти.
+    function setupAgentClientAutocomplete() {
+      const nameInput = document.getElementById('swal-name');
+      const phoneInput = document.getElementById('swal-phone');
+      const addressInput = document.getElementById('swal-address');
+      const suggestBox = document.getElementById('swal-agent-suggest');
+      if (!nameInput || !phoneInput || !addressInput || !suggestBox) {
+        return function noop() {};
+      }
+
+      const abortController = (typeof AbortController !== 'undefined')
+        ? new AbortController() : null;
+      const signal = abortController ? abortController.signal : undefined;
+
+      const allInputs = [nameInput, phoneInput, addressInput];
+      let currentMatches = [];
+
+      function hide() {
+        try { suggestBox.style.display = 'none'; } catch(e) {}
+      }
+
+      // Перемещаем бокс подсказок в контейнер активного поля,
+      // чтобы он появлялся прямо под нужным input.
+      function moveSuggestBoxTo(input) {
+        const parent = input.parentElement;
+        if (parent && suggestBox.parentElement !== parent) {
+          parent.appendChild(suggestBox);
+        }
+      }
+
+      function renderFor(input, query) {
+        moveSuggestBoxTo(input);
+        currentMatches = searchAgentClients(query, 8);
+        if (currentMatches.length === 0) { hide(); return; }
+        suggestBox.innerHTML = currentMatches.map((c, i) => `
+          <div class="agent-suggest-item" data-idx="${i}" style="padding:10px 12px; cursor:pointer; border-bottom:1px solid #f0f0f0; transition:background 0.1s;">
+            <div style="font-weight:600; font-size:14px; color:#333;">${_agentEscapeHtml(c.name)}</div>
+            <div style="font-size:12px; color:#666; margin-top:2px;">📞 ${_agentEscapeHtml(c.phone)}</div>
+            ${c.address ? `<div style="font-size:11px; color:#888; margin-top:2px;">📍 ${_agentEscapeHtml(c.address)}</div>` : ''}
+          </div>
+        `).join('');
+        suggestBox.style.display = 'block';
+        // innerHTML заменил всё содержимое — новые обработчики привязываем к
+        // свежим DOM-узлам. Старые уничтожаются вместе со старыми узлами.
+        suggestBox.querySelectorAll('.agent-suggest-item').forEach(el => {
+          // mousedown — чтобы сработать ДО blur input (иначе suggestBox спрячется)
+          el.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const idx = parseInt(el.dataset.idx, 10);
+            const c = currentMatches[idx];
+            if (!c) return;
+            nameInput.value = c.name || '';
+            phoneInput.value = c.phone || '';
+            addressInput.value = c.address || '';
+            hide();
+          }, signal ? { signal } : undefined);
+          el.addEventListener('mouseenter', () => { el.style.background = '#f5f5f5'; }, signal ? { signal } : undefined);
+          el.addEventListener('mouseleave', () => { el.style.background = '#fff'; }, signal ? { signal } : undefined);
+        });
+      }
+
+      // Подписываемся на все три поля
+      allInputs.forEach(inp => {
+        inp.addEventListener('input', () => renderFor(inp, inp.value), signal ? { signal } : undefined);
+        inp.addEventListener('focus', () => renderFor(inp, inp.value), signal ? { signal } : undefined);
+      });
+
+      // Скрываем при клике вне поля/списка
+      const outsideHandler = (e) => {
+        if (suggestBox.contains(e.target)) return;
+        if (allInputs.includes(e.target)) return;
+        hide();
+      };
+      document.addEventListener('mousedown', outsideHandler, signal ? { signal } : undefined);
+
+      // Cleanup: вызвать в willClose SweetAlert, чтобы снести все обработчики
+      return function cleanup() {
+        try {
+          if (abortController) {
+            abortController.abort();
+          } else {
+            // Фоллбэк для старых браузеров без AbortController
+            document.removeEventListener('mousedown', outsideHandler);
+          }
+        } catch(e) {}
+      };
+    }
+
     // Получение данных клиента из профиля / localStorage
     function getCustomerData() {
+      // Если это АГЕНТ — не подставляем данные из его профиля,
+      // всегда будем показывать форму ввода данных клиента.
+      if (isAgentUser()) return null;
+
       // 1. Сначала из customerData (авторизованный клиент)
       try {
         const customer = JSON.parse(localStorage.getItem('customerData') || 'null');
@@ -795,24 +1042,51 @@
       let customerInfo = getCustomerData();
       const driverInfo = getDriverData();
       const savedRef = localStorage.getItem('savedReferredBy') || '';
-      
+
+      // === АГЕНТ ===
+      // Если пользователь — агент, вместо своих данных всегда просим ввести
+      // данные КЛИЕНТА (имя, телефон, адрес). Показываем баннер сверху
+      // и (если есть) автоподсказки из ранее сохранённых клиентов.
+      const isAgent = isAgentUser();
+      const agentInfo = isAgent ? getAgentInfo() : null;
+      const agentClientsCount = isAgent ? getAgentClients().length : 0;
+
+      const agentBannerHtml = agentInfo ? `
+        <div style="background:linear-gradient(135deg,#fff3e0,#ffe0b2); border:2px solid #ff9800; padding:12px; border-radius:10px; margin-bottom:14px; text-align:left;">
+          <div style="font-size:14px; font-weight:700; color:#e65100; margin-bottom:4px;">👤 Заказ от агента: ${_agentEscapeHtml(agentInfo.name)}</div>
+          <div style="font-size:12px; color:#bf360c;">Введите данные <b>КЛИЕНТА</b>, для которого оформляете заказ.</div>
+          ${agentClientsCount > 0 ? `<div style="margin-top:6px; font-size:11px; color:#795548;">💡 Сохранено клиентов: <b>${agentClientsCount}</b>. Начните вводить имя или телефон — появятся подсказки.</div>` : ''}
+        </div>` : '';
+
+      const customerFieldLabels = isAgent
+        ? { name: 'Имя клиента', phone: 'Телефон клиента', address: 'Адрес клиента' }
+        : { name: 'Ваше имя', phone: 'Телефон', address: 'Адрес доставки' };
+
+      // Блок автоподсказок — только для агентов (пустой div, наполняется JS-ом
+      // в didOpen через setupAgentClientAutocomplete()).
+      const agentSuggestBoxHtml = isAgent ? `
+        <div id="swal-agent-suggest" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #ddd; border-radius:8px; max-height:240px; overflow-y:auto; z-index:9999; display:none; box-shadow:0 6px 20px rgba(0,0,0,0.15); margin-top:4px;"></div>
+      ` : '';
+
       // Если данных нет — спрашиваем через диалог
       if (!customerInfo || !customerInfo.name || !customerInfo.phone) {
         const result = await Swal.fire({
-          title: '📋 Данные для заказа',
+          title: isAgent ? '📋 Данные клиента' : '📋 Данные для заказа',
           html: `
             <div style="text-align:left;">
-              <div style="margin-bottom:12px;">
-                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">Ваше имя *</label>
-                <input type="text" id="swal-name" value="${customerInfo?.name || ''}" placeholder="Введите имя" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+              ${agentBannerHtml}
+              <div style="margin-bottom:12px; position:relative;">
+                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">${customerFieldLabels.name} *</label>
+                <input type="text" id="swal-name" autocomplete="off" value="${customerInfo?.name || ''}" placeholder="${isAgent ? 'Имя клиента' : 'Введите имя'}" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
               </div>
-              <div style="margin-bottom:12px;">
-                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">Телефон *</label>
-                <input type="tel" id="swal-phone" value="${customerInfo?.phone || ''}" placeholder="+996 ..." style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+              <div style="margin-bottom:12px; position:relative;">
+                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">${customerFieldLabels.phone} *</label>
+                <input type="tel" id="swal-phone" autocomplete="off" value="${customerInfo?.phone || ''}" placeholder="+996 ..." style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+                ${agentSuggestBoxHtml}
               </div>
-              <div style="margin-bottom:12px;">
-                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">Адрес доставки *</label>
-                <input type="text" id="swal-address" value="${customerInfo?.address || ''}" placeholder="Город, улица, дом" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+              <div style="margin-bottom:12px; position:relative;">
+                <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">${customerFieldLabels.address} *</label>
+                <input type="text" id="swal-address" autocomplete="off" value="${customerInfo?.address || ''}" placeholder="Город, улица, дом" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
               </div>
               <hr style="border:none; border-top:1px solid #eee; margin:14px 0;">
               <div style="margin-bottom:10px;">
@@ -829,6 +1103,22 @@
           confirmButtonText: '📦 Отправить заказ',
           cancelButtonText: 'Отмена',
           confirmButtonColor: '#4CAF50',
+          didOpen: () => {
+            // Автоподсказки клиентов (только для агентов).
+            // Сохраняем cleanup, чтобы снести обработчики при закрытии диалога.
+            if (isAgent) {
+              const cleanup = setupAgentClientAutocomplete();
+              const popup = Swal.getPopup();
+              if (popup) popup.__agentAutocompleteCleanup = cleanup;
+            }
+          },
+          willClose: () => {
+            const popup = Swal.getPopup();
+            if (popup && typeof popup.__agentAutocompleteCleanup === 'function') {
+              try { popup.__agentAutocompleteCleanup(); } catch(e) {}
+              popup.__agentAutocompleteCleanup = null;
+            }
+          },
           preConfirm: () => {
             const n = document.getElementById('swal-name').value.trim();
             const p = document.getElementById('swal-phone').value.trim();
@@ -852,8 +1142,9 @@
           title: '📦 Подтвердите заказ',
           html: `
             <div style="text-align:left; font-size:14px;">
+              ${agentBannerHtml}
               <div style="background:#f0f7f0; padding:14px; border-radius:10px; margin-bottom:12px;">
-                <div style="font-weight:700; margin-bottom:6px;">👤 ${customerInfo.name}</div>
+                <div style="font-weight:700; margin-bottom:6px;">${isAgent ? '👤 Клиент: ' : '👤 '}${customerInfo.name}</div>
                 <div style="color:#555;">📞 ${customerInfo.phone}</div>
                 <div style="color:#555;">📍 ${customerInfo.address || 'Не указан'}</div>
                 ${driverInfo.driverName ? '<div style="color:#17a2b8; margin-top:6px;">🚗 ' + driverInfo.driverName + (driverInfo.driverPhone ? ' • ' + driverInfo.driverPhone : '') + '</div>' : ''}
@@ -877,20 +1168,22 @@
         if (result.dismiss === 'change') {
           // Открываем форму редактирования
           const editResult = await Swal.fire({
-            title: '✏️ Изменить данные',
+            title: isAgent ? '✏️ Данные клиента' : '✏️ Изменить данные',
             html: `
               <div style="text-align:left;">
-                <div style="margin-bottom:12px;">
-                  <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">Имя *</label>
-                  <input type="text" id="swal-name" value="${customerInfo.name}" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+                ${agentBannerHtml}
+                <div style="margin-bottom:12px; position:relative;">
+                  <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">${customerFieldLabels.name} *</label>
+                  <input type="text" id="swal-name" autocomplete="off" value="${customerInfo.name}" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
                 </div>
-                <div style="margin-bottom:12px;">
-                  <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">Телефон *</label>
-                  <input type="tel" id="swal-phone" value="${customerInfo.phone}" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+                <div style="margin-bottom:12px; position:relative;">
+                  <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">${customerFieldLabels.phone} *</label>
+                  <input type="tel" id="swal-phone" autocomplete="off" value="${customerInfo.phone}" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+                  ${agentSuggestBoxHtml}
                 </div>
-                <div style="margin-bottom:12px;">
-                  <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">Адрес *</label>
-                  <input type="text" id="swal-address" value="${customerInfo.address}" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
+                <div style="margin-bottom:12px; position:relative;">
+                  <label style="display:block; margin-bottom:4px; font-weight:600; font-size:13px;">${customerFieldLabels.address} *</label>
+                  <input type="text" id="swal-address" autocomplete="off" value="${customerInfo.address}" style="width:100%; padding:12px; border:2px solid #4CAF50; border-radius:8px; font-size:16px; box-sizing:border-box;">
                 </div>
                 <hr style="border:none; border-top:1px solid #eee; margin:14px 0;">
                 <div style="margin-bottom:10px;">
@@ -904,6 +1197,20 @@
             confirmButtonText: '📦 Отправить',
             cancelButtonText: 'Отмена',
             confirmButtonColor: '#4CAF50',
+            didOpen: () => {
+              if (isAgent) {
+                const cleanup = setupAgentClientAutocomplete();
+                const popup = Swal.getPopup();
+                if (popup) popup.__agentAutocompleteCleanup = cleanup;
+              }
+            },
+            willClose: () => {
+              const popup = Swal.getPopup();
+              if (popup && typeof popup.__agentAutocompleteCleanup === 'function') {
+                try { popup.__agentAutocompleteCleanup(); } catch(e) {}
+                popup.__agentAutocompleteCleanup = null;
+              }
+            },
             preConfirm: () => {
               const n = document.getElementById('swal-name').value.trim();
               const p = document.getElementById('swal-phone').value.trim();
@@ -1024,6 +1331,11 @@
         // Поиск партнёра — с таймаутом 3 сек (не блокируем заказ)
         let partner = getCurrentPartner();
         if (!partner && referredBy) partner = referredBy;
+        // Если заказ оформляет сам агент — партнёром автоматически становится он
+        // (его комиссия/статистика привяжется к этому заказу).
+        if (!partner && agentInfo && agentInfo.name) {
+          partner = agentInfo.name;
+        }
         if (!partner && phone) {
           try {
             const agentPromise = db.collection('clientAgents').doc(phone).get();
@@ -1188,6 +1500,17 @@
           total, timestamp: Date.now(), time: currentTime,
           status: isUnfulfilledOrder ? 'unfulfilled' : 'pending',
           partner: partner || null, referredBy: referredBy || null,
+          // Кто оформил заказ. Если это агент со своего планшета — тут его
+          // данные. В карточке заказа админ увидит, что имя/телефон в
+          // заказе это КЛИЕНТ, а оформлял его агент.
+          placedByAgent: agentInfo ? {
+            id: agentInfo.id,
+            name: agentInfo.name,
+            phone: agentInfo.phone || null
+          } : null,
+          placedByAgentId: agentInfo ? agentInfo.id : null,
+          placedByAgentName: agentInfo ? agentInfo.name : null,
+          agentId: agentInfo ? agentInfo.id : null,
           stockDeducted: false,
           // stockDeductionStatus ВСЕГДА 'pending' — так требуют правила Firestore
           // (клиент не может подделать статус списания). Для unfulfilled-заказов
@@ -1354,8 +1677,26 @@
 
         // ============ ВСЁ НИЖЕ — ФОНОВОЕ (fire-and-forget) ============
 
-        // Сохраняем данные пользователя (синхронно, мгновенно)
-        localStorage.setItem('userData', JSON.stringify({ name, phone, address, driverName, driverPhone }));
+        // Сохраняем данные пользователя (синхронно, мгновенно).
+        // ВАЖНО: если заказ оформляет агент — НЕ перезаписываем его userData
+        // данными клиента, иначе в профиле агента поменяется имя/телефон/адрес
+        // на данные последнего клиента. Вместо этого сохраняем клиента
+        // в отдельный список `agentClients` — оттуда работают автоподсказки
+        // при вводе имени/телефона в следующих заказах.
+        if (agentInfo) {
+          saveAgentClient({ name, phone, address });
+          // Водитель/телефон водителя относятся к самому агенту (его планшет),
+          // поэтому их можно спокойно сохранить в его userData —
+          // но НЕ имя/телефон/адрес.
+          try {
+            const existingUserData = JSON.parse(localStorage.getItem('userData') || '{}');
+            existingUserData.driverName = driverName || existingUserData.driverName || '';
+            existingUserData.driverPhone = driverPhone || existingUserData.driverPhone || '';
+            localStorage.setItem('userData', JSON.stringify(existingUserData));
+          } catch(e) {}
+        } else {
+          localStorage.setItem('userData', JSON.stringify({ name, phone, address, driverName, driverPhone }));
+        }
 
         saveOrderToHistory({
           name, phone, address, driverName: driverName || null, driverPhone: driverPhone || null,
@@ -1371,6 +1712,15 @@
         } catch(e) {}
 
         // Авторегистрация клиента — ФОНОВО (не блокируем UI)
+        // ВАЖНО: если заказ оформлял АГЕНТ, то:
+        //   • firebaseUid НЕ привязываем к записи клиента (это UID агента,
+        //     иначе клиент будет доступен под аккаунтом агента).
+        //   • localStorage.customerData и PersistProfile НЕ трогаем —
+        //     иначе профиль агента заменится на данные клиента.
+        //   • passwordHash тоже не проставляем (это придумывается автоматом
+        //     от номера — но для клиента, введённого агентом, пусть клиент
+        //     сам зарегистрируется, если захочет).
+        const _isPlacedByAgent = !!agentInfo;
         (async function _bgCustomerReg() {
           try {
             const normalizedPhone = phone.replace(/[^\d+]/g, '');
@@ -1379,7 +1729,7 @@
                            normalizedPhone.startsWith('996') ? '+' + normalizedPhone : '+996' + normalizedPhone;
             
             const _autoPwd = nPhone.slice(-4);
-            const _autoPwdHash = (typeof _hashCustomerPassword === 'function')
+            const _autoPwdHash = (!_isPlacedByAgent && typeof _hashCustomerPassword === 'function')
               ? await _hashCustomerPassword(_autoPwd, nPhone)
               : null;
 
@@ -1400,19 +1750,25 @@
                 createdAt: Date.now()
               };
               if (_autoPwdHash) newCustomer.passwordHash = _autoPwdHash;
-              if (_curUid) newCustomer.firebaseUid = _curUid;
+              // Привязываем firebaseUid ТОЛЬКО если заказ делает сам клиент.
+              // Иначе (агент оформляет за клиента) — оставляем без UID.
+              if (_curUid && !_isPlacedByAgent) newCustomer.firebaseUid = _curUid;
+              if (_isPlacedByAgent && agentInfo) {
+                newCustomer.registeredByAgentId = agentInfo.id;
+                newCustomer.registeredByAgentName = agentInfo.name;
+              }
               await db.collection('customers').doc(nPhone).set(newCustomer);
             } else {
               const existingData = customerDoc.data() || {};
               let _canUpdate = true;
-              if (_curUid && !existingData.firebaseUid) {
+              if (_curUid && !existingData.firebaseUid && !_isPlacedByAgent) {
                 try {
                   await db.collection('customers').doc(nPhone).update({ firebaseUid: _curUid });
                 } catch (e) {
                   console.warn('[cart] не удалось привязать firebaseUid:', e && e.message);
                   _canUpdate = false;
                 }
-              } else if (existingData.firebaseUid && _curUid && existingData.firebaseUid !== _curUid) {
+              } else if (existingData.firebaseUid && _curUid && existingData.firebaseUid !== _curUid && !_isPlacedByAgent) {
                 _canUpdate = false;
               }
               if (_canUpdate) {
@@ -1428,12 +1784,19 @@
               }
             }
             
-            const customerDataForProfile = {
-              id: nPhone, name, phone: nPhone, address: address || '', createdAt: Date.now()
-            };
-            try { localStorage.setItem('customerData', JSON.stringify(customerDataForProfile)); } catch(e) {}
-            if (window.PersistProfile) window.PersistProfile.save(customerDataForProfile);
-            console.log('[Cart] ✅ Профиль клиента сохранён');
+            // Профиль в localStorage / PersistProfile обновляем ТОЛЬКО когда
+            // заказ оформляет сам клиент. Для агента — не трогаем, чтобы
+            // не затереть его собственные данные.
+            if (!_isPlacedByAgent) {
+              const customerDataForProfile = {
+                id: nPhone, name, phone: nPhone, address: address || '', createdAt: Date.now()
+              };
+              try { localStorage.setItem('customerData', JSON.stringify(customerDataForProfile)); } catch(e) {}
+              if (window.PersistProfile) window.PersistProfile.save(customerDataForProfile);
+              console.log('[Cart] ✅ Профиль клиента сохранён');
+            } else {
+              console.log('[Cart] 👤 Заказ от агента — профиль клиента в customers, локальный профиль агента не тронут');
+            }
           } catch(e) { console.log('Customer update error:', e); }
         })();
 

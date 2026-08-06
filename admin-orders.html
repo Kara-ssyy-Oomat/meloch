@@ -798,6 +798,7 @@ function createOrderCard(order, index) {
         `}
         
         ${order.partner || order.referredBy ? `<div style="margin-top:8px;"><span style="font-size:11px; background:#e3f2fd; color:#1976d2; padding:3px 8px; border-radius:4px;">🤝 ${order.partner || order.referredBy}</span></div>` : ''}
+        ${order.placedByAgentName || (order.placedByAgent && order.placedByAgent.name) ? `<div style="margin-top:6px;"><span style="font-size:11px; background:#fff3e0; color:#e65100; padding:3px 8px; border-radius:4px; border:1px solid #ffcc80;">👤 Оформил агент: ${order.placedByAgentName || order.placedByAgent.name}</span></div>` : ''}
       </div>
     </div>
   `;
