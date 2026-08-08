@@ -991,17 +991,19 @@ async function updateOrderStatus(orderId, newStatus) {
     }
 
     // === СЦЕНАРИЙ 2: Отменён → Активный — предлагаем списать со склада заново ===
-    // (returnStockFromOrder при отмене уже сбросил флаги списания, значит
-    //  Cloud Function manualDeductOrderStock спишет всё как «свежий» заказ)
+    // (returnStockFromOrder при отмене сбросил флаги списания в 0, значит
+    //  Cloud Function manualDeductOrderStock корректно спишет всё как «свежий»
+    //  заказ. Она сама пропустит уже-списанные товары через stockDeductionProcessedIds).
+    //
+    // ВАЖНО: раньше проверял wasEverDeducted через stockDeducted/warehouseDeductions,
+    // но после сброса флагов при отмене все эти проверки становятся false,
+    // и диалог никогда бы не показался. Теперь показываем всегда, если у заказа
+    // есть товары. Админ сам решает: списать сейчас или позже (кнопка «🔽 Списать
+    // сейчас» на карточке всегда останется доступной).
     let shouldRededuct = false;
     if (wasCancelled && !willBeCancelled) {
-      // Показываем предупреждение только если товары РАНЬШЕ были реально списаны
-      // (иначе нечего возвращать/списывать — заказ создавался при паузе склада и т.п.)
-      const wasEverDeducted = orderData.stockDeducted === true
-        || (Array.isArray(orderData.stockDeductedProductIds) && orderData.stockDeductedProductIds.length > 0)
-        || (orderData.warehouseDeductions && Object.keys(orderData.warehouseDeductions).length > 0);
-
-      if (wasEverDeducted) {
+      const hasItems = Array.isArray(orderData.items) && orderData.items.length > 0;
+      if (hasItems) {
         const r = await Swal.fire({
           icon: 'question',
           title: 'Восстановить списание со склада?',
@@ -1733,12 +1735,19 @@ async function deleteOrder(orderId) {
   if (!result.isConfirmed) return;
   
   try {
-    // Возвращаем товары на склад, если заказ не был отменён
+    // Возвращаем товары на склад, если заказ не был отменён.
+    // Раньше проверялся только status !== 'cancelled', но старые заказы
+    // в БД могут иметь русские статусы 'Отменён' / 'Отменен' — они бы прошли
+    // проверку и returnStockFromOrder возвращал бы товары повторно
+    // (внутри есть защита от stockDeducted:false, но лучше вообще не звать).
     const orderDoc = await db.collection('orders').doc(orderId).get();
     if (orderDoc.exists) {
       const orderData = orderDoc.data();
       orderData._orderRef = db.collection('orders').doc(orderId);
-      if (orderData.status !== 'cancelled') {
+      const isCancelledOrder = orderData.status === 'cancelled'
+        || orderData.status === 'Отменён'
+        || orderData.status === 'Отменен';
+      if (!isCancelledOrder) {
         await returnStockFromOrder(orderData);
       }
     }
