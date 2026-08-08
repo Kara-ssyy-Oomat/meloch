@@ -1328,7 +1328,10 @@
         let total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
         const currentTime = new Date().toLocaleString();
 
-        // Поиск партнёра — с таймаутом 3 сек (не блокируем заказ)
+        // Поиск партнёра — с таймаутом 1.2 сек (не блокируем заказ).
+        // Раньше было 3с — на медленных сетях это заметная задержка перед
+        // самим .set(). Если не подхватилось за 1.2с — partner=null, не
+        // критично (можно назначить админом позже).
         let partner = getCurrentPartner();
         if (!partner && referredBy) partner = referredBy;
         // Если заказ оформляет сам агент — партнёром автоматически становится он
@@ -1336,14 +1339,16 @@
         if (!partner && agentInfo && agentInfo.name) {
           partner = agentInfo.name;
         }
-        if (!partner && phone) {
-          try {
-            const agentPromise = db.collection('clientAgents').doc(phone).get();
-            const timeoutPromise = new Promise(r => setTimeout(() => r(null), 3000));
-            const cad = await Promise.race([agentPromise, timeoutPromise]);
-            if (cad && cad.exists) partner = cad.data().agentName;
-          } catch(e) {}
-        }
+        // Запускаем параллельно поиск партнёра и ожидание auth — оба
+        // независимы, зачем ждать последовательно. Плюс параллельно ниже
+        // будет freshDocsP (проверка остатков).
+        const partnerLookupP = (!partner && phone)
+          ? Promise.race([
+              db.collection('clientAgents').doc(phone).get().catch(() => null),
+              new Promise(r => setTimeout(() => r(null), 1200))
+            ]).then(cad => (cad && cad.exists) ? cad.data().agentName : null)
+              .catch(() => null)
+          : Promise.resolve(null);
         if (referredBy) try { localStorage.setItem('savedReferredBy', referredBy); } catch(e) {}
 
         // ══════════════════════════════════════════════════════════════════
@@ -1363,15 +1368,18 @@
         if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
           submitBtn.textContent = '⏳ Отправка заказа...';
           try {
-            // ЖЁСТКИЙ ТАЙМАУТ 3 сек: клиент НЕ должен ждать долго перед
+            // ЖЁСТКИЙ ТАЙМАУТ 1.5 сек: клиент НЕ должен ждать долго перед
             // отправкой. Если проверка не успела — уезжаем как есть,
             // CF на сервере защитит склад через Math.min(available, need).
-            // Раньше было 8с — клиенты уходили с сайта не дождавшись.
+            // Раньше было 3с — на медленной сети клиенты видели «Отправка…»
+            // слишком долго и заказ иногда не успевал пройти до закрытия
+            // вкладки (уходил в offline queue → приходил только при
+            // следующем визите).
             const freshDocsP = Promise.all(
               cart.map(item => db.collection('products').doc(item.id).get())
             );
             const freshTimeoutP = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 3000)
+              setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 1500)
             );
             const freshDocs = await Promise.race([freshDocsP, freshTimeoutP]);
             const summaryLinesHtml = [];
@@ -1475,14 +1483,18 @@
         // ============ ЗАКАЗ БЫСТРО; склад списывает только Cloud Function ============
         submitBtn.textContent = '⏳ Отправка...';
 
-        // Ждём Firebase Auth перед записью. Обычно уже готов с момента
-        // загрузки страницы корзины (loadProducts дожидается), так что
-        // фактически это мгновенно. 1.5 сек hard-таймаут на случай
-        // реконнекта — дальше едем без auth (запрос упадёт с
-        // permission-denied, ловится в общем catch).
-        if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(1500); } catch(e) {}
-        }
+        // Ждём Firebase Auth перед записью И одновременно дожидаемся
+        // поиска партнёра (partnerLookupP запущен выше параллельно с
+        // fresh-check, чтобы не блокировать заказ). Обычно auth уже
+        // готов с момента loadProducts, так что фактически мгновенно.
+        // 500мс hard-таймаут — раньше было 1.5с, но Firestore
+        // offline-persistence записывает в IndexedDB и без auth,
+        // а SDK сам добьёт auth-токен при синхронизации.
+        const authWaitP = (typeof kerbenWaitForAuth === 'function')
+          ? kerbenWaitForAuth(500).catch(() => {})
+          : Promise.resolve();
+        const [ , partnerFromLookup ] = await Promise.all([authWaitP, partnerLookupP]);
+        if (!partner && partnerFromLookup) partner = partnerFromLookup;
 
         const orderRef = db.collection('orders').doc();
 
@@ -1550,11 +1562,16 @@
             }
           })
           .catch(() => {}); // ошибки обработаем в основном потоке
-        // 8 сек hard-таймаут — потом сообщаем «отправляем в фоне» и
+        // 3.5 сек hard-таймаут — потом сообщаем «отправляем в фоне» и
         // разблокируем UI. Клиенту не надо ждать долгое подтверждение,
-        // а нам заказ придёт в любом случае (см. оффлайн-персистенс выше).
+        // а нам заказ придёт в любом случае (offline-persistence +
+        // pending-orders.js подстрахует).
+        // Раньше было 8с — при плохом Firebase Auth (403) .set() висел
+        // до таймаута и уходил только в offline queue, а к клиенту заказ
+        // «приходил» лишь при следующем визите. 3.5с быстро переключает
+        // в оптимистический режим и клиенту не приходится ждать.
         const orderTimeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__TIMEOUT__')), 8000)
+          setTimeout(() => reject(new Error('__TIMEOUT__')), 3500)
         );
         try {
           await Promise.race([orderCommitPromise, orderTimeout]);

@@ -955,7 +955,8 @@
             <option value="preparing">⏳ В обработке</option>
             <option value="logistics">🚚 Доставляется</option>
             <option value="completed">✅ Доставлен</option>
-            <option value="cancelled">❌ Отменён</option>
+            <!-- «Отменён» убран: отменённые заказы теперь не грузятся вовсе
+                 (см. фильтр в startOrdersListener). Пункт был неактивным. -->
           </select>
         </div>
         
@@ -1381,7 +1382,22 @@
           .get();
 
         allOrders = [];
-        snapshot.forEach(doc => allOrders.push({ id: doc.id, ...doc.data() }));
+        snapshot.forEach(doc => {
+          const data = doc.data() || {};
+          // 1) Заказы, вручную исключённые админом из прибыли этого агента,
+          //    НЕ должны попадать ни в список, ни в статистику, ни в клиентов,
+          //    ни в график. Флаг ставится в admin-orders.html (кнопка
+          //    «🚫 Не считать агенту»). См. также toggleOrderExcludedFromAgent.
+          if (data.excludedFromAgent === true) return;
+          // 2) ОТМЕНЁННЫЕ ЗАКАЗЫ агент вообще не должен видеть — они не
+          //    приносят ни ему прибыли, ни бизнесу продажи. Раньше они
+          //    показывались в списке с профитом 0, теперь скрыты полностью.
+          //    Проверяем все возможные варианты статуса (en/ru/старая/новая
+          //    орфография), чтобы ни один отменённый не проскочил.
+          const st = data.status;
+          if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
+          allOrders.push({ id: doc.id, ...data });
+        });
         allOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
         filterOrders();

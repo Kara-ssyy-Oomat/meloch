@@ -142,15 +142,54 @@
     }
   };
 
-  // АВТО-ЗАПУСК при загрузке страницы (через 2 сек чтобы не мешать
-  // основному рендеру). Firebase к этому времени точно инициализирован.
+  // ────────────────────────────────────────────────────────────────
+  // АВТО-ЗАПУСК retry в 3 сценариях:
+  //   1) На загрузке страницы (800 мс задержка чтобы не мешать
+  //      первому рендеру; раньше было 2000 мс — многовато).
+  //   2) Когда пришёл сигнал 'online' (было offline → стало online).
+  //   3) Когда вкладка становится видимой (пользователь вернулся из
+  //      фона / переключил вкладку). Это критично: если клиент
+  //      закрыл вкладку с невыполненным .set() и через 5 сек вернулся —
+  //      мы не хотим ждать полной перезагрузки страницы.
+  //
+  // Защита от гонок: если retry уже идёт — не запускаем второй.
+  // ────────────────────────────────────────────────────────────────
+  let _isRunning = false;
+  let _lastRun = 0;
+  const MIN_INTERVAL_MS = 3000; // не запускаем чаще чем раз в 3 сек
+
+  function _safeRun(source) {
+    const now = Date.now();
+    if (_isRunning) return;
+    if (now - _lastRun < MIN_INTERVAL_MS) return;
+    _lastRun = now;
+    _isRunning = true;
+    Promise.resolve()
+      .then(() => global.retryPendingOrders())
+      .catch((e) => { console.warn('[PendingOrders] retry (' + source + ') error:', e); })
+      .then(() => { _isRunning = false; });
+  }
+
   if (typeof window !== 'undefined') {
+    // 1) На загрузке страницы
     if (document.readyState === 'complete') {
-      setTimeout(function () { try { global.retryPendingOrders(); } catch (e) {} }, 2000);
+      setTimeout(function () { _safeRun('load'); }, 800);
     } else {
       window.addEventListener('load', function () {
-        setTimeout(function () { try { global.retryPendingOrders(); } catch (e) {} }, 2000);
+        setTimeout(function () { _safeRun('load'); }, 800);
       });
     }
+
+    // 2) При появлении сети
+    window.addEventListener('online', function () {
+      setTimeout(function () { _safeRun('online'); }, 500);
+    });
+
+    // 3) При возврате на вкладку (visibilitychange)
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') {
+        setTimeout(function () { _safeRun('visibility'); }, 500);
+      }
+    });
   }
 })(typeof window !== 'undefined' ? window : this);

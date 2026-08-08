@@ -266,20 +266,26 @@ document.getElementById('submitOrder').onclick = async () => {
     if (!partner && referredBy) {
       partner = referredBy; // Если клиент сам указал партнера
     }
-    
-    // Проверяем, есть ли этот клиент в базе привязок к агентам
-    if (!partner && phone) {
-      try {
-        const clientAgentDoc = await db.collection('clientAgents').doc(phone).get();
-        if (clientAgentDoc.exists) {
-          const clientAgentData = clientAgentDoc.data();
-          partner = clientAgentData.agentName;
-          console.log('📌 Клиент привязан к агенту:', partner);
-        }
-      } catch(e) {
-        console.log('Не удалось проверить привязку клиента к агенту:', e);
-      }
-    }
+
+    // Проверяем, есть ли этот клиент в базе привязок к агентам —
+    // ПАРАЛЛЕЛЬНО с fresh-check ниже (не блокируем). Таймаут 1.2с:
+    // если clientAgents отвечает медленно, идём без partner (не критично,
+    // админ назначит вручную).
+    const partnerLookupP = (!partner && phone)
+      ? Promise.race([
+          db.collection('clientAgents').doc(phone).get().catch(() => null),
+          new Promise(r => setTimeout(() => r(null), 1200))
+        ]).then(doc => {
+          if (doc && doc.exists) {
+            const d = doc.data();
+            if (d && d.agentName) {
+              console.log('📌 Клиент привязан к агенту:', d.agentName);
+              return d.agentName;
+            }
+          }
+          return null;
+        }).catch(() => null)
+      : Promise.resolve(null);
 
     // Сохраняем партнера если клиент указал
     if (referredBy) {
@@ -321,8 +327,10 @@ document.getElementById('submitOrder').onclick = async () => {
         const freshDocsP = Promise.all(
           cart.map(item => db.collection('products').doc(item.id).get())
         );
+        // 1.5с (было 3с) — на медленной сети клиенты уходили не дождавшись
+        // отправки. CF на сервере всё равно защитит склад Math.min(available, need).
         const freshTimeoutP = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 3000)
+          setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 1500)
         );
         const freshDocs = await Promise.race([freshDocsP, freshTimeoutP]);
         const summaryLinesHtml = []; // для toast (с <strong>)
@@ -423,7 +431,7 @@ document.getElementById('submitOrder').onclick = async () => {
         // Ошибка сети / таймаут — не блокируем оформление.
         // Cloud Function на сервере сработает как последний барьер по стоку.
         if (freshErr && freshErr.message === '__FRESH_CHECK_TIMEOUT__') {
-          console.warn('[Order] Проверка остатков >3с — пропускаем, отправляем как есть');
+          console.warn('[Order] Проверка остатков >1.5с — пропускаем, отправляем как есть');
         } else {
           console.warn('[Order] Не удалось перепроверить остатки перед заказом:', freshErr);
         }
@@ -436,13 +444,16 @@ document.getElementById('submitOrder').onclick = async () => {
 
     const orderRef = db.collection('orders').doc();
 
-    // Ждём Firebase Auth перед записью (1.5с hard-таймаут — см. js/auth.js).
-    // Обычно auth уже готов с момента загрузки страницы, поэтому фактически
-    // это мгновенно. Дальше едем без auth (упадёт с permission-denied,
-    // ловится в общем catch).
-    if (typeof kerbenWaitForAuth === 'function') {
-      try { await kerbenWaitForAuth(1500); } catch (e) {}
-    }
+    // Ждём Firebase Auth перед записью И одновременно дожидаемся
+    // поиска партнёра (partnerLookupP запущен выше параллельно).
+    // 500мс auth hard-таймаут — раньше было 1.5с, но Firestore
+    // offline-persistence запишет заказ в IndexedDB даже без auth,
+    // а SDK сам добьёт auth-токен при синхронизации.
+    const authWaitP = (typeof kerbenWaitForAuth === 'function')
+      ? kerbenWaitForAuth(500).catch(() => {})
+      : Promise.resolve();
+    const [ , partnerFromLookup ] = await Promise.all([authWaitP, partnerLookupP]);
+    if (!partner && partnerFromLookup) partner = partnerFromLookup;
 
     const orderPayload = {
       name,
@@ -502,8 +513,14 @@ document.getElementById('submitOrder').onclick = async () => {
         }
       })
       .catch(() => {}); // ошибки обработаем в основном потоке
+    // 3.5с hard-таймаут — потом переходим в оптимистический режим
+    // («принято, доотправляем в фоне»). Раньше было 8с — клиент долго
+    // ждал, а .set() иногда «висел» без auth-токена и уходил в offline
+    // queue → заказ приходил ТОЛЬКО при следующем визите клиента.
+    // Теперь при плохой сети UI разблокируется за 3.5с, а pending-orders.js
+    // + Firestore persistence гарантируют доставку в фоне.
     const orderTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('__ORDER_TIMEOUT__')), 8000)
+      setTimeout(() => reject(new Error('__ORDER_TIMEOUT__')), 3500)
     );
     let _timedOut = false;
     try {

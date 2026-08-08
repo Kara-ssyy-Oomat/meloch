@@ -797,7 +797,14 @@ function createOrderCard(order, index) {
         </div>
         `}
         
-        ${order.partner || order.referredBy ? `<div style="margin-top:8px;"><span style="font-size:11px; background:#e3f2fd; color:#1976d2; padding:3px 8px; border-radius:4px;">🤝 ${order.partner || order.referredBy}</span></div>` : ''}
+        ${order.partner || order.referredBy ? `
+          <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <span style="font-size:11px; background:#e3f2fd; color:#1976d2; padding:3px 8px; border-radius:4px;">🤝 ${order.partner || order.referredBy}</span>
+            ${order.excludedFromAgent === true
+              ? `<span style="font-size:11px; background:#ffebee; color:#c62828; padding:3px 8px; border-radius:4px; border:1px solid #ef9a9a; font-weight:600;">🚫 Исключён из прибыли агента</span>
+                 <button onclick="toggleOrderExcludedFromAgent('${order.id}', false)" style="padding:4px 10px; background:#43a047; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer; font-weight:600;">↩️ Вернуть агенту</button>`
+              : `<button onclick="toggleOrderExcludedFromAgent('${order.id}', true)" style="padding:4px 10px; background:#e53935; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer; font-weight:600;" title="Заказ не будет учитываться в прибыли и списке заказов агента">🚫 Не считать агенту</button>`}
+          </div>` : ''}
         ${order.placedByAgentName || (order.placedByAgent && order.placedByAgent.name) ? `<div style="margin-top:6px;"><span style="font-size:11px; background:#fff3e0; color:#e65100; padding:3px 8px; border-radius:4px; border:1px solid #ffcc80;">👤 Оформил агент: ${order.placedByAgentName || order.placedByAgent.name}</span></div>` : ''}
       </div>
     </div>
@@ -898,6 +905,56 @@ async function saveEditOrder() {
     console.error('Ошибка сохранения заказа:', error);
     if (_showAdminPermissionHelp(error)) return;
     Swal.fire('Ошибка', 'Не удалось сохранить изменения', 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Исключить/вернуть заказ в прибыль агента.
+//
+// По умолчанию все заказы, у которых поле partner совпадает с именем/id
+// агента, автоматически попадают в его список и прибыль (agent-profit.html).
+// Иногда админу нужно ВРУЧНУЮ убрать какой-то заказ из прибыли агента —
+// например, если заказ уже оплачен агенту напрямую, если заказ был по
+// ошибке привязан к агенту, или это внутренний заказ самого агента.
+//
+// При excluded=true заказ:
+//   • не грузится в allOrders на agent-profit.html
+//   • не попадает в статистику (сумма, прибыль, график, клиенты)
+//   • не экспортируется в CSV
+//   • не отображается в списке заказов агента
+// Флаг сохраняется отдельно (excludedFromAgent) и никак не меняет partner —
+// то есть кнопкой «↩️ Вернуть агенту» его можно вернуть обратно.
+// ─────────────────────────────────────────────────────────────
+async function toggleOrderExcludedFromAgent(orderId, excluded) {
+  if (!orderId) return;
+  try {
+    await _runAdminOp(() => db.collection('orders').doc(orderId).update({
+      excludedFromAgent: excluded === true,
+      excludedFromAgentAt: excluded ? Date.now() : null
+    }), excluded ? 'исключение заказа из прибыли агента' : 'возврат заказа агенту');
+
+    // Локально обновляем кэш, чтобы не ждать повторной загрузки из БД
+    if (Array.isArray(ordersManagementAllOrders)) {
+      const order = ordersManagementAllOrders.find(o => o.id === orderId);
+      if (order) {
+        order.excludedFromAgent = excluded === true;
+        order.excludedFromAgentAt = excluded ? Date.now() : null;
+      }
+    }
+    renderOrdersManagementFromCache();
+
+    Swal.fire({
+      icon: 'success',
+      title: excluded ? 'Заказ исключён из прибыли агента' : 'Заказ снова учитывается в прибыли агента',
+      timer: 1600,
+      showConfirmButton: false,
+      toast: true,
+      position: 'top'
+    });
+  } catch (error) {
+    console.error('[Admin] toggleOrderExcludedFromAgent:', error);
+    if (_showAdminPermissionHelp && _showAdminPermissionHelp(error)) return;
+    Swal.fire('Ошибка', 'Не удалось изменить статус заказа', 'error');
   }
 }
 
