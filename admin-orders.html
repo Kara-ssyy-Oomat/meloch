@@ -959,7 +959,18 @@ async function toggleOrderExcludedFromAgent(orderId, excluded) {
 }
 
 // Обновить статус заказа
+//
+// Правила по складу:
+//   • «Активный» → «Отменён»: товары возвращаются на склад (returnStockFromOrder).
+//   • «Отменён» → «Активный» (разотмена): товары уже вернулись на склад при отмене.
+//       Спрашиваем админа — списать ли обратно (обычно да, если товар уже
+//       отгружен клиенту). Списание идёт через Cloud Function manualDeductOrderStock,
+//       которая обрабатывает частичные остатки и записывает движения по складам.
+//   • «Активный» → «Активный»: склад не трогаем.
+//   • «Отменён» → «Отменён»: тоже не трогаем.
 async function updateOrderStatus(orderId, newStatus) {
+  const CANCELLED = ['cancelled', 'Отменён', 'Отменен'];
+
   try {
     // Получаем заказ для проверки текущего статуса и возврата товаров
     const orderDoc = await db.collection('orders').doc(orderId).get();
@@ -971,17 +982,52 @@ async function updateOrderStatus(orderId, newStatus) {
     orderData._orderRef = db.collection('orders').doc(orderId);
     const oldStatus = orderData.status;
 
-    // Если переводим в "Отменён" и заказ ещё не был отменён — возвращаем товары на склад
-    if (newStatus === 'cancelled' && oldStatus !== 'cancelled') {
+    const wasCancelled = CANCELLED.includes(oldStatus);
+    const willBeCancelled = CANCELLED.includes(newStatus);
+
+    // === СЦЕНАРИЙ 1: Активный → Отменён — возвращаем товары на склад ===
+    if (willBeCancelled && !wasCancelled) {
       await returnStockFromOrder(orderData);
     }
 
-    // Если отменённый заказ восстанавливают (из cancelled в другой статус) — не трогаем склад
+    // === СЦЕНАРИЙ 2: Отменён → Активный — предлагаем списать со склада заново ===
+    // (returnStockFromOrder при отмене уже сбросил флаги списания, значит
+    //  Cloud Function manualDeductOrderStock спишет всё как «свежий» заказ)
+    let shouldRededuct = false;
+    if (wasCancelled && !willBeCancelled) {
+      // Показываем предупреждение только если товары РАНЬШЕ были реально списаны
+      // (иначе нечего возвращать/списывать — заказ создавался при паузе склада и т.п.)
+      const wasEverDeducted = orderData.stockDeducted === true
+        || (Array.isArray(orderData.stockDeductedProductIds) && orderData.stockDeductedProductIds.length > 0)
+        || (orderData.warehouseDeductions && Object.keys(orderData.warehouseDeductions).length > 0);
+
+      if (wasEverDeducted) {
+        const r = await Swal.fire({
+          icon: 'question',
+          title: 'Восстановить списание со склада?',
+          html: '<div style="text-align:left; font-size:13px; line-height:1.5;">'
+            + 'При отмене товары этого заказа <b>вернулись на склад</b>.<br><br>'
+            + 'Вы возвращаете заказ в активные — списать товары <b>заново со склада</b>?<br><br>'
+            + '<span style="color:#c62828;">✅ Да, списать</span> — если товар уже отгружен клиенту.<br>'
+            + '<span style="color:#666;">⏱️ Позже</span> — если пока в работе; кнопкой «🔽 Списать сейчас» на карточке можно списать в любой момент.'
+            + '</div>',
+          showCancelButton: true,
+          confirmButtonText: '🔽 Да, списать',
+          cancelButtonText: 'Позже',
+          confirmButtonColor: '#f57c00',
+          cancelButtonColor: '#6c757d'
+        });
+        shouldRededuct = r.isConfirmed;
+      }
+    }
+
+    // === Обновляем статус (это ДОЛЖНО быть до вызова CF списания, ===
+    // ===   т.к. manualDeductOrderStock отказывает если статус cancelled) ===
     await _runAdminOp(() => db.collection('orders').doc(orderId).update({
       status: newStatus,
       statusUpdatedAt: Date.now()
     }), 'смена статуса');
-    
+
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
       if (order) {
@@ -989,7 +1035,46 @@ async function updateOrderStatus(orderId, newStatus) {
         order.statusUpdatedAt = Date.now();
       }
     }
-    
+
+    // === СЦЕНАРИЙ 2 продолжение: пользователь согласился — списываем через CF ===
+    if (shouldRededuct) {
+      Swal.fire({
+        title: 'Списание со склада…',
+        html: 'Заказ восстановлен, списываем товары обратно на складе',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+      try {
+        const callable = firebase.functions().httpsCallable('manualDeductOrderStock');
+        const result = await callable({ orderId: orderId });
+        const data = result && result.data ? result.data : {};
+        const hasShortage = data.anyShortage === true;
+        Swal.fire({
+          icon: hasShortage ? 'warning' : 'success',
+          title: hasShortage ? '⚠️ Списано частично' : '✅ Восстановлено и списано',
+          html: '<div style="font-size:13px;">Статус: <b>' +
+            (({ pending:'В обработке', preparing:'Готовится', logistics:'На логистике', driver:'У водителя', completed:'Доставлен' })[newStatus] || newStatus) +
+            '</b><br>Списано со склада: <b>' + (data.totalDeducted || 0) + '</b> из <b>' + (data.totalRequested || 0) + '</b> шт.' +
+            (hasShortage ? '<br><br><small style="color:#c62828;">⚠️ На складе не хватило некоторых товаров. Открой карточку — увидишь детали.</small>' : '') +
+            '</div>',
+          confirmButtonText: 'Понятно'
+        });
+      } catch (e) {
+        console.error('[ReDeduct after restore]', e);
+        Swal.fire({
+          icon: 'error',
+          title: 'Ошибка списания',
+          html: '<div style="font-size:13px;">Статус изменён, но списать со склада автоматически не удалось.<br><br>'
+            + '<b>Что делать:</b> открой карточку заказа и нажми <b>«🔽 Списать со склада сейчас»</b>.<br><br>'
+            + '<small style="color:#999;">Причина: ' + ((e && e.message) || 'неизвестна') + '</small></div>',
+          confirmButtonText: 'Понятно'
+        });
+      }
+      renderOrdersManagementFromCache();
+      return;
+    }
+
+    // === Обычное сообщение о смене статуса ===
     const statusTexts = {
       pending: 'В обработке',
       preparing: 'Готовится',
@@ -998,17 +1083,17 @@ async function updateOrderStatus(orderId, newStatus) {
       completed: 'Доставлен',
       cancelled: 'Отменен'
     };
-    
+
     Swal.fire({
       icon: 'success',
       title: 'Статус обновлен!',
-      text: `Заказ переведен в статус: ${statusTexts[newStatus]}`,
+      text: `Заказ переведен в статус: ${statusTexts[newStatus] || newStatus}`,
       timer: 2000,
       showConfirmButton: false
     });
-    
+
     renderOrdersManagementFromCache();
-    
+
   } catch (error) {
     console.error('Ошибка обновления статуса:', error);
     if (!_showAdminPermissionHelp(error)) {
@@ -1472,9 +1557,24 @@ async function returnStockFromOrder(orderData) {
     }
   }
 
-  // Очищаем warehouseDeductions в заказе, чтобы предотвратить повторный возврат
+  // Очищаем warehouseDeductions в заказе, чтобы предотвратить повторный возврат.
+  // ВАЖНО: заодно сбрасываем и остальные флаги списания. Иначе если админ потом
+  // передумает и вернёт заказ в статус «Готов»/«Доставлен» из «Отменён»,
+  // Cloud Function manualDeductOrderStock увидит stockDeducted===true и
+  // stockDeductedProductIds=[все id] и решит что уже всё списано — товары
+  // никогда не спишутся снова, а на складе они уже возвращены → минус в учёте.
+  // Сбрасывая эти поля, мы разрешаем повторное списание через CF при разотмене.
   if (orderData._orderRef) {
-    batch.update(orderData._orderRef, { warehouseDeductions: {} });
+    batch.update(orderData._orderRef, {
+      warehouseDeductions: {},
+      stockDeducted: false,
+      stockDeductedProductIds: [],
+      stockDeductionProcessedIds: [],
+      // stockDeductionStatus/finishedAt стираем, чтобы CF не сочла «уже done»
+      stockDeductionStatus: firebase.firestore.FieldValue.delete(),
+      stockDeductionFinishedAt: firebase.firestore.FieldValue.delete(),
+      stockDeductionError: firebase.firestore.FieldValue.delete()
+    });
   }
 
   await batch.commit();

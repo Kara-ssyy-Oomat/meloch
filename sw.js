@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.19.0-hide-cancelled-from-agent'; // Отменённые заказы скрыты для агента + возможность вручную исключать заказы
+const CACHE_VERSION = 'kerben-v4.20.0-rededuct-on-uncancel'; // При возврате заказа из «Отменён» в активный статус — предлагаем списать товары со склада заново
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
