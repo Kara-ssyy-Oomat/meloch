@@ -914,3 +914,129 @@ exports.orderNotify = functions
       telegram: telegramResults
     });
   });
+
+// ============================================================
+// findOrders — УДАЛЕНО после диагностики пропажи заказа Замира
+// (10.08.2026). Заказа с телефоном 0995122334 в БД не было —
+// он застрял в Firestore SDK offline queue на планшете агента
+// из-за бага «удаление backup по лживому .set().then() успеху».
+// Баг исправлен в v4.25 — теперь backup удаляется только после
+// server-confirmed через orderNotify.
+// Если понадобится снова — восстановить из git history:
+//   git show <commit>:functions/index.js | grep -A 100 findOrders
+// ============================================================
+/* удалено — см. коммит-историю
+const FIND_ORDERS_SECRET_UNUSED = null;
+
+function _normalizePhone(p) {
+  return String(p || '').replace(/\D/g, '').slice(-9);
+}
+
+exports_disabled_findOrders = functions
+  .runWith({ memory: '256MB', timeoutSeconds: 60 })
+  .https.onRequest(async (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+
+    const secret = (req.query.secret || req.body.secret || '').toString();
+    if (secret !== FIND_ORDERS_SECRET) {
+      res.status(403).json({ ok: false, error: 'forbidden' });
+      return;
+    }
+
+    const phoneRaw = (req.query.phone || req.body.phone || '').toString();
+    const nameRaw = (req.query.name || req.body.name || '').toString().trim().toLowerCase();
+    const daysStr = (req.query.days || req.body.days || '7').toString();
+    const days = Math.min(30, Math.max(1, parseInt(daysStr, 10) || 7));
+    const phoneKey = _normalizePhone(phoneRaw);
+
+    const results = [];
+    const debug = { checkedCollections: [], errors: [] };
+
+    try {
+      // ─── Ищем в orders за последние N дней ─────────────
+      const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+      const sinceIso = new Date(sinceMs).toISOString();
+
+      // Пробуем несколько возможных полей timestamp
+      const collections = ['orders'];
+      for (const col of collections) {
+        debug.checkedCollections.push(col);
+        try {
+          // Берём все документы за N дней — постранично
+          // Firestore не умеет OR-запросы, поэтому вытягиваем pageful и фильтруем в памяти
+          const snap = await db.collection(col)
+            .orderBy('createdAt', 'desc')
+            .limit(2000)
+            .get()
+            .catch(async () => {
+              // Если поля createdAt нет — просто ограничиваем limit
+              return await db.collection(col).limit(2000).get();
+            });
+
+          snap.forEach(doc => {
+            const d = doc.data() || {};
+            const createdMs = d.createdAt && d.createdAt.toMillis ? d.createdAt.toMillis()
+              : (typeof d.createdAt === 'number' ? d.createdAt : null);
+            if (createdMs !== null && createdMs < sinceMs) return;
+
+            const docPhoneKey = _normalizePhone(d.phone || d.customerPhone || '');
+            const docName = String(d.name || d.customerName || '').toLowerCase();
+            const docPartner = String(d.partner || d.referredBy || '').toLowerCase();
+
+            let match = false;
+            const matches = [];
+            if (phoneKey && docPhoneKey && docPhoneKey === phoneKey) { match = true; matches.push('phone'); }
+            if (nameRaw && docName && docName.includes(nameRaw)) { match = true; matches.push('name'); }
+            if (nameRaw && docPartner && docPartner.includes(nameRaw)) { match = true; matches.push('partner'); }
+
+            if (match) {
+              results.push({
+                id: doc.id,
+                collection: col,
+                matchedOn: matches,
+                name: d.name || d.customerName || null,
+                phone: d.phone || d.customerPhone || null,
+                address: d.address || d.customerAddress || null,
+                partner: d.partner || d.referredBy || null,
+                placedByAgent: d.placedByAgentName || (d.placedByAgent && d.placedByAgent.name) || null,
+                total: d.total || d.totalAmount || null,
+                status: d.status || null,
+                itemsCount: Array.isArray(d.items) ? d.items.length : null,
+                createdAt: createdMs ? new Date(createdMs).toISOString() : null,
+              });
+            }
+          });
+        } catch (e) {
+          debug.errors.push({ col: col, msg: e.message });
+        }
+      }
+
+      // ─── Проверяем clientAgents на телефон ─────────────
+      if (phoneKey) {
+        try {
+          const doc = await db.collection('clientAgents').doc(phoneRaw).get();
+          if (doc.exists) {
+            debug.clientAgentsByRawPhone = doc.data();
+          }
+          const doc2 = await db.collection('clientAgents').doc(phoneKey).get();
+          if (doc2.exists && doc2.id !== doc.id) {
+            debug.clientAgentsByNormalizedPhone = doc2.data();
+          }
+        } catch (e) {
+          debug.errors.push({ op: 'clientAgents', msg: e.message });
+        }
+      }
+
+      res.status(200).json({
+        ok: true,
+        query: { phone: phoneRaw, phoneKey, name: nameRaw, days },
+        found: results.length,
+        results: results.slice(0, 50),
+        debug
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message, debug });
+    }
+  });
+*/

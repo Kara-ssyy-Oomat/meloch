@@ -504,26 +504,36 @@ document.getElementById('submitOrder').onclick = async () => {
       try { savePendingOrderBackup(orderRef.id, orderPayload); } catch (e) {}
     }
 
-    // ГАРАНТИЯ ДОСТАВКИ: параллельно с Firestore шлём короткий текст в
-    // Telegram админа (~500 байт). Работает даже если Firestore недоступен /
-    // Firebase Auth 403 / offline persistence не работает — telegramProxy
-    // это обычный HTTPS endpoint без Firebase Auth. Админ узнает о заказе
-    // в течение 1-3 сек ГАРАНТИРОВАННО. Fire-and-forget в фоне.
+    // ГАРАНТИЯ ДОСТАВКИ + SERVER-CONFIRMED УДАЛЕНИЕ BACKUP.
+    // См. подробный комментарий в cart.html (line ~1554).
+    // Кратко: orderRef.set().then() НЕ является server-confirmation
+    // (Firestore SDK offline persistence резолвит его на локальном IDB
+    // write, даже если сервер потом откажет из-за auth 403). Единственное
+    // надёжное подтверждение — orderNotify HTTP endpoint возвращает
+    // firestoreOk===true (запись через admin SDK).
     if (typeof sendOrderTextToTelegram === 'function') {
       try {
-        sendOrderTextToTelegram(orderPayload, orderRef.id).catch(() => {});
+        sendOrderTextToTelegram(orderPayload, orderRef.id)
+          .then(function (res) {
+            res = res || {};
+            if (res.firestoreOk === true) {
+              if (typeof removePendingOrderBackup === 'function') {
+                try { removePendingOrderBackup(orderRef.id); } catch (e) {}
+              }
+            } else {
+              console.warn('[OrderSubmit] orderNotify без server-confirm — backup оставляем для retry', res);
+            }
+          })
+          .catch(function (e) {
+            console.warn('[OrderSubmit] orderNotify упал:', e && e.message);
+          });
       } catch (e) {}
     }
 
     const orderCommitPromise = orderRef.set(orderPayload);
-    // Как только Firestore подтвердит — убираем backup.
-    orderCommitPromise
-      .then(() => {
-        if (typeof removePendingOrderBackup === 'function') {
-          try { removePendingOrderBackup(orderRef.id); } catch (e) {}
-        }
-      })
-      .catch(() => {}); // ошибки обработаем в основном потоке
+    // Прим.: НЕ вешаем .then() с removePendingOrderBackup сюда —
+    // это была «чёрная дыра». Удаление только через orderNotify выше.
+    orderCommitPromise.catch(() => {});
     // 3.5с hard-таймаут — потом переходим в оптимистический режим
     // («принято, доотправляем в фоне»). Раньше было 8с — клиент долго
     // ждал, а .set() иногда «висел» без auth-токена и уходил в offline

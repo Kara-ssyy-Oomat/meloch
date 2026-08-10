@@ -407,8 +407,14 @@ async function _loadProductPhotoSafe(imageUrl) {
 const ORDER_NOTIFY_URL =
   'https://us-central1-svoysayet.cloudfunctions.net/orderNotify';
 
+// Возвращает объект { firestoreOk, telegramOk, viaFallback, error }.
+// firestoreOk === true — заказ ТОЧНО в БД через admin SDK (можно чистить
+// pendingOrdersBackup). Только это server-confirmed подтверждение.
+// telegramOk === true — админ получил Telegram-уведомление.
 async function sendOrderTextToTelegram(orderData, orderId) {
-  if (!orderData || !orderId) return false;
+  if (!orderData || !orderId) {
+    return { firestoreOk: false, telegramOk: false, viaFallback: false, error: 'no_data' };
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000); // 8с таймаут
@@ -431,20 +437,30 @@ async function sendOrderTextToTelegram(orderData, orderId) {
       console.warn('[OrderNotify] HTTP', response.status, data);
       // Fallback: попробуем через старый telegramProxy (App Check).
       // Он всё равно упадёт если App Check throttled, но вдруг сработает.
-      return await _sendOrderTelegramFallback(orderData, orderId);
+      const fallbackOk = await _sendOrderTelegramFallback(orderData, orderId);
+      return { firestoreOk: false, telegramOk: !!fallbackOk, viaFallback: true, error: 'http_' + response.status };
     }
+
+    const firestoreOk = !!(data && data.firestore && data.firestore.ok);
+    const telegramOk = !!(data && data.telegram && (data.telegram.primary || data.telegram.secondary));
 
     console.log('[OrderNotify] заказ отправлен:', {
       orderId,
+      firestoreOk,
+      telegramOk,
       firestore: data.firestore,
       telegram: data.telegram
     });
-    return true;
+    return { firestoreOk, telegramOk, viaFallback: false, error: null };
   } catch (e) {
     // AbortError (таймаут) / сетевая ошибка — пробуем fallback
     console.warn('[OrderNotify] fetch ошибка:', e && e.message);
-    try { return await _sendOrderTelegramFallback(orderData, orderId); }
-    catch (e2) { return false; }
+    try {
+      const fallbackOk = await _sendOrderTelegramFallback(orderData, orderId);
+      return { firestoreOk: false, telegramOk: !!fallbackOk, viaFallback: true, error: (e && e.message) || 'fetch_error' };
+    } catch (e2) {
+      return { firestoreOk: false, telegramOk: false, viaFallback: true, error: (e2 && e2.message) || 'fallback_error' };
+    }
   } finally {
     clearTimeout(timer);
   }
