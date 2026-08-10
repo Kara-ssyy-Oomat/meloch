@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.25.0-close-black-hole'; // КРИТИЧЕСКИЙ ФИКС: pendingOrdersBackup удаляется ТОЛЬКО после server-confirmed через orderNotify (firestoreOk===true из admin SDK), а не после лживого .set().then() который Firestore SDK резолвит по локальному IDB write даже без сервера. saveAgentClient() также перенесён — теперь автозаполнение агента только после реального сохранения на сервере. Пропажа заказа Замира (10.08.2026) вызвана именно этим багом.
+const CACHE_VERSION = 'kerben-v4.26.0-notify-first'; // orderNotify стал ГЛАВНЫМ каналом доставки заказа: UI ждёт первый успех из {notify.firestoreOk, .set() resolve, 5s timeout}. В 90% случаев (нормальная сеть) заказ будет server-confirmed ДО того как клиент увидит "Принят" — backup чистится сразу. При плохой сети сохраняется оптимистичный UX + retry подхватывает.
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

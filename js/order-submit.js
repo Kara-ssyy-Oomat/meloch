@@ -511,53 +511,60 @@ document.getElementById('submitOrder').onclick = async () => {
     // write, даже если сервер потом откажет из-за auth 403). Единственное
     // надёжное подтверждение — orderNotify HTTP endpoint возвращает
     // firestoreOk===true (запись через admin SDK).
-    if (typeof sendOrderTextToTelegram === 'function') {
-      try {
-        sendOrderTextToTelegram(orderPayload, orderRef.id)
+    // ═══════════════════════════════════════════════════════════
+    //   v4.26: orderNotify — ГЛАВНЫЙ канал доставки заказа.
+    // ═══════════════════════════════════════════════════════════
+    // См. подробный комментарий в cart.html.
+    //   • orderNotify — HTTPS POST → admin SDK. Server-confirmed.
+    //   • orderRef.set() — параллельно, как fallback (offline UX).
+    //   • Race с таймаутом 5с — оптимистичный показ «Принят».
+    let notifyFirestoreOk = false;
+    const orderNotifyPromise = (typeof sendOrderTextToTelegram === 'function')
+      ? sendOrderTextToTelegram(orderPayload, orderRef.id)
           .then(function (res) {
             res = res || {};
             if (res.firestoreOk === true) {
+              notifyFirestoreOk = true;
               if (typeof removePendingOrderBackup === 'function') {
                 try { removePendingOrderBackup(orderRef.id); } catch (e) {}
               }
             } else {
               console.warn('[OrderSubmit] orderNotify без server-confirm — backup оставляем для retry', res);
             }
+            return res;
           })
           .catch(function (e) {
             console.warn('[OrderSubmit] orderNotify упал:', e && e.message);
-          });
-      } catch (e) {}
-    }
+            return null;
+          })
+      : Promise.resolve(null);
 
     const orderCommitPromise = orderRef.set(orderPayload);
-    // Прим.: НЕ вешаем .then() с removePendingOrderBackup сюда —
-    // это была «чёрная дыра». Удаление только через orderNotify выше.
-    orderCommitPromise.catch(() => {});
-    // 3.5с hard-таймаут — потом переходим в оптимистический режим
-    // («принято, доотправляем в фоне»). Раньше было 8с — клиент долго
-    // ждал, а .set() иногда «висел» без auth-токена и уходил в offline
-    // queue → заказ приходил ТОЛЬКО при следующем визите клиента.
-    // Теперь при плохой сети UI разблокируется за 3.5с, а pending-orders.js
-    // + Firestore persistence гарантируют доставку в фоне.
-    const orderTimeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('__ORDER_TIMEOUT__')), 3500)
-    );
+    orderCommitPromise.catch(() => {}); // тихо (fallback канал)
+
+    // Ждём первый успех: orderNotify.firestoreOk=true / .set() резолв / 5 сек.
+    const uiConfirmPromise = new Promise(function (resolve) {
+      let resolved = false;
+      const finish = function (reason) {
+        if (resolved) return;
+        resolved = true;
+        resolve(reason);
+      };
+      orderNotifyPromise.then(function (r) {
+        if (r && r.firestoreOk === true) finish('notify');
+      }, function () {});
+      orderCommitPromise.then(function () { finish('set'); }, function () {});
+      setTimeout(function () { finish('timeout'); }, 5000);
+    });
     let _timedOut = false;
-    try {
-      await Promise.race([orderCommitPromise, orderTimeout]);
-      console.log('[Order] Заказ сохранён:', orderRef.id);
-    } catch (err) {
-      if (err && err.message === '__ORDER_TIMEOUT__') {
-        _timedOut = true;
-        console.warn('[Order] Сеть медленная — доотправляем в фоне');
-        // Досихронизацию отслеживаем молча, клиент уже увидит успех ниже
-        orderCommitPromise
-          .then(() => console.log('[Order] Заказ дописан в фоне:', orderRef.id))
-          .catch(e => console.error('[Order] Заказ не сохранился:', e && e.message));
-      } else {
-        throw err;
-      }
+    const confirmReason = await uiConfirmPromise;
+    console.log('[Order] UI confirmed by "' + confirmReason + '" (notifyOk=' + notifyFirestoreOk + '):', orderRef.id);
+    if (confirmReason === 'timeout') {
+      _timedOut = true;
+      console.warn('[Order] Сеть медленная — доотправляем в фоне');
+      orderCommitPromise
+        .then(() => console.log('[Order] Заказ дописан в фоне:', orderRef.id))
+        .catch(e => console.error('[Order] Заказ не сохранился:', e && e.message));
     }
 
     // Показываем клиенту итог — разный текст для успеха и unfulfilled

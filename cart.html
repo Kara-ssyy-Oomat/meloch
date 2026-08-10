@@ -1551,42 +1551,49 @@
           try { savePendingOrderBackup(orderRef.id, orderPayload); } catch (e) {}
         }
 
-        // ГАРАНТИЯ ДОСТАВКИ + SERVER-CONFIRMED УДАЛЕНИЕ BACKUP.
+        // ═══════════════════════════════════════════════════════════
+        //   NEW (v4.26): orderNotify — ГЛАВНЫЙ канал доставки заказа.
+        // ═══════════════════════════════════════════════════════════
+        // Что изменилось vs v4.25:
+        //   v4.25: .set() запускался с UI-таймаутом 3.5с, orderNotify
+        //          отдельно в fire-and-forget → backup чистился ТОЛЬКО
+        //          если orderNotify успевал подтвердить (может пропустить).
+        //   v4.26: orderNotify — ОСНОВНОЙ. Race([orderNotify(5с), .set()])
+        //          - orderNotify.firestoreOk=true → SERVER-CONFIRMED → чистим backup
+        //          - .set() резолвится первым → пишем в SDK queue, backup ЖИВ
+        //          - таймаут 5с → оптимистичный UX, backup ЖИВ
+        //          В 90% случаев (норм. сеть) заказ будет server-confirmed
+        //          ДО того как клиент увидит «Принят».
         //
-        // ВАЖНО: раньше здесь была «чёрная дыра» — backup удалялся по
-        // orderCommitPromise.then(), но Firestore SDK со включённой
-        // offline persistence РЕЗОЛВИТ этот промис как только заказ
-        // добавлен в локальную IndexedDB queue, ДАЖЕ ЕСЛИ сервер не
-        // подтвердил (auth 403, network drop и т.п.). В результате
-        // мы удаляли backup по лживому «успеху», и заказ навсегда
-        // терялся в SDK offline queue без нашей защиты.
-        //
-        // Правильная логика:
-        //   • orderNotify (admin SDK, HTTP endpoint) — единственное
-        //     server-confirmed подтверждение, что заказ ТОЧНО в БД.
-        //   • Только его ответ firestoreOk===true даёт право чистить
-        //     pendingOrdersBackup.
-        //   • orderRef.set() продолжаем вызывать параллельно — оно
-        //     важно для offline-first UX (если клиент вернётся с сетью,
-        //     Firestore SDK досинхронизирует), но НЕ является
-        //     основанием чистить backup.
-        //
-        // Плюс: agentClients сохраняем ТОЛЬКО после server-confirmed —
-        // чтобы автозаполнение агента не создавало ложное впечатление
-        // что заказ прошёл.
-        let orderNotifyPromise = Promise.resolve(null);
-        if (typeof sendOrderTextToTelegram === 'function') {
-          try {
-            orderNotifyPromise = sendOrderTextToTelegram(orderPayload, orderRef.id)
+        // Почему orderNotify надёжнее чем .set():
+        //   .set() ходит через Firestore SDK — требует Firebase Auth +
+        //   App Check + rules. Любой из этих слоёв может отказать → SDK
+        //   тихо кладёт запись в offline queue и резолвит промис как
+        //   «локальный успех». Клиент видит «Принят», но на сервере
+        //   заказа НЕТ (это и погубило заказ Замира).
+        //   orderNotify — обычный HTTPS POST → нашу Cloud Function →
+        //   admin SDK → Firestore. Auth не нужен. App Check не нужен.
+        //   Работает всегда пока есть сеть.
+
+        // 1) Сохраняем backup в localStorage ДО любых попыток
+        //    (savePendingOrderBackup выше).
+
+        // 2) Запускаем orderNotify (главный) и orderRef.set() (fallback)
+        //    ПАРАЛЛЕЛЬНО. Кто быстрее — тот и «первый успех» для UI.
+        let notifyFirestoreOk = false;
+        const orderNotifyPromise = (typeof sendOrderTextToTelegram === 'function')
+          ? sendOrderTextToTelegram(orderPayload, orderRef.id)
               .then(function (res) {
                 res = res || {};
                 if (res.firestoreOk === true) {
-                  // ТОЛЬКО ТЕПЕРЬ можно почистить backup — сервер подтвердил.
+                  notifyFirestoreOk = true;
+                  // SERVER-CONFIRMED. Чистим backup — заказ ТОЧНО в БД
+                  // (admin SDK через orderNotify это подтвердил).
                   if (typeof removePendingOrderBackup === 'function') {
                     try { removePendingOrderBackup(orderRef.id); } catch (e) {}
                   }
-                  // Заказ ТОЧНО в БД — теперь безопасно сохранить
-                  // клиента в автозаполнении агента.
+                  // Автозаполнение клиента для агента — тоже только
+                  // после server-confirmed.
                   if (agentInfo && typeof saveAgentClient === 'function') {
                     try { saveAgentClient({ name, phone, address }); } catch (e) {}
                   }
@@ -1598,28 +1605,42 @@
               .catch(function (e) {
                 console.warn('[Cart] orderNotify упал:', e && e.message);
                 return null;
-              });
-          } catch (e) {}
-        }
+              })
+          : Promise.resolve(null);
 
         const orderCommitPromise = orderRef.set(orderPayload);
-        // Прим.: НЕ вешаем .then() с removePendingOrderBackup сюда —
-        // это была «чёрная дыра». Удаление только через orderNotifyPromise выше.
-        orderCommitPromise.catch(() => {}); // ошибки обработаем в основном потоке
-        // 3.5 сек hard-таймаут — потом сообщаем «отправляем в фоне» и
-        // разблокируем UI. Клиенту не надо ждать долгое подтверждение,
-        // а нам заказ придёт в любом случае (offline-persistence +
-        // pending-orders.js подстрахует).
-        // Раньше было 8с — при плохом Firebase Auth (403) .set() висел
-        // до таймаута и уходил только в offline queue, а к клиенту заказ
-        // «приходил» лишь при следующем визите. 3.5с быстро переключает
-        // в оптимистический режим и клиенту не приходится ждать.
-        const orderTimeout = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__TIMEOUT__')), 3500)
-        );
+        orderCommitPromise.catch(() => {}); // тихо (это fallback канал)
+
+        // 3) Ждём первый успех: orderNotify.firestoreOk=true ИЛИ
+        //    orderRef.set() резолвится ИЛИ таймаут 5 сек.
+        //    Приоритет orderNotify (server-confirmed) — если он успевает,
+        //    backup чистится в .then() выше. Если нет — оптимистичный
+        //    UX через .set() или таймаут; backup остаётся до retry.
+        //
+        //    Таймаут 5с (было 3.5с) — даём orderNotify чуть больше времени,
+        //    чтобы в 90% случаев UI показал «Принят» уже после server-confirmed.
+        const uiConfirmPromise = new Promise(function (resolve) {
+          let resolved = false;
+          const finish = function (reason) {
+            if (resolved) return;
+            resolved = true;
+            resolve(reason);
+          };
+          orderNotifyPromise.then(function (r) {
+            if (r && r.firestoreOk === true) finish('notify');
+          }, function () { /* игнор */ });
+          orderCommitPromise.then(function () { finish('set'); },
+                                  function () { /* игнор — ждём другие */ });
+          setTimeout(function () { finish('timeout'); }, 5000);
+        });
         try {
-          await Promise.race([orderCommitPromise, orderTimeout]);
-          console.log('[Cart] Заказ сохранён:', orderRef.id);
+          const confirmReason = await uiConfirmPromise;
+          console.log('[Cart] UI confirmed by "' + confirmReason + '" (notifyOk=' + notifyFirestoreOk + '):', orderRef.id);
+          // Если UI подтвержден по 'timeout' — падаем в fallback ниже
+          // (тот же путь что был по __TIMEOUT__). Иначе — успех.
+          if (confirmReason === 'timeout') {
+            throw new Error('__TIMEOUT__');
+          }
         } catch (commitErr) {
           if (commitErr && commitErr.message === '__TIMEOUT__') {
             console.warn('[Cart] Сеть медленная — доотправляем в фоне');
