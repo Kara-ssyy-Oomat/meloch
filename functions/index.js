@@ -733,3 +733,184 @@ exports.telegramProxy = functions
       res.status(500).json({ ok: false, error: 'internal_error' });
     }
   });
+
+// ===================================================================
+//                         ORDER NOTIFY (HTTP)
+// -------------------------------------------------------------------
+// НАДЁЖНАЯ ДОСТАВКА ЗАКАЗА — работает ДАЖЕ БЕЗ Firebase Auth / App Check.
+//
+// Проблема которую решает:
+//   • У клиента Firebase Auth может возвращать 403 (кэш GCP, ограничения API).
+//   • Firestore .set() не проходит → заказ в offline queue → админ не видит.
+//   • telegramProxy требует App Check, который у некоторых браузеров
+//     заблокирован (Safari ITP, throttled reCAPTCHA, WebView и т.п.).
+//   • Клиент видел «Заказ сохранён и уходит к нам» → но фактически заказ
+//     висел на устройстве до следующего визита.
+//
+// Как работает:
+//   1. Клиент шлёт POST на этот endpoint параллельно с orderRef.set().
+//   2. Мы валидируем данные (rate limit, санити-чек).
+//   3. Пишем заказ в Firestore через admin SDK (обходит клиентский auth).
+//   4. Шлём короткий текст в Telegram админа (2 чата).
+//   5. Возвращаем клиенту {ok:true, orderId, firestore, telegram}.
+//
+// Без App Check — потому что для критичной доставки надёжность важнее,
+// чем защита от спама. Rate limit по IP (30 req/min) уже блокирует ботов.
+// Плюс жёсткая валидация payload (см. ниже).
+// ===================================================================
+exports.orderNotify = functions
+  .runWith({
+    secrets: [TELEGRAM_BOT_TOKEN_SECRET],
+    memory: '256MB',
+    timeoutSeconds: 30
+  })
+  .https.onRequest(async (req, res) => {
+    setCorsHeaders(req, res);
+
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    if (req.method !== 'POST') {
+      res.status(405).json({ ok: false, error: 'method_not_allowed' });
+      return;
+    }
+
+    const ip = req.headers['x-forwarded-for'] || req.ip || 'unknown';
+    if (!checkRateLimit(String(ip).split(',')[0].trim())) {
+      res.status(429).json({ ok: false, error: 'rate_limited' });
+      return;
+    }
+
+    const body = req.body || {};
+    const orderId = body.orderId;
+    const payload = body.payload || {};
+
+    // ─── ВАЛИДАЦИЯ ─────────────────────────────────────────
+    // Санити-чек: без базовых полей заказ не имеет смысла.
+    if (!orderId || typeof orderId !== 'string' || orderId.length < 5 || orderId.length > 100) {
+      res.status(400).json({ ok: false, error: 'invalid_order_id' });
+      return;
+    }
+    if (typeof payload.name !== 'string' || payload.name.length === 0 || payload.name.length > 200) {
+      res.status(400).json({ ok: false, error: 'invalid_name' });
+      return;
+    }
+    if (typeof payload.phone !== 'string' || payload.phone.length === 0 || payload.phone.length > 30) {
+      res.status(400).json({ ok: false, error: 'invalid_phone' });
+      return;
+    }
+    if (!Array.isArray(payload.items) || payload.items.length === 0 || payload.items.length > 200) {
+      res.status(400).json({ ok: false, error: 'invalid_items' });
+      return;
+    }
+    if (typeof payload.total !== 'number' || !isFinite(payload.total) || payload.total < 0 || payload.total > 100000000) {
+      res.status(400).json({ ok: false, error: 'invalid_total' });
+      return;
+    }
+    if (payload.address !== undefined && payload.address !== null &&
+        (typeof payload.address !== 'string' || payload.address.length > 1000)) {
+      res.status(400).json({ ok: false, error: 'invalid_address' });
+      return;
+    }
+
+    // ─── 1) ЗАПИСЬ В FIRESTORE через admin SDK ────────────
+    // .create() вместо .set() — не перезаписывает если клиентский .set()
+    // сработал первым. Игнорируем ошибку 'already-exists' — это ОК.
+    // Форсируем безопасные поля (клиент не может подделать статус списания).
+    let firestoreOk = false;
+    let firestoreError = null;
+    try {
+      const safePayload = {
+        ...payload,
+        // Форсируем эти поля независимо от того что прислал клиент:
+        stockDeducted: false,
+        stockDeductionStatus: 'pending',
+        warehouseDeductions: null,
+        // Метка что заказ прошёл через orderNotify (для дебага)
+        _viaOrderNotify: true,
+        _orderNotifyAt: Date.now()
+      };
+      await db.collection('orders').doc(orderId).create(safePayload);
+      firestoreOk = true;
+      console.log(`[OrderNotify] заказ ${orderId} записан в БД`);
+    } catch (e) {
+      if (e && (e.code === 6 || /already[-_ ]?exists/i.test(String(e.message || e.code)))) {
+        // Заказ уже создан клиентским .set() — это отлично, не паникуем.
+        firestoreOk = true;
+        firestoreError = 'already_exists';
+        console.log(`[OrderNotify] заказ ${orderId} уже был в БД (клиент успел раньше)`);
+      } else {
+        firestoreError = e && e.message ? e.message : String(e);
+        console.error(`[OrderNotify] ошибка записи в БД:`, firestoreError);
+      }
+    }
+
+    // ─── 2) ОТПРАВКА В TELEGRAM ────────────────────────────
+    const token = process.env[TELEGRAM_BOT_TOKEN_SECRET];
+    let telegramResults = { primary: false, secondary: false };
+
+    if (!token) {
+      console.error('[OrderNotify] TELEGRAM_BOT_TOKEN не задан');
+    } else {
+      // Формируем короткий текстовый заказ (plain text, без Markdown)
+      const items = payload.items;
+      const MAX_ITEMS = 15;
+      const shownItems = items.slice(0, MAX_ITEMS);
+      const restCount = items.length - shownItems.length;
+      const itemsText = shownItems.map(i => {
+        const qty = i.qty || 0;
+        const price = i.price || 0;
+        const title = String(i.title || 'Товар').replace(/[*_`\[\]]/g, '');
+        const variant = i.variant ? ` [${i.variant}]` : '';
+        return `• ${title}${variant} — ${qty} × ${price} сом`;
+      }).join('\n') + (restCount > 0 ? `\n… и ещё ${restCount} товар(ов)` : '');
+
+      const extraLines = [];
+      if (payload.placedByAgentName || (payload.placedByAgent && payload.placedByAgent.name)) {
+        extraLines.push(`👥 Оформил агент: ${payload.placedByAgentName || payload.placedByAgent.name}`);
+      }
+      if (payload.partner) extraLines.push(`🤝 Партнёр: ${payload.partner}`);
+      if (payload.driverName || payload.driverPhone) {
+        extraLines.push(`🚗 Водитель: ${payload.driverName || '-'} / ${payload.driverPhone || '-'}`);
+      }
+      if (payload.unfulfilledOrder) {
+        extraLines.push(`⚠️ ЗАЯВКА — товары были распроданы. Клиент ждёт связи!`);
+      }
+      // Дебаг-метка: показать в Telegram что это резервный канал сработал.
+      // Полезно если сам заказ ещё не в БД — админ поймёт откуда пришло.
+      extraLines.push(firestoreOk
+        ? (firestoreError === 'already_exists' ? '✅ БД: заказ уже есть' : '✅ БД: записан через резервный канал')
+        : '⚠️ БД: не удалось записать (' + (firestoreError || 'unknown') + ')');
+
+      const text =
+        '🔔 НОВЫЙ ЗАКАЗ\n\n' +
+        `👤 ${payload.name}\n` +
+        `📞 ${payload.phone}\n` +
+        `📍 ${payload.address || '-'}\n\n` +
+        '📦 Товары:\n' + itemsText + '\n\n' +
+        `💰 Итого: ${payload.total.toLocaleString('ru-RU')} сом\n` +
+        `⏰ ${payload.time || new Date().toLocaleString('ru-RU')}\n` +
+        `🆔 ${orderId.slice(-8)}\n` +
+        extraLines.join('\n');
+
+      const chatIds = ['5567924440', '246421345'];
+      const results = await Promise.allSettled(chatIds.map(async (chatId) => {
+        const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: text })
+        });
+        return tgRes.ok;
+      }));
+      telegramResults.primary = results[0].status === 'fulfilled' && results[0].value === true;
+      telegramResults.secondary = results[1].status === 'fulfilled' && results[1].value === true;
+    }
+
+    // ─── ОТВЕТ КЛИЕНТУ ─────────────────────────────────────
+    // Даже если один из каналов упал — возвращаем ok, чтобы клиент не
+    // спамил ретраями. Логи на сервере покажут детали.
+    res.status(200).json({
+      ok: true,
+      orderId: orderId,
+      firestore: { ok: firestoreOk, error: firestoreError },
+      telegram: telegramResults
+    });
+  });

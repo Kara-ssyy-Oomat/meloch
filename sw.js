@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.21.0-telegram-guaranteed-notify'; // ГАРАНТИЯ доставки заказа: параллельно с Firestore шлём короткий текст в Telegram админа (~500 байт, работает даже без Firebase Auth)
+const CACHE_VERSION = 'kerben-v4.22.0-order-notify-direct'; // Новый Cloud Function orderNotify: заказ пишется в БД через admin SDK + Telegram уведомление. Работает БЕЗ App Check (обходит проблему когда telegramProxy 401)
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

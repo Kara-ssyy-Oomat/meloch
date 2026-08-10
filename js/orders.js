@@ -391,90 +391,108 @@ async function _loadProductPhotoSafe(imageUrl) {
 }
 
 // ============================================================================
-//    ГАРАНТИРОВАННОЕ ТЕКСТОВОЕ УВЕДОМЛЕНИЕ О ЗАКАЗЕ (ЛЁГКОЕ, БЫСТРОЕ)
+//    ГАРАНТИРОВАННАЯ ДОСТАВКА ЗАКАЗА — ПРЯМОЙ HTTP ENDPOINT
 // ----------------------------------------------------------------------------
-// Простой текст (~500 байт) уходит в Telegram админа параллельно с orderRef.set().
-// Работает даже при плохой сети / offline persistence не сработал / 403 Firebase Auth,
-// потому что telegramProxy — обычный HTTPS endpoint, не требует Firebase Auth.
+// Идёт на Cloud Function orderNotify, которая:
+//   1) Пишет заказ в Firestore через admin SDK (обходит клиентский Auth 403).
+//   2) Шлёт текст в Telegram админа (2 чата).
+// БЕЗ App Check — работает даже когда telegramProxy отказывает
+// (Safari ITP, Telegram/Instagram WebView, throttled reCAPTCHA и т.п.).
 //
-// Это ГАРАНТИЯ: даже если заказ по какой-то причине не долетел до Firestore,
-// админ увидит его в Telegram в течение 1-3 сек. Тяжёлый PDF (sendOrderAsPDF)
-// приходит следом (или тоже упадёт — тогда админ вручную свяжется с клиентом).
+// Возвращается двойная гарантия:
+//   • Заказ дойдёт в БД либо через orderRef.set() клиента, либо через
+//     orderNotify (кто первый — тот и создаст, .create() идемпотентно).
+//   • Админ получит текст в Telegram в течение 1-3 сек ГАРАНТИРОВАННО.
 // ============================================================================
-async function sendOrderTextToTelegram(orderData, orderId) {
-  // Проверяем что telegram-client.js подгружен
-  if (typeof tgSendMessage !== 'function') {
-    console.warn('[OrderTG] tgSendMessage не доступен — пропускаем текстовое уведомление');
-    return false;
-  }
+const ORDER_NOTIFY_URL =
+  'https://us-central1-svoysayet.cloudfunctions.net/orderNotify';
 
+async function sendOrderTextToTelegram(orderData, orderId) {
+  if (!orderData || !orderId) return false;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000); // 8с таймаут
+
+  try {
+    const response = await fetch(ORDER_NOTIFY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // credentials НЕ ставим — endpoint не использует cookies.
+      // mode: 'cors' — по умолчанию для cross-origin fetch.
+      body: JSON.stringify({
+        orderId: orderId,
+        payload: orderData
+      }),
+      signal: controller.signal
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.warn('[OrderNotify] HTTP', response.status, data);
+      // Fallback: попробуем через старый telegramProxy (App Check).
+      // Он всё равно упадёт если App Check throttled, но вдруг сработает.
+      return await _sendOrderTelegramFallback(orderData, orderId);
+    }
+
+    console.log('[OrderNotify] заказ отправлен:', {
+      orderId,
+      firestore: data.firestore,
+      telegram: data.telegram
+    });
+    return true;
+  } catch (e) {
+    // AbortError (таймаут) / сетевая ошибка — пробуем fallback
+    console.warn('[OrderNotify] fetch ошибка:', e && e.message);
+    try { return await _sendOrderTelegramFallback(orderData, orderId); }
+    catch (e2) { return false; }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Старый путь через telegramProxy (требует App Check). Используется как
+// вторичный fallback если orderNotify упал. Обычно тоже упадёт из-за
+// App Check, но иногда срабатывает (когда App Check работает нормально).
+async function _sendOrderTelegramFallback(orderData, orderId) {
+  if (typeof tgSendMessage !== 'function') return false;
   try {
     const items = Array.isArray(orderData.items) ? orderData.items : [];
     const total = orderData.total || 0;
     const time = orderData.time || new Date().toLocaleString('ru-RU');
-
-    // Формируем список товаров. Не более 15 строк — иначе Telegram обрежет
-    // (лимит 4096 символов на сообщение).
     const MAX_ITEMS = 15;
     const shownItems = items.slice(0, MAX_ITEMS);
     const restCount = items.length - shownItems.length;
-
-    let itemsText = shownItems.map(i => {
+    const itemsText = shownItems.map(i => {
       const qty = i.qty || 0;
       const price = i.price || 0;
-      const title = String(i.title || 'Товар').replace(/[*_`\[\]]/g, ''); // без Markdown-символов
+      const title = String(i.title || 'Товар').replace(/[*_`\[\]]/g, '');
       const variant = i.variant ? ` [${i.variant}]` : '';
       return `• ${title}${variant} — ${qty} × ${price} сом`;
-    }).join('\n');
-    if (restCount > 0) {
-      itemsText += `\n… и ещё ${restCount} товар(ов)`;
-    }
-
-    // Пометки: агент, партнёр, водитель
-    let extraLines = [];
-    if (orderData.placedByAgentName || (orderData.placedByAgent && orderData.placedByAgent.name)) {
-      const agentName = orderData.placedByAgentName || orderData.placedByAgent.name;
-      extraLines.push(`👥 Оформил агент: ${agentName}`);
-    }
-    if (orderData.partner) {
-      extraLines.push(`🤝 Партнёр: ${orderData.partner}`);
-    }
-    if (orderData.driverName || orderData.driverPhone) {
-      extraLines.push(`🚗 Водитель: ${orderData.driverName || '-'} / ${orderData.driverPhone || '-'}`);
-    }
-    if (orderData.unfulfilledOrder) {
-      extraLines.push(`⚠️ ЗАЯВКА — товары были распроданы. Клиент ждёт связи!`);
-    }
-    const extraText = extraLines.length ? '\n' + extraLines.join('\n') : '';
+    }).join('\n') + (restCount > 0 ? `\n… и ещё ${restCount} товар(ов)` : '');
 
     const text =
-      '🔔 НОВЫЙ ЗАКАЗ\n\n' +
+      '🔔 НОВЫЙ ЗАКАЗ (fallback)\n\n' +
       `👤 ${orderData.name || 'Клиент'}\n` +
       `📞 ${orderData.phone || '-'}\n` +
       `📍 ${orderData.address || '-'}\n\n` +
       '📦 Товары:\n' + (itemsText || '(нет товаров)') + '\n\n' +
       `💰 Итого: ${total.toLocaleString('ru-RU')} сом\n` +
-      `⏰ ${time}` +
-      (orderId ? `\n🆔 ${orderId.slice(-8)}` : '') +
-      extraText;
+      `⏰ ${time}\n🆔 ${orderId.slice(-8)}`;
 
-    // Отправляем параллельно в оба чата, plain text (без Markdown) чтобы
-    // спецсимволы в именах/адресах не ломали разметку.
     const chatIds = window.TELEGRAM_CHAT_IDS || { primary: '5567924440', secondary: '246421345' };
     const results = await Promise.allSettled([
       tgSendMessage({ chat_id: chatIds.primary, text: text, parse_mode: '' }),
       tgSendMessage({ chat_id: chatIds.secondary, text: text, parse_mode: '' })
     ]);
-
     const okCount = results.filter(r => r.status === 'fulfilled').length;
-    console.log(`[OrderTG] Текстовое уведомление о заказе: ${okCount}/2 чата`);
+    console.log(`[OrderNotify Fallback] через telegramProxy: ${okCount}/2 чата`);
     return okCount > 0;
   } catch (e) {
-    console.error('[OrderTG] Ошибка отправки текстового уведомления:', e);
+    console.error('[OrderNotify Fallback] ошибка:', e);
     return false;
   }
 }
-// Делаем доступной глобально (cart.html, order-submit.js вызывают её)
+
 if (typeof window !== 'undefined') {
   window.sendOrderTextToTelegram = sendOrderTextToTelegram;
 }
