@@ -899,7 +899,10 @@
         <div class="header-subtitle" id="agentName">Агент: ---</div>
       </div>
     </div>
-    <button class="back-btn" id="headerLogoutBtn" style="display:none;" onclick="logoutAgent()">🚪 Выйти</button>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <a href="recover.html" target="_blank" rel="noopener" class="back-btn" id="headerRecoverBtn" style="display:none; background:rgba(245,124,0,0.9);" title="Восстановить зависшие заказы если Ваш заказ не дошёл до администратора">🩹 Восстановить заказы</a>
+      <button class="back-btn" id="headerLogoutBtn" style="display:none;" onclick="logoutAgent()">🚪 Выйти</button>
+    </div>
   </div>
 
   <!-- Форма авторизации -->
@@ -1173,6 +1176,8 @@
       document.getElementById('dashboard').classList.add('active');
       document.getElementById('agentName').textContent = 'Агент: ' + currentAgent.name;
       document.getElementById('headerLogoutBtn').style.display = 'block';
+      const rb = document.getElementById('headerRecoverBtn');
+      if (rb) rb.style.display = 'inline-flex';
     }
     
     // Показать авторизацию
@@ -1180,6 +1185,8 @@
       document.getElementById('authSection').style.display = 'flex';
       document.getElementById('dashboard').classList.remove('active');
       document.getElementById('headerLogoutBtn').style.display = 'none';
+      const rb = document.getElementById('headerRecoverBtn');
+      if (rb) rb.style.display = 'none';
     }
     
     // Переключение вкладок

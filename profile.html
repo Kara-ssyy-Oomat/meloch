@@ -380,7 +380,36 @@
     <a href="#" onclick="goBack(); return false;" style="font-size:24px; text-decoration:none; color:#333;">←</a>
     <h1 style="flex:1; font-size:18px; font-weight:600; margin:0;">Профиль</h1>
   </header>
-  
+
+  <!-- Умный баннер: показывается ТОЛЬКО если у клиента реально есть зависшие заказы.
+       Обычные клиенты его никогда не увидят и не будут напуганы. -->
+  <a id="pendingOrdersBanner" href="recover.html" style="display:none; margin:12px 16px 0; padding:12px 14px; background:linear-gradient(90deg,#fff3cd,#ffe0b2); border:1px solid #ffc107; border-radius:10px; text-decoration:none; color:#5d4037; align-items:center; gap:12px;">
+    <span style="font-size:24px;">📤</span>
+    <span style="flex:1;">
+      <span style="display:block; font-weight:600; font-size:14px;" id="pendingOrdersBannerTitle">У вас есть неотправленные заказы</span>
+      <span style="display:block; font-size:12px; opacity:0.85;">Нажмите чтобы досдать их администратору</span>
+    </span>
+    <span style="font-size:20px; color:#f57c00;">›</span>
+  </a>
+  <script>
+    // Показ баннера — не блокирующий, простой:
+    (function(){
+      try {
+        var raw = localStorage.getItem('pendingOrdersBackup');
+        if (!raw) return;
+        var arr = JSON.parse(raw);
+        if (!Array.isArray(arr) || arr.length === 0) return;
+        var el = document.getElementById('pendingOrdersBanner');
+        var titleEl = document.getElementById('pendingOrdersBannerTitle');
+        if (!el) return;
+        var n = arr.length;
+        var word = (n === 1) ? 'неотправленный заказ' : (n < 5 ? 'неотправленных заказа' : 'неотправленных заказов');
+        if (titleEl) titleEl.textContent = 'У вас ' + n + ' ' + word;
+        el.style.display = 'flex';
+      } catch (e) { /* нет localStorage — не критично */ }
+    })();
+  </script>
+
   <div id="profileContent"><script>try{var c=sessionStorage.getItem('profileHtmlCache');if(c)document.write(c);}catch(e){}</script></div>
   
   <!-- Окно жалобы -->
