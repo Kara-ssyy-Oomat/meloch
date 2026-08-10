@@ -82,15 +82,55 @@
 
   // Проверить и перепослать зависшие заказы.
   // Вызывается на загрузке страницы (см. вызов внизу).
+  // URL Cloud Function orderNotify — гарантированная доставка заказа
+  // без Firebase Auth / App Check. См. functions/index.js.
+  const ORDER_NOTIFY_URL =
+    'https://us-central1-svoysayet.cloudfunctions.net/orderNotify';
+
+  // Пытаемся дослать заказ через orderNotify HTTP endpoint.
+  // Возвращает true если заказ дошёл (или уже был в БД), false при ошибке.
+  async function _retryViaOrderNotify(orderId, payload) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+      const resp = await fetch(ORDER_NOTIFY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: orderId, payload: payload }),
+        signal: controller.signal
+      });
+      if (!resp.ok) {
+        console.warn('[PendingOrders] orderNotify HTTP', resp.status);
+        return false;
+      }
+      const data = await resp.json().catch(() => ({}));
+      // firestore.ok=true — заказ в БД (создан сейчас или уже был там).
+      // Если БД упала, но Telegram прошёл — админ хотя бы узнает,
+      // но backup оставляем для повторной попытки.
+      if (data && data.firestore && data.firestore.ok === true) {
+        console.log('[PendingOrders] orderNotify OK:', orderId, data);
+        return true;
+      }
+      console.warn('[PendingOrders] orderNotify без БД:', data);
+      return false;
+    } catch (e) {
+      console.warn('[PendingOrders] orderNotify network error:', e && e.message);
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   global.retryPendingOrders = async function () {
-    if (typeof firebase === 'undefined' || !firebase.firestore) return;
     let list = _load();
     if (list.length === 0) return;
 
     console.log('[PendingOrders] найдено ' + list.length + ' зависших заказов, перепосылаем...');
-    const db = firebase.firestore();
+    const hasFirestore = typeof firebase !== 'undefined' && firebase.firestore;
+    const db = hasFirestore ? firebase.firestore() : null;
 
-    // Ждём auth (с коротким таймаутом — на случай если сеть плохая)
+    // Ждём auth (с коротким таймаутом — на случай если сеть плохая).
+    // Это важно только для fallback пути через .set() — orderNotify auth не требует.
     if (typeof global.kerbenWaitForAuth === 'function') {
       try { await global.kerbenWaitForAuth(2000); } catch (e) {}
     }
@@ -107,31 +147,52 @@
         continue;
       }
 
-      try {
-        // Сначала проверим: может заказ уже на сервере (Firestore
-        // persistence всё-таки досинхронизировал в фоне)? Если да —
-        // просто удаляем backup, не перезаписываем.
-        const existing = await db.collection('orders').doc(entry.orderId).get();
-        if (existing.exists) {
-          console.log('[PendingOrders] заказ уже на сервере, чищу backup:', entry.orderId);
-          continue;
+      // ─── 1) Сначала проверим — может заказ уже в БД ────────
+      // (Firestore persistence мог досинхронизировать в фоне.
+      //  Или клиент .set() всё-таки прошёл. Не хотим создавать дубль.)
+      if (db) {
+        try {
+          const existing = await db.collection('orders').doc(entry.orderId).get();
+          if (existing.exists) {
+            console.log('[PendingOrders] заказ уже на сервере, чищу backup:', entry.orderId);
+            continue; // не добавляем в stillPending — backup удалён
+          }
+        } catch (e) {
+          // permission-denied на .get() — auth проблема. Не блокирует
+          // orderNotify — переходим к нему сразу.
+          console.warn('[PendingOrders] .get() ошибка:', e && e.message);
         }
-
-        // Заказа нет на сервере — досылаем.
-        // 10 сек таймаут — если снова не удалось, оставляем в backup
-        // и попробуем при следующем открытии страницы.
-        const setP = db.collection('orders').doc(entry.orderId).set(entry.payload);
-        const timeoutP = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('__RETRY_TIMEOUT__')), 10000)
-        );
-        await Promise.race([setP, timeoutP]);
-        console.log('[PendingOrders] заказ досослан:', entry.orderId);
-        // Не добавляем в stillPending — успешно доставили
-      } catch (e) {
-        console.warn('[PendingOrders] не удалось переслать', entry.orderId, ':', e && e.message);
-        // Оставляем в списке — попробуем в следующий раз
-        stillPending.push(entry);
       }
+
+      // ─── 2) Досылаем через orderNotify (ГЛАВНЫЙ ПУТЬ) ──────
+      // Работает БЕЗ Firebase Auth / App Check — это то что нужно
+      // для клиентов с 403 или App Check проблемами.
+      const sentViaNotify = await _retryViaOrderNotify(entry.orderId, entry.payload);
+      if (sentViaNotify) {
+        console.log('[PendingOrders] ✅ доставлен через orderNotify:', entry.orderId);
+        continue; // успешно — backup удалён
+      }
+
+      // ─── 3) Fallback — старый путь через Firestore SDK ────
+      // Если orderNotify упал (Cloud Function ушла в offline и т.п.),
+      // пробуем через клиентский .set(). Возможно у клиента как раз
+      // auth ожил — тогда пройдёт.
+      if (db) {
+        try {
+          const setP = db.collection('orders').doc(entry.orderId).set(entry.payload);
+          const timeoutP = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('__RETRY_TIMEOUT__')), 10000)
+          );
+          await Promise.race([setP, timeoutP]);
+          console.log('[PendingOrders] ✅ доставлен через .set():', entry.orderId);
+          continue;
+        } catch (e) {
+          console.warn('[PendingOrders] .set() тоже не смог:', entry.orderId, e && e.message);
+        }
+      }
+
+      // Оба пути провалились — оставляем в очереди на следующий раз
+      stillPending.push(entry);
     }
 
     _save(stillPending);

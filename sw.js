@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.22.0-order-notify-direct'; // Новый Cloud Function orderNotify: заказ пишется в БД через admin SDK + Telegram уведомление. Работает БЕЗ App Check (обходит проблему когда telegramProxy 401)
+const CACHE_VERSION = 'kerben-v4.23.0-pending-orders-via-notify'; // pending-orders.js retry теперь идёт через orderNotify (без Firebase Auth) — старые зависшие заказы гарантированно доходят при следующем визите
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
