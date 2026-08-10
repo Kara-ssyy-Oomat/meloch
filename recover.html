@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Восстановление заказов</title>
+<!-- Отключаем service worker кэш для этой страницы — она должна быть свежей -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f7fa;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+    line-height: 1.5;
+  }
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  h1 {
+    margin: 0 0 8px;
+    color: #1976d2;
+    font-size: 22px;
+  }
+  .subtitle {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+  .status-box {
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-weight: 500;
+  }
+  .status-info { background: #e3f2fd; color: #1565c0; border-left: 4px solid #1976d2; }
+  .status-success { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #43a047; }
+  .status-warning { background: #fff8e1; color: #f57c00; border-left: 4px solid #ffa000; }
+  .status-error { background: #ffebee; color: #c62828; border-left: 4px solid #e53935; }
+  .btn {
+    display: inline-block;
+    padding: 12px 24px;
+    background: #43a047;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    margin: 8px 4px 0 0;
+    transition: background 0.2s;
+  }
+  .btn:hover { background: #388e3c; }
+  .btn:disabled { background: #999; cursor: not-allowed; }
+  .btn-secondary { background: #1976d2; }
+  .btn-secondary:hover { background: #1565c0; }
+  .btn-danger { background: #e53935; }
+  .btn-danger:hover { background: #c62828; }
+  .order-card {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 8px 0;
+    background: #fafafa;
+  }
+  .order-id {
+    font-family: monospace;
+    font-size: 12px;
+    color: #666;
+    word-break: break-all;
+  }
+  .order-name {
+    font-weight: 600;
+    font-size: 16px;
+    color: #1976d2;
+    margin: 4px 0;
+  }
+  .order-meta {
+    font-size: 13px;
+    color: #555;
+    margin: 4px 0;
+  }
+  .order-items {
+    font-size: 12px;
+    color: #666;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed #ddd;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .order-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .st-pending { background: #fff3cd; color: #856404; }
+  .st-sending { background: #cfe2ff; color: #084298; }
+  .st-sent { background: #d1e7dd; color: #0f5132; }
+  .st-failed { background: #f8d7da; color: #842029; }
+  .log {
+    font-family: monospace;
+    font-size: 11px;
+    background: #263238;
+    color: #aed581;
+    padding: 12px;
+    border-radius: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 12px;
+  }
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #999;
+  }
+  .footer-note {
+    font-size: 12px;
+    color: #999;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #eee;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔄 Восстановление заказов</h1>
+    <div class="subtitle">
+      Эта страница ищет незавершённые заказы на вашем устройстве и
+      отправляет их напрямую администратору.
+    </div>
+
+    <div id="status" class="status-box status-info">
+      Проверяю устройство…
+    </div>
+
+    <div id="orders-list"></div>
+
+    <div style="margin-top:16px;">
+      <button id="btn-retry" class="btn" onclick="startRetry()" disabled>
+        📤 Отправить все зависшие заказы
+      </button>
+      <button class="btn btn-secondary" onclick="refresh()">
+        🔄 Обновить список
+      </button>
+      <button class="btn btn-danger" onclick="clearBackup()" style="display:none;" id="btn-clear">
+        🗑 Очистить (после подтверждения)
+      </button>
+    </div>
+
+    <div id="log" class="log" style="display:none;"></div>
+
+    <div class="footer-note">
+      Если список пуст — на этом устройстве нет зависших заказов.
+      Все ранее оформленные заказы либо уже доставлены, либо очищены.
+    </div>
+  </div>
+
+<script>
+'use strict';
+
+const ORDER_NOTIFY_URL = 'https://us-central1-svoysayet.cloudfunctions.net/orderNotify';
+const LS_KEY = 'pendingOrdersBackup';
+
+const $status = document.getElementById('status');
+const $list = document.getElementById('orders-list');
+const $btnRetry = document.getElementById('btn-retry');
+const $btnClear = document.getElementById('btn-clear');
+const $log = document.getElementById('log');
+
+const orderStates = new Map(); // orderId -> 'pending'|'sending'|'sent'|'failed'
+
+function setStatus(text, type) {
+  $status.textContent = text;
+  $status.className = 'status-box status-' + (type || 'info');
+}
+
+function log(msg) {
+  const t = new Date().toTimeString().split(' ')[0];
+  $log.style.display = 'block';
+  $log.textContent += '[' + t + '] ' + msg + '\n';
+  $log.scrollTop = $log.scrollHeight;
+}
+
+function loadBackup() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    log('Ошибка чтения localStorage: ' + e.message);
+    return [];
+  }
+}
+
+function saveBackup(list) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+  } catch (e) {
+    log('Ошибка записи localStorage: ' + e.message);
+  }
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function formatItems(items) {
+  if (!Array.isArray(items) || items.length === 0) return '(нет позиций)';
+  return items.map(function(it){
+    const name = escapeHtml(it && (it.name || it.title || it.productName) || '?');
+    const qty = it && (it.quantity || it.qty || 1);
+    const price = it && (it.price || it.unitPrice || 0);
+    return '• ' + name + ' × ' + qty + ' = ' + (price * qty) + ' сом';
+  }).join('<br>');
+}
+
+function renderOrder(entry) {
+  const p = entry.payload || {};
+  const state = orderStates.get(entry.orderId) || 'pending';
+  const stLabel = {
+    'pending': 'Ожидает', 'sending': 'Отправка…',
+    'sent': '✅ Отправлен', 'failed': '❌ Ошибка'
+  }[state];
+  const ageHours = entry.savedAt
+    ? Math.round((Date.now() - entry.savedAt) / 3600000)
+    : '?';
+
+  return '' +
+    '<div class="order-card" data-id="' + escapeHtml(entry.orderId) + '">' +
+      '<div class="order-id">' + escapeHtml(entry.orderId) +
+        '<span class="order-status st-' + state + '">' + stLabel + '</span>' +
+      '</div>' +
+      '<div class="order-name">' + escapeHtml(p.name || p.customerName || '(без имени)') + '</div>' +
+      '<div class="order-meta">📞 ' + escapeHtml(p.phone || p.customerPhone || '—') + '</div>' +
+      '<div class="order-meta">📍 ' + escapeHtml(p.address || p.customerAddress || '—') + '</div>' +
+      '<div class="order-meta">💰 Сумма: <b>' + escapeHtml(String(p.total || p.totalAmount || 0)) + ' сом</b></div>' +
+      (p.partner || p.referredBy ? '<div class="order-meta">🤝 Агент: ' + escapeHtml(p.partner || p.referredBy) + '</div>' : '') +
+      (entry.savedAt ? '<div class="order-meta">⏰ Сохранён ' + ageHours + ' ч назад</div>' : '') +
+      '<div class="order-items">' + formatItems(p.items) + '</div>' +
+    '</div>';
+}
+
+function refresh() {
+  const list = loadBackup();
+  $btnClear.style.display = list.length > 0 ? 'inline-block' : 'none';
+
+  if (list.length === 0) {
+    setStatus('✅ На этом устройстве нет зависших заказов.', 'success');
+    $list.innerHTML = '<div class="empty">Все заказы уже доставлены.</div>';
+    $btnRetry.disabled = true;
+    return;
+  }
+
+  setStatus('Найдено ' + list.length + ' зависших заказ(ов). Нажмите «Отправить».', 'warning');
+  $list.innerHTML = list.map(renderOrder).join('');
+  $btnRetry.disabled = false;
+}
+
+async function sendOne(entry) {
+  orderStates.set(entry.orderId, 'sending');
+  refresh();
+  log('→ Отправляю ' + entry.orderId + '…');
+
+  const controller = new AbortController();
+  const timer = setTimeout(function(){ controller.abort(); }, 15000);
+  try {
+    const resp = await fetch(ORDER_NOTIFY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: entry.orderId, payload: entry.payload }),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      const text = await resp.text().catch(function(){return '';});
+      log('  ← HTTP ' + resp.status + ' ' + text.slice(0, 200));
+      orderStates.set(entry.orderId, 'failed');
+      return false;
+    }
+    const data = await resp.json().catch(function(){return {};});
+    if (data && data.firestore && data.firestore.ok === true) {
+      log('  ← ✅ OK (в БД + Telegram: ' + (data.telegram && data.telegram.primary && data.telegram.primary.ok ? 'да' : 'нет') + ')');
+      orderStates.set(entry.orderId, 'sent');
+      return true;
+    }
+    log('  ← ответ без БД: ' + JSON.stringify(data).slice(0, 200));
+    orderStates.set(entry.orderId, 'failed');
+    return false;
+  } catch (e) {
+    clearTimeout(timer);
+    log('  ← сеть/таймаут: ' + (e && e.message || e));
+    orderStates.set(entry.orderId, 'failed');
+    return false;
+  }
+}
+
+async function startRetry() {
+  $btnRetry.disabled = true;
+  const list = loadBackup();
+  if (list.length === 0) { refresh(); return; }
+
+  setStatus('Отправляю заказы… не закрывайте страницу.', 'info');
+  log('=== Начинаю отправку ' + list.length + ' заказов ===');
+
+  const remaining = [];
+  for (let i = 0; i < list.length; i++) {
+    const ok = await sendOne(list[i]);
+    if (!ok) remaining.push(list[i]);
+    refresh();
+  }
+
+  saveBackup(remaining);
+  log('=== Готово. Отправлено: ' + (list.length - remaining.length) + '/' + list.length + ' ===');
+
+  if (remaining.length === 0) {
+    setStatus('🎉 Все заказы успешно доставлены администратору!', 'success');
+  } else {
+    setStatus('Отправлено ' + (list.length - remaining.length) + ' из ' + list.length + '. ' + remaining.length + ' с ошибкой — попробуйте ещё раз через минуту.', 'warning');
+  }
+  $btnRetry.disabled = false;
+  refresh();
+}
+
+function clearBackup() {
+  const list = loadBackup();
+  if (list.length === 0) return;
+  const confirmed = confirm(
+    'Внимание! Это удалит ВСЕ зависшие заказы с этого устройства без отправки.\n\n' +
+    'Используйте только если вы УВЕРЕНЫ, что заказы уже дошли (проверили в админке).\n\n' +
+    'Продолжить?'
+  );
+  if (!confirmed) return;
+  saveBackup([]);
+  log('🗑 backup очищен вручную');
+  refresh();
+}
+
+// Первый рендер
+refresh();
+
+// Автостарт retry через 1 сек — на случай если агент просто открыл и не жмёт
+setTimeout(function(){
+  if (loadBackup().length > 0) {
+    log('Автостарт: обнаружены заказы, начинаю отправку…');
+    startRetry();
+  }
+}, 1000);
+</script>
+</body>
+</html>
