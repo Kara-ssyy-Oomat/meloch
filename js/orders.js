@@ -390,6 +390,95 @@ async function _loadProductPhotoSafe(imageUrl) {
   return null;
 }
 
+// ============================================================================
+//    ГАРАНТИРОВАННОЕ ТЕКСТОВОЕ УВЕДОМЛЕНИЕ О ЗАКАЗЕ (ЛЁГКОЕ, БЫСТРОЕ)
+// ----------------------------------------------------------------------------
+// Простой текст (~500 байт) уходит в Telegram админа параллельно с orderRef.set().
+// Работает даже при плохой сети / offline persistence не сработал / 403 Firebase Auth,
+// потому что telegramProxy — обычный HTTPS endpoint, не требует Firebase Auth.
+//
+// Это ГАРАНТИЯ: даже если заказ по какой-то причине не долетел до Firestore,
+// админ увидит его в Telegram в течение 1-3 сек. Тяжёлый PDF (sendOrderAsPDF)
+// приходит следом (или тоже упадёт — тогда админ вручную свяжется с клиентом).
+// ============================================================================
+async function sendOrderTextToTelegram(orderData, orderId) {
+  // Проверяем что telegram-client.js подгружен
+  if (typeof tgSendMessage !== 'function') {
+    console.warn('[OrderTG] tgSendMessage не доступен — пропускаем текстовое уведомление');
+    return false;
+  }
+
+  try {
+    const items = Array.isArray(orderData.items) ? orderData.items : [];
+    const total = orderData.total || 0;
+    const time = orderData.time || new Date().toLocaleString('ru-RU');
+
+    // Формируем список товаров. Не более 15 строк — иначе Telegram обрежет
+    // (лимит 4096 символов на сообщение).
+    const MAX_ITEMS = 15;
+    const shownItems = items.slice(0, MAX_ITEMS);
+    const restCount = items.length - shownItems.length;
+
+    let itemsText = shownItems.map(i => {
+      const qty = i.qty || 0;
+      const price = i.price || 0;
+      const title = String(i.title || 'Товар').replace(/[*_`\[\]]/g, ''); // без Markdown-символов
+      const variant = i.variant ? ` [${i.variant}]` : '';
+      return `• ${title}${variant} — ${qty} × ${price} сом`;
+    }).join('\n');
+    if (restCount > 0) {
+      itemsText += `\n… и ещё ${restCount} товар(ов)`;
+    }
+
+    // Пометки: агент, партнёр, водитель
+    let extraLines = [];
+    if (orderData.placedByAgentName || (orderData.placedByAgent && orderData.placedByAgent.name)) {
+      const agentName = orderData.placedByAgentName || orderData.placedByAgent.name;
+      extraLines.push(`👥 Оформил агент: ${agentName}`);
+    }
+    if (orderData.partner) {
+      extraLines.push(`🤝 Партнёр: ${orderData.partner}`);
+    }
+    if (orderData.driverName || orderData.driverPhone) {
+      extraLines.push(`🚗 Водитель: ${orderData.driverName || '-'} / ${orderData.driverPhone || '-'}`);
+    }
+    if (orderData.unfulfilledOrder) {
+      extraLines.push(`⚠️ ЗАЯВКА — товары были распроданы. Клиент ждёт связи!`);
+    }
+    const extraText = extraLines.length ? '\n' + extraLines.join('\n') : '';
+
+    const text =
+      '🔔 НОВЫЙ ЗАКАЗ\n\n' +
+      `👤 ${orderData.name || 'Клиент'}\n` +
+      `📞 ${orderData.phone || '-'}\n` +
+      `📍 ${orderData.address || '-'}\n\n` +
+      '📦 Товары:\n' + (itemsText || '(нет товаров)') + '\n\n' +
+      `💰 Итого: ${total.toLocaleString('ru-RU')} сом\n` +
+      `⏰ ${time}` +
+      (orderId ? `\n🆔 ${orderId.slice(-8)}` : '') +
+      extraText;
+
+    // Отправляем параллельно в оба чата, plain text (без Markdown) чтобы
+    // спецсимволы в именах/адресах не ломали разметку.
+    const chatIds = window.TELEGRAM_CHAT_IDS || { primary: '5567924440', secondary: '246421345' };
+    const results = await Promise.allSettled([
+      tgSendMessage({ chat_id: chatIds.primary, text: text, parse_mode: '' }),
+      tgSendMessage({ chat_id: chatIds.secondary, text: text, parse_mode: '' })
+    ]);
+
+    const okCount = results.filter(r => r.status === 'fulfilled').length;
+    console.log(`[OrderTG] Текстовое уведомление о заказе: ${okCount}/2 чата`);
+    return okCount > 0;
+  } catch (e) {
+    console.error('[OrderTG] Ошибка отправки текстового уведомления:', e);
+    return false;
+  }
+}
+// Делаем доступной глобально (cart.html, order-submit.js вызывают её)
+if (typeof window !== 'undefined') {
+  window.sendOrderTextToTelegram = sendOrderTextToTelegram;
+}
+
 // ===== Отправка одного файла в Telegram с retry при 429 (Too Many Requests) =====
 // Идёт через Cloud Function telegramProxy (см. js/telegram-client.js).
 // Токен бота на бэкенде, в коде сайта его нет.

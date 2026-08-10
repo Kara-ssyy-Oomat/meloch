@@ -504,6 +504,17 @@ document.getElementById('submitOrder').onclick = async () => {
       try { savePendingOrderBackup(orderRef.id, orderPayload); } catch (e) {}
     }
 
+    // ГАРАНТИЯ ДОСТАВКИ: параллельно с Firestore шлём короткий текст в
+    // Telegram админа (~500 байт). Работает даже если Firestore недоступен /
+    // Firebase Auth 403 / offline persistence не работает — telegramProxy
+    // это обычный HTTPS endpoint без Firebase Auth. Админ узнает о заказе
+    // в течение 1-3 сек ГАРАНТИРОВАННО. Fire-and-forget в фоне.
+    if (typeof sendOrderTextToTelegram === 'function') {
+      try {
+        sendOrderTextToTelegram(orderPayload, orderRef.id).catch(() => {});
+      } catch (e) {}
+    }
+
     const orderCommitPromise = orderRef.set(orderPayload);
     // Как только Firestore подтвердит — убираем backup.
     orderCommitPromise

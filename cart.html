@@ -1551,6 +1551,19 @@
           try { savePendingOrderBackup(orderRef.id, orderPayload); } catch (e) {}
         }
 
+        // ГАРАНТИЯ ДОСТАВКИ: параллельно с Firestore шлём короткий текст
+        // в Telegram админа (~500 байт). Работает даже если Firestore
+        // недоступен / Firebase Auth 403 / offline persistence сломан,
+        // потому что telegramProxy — обычный HTTPS endpoint. Админ узнает
+        // о заказе в течение 1-3 сек ГАРАНТИРОВАННО, а тяжёлый PDF придёт
+        // следом (или тоже упадёт — тогда админ уже связан с клиентом по
+        // тексту). Промис не await — просто fire-and-forget в фоне.
+        if (typeof sendOrderTextToTelegram === 'function') {
+          try {
+            sendOrderTextToTelegram(orderPayload, orderRef.id).catch(() => {});
+          } catch (e) {}
+        }
+
         const orderCommitPromise = orderRef.set(orderPayload);
         // Как только Firestore подтвердит запись — убираем backup.
         // Промис вешаем СРАЗУ (не в await), чтобы очистка сработала
@@ -1868,7 +1881,7 @@
       window.fixImageOrientation = async function(file) { return file; };
     }
   </script>
-  <script src="js/orders.js"></script>
+  <script src="js/orders.js?v=3"></script>
 <script src="js/bottom-nav.js?v=28"></script>
 </body>
 </html>

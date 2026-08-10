@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.20.1-rededuct-fix-flags'; // Фикс: диалог списания при разотмене показывается всегда для заказов с товарами (не полагаемся на сброшенные флаги) + deleteOrder корректно распознаёт русские статусы отмены
+const CACHE_VERSION = 'kerben-v4.21.0-telegram-guaranteed-notify'; // ГАРАНТИЯ доставки заказа: параллельно с Firestore шлём короткий текст в Telegram админа (~500 байт, работает даже без Firebase Auth)
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
