@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.26.0-notify-first'; // orderNotify стал ГЛАВНЫМ каналом доставки заказа: UI ждёт первый успех из {notify.firestoreOk, .set() resolve, 5s timeout}. В 90% случаев (нормальная сеть) заказ будет server-confirmed ДО того как клиент увидит "Принят" — backup чистится сразу. При плохой сети сохраняется оптимистичный UX + retry подхватывает.
+const CACHE_VERSION = 'kerben-v4.27.0-warehouse-date-filter'; // admin-warehouse: заменён жёсткий .limit(300) на фильтр по датам (сегодня/3д/неделя/месяц/3мес/всё). Раньше при 400+ движений/день вчерашние вытеснялись лимитом — админу казалось что данные исчезают, хотя в БД их 4896 (самая старая — 6 месяцев назад).
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

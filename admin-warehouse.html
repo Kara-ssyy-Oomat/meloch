@@ -914,7 +914,15 @@
       <button onclick="setMovementsFilter('receipt')" id="movFilterReceipt" class="mov-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">📥 Приход</button>
       <button onclick="setMovementsFilter('transfer')" id="movFilterTransfer" class="mov-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">🔄 Перемещения</button>
       <button onclick="setMovementsFilter('return')" id="movFilterReturn" class="mov-filter-btn" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#555;">↩️ Возвраты</button>
-      <button onclick="loadMovements(true)" style="margin-left:auto; padding:8px 14px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer;">🔄 Обновить</button>
+      <select id="movementsPeriod" onchange="loadMovements(true)" style="margin-left:auto; padding:8px 12px; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; background:#fff; color:#333;">
+        <option value="1">📅 Сегодня</option>
+        <option value="3">📅 3 дня</option>
+        <option value="7" selected>📅 Неделя</option>
+        <option value="30">📅 Месяц</option>
+        <option value="90">📅 3 месяца</option>
+        <option value="all">📅 Всё время</option>
+      </select>
+      <button onclick="loadMovements(true)" style="padding:8px 14px; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer;">🔄 Обновить</button>
     </div>
     <input type="text" id="movementsSearch" placeholder="🔍 Поиск: товар, клиент, телефон, номер заказа..." oninput="renderMovements()" style="width:100%; padding:10px 12px; margin-bottom:12px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
     <!-- Панель массового отката: показывается только когда выбрана хотя бы одна запись -->
@@ -1770,15 +1778,38 @@ async function loadProducts() {
 
 async function loadMovements(forceRender) {
   try {
-    // 300 — глубже история продаж/приходов, но не бьёт по чтениям.
-    const snap = await db.collection('warehouseMovements')
-      .orderBy('createdAt', 'desc')
-      .limit(300)
-      .get();
+    // Раньше был жёсткий limit(300). При активной работе за день бывает
+    // 400+ движений — вчерашние обрезались лимитом, и админу казалось
+    // что «данные исчезают». На самом деле они в БД, просто не
+    // отображались. Теперь фильтруем по дате (селектор в UI):
+    //   • Сегодня / 3 дня / Неделя / Месяц / 3 месяца / Всё время
+    // safeguard limit 5000 — чтобы не грузить всю коллекцию (сейчас
+    // ~5000 всего, растёт ~400/день; на «Всё время» будет тяжело).
+    const periodSel = document.getElementById('movementsPeriod');
+    const periodVal = periodSel ? periodSel.value : '7';
+    let query = db.collection('warehouseMovements').orderBy('createdAt', 'desc');
+    if (periodVal && periodVal !== 'all') {
+      const days = parseInt(periodVal, 10) || 7;
+      const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+      const sinceTs = firebase.firestore.Timestamp.fromMillis(sinceMs);
+      query = query.where('createdAt', '>=', sinceTs);
+    }
+    const snap = await query.limit(5000).get();
     movements = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    console.log('[Warehouse] загружено движений: ' + movements.length + ' (period=' + periodVal + ')');
   } catch (e) {
     movements = [];
-    console.log('Не удалось загрузить warehouseMovements:', e.message);
+    console.warn('Не удалось загрузить warehouseMovements:', e.message);
+    // Firestore может потребовать составной индекс для where+orderBy.
+    // В таком случае показываем сообщение и fallback на простой orderBy.
+    if (/index/i.test(String(e.message || ''))) {
+      try {
+        const snap2 = await db.collection('warehouseMovements')
+          .orderBy('createdAt', 'desc').limit(1000).get();
+        movements = snap2.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log('[Warehouse] fallback: загружено последних ' + movements.length);
+      } catch (e2) {}
+    }
   }
   if (forceRender) renderMovements();
 }
