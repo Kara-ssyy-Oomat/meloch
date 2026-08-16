@@ -1930,7 +1930,7 @@ function switchTab(tab) {
     renderWarehouseFilter();
     renderProductsStock();
   } else if (tab === 'movements') {
-    renderMovements();
+    loadMovements(true);
   } else if (tab === 'alerts') {
     loadStockAlerts();
   }
@@ -2513,9 +2513,10 @@ async function saveStockChanges() {
     });
 
     closeStockModal();
-    await loadProducts();
+    await Promise.all([loadProducts(), loadMovements()]);
     updateStats();
     renderWarehouses();
+    if (currentTab === 'movements') renderMovements();
   } catch (e) {
     console.error('Ошибка сохранения остатков:', e);
     Swal.fire('Ошибка', 'Не удалось сохранить: ' + e.message, 'error');
@@ -2700,9 +2701,10 @@ async function executeTransfer() {
     Swal.fire({ icon: 'success', title: `Перемещено ${items.length} товаров!`, timer: 1500, showConfirmButton: false });
     
     closeTransferModal();
-    await loadProducts();
+    await Promise.all([loadProducts(), loadMovements()]);
     updateStats();
     renderWarehouses();
+    if (currentTab === 'movements') renderMovements();
   } catch (e) {
     console.error('Ошибка перемещения:', e);
     Swal.fire('Ошибка', 'Не удалось переместить: ' + e.message, 'error');
@@ -2894,10 +2896,11 @@ async function editProductStock(productId) {
     
     Swal.fire({ icon: 'success', title: 'Остатки обновлены!', timer: 1500, showConfirmButton: false });
     
-    await loadProducts();
+    await Promise.all([loadProducts(), loadMovements()]);
     updateStats();
     renderProductsStock();
     renderWarehouses();
+    if (currentTab === 'movements') renderMovements();
   } catch (e) {
     Swal.fire('Ошибка', e.message, 'error');
   }

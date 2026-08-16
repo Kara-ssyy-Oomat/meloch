@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.27.0-warehouse-date-filter'; // admin-warehouse: заменён жёсткий .limit(300) на фильтр по датам (сегодня/3д/неделя/месяц/3мес/всё). Раньше при 400+ движений/день вчерашние вытеснялись лимитом — админу казалось что данные исчезают, хотя в БД их 4896 (самая старая — 6 месяцев назад).
+const CACHE_VERSION = 'kerben-v4.27.1-reload-movements-after-edit'; // После правки остатков/перемещения сразу перечитываем warehouseMovements; вкладка «Движения» тоже обновляется при открытии, а не рисует старый список из памяти.
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
