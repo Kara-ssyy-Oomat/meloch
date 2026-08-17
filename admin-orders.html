@@ -216,8 +216,10 @@
           </div>
           
           <div>
-            <label style="font-size:11px; color:#777; display:block; margin-bottom:4px;">Кто привёл клиента?</label>
-            <input id="editOrderReferredBy" type="text" placeholder="Имя партнёра" style="width:100%; padding:8px 10px; border:1px solid #e0e0e0; border-radius:6px; font-size:13px; box-sizing:border-box;" />
+            <label style="font-size:11px; color:#777; display:block; margin-bottom:4px;">Кто привёл клиента? (агент)</label>
+            <select id="editOrderReferredBy" style="width:100%; padding:8px 10px; border:1px solid #e0e0e0; border-radius:6px; font-size:13px; box-sizing:border-box; background:#fff;">
+              <option value="">— Без агента —</option>
+            </select>
           </div>
         </div>
       </div>
@@ -816,6 +818,50 @@ function createOrderCard(order, index) {
 
 // ===== Редактирование заказа =====
 let currentEditOrderId = null;
+let _agentsForSelect = null; // кэш списка агентов для выпадашки
+
+async function loadAgentsForSelect() {
+  if (Array.isArray(_agentsForSelect)) return _agentsForSelect;
+  try {
+    const snap = await db.collection('agents').limit(500).get();
+    _agentsForSelect = snap.docs.map(doc => {
+      const d = doc.data() || {};
+      return {
+        id: doc.id,
+        name: String(d.name || '').trim(),
+        phone: String(d.phone || '').trim(),
+        active: d.active !== false
+      };
+    }).filter(a => a.name).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  } catch (e) {
+    console.warn('[orders] не удалось загрузить агентов:', e && e.message);
+    _agentsForSelect = [];
+  }
+  return _agentsForSelect;
+}
+
+function fillAgentSelect(currentPartner) {
+  const sel = document.getElementById('editOrderReferredBy');
+  if (!sel) return;
+  const current = String(currentPartner || '').trim();
+  const agents = _agentsForSelect || [];
+  let html = '<option value="">— Без агента —</option>';
+  let matched = false;
+  agents.forEach(a => {
+    const selected = current && (current === a.name || current === a.id);
+    if (selected) matched = true;
+    const label = a.phone ? (a.name + ' · ' + a.phone) : a.name;
+    const inactive = a.active ? '' : ' (неактивен)';
+    html += '<option value="' + String(a.id).replace(/"/g, '&quot;') + '"' +
+      (selected ? ' selected' : '') + '>' +
+      (a.name.replace(/</g, '&lt;')) + inactive + (a.phone ? ' · ' + a.phone.replace(/</g, '&lt;') : '') +
+      '</option>';
+  });
+  if (current && !matched) {
+    html += '<option value="__keep__" selected>' + current.replace(/</g, '&lt;') + ' (текущий)</option>';
+  }
+  sel.innerHTML = html;
+}
 
 async function openEditOrderModal(orderId) {
   currentEditOrderId = orderId;
@@ -829,10 +875,13 @@ async function openEditOrderModal(orderId) {
   document.getElementById('editOrderAddress').value = '';
   document.getElementById('editOrderDriverName').value = '';
   document.getElementById('editOrderDriverPhone').value = '';
-  document.getElementById('editOrderReferredBy').value = '';
+  fillAgentSelect('');
 
   try {
-    const orderDoc = await db.collection('orders').doc(orderId).get();
+    const [orderDoc] = await Promise.all([
+      db.collection('orders').doc(orderId).get(),
+      loadAgentsForSelect()
+    ]);
     if (!orderDoc.exists) {
       throw new Error('Заказ не найден');
     }
@@ -846,7 +895,7 @@ async function openEditOrderModal(orderId) {
     document.getElementById('editOrderAddress').value = order.address || '';
     document.getElementById('editOrderDriverName').value = order.driverName || '';
     document.getElementById('editOrderDriverPhone').value = order.driverPhone || '';
-    document.getElementById('editOrderReferredBy').value = order.referredBy || order.partner || '';
+    fillAgentSelect(order.partnerId || order.partner || order.referredBy || '');
   } catch (error) {
     console.error('Ошибка загрузки заказа для редактирования:', error);
     Swal.fire('Ошибка', error && error.message ? error.message : 'Не удалось загрузить заказ', 'error');
@@ -869,17 +918,38 @@ async function saveEditOrder() {
   const address = (document.getElementById('editOrderAddress').value || '').trim();
   const driverName = (document.getElementById('editOrderDriverName').value || '').trim();
   const driverPhone = (document.getElementById('editOrderDriverPhone').value || '').trim();
-  const referredBy = (document.getElementById('editOrderReferredBy').value || '').trim();
+  const agentSel = document.getElementById('editOrderReferredBy');
+  const agentVal = (agentSel && agentSel.value) ? String(agentSel.value).trim() : '';
+  let partnerName = '';
+  let partnerId = '';
+  if (agentVal === '__keep__') {
+    const keepText = (agentSel.options[agentSel.selectedIndex] && agentSel.options[agentSel.selectedIndex].text) || '';
+    partnerName = keepText.replace(/\s*\(текущий\)\s*$/, '').trim();
+  } else if (agentVal) {
+    const found = (_agentsForSelect || []).find(a => a.id === agentVal);
+    partnerName = found ? found.name : '';
+    partnerId = found ? found.id : '';
+  }
 
   try {
-    await _runAdminOp(() => db.collection('orders').doc(currentEditOrderId).update({
+    const update = {
       name,
       phone,
       address,
       driverName,
-      driverPhone,
-      referredBy
-    }), 'сохранение заказа');
+      driverPhone
+    };
+    if (partnerName) {
+      update.partner = partnerName;
+      update.referredBy = partnerName;
+      if (partnerId) update.partnerId = partnerId;
+    } else {
+      update.partner = firebase.firestore.FieldValue.delete();
+      update.referredBy = firebase.firestore.FieldValue.delete();
+      update.partnerId = firebase.firestore.FieldValue.delete();
+    }
+
+    await _runAdminOp(() => db.collection('orders').doc(currentEditOrderId).update(update), 'сохранение заказа');
 
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === currentEditOrderId);
@@ -889,7 +959,15 @@ async function saveEditOrder() {
         order.address = address;
         order.driverName = driverName;
         order.driverPhone = driverPhone;
-        order.referredBy = referredBy;
+        if (partnerName) {
+          order.partner = partnerName;
+          order.referredBy = partnerName;
+          order.partnerId = partnerId || null;
+        } else {
+          delete order.partner;
+          delete order.referredBy;
+          delete order.partnerId;
+        }
       }
     }
 

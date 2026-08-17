@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.27.1-reload-movements-after-edit'; // После правки остатков/перемещения сразу перечитываем warehouseMovements; вкладка «Движения» тоже обновляется при открытии, а не рисует старый список из памяти.
+const CACHE_VERSION = 'kerben-v4.28.0-agent-select-on-order'; // В редактировании заказа поле «партнёр» — выбор из зарегистрированных агентов; сохраняется partner (имя), поэтому заказ появляется в «Моя прибыль» агента.
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
