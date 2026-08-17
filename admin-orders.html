@@ -850,7 +850,6 @@ function fillAgentSelect(currentPartner) {
   agents.forEach(a => {
     const selected = current && (current === a.name || current === a.id);
     if (selected) matched = true;
-    const label = a.phone ? (a.name + ' · ' + a.phone) : a.name;
     const inactive = a.active ? '' : ' (неактивен)';
     html += '<option value="' + String(a.id).replace(/"/g, '&quot;') + '"' +
       (selected ? ' selected' : '') + '>' +
