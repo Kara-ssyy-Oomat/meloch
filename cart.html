@@ -233,7 +233,7 @@
   <script src="js/bot-blocker.js?v=1"></script>
   <script src="js/background-pause.js?v=1"></script>
   <script src="js/products-cache.js?v=3"></script>
-  <script src="js/stock-deduct.js?v=3"></script>
+  <script src="js/stock-deduct.js?v=4"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при отправке заказа -->
@@ -1260,18 +1260,9 @@
               problems.deleted.push(cartItem.title);
             } else if (product.blocked) {
               problems.blocked.push(cartItem.title);
-            } else if (!warehousePaused && typeof product.stock === 'number' && isFinite(product.stock)) {
-              const ws = product.warehouseStock;
-              const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
-              const onPausedWh = hasWarehouseSetup && Object.keys(ws).some(whId => pausedWarehouseIds.has(whId));
-              const stock = Math.max(0, Math.floor(product.stock));
-              // Товар в валидную корзину только если:
-              //   1) все его склады на паузе (склад не отслеживается → безлимит), ИЛИ
-              //   2) остаток > 0 и хватает на нужное количество.
-              // stock === 0 без warehouseStock РАНЬШЕ трактовался как «безлимит» —
-              // это была причина, по которой распроданные товары можно было
-              // продолжать заказывать. Теперь 0 всегда = «нет в наличии».
-              if (onPausedWh) {
+            } else if (!warehousePaused && typeof getEffectiveStock === 'function') {
+              const stock = getEffectiveStock(product);
+              if (stock === null) {
                 validCart.push({ ...cartItem, title: product.title, price: product.price, costPrice: product.costPrice || 0, sellerId: product.sellerId || null, sellerName: product.sellerName || null });
               } else if (stock <= 0) {
                 problems.outOfStock.push(`${cartItem.title} (нет в наличии)`);
@@ -1403,18 +1394,13 @@
                 newCart.push(cartItem);
                 continue;
               }
-              const ws = p.warehouseStock;
-              const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
-              if (hasWarehouseSetup) {
-                const allPaused = Object.keys(ws).every(whId =>
-                  (typeof pausedWarehouseIds !== 'undefined') && pausedWarehouseIds.has(whId)
-                );
-                if (allPaused) {
-                  newCart.push(cartItem);
-                  continue;
-                }
+              const freshStock = (typeof getEffectiveStock === 'function')
+                ? getEffectiveStock(Object.assign({ id: cartItem.id }, p))
+                : Math.max(0, Math.floor(p.stock));
+              if (freshStock === null) {
+                newCart.push(cartItem);
+                continue;
               }
-              const freshStock = Math.max(0, Math.floor(p.stock));
               const need = Math.max(0, Math.floor(cartItem.qty || 0));
               if (freshStock <= 0) {
                 summaryLinesHtml.push('😔 <strong>' + cartItem.title + '</strong> — только что закончился, убран из корзины');
@@ -1701,18 +1687,24 @@
             if (!p || typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
             if (warehousePaused) continue;
             const need = Math.max(0, Math.floor(orderedItem.qty || 0));
-            p.stock = Math.max(0, Math.floor(p.stock) - need);
-            if (p.warehouseStock && typeof p.warehouseStock === 'object') {
-              let rem = need;
-              const entries = Object.entries(p.warehouseStock)
-                .filter(([, q]) => q > 0)
-                .sort((a, b) => b[1] - a[1]);
-              for (const [whId, whQty] of entries) {
-                if (rem <= 0) break;
-                const d = Math.min(rem, whQty);
-                p.warehouseStock[whId] = whQty - d;
-                rem -= d;
+            if (p.warehouseStock && typeof p.warehouseStock === 'object' && Object.keys(p.warehouseStock).length > 0) {
+              const primaryActive = primaryWarehouseId && !pausedWarehouseIds.has(primaryWarehouseId);
+              if (primaryActive) {
+                const have = Math.max(0, Math.floor(p.warehouseStock[primaryWarehouseId] || 0));
+                p.warehouseStock[primaryWarehouseId] = have - Math.min(need, have);
+              } else {
+                let rem = need;
+                Object.keys(p.warehouseStock).forEach(function (whId) {
+                  if (pausedWarehouseIds.has(whId) || rem <= 0) return;
+                  const have = Math.max(0, Math.floor(p.warehouseStock[whId] || 0));
+                  const d = Math.min(rem, have);
+                  p.warehouseStock[whId] = have - d;
+                  rem -= d;
+                });
               }
+              p.stock = Object.values(p.warehouseStock).reduce((s, v) => s + (Number(v) || 0), 0);
+            } else {
+              p.stock = Math.max(0, Math.floor(p.stock) - need);
             }
           }
         } catch (e) {}

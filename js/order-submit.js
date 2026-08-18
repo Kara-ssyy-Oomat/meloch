@@ -356,19 +356,13 @@ document.getElementById('submitOrder').onclick = async () => {
             newCart.push(cartItem);
             continue;
           }
-          // Все склады товара на паузе → считаем безлимитным
-          const ws = p.warehouseStock;
-          const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
-          if (hasWarehouseSetup) {
-            const allPaused = Object.keys(ws).every(whId =>
-              (typeof pausedWarehouseIds !== 'undefined') && pausedWarehouseIds.has(whId)
-            );
-            if (allPaused) {
-              newCart.push(cartItem);
-              continue;
-            }
+          const freshStock = (typeof getEffectiveStock === 'function')
+            ? getEffectiveStock(Object.assign({ id: cartItem.id }, p))
+            : Math.max(0, Math.floor(p.stock));
+          if (freshStock === null) {
+            newCart.push(cartItem);
+            continue;
           }
-          const freshStock = Math.max(0, Math.floor(p.stock));
           const need = Math.max(0, Math.floor(cartItem.qty || 0));
           if (freshStock <= 0) {
             summaryLinesHtml.push('😔 <strong>' + cartItem.title + '</strong> — только что закончился, убран из корзины');
@@ -657,19 +651,26 @@ document.getElementById('submitOrder').onclick = async () => {
         if (typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
         if (typeof getEffectiveStock === 'function' && getEffectiveStock(p) === null) continue;
         const need = Math.max(0, Math.floor(orderedItem.qty || 0));
-        const nextStock = Math.max(0, Math.floor(p.stock) - need);
-        p.stock = nextStock;
-        if (p.warehouseStock && typeof p.warehouseStock === 'object') {
-          let rem = need;
-          const entries = Object.entries(p.warehouseStock)
-            .filter(([, q]) => q > 0)
-            .sort((a, b) => b[1] - a[1]);
-          for (const [whId, whQty] of entries) {
-            if (rem <= 0) break;
-            const d = Math.min(rem, whQty);
-            p.warehouseStock[whId] = whQty - d;
-            rem -= d;
+        if (p.warehouseStock && typeof p.warehouseStock === 'object' && Object.keys(p.warehouseStock).length > 0) {
+          const pausedSet = (typeof pausedWarehouseIds !== 'undefined') ? pausedWarehouseIds : new Set();
+          const primaryId = (typeof primaryWarehouseId !== 'undefined') ? primaryWarehouseId : '';
+          const primaryActive = primaryId && !(pausedSet.has && pausedSet.has(primaryId));
+          if (primaryActive) {
+            const have = Math.max(0, Math.floor(p.warehouseStock[primaryId] || 0));
+            p.warehouseStock[primaryId] = have - Math.min(need, have);
+          } else {
+            let remaining = need;
+            Object.keys(p.warehouseStock).forEach(function (whId) {
+              if ((pausedSet.has && pausedSet.has(whId)) || remaining <= 0) return;
+              const have = Math.max(0, Math.floor(p.warehouseStock[whId] || 0));
+              const d = Math.min(remaining, have);
+              p.warehouseStock[whId] = have - d;
+              remaining -= d;
+            });
           }
+          p.stock = Object.values(p.warehouseStock).reduce((s, v) => s + (Number(v) || 0), 0);
+        } else {
+          p.stock = Math.max(0, Math.floor(p.stock) - need);
         }
       }
       renderProducts();

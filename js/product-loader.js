@@ -148,36 +148,42 @@ function _stableProductOrderCompare(a, b) {
   return 0;
 }
 
-// Эффективный остаток товара (исключая приостановленные склады)
-// Возвращает null если остаток не отслеживается (безлимит), число если отслеживается
+// Остаток, который можно ПРОДАТЬ с учётом изоляции складов.
+// Склады не смешиваются:
+//   • главный активен → берём ТОЛЬКО его количество;
+//   • главный на паузе → сумма только остальных активных складов;
+//   • склад на паузе никогда не делает товар «безлимитным».
+function _sellableQtyFromWarehouseStock(ws) {
+  if (!ws || typeof ws !== 'object') return 0;
+  const paused = (typeof pausedWarehouseIds !== 'undefined' && pausedWarehouseIds)
+    ? pausedWarehouseIds : new Set();
+  const primary = (typeof primaryWarehouseId !== 'undefined') ? primaryWarehouseId : '';
+  const isActive = function (id) { return id && !(paused.has && paused.has(id)); };
+  if (primary && isActive(primary)) {
+    return Math.max(0, Math.floor(Number(ws[primary]) || 0));
+  }
+  let sum = 0;
+  Object.keys(ws).forEach(function (id) {
+    if (isActive(id)) sum += Math.max(0, Math.floor(Number(ws[id]) || 0));
+  });
+  return sum;
+}
+
+// Эффективный остаток товара.
+// null = безлимит (только если ВСЯ система склада на паузе).
+// число = сколько можно заказать сейчас.
 function getEffectiveStock(product) {
   if (!product) return null;
-  // Склад полностью приостановлен → все товары «без лимита» (null).
-  if (warehousePaused) return null;
-  // ВАЖНО: склад ВКЛЮЧЁН и у товара НЕТ поля stock → считаем «нет в наличии» (0),
-  // а НЕ безлимит. Это чтобы после включения склада товары, у которых админ
-  // ещё не завёл остаток, автоматически становились «нет в наличии», а не
-  // продавались бесконтрольно.
-  if (typeof product.stock !== 'number' || !isFinite(product.stock)) return 0;
+  // Кнопка «Пауза» на всю систему складов → товары без лимита.
+  if (typeof warehousePaused !== 'undefined' && warehousePaused) return null;
 
   const ws = product.warehouseStock;
   const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
-
-  // ВАЖНО: и stock === 0, и отсутствие поля stock — оба означают «нет в наличии».
-  // Единственный способ сделать товар безлимитным — приостановить склад
-  // целиком через админку (warehousePaused = true).
-
-  // Если нет приостановленных складов — обычный остаток
-  if (pausedWarehouseIds.size === 0) return Math.max(0, Math.floor(product.stock));
-
-  // Если есть разбивка по складам — проверяем
   if (hasWarehouseSetup) {
-    for (const whId of Object.keys(ws)) {
-      if (pausedWarehouseIds.has(whId)) return null;
-    }
-    return Math.max(0, Math.floor(product.stock));
+    return _sellableQtyFromWarehouseStock(ws);
   }
-  // Нет разбивки по складам — возвращаем общий остаток
+
+  if (typeof product.stock !== 'number' || !isFinite(product.stock)) return 0;
   return Math.max(0, Math.floor(product.stock));
 }
 

@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.28.0-agent-select-on-order'; // В редактировании заказа поле «партнёр» — выбор из зарегистрированных агентов; сохраняется partner (имя), поэтому заказ появляется в «Моя прибыль» агента.
+const CACHE_VERSION = 'kerben-v4.29.0-isolate-warehouses'; // Пауза одного склада больше не делает товары безлимитными. Клиент видит и покупает только остаток активного главного склада; второй склад не трогается.
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

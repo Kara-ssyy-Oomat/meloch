@@ -142,13 +142,10 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
       return null;
     }
 
-    // Глобальная или индивидуальная пауза — не списываем
+    // Глобальная пауза всей системы складов → безлимит, не списываем.
+    // Пауза ОДНОГО склада больше не делает товар безлимитным и не
+    // отменяет списание с другого (главного) склада.
     if (ctx.warehousePaused) return null;
-    if (hasWarehouseSetup) {
-      for (const whId of Object.keys(ws)) {
-        if (ctx.pausedWhIds.has(whId)) return null;
-      }
-    }
 
     const title = product.title || meta.productTitle || '';
 
@@ -198,22 +195,27 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
     const updatedWs = { ...ws };
     const itemDeductions = {};
     const primaryId = ctx.primaryWarehouseId;
+    const pausedSet = ctx.pausedWhIds || new Set();
+    const primaryActive = !!(primaryId && !pausedSet.has(primaryId));
 
-    if (primaryId && (updatedWs[primaryId] || 0) > 0 && !ctx.pausedWhIds.has(primaryId)) {
-      const deduct = Math.min(remaining, updatedWs[primaryId]);
-      updatedWs[primaryId] -= deduct;
-      remaining -= deduct;
-      itemDeductions[primaryId] = deduct;
-    }
-
-    if (remaining > 0) {
+    if (primaryActive) {
+      // Склады изолированы: продаём только с главного, чужой остаток не трогаем.
+      const have = Math.max(0, Math.floor(updatedWs[primaryId] || 0));
+      const deduct = Math.min(remaining, have);
+      if (deduct > 0) {
+        updatedWs[primaryId] = have - deduct;
+        remaining -= deduct;
+        itemDeductions[primaryId] = deduct;
+      }
+    } else {
+      // Главный на паузе / не задан — списываем только с других АКТИВНЫХ складов.
       const otherWh = Object.entries(updatedWs)
-        .filter(([whId, qty]) => qty > 0 && whId !== primaryId && !ctx.pausedWhIds.has(whId))
+        .filter(([whId, qty]) => qty > 0 && !pausedSet.has(whId))
         .sort((a, b) => b[1] - a[1]);
       for (const [whId, whQty] of otherWh) {
         if (remaining <= 0) break;
-        const deduct = Math.min(remaining, whQty);
-        updatedWs[whId] = whQty - deduct;
+        const deduct = Math.min(remaining, Math.max(0, Math.floor(whQty)));
+        updatedWs[whId] = (updatedWs[whId] || 0) - deduct;
         remaining -= deduct;
         itemDeductions[whId] = (itemDeductions[whId] || 0) + deduct;
       }

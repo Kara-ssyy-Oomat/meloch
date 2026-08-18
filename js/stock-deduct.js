@@ -3,6 +3,33 @@
 // Списание делает только Cloud Function: deductStockOnOrderCreate.
 // ===================================================================
 
+function _sellableQtyFromWarehouseStock(ws) {
+  if (!ws || typeof ws !== 'object') return 0;
+  const paused = (typeof pausedWarehouseIds !== 'undefined' && pausedWarehouseIds)
+    ? pausedWarehouseIds : new Set();
+  const primary = (typeof primaryWarehouseId !== 'undefined') ? primaryWarehouseId : '';
+  const isActive = function (id) { return id && !(paused.has && paused.has(id)); };
+  if (primary && isActive(primary)) {
+    return Math.max(0, Math.floor(Number(ws[primary]) || 0));
+  }
+  let sum = 0;
+  Object.keys(ws).forEach(function (id) {
+    if (isActive(id)) sum += Math.max(0, Math.floor(Number(ws[id]) || 0));
+  });
+  return sum;
+}
+
+function getEffectiveStock(product) {
+  if (!product) return null;
+  if (typeof warehousePaused !== 'undefined' && warehousePaused) return null;
+  const ws = product.warehouseStock;
+  if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
+    return _sellableQtyFromWarehouseStock(ws);
+  }
+  if (typeof product.stock !== 'number' || !isFinite(product.stock)) return 0;
+  return Math.max(0, Math.floor(product.stock));
+}
+
 /**
  * Проверяет корзину по локальному кэшу products и готовит данные списания
  * (на клиенте используется только для валидации / UI).
@@ -25,36 +52,15 @@ function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
     const localProduct = (productsList || []).find(p => p.id === item.id);
     if (!localProduct) continue;
 
-    // Определяем эффективный остаток. null = безлимит (склады на паузе),
-    // число (включая 0) = остаток отслеживается.
-    let effective = null;
-    if (typeof getEffectiveStock === 'function') {
-      effective = getEffectiveStock(localProduct);
-      if (effective === null) continue; // безлимит → пропускаем списание
-    } else {
-      if (warehousePausedFlag) continue;
-      // Фолбэк без getEffectiveStock: склад ВКЛЮЧЁН и у товара нет stock →
-      // считаем «нет в наличии» (0), а не безлимит.
-      effective = (typeof localProduct.stock === 'number' && isFinite(localProduct.stock))
-        ? Math.max(0, Math.floor(localProduct.stock))
-        : 0;
-    }
+    if (warehousePausedFlag) continue;
+    const effective = getEffectiveStock(localProduct);
+    if (effective === null) continue;
 
     const ws = localProduct.warehouseStock;
     const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
-    if (hasWarehouseSetup && Object.keys(ws).some(whId => pausedSet.has && pausedSet.has(whId))) continue;
-
-    // Локальный остаток берём из product.stock, если он есть; если поля нет —
-    // трактуем как 0 (склад включён → «нет в наличии»).
-    const localStock = (typeof localProduct.stock === 'number' && isFinite(localProduct.stock))
-      ? Math.max(0, Math.floor(localProduct.stock))
-      : 0;
-
+    const localStock = effective;
     const need = Math.max(0, Math.floor(item.qty || 0));
     if (need <= 0) throw new Error('Некорректное количество: ' + (item.title || item.id));
-    // stock=0 (с warehouseStock или без) — всегда «нет в наличии».
-    // Раньше здесь был скип для случая без warehouseStock — из-за него
-    // распроданные товары можно было продолжать заказывать.
     if (localStock < need) {
       const short = localStock <= 0
         ? 'Нет в наличии'
@@ -63,26 +69,26 @@ function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
     }
 
     stockDeducted = true;
-    // Данные ниже — только для локальной проверки / совместимости; в Firestore
-    // склад пишет Cloud Function.
     const productRef = db.collection('products').doc(item.id);
 
     if (hasWarehouseSetup) {
       let remaining = need;
       const updatedWs = Object.assign({}, ws);
       const itemDeductions = {};
+      const primaryActive = !!(primaryId && !(pausedSet.has && pausedSet.has(primaryId)));
 
-      if (primaryId && (updatedWs[primaryId] || 0) > 0) {
-        const deduct = Math.min(remaining, updatedWs[primaryId]);
-        updatedWs[primaryId] -= deduct;
-        remaining -= deduct;
-        itemDeductions[primaryId] = deduct;
-      }
-
-      if (remaining > 0) {
+      if (primaryActive) {
+        const have = Math.max(0, Math.floor(updatedWs[primaryId] || 0));
+        const deduct = Math.min(remaining, have);
+        if (deduct > 0) {
+          updatedWs[primaryId] = have - deduct;
+          remaining -= deduct;
+          itemDeductions[primaryId] = deduct;
+        }
+      } else {
         const otherWh = Object.entries(updatedWs)
           .filter(function (pair) {
-            return pair[1] > 0 && pair[0] !== primaryId;
+            return pair[1] > 0 && !(pausedSet.has && pausedSet.has(pair[0]));
           })
           .sort(function (a, b) { return b[1] - a[1]; });
         for (var i = 0; i < otherWh.length; i++) {
@@ -96,19 +102,15 @@ function prepareStockUpdatesFromCart(cartItems, productsList, opts) {
         }
       }
 
-      if (remaining > 0) {
-        var fallback = primaryId || Object.keys(updatedWs)[0] || 'default';
-        updatedWs[fallback] = (updatedWs[fallback] || 0) - remaining;
-        itemDeductions[fallback] = (itemDeductions[fallback] || 0) + remaining;
-      }
-
       if (Object.keys(itemDeductions).length > 0) {
         warehouseDeductions[item.id] = itemDeductions;
       }
       var newTotal = Object.values(updatedWs).reduce(function (s, v) { return s + (v || 0); }, 0);
       stockUpdates.push([productRef, { stock: newTotal, warehouseStock: updatedWs }]);
     } else {
-      stockUpdates.push([productRef, { stock: firebase.firestore.FieldValue.increment(-need) }]);
+      stockUpdates.push([productRef, {
+        stock: firebase.firestore.FieldValue.increment(-need)
+      }]);
     }
   }
 
