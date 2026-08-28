@@ -1509,6 +1509,14 @@
               <span class="menu-arrow">›</span>
             </div>
             
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-warehouse-managers.html')">
+              <div class="menu-item-left">
+                <span class="menu-icon">👥</span>
+                <span class="menu-text">Управляющие складом (заявки)</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            
             <div class="menu-item admin-menu-item" onclick="navigateTop('admin-customers.html')">
               <div class="menu-item-left">
                 <span class="menu-icon">👤</span>
@@ -1660,6 +1668,14 @@
             <span class="menu-arrow">›</span>
           </div>
           `}
+          
+          <div class="menu-item" onclick="navigateTop('warehouse-manager-signup.html')">
+            <div class="menu-item-left">
+              <span class="menu-icon">📦</span>
+              <span class="menu-text">Стать управляющим складом</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>
           
           ${!isAdmin && !currentCustomer.isAdmin ? `
           <div class="menu-item" onclick="openAdminLogin()">

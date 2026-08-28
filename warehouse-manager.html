@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Управление складом — Кербен</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/firebase-config.js?v=2"></script>
+  <script src="js/auth.js?v=2"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      padding-bottom: 20px;
+      color: #1a1a1a;
+    }
+    input, textarea, select, button { font-family: inherit; font-size: 16px; }
+    .swal2-container { z-index: 999999 !important; }
+
+    /* ====== ЭКРАНЫ ====== */
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    /* Экран начальной загрузки (пока Firebase Auth восстанавливает сессию) */
+    #screenBoot {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f2f5;
+      z-index: 200;
+    }
+    #screenBoot .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid #e0e0e0;
+      border-top-color: #1a237e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* ====== HEADER ====== */
+    .wm-header {
+      background: linear-gradient(135deg, #1a237e, #283593);
+      color: white;
+      padding: 18px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    }
+    .wm-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .wm-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    .wm-header .sub {
+      font-size: 12px;
+      opacity: 0.85;
+      margin-top: 2px;
+    }
+    .wm-header-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .wm-logout, .wm-back-shop {
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .wm-logout:active, .wm-back-shop:active { background: rgba(255,255,255,0.3); }
+
+    /* ====== ЛОГИН ====== */
+    .login-wrap {
+      max-width: 420px;
+      margin: 40px auto;
+      padding: 24px 20px;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    }
+    .login-wrap h2 {
+      font-size: 20px;
+      color: #1a237e;
+      text-align: center;
+      margin-bottom: 6px;
+    }
+    .login-wrap p.hint {
+      font-size: 13px;
+      color: #666;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .form-row { margin-bottom: 14px; }
+    .form-row label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 6px;
+    }
+    .form-row input {
+      width: 100%;
+      padding: 14px 12px;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 15px;
+      background: #fafafa;
+    }
+    .form-row input:focus {
+      outline: none;
+      border-color: #1a237e;
+      background: #fff;
+    }
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #1a237e, #3949ab);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-primary:disabled { opacity: 0.5; }
+    .login-links {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 13px;
+      color: #666;
+    }
+    .login-links a { color: #1a237e; font-weight: 600; text-decoration: none; }
+
+    /* ====== STATUS BANNER (pending/blocked/rejected) ====== */
+    .status-screen {
+      max-width: 460px;
+      margin: 60px auto;
+      background: #fff;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    }
+    .status-screen .status-icon {
+      font-size: 60px;
+      text-align: center;
+      padding: 28px 20px 8px;
+    }
+    .status-screen .status-title {
+      text-align: center;
+      font-size: 20px;
+      font-weight: 700;
+      padding: 0 20px 6px;
+    }
+    .status-screen .status-desc {
+      text-align: center;
+      font-size: 14px;
+      color: #555;
+      padding: 8px 24px 28px;
+      line-height: 1.5;
+    }
+    .status-screen.pending .status-title { color: #f57f17; }
+    .status-screen.blocked .status-title,
+    .status-screen.rejected .status-title { color: #c62828; }
+    .status-actions {
+      display: flex;
+      gap: 8px;
+      padding: 0 20px 24px;
+    }
+    .status-actions button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .btn-refresh { background: #e3f2fd; color: #1565c0; }
+    .btn-logout-2 { background: #f5f5f5; color: #333; }
+
+    /* ====== ТУЛБАР (поиск, категория, сортировка) ====== */
+    .toolbar {
+      padding: 12px 16px 0;
+      background: #f0f2f5;
+      position: sticky;
+      top: 62px;
+      z-index: 50;
+    }
+    .search-box {
+      position: relative;
+      margin-bottom: 10px;
+    }
+    .search-box input {
+      width: 100%;
+      padding: 12px 14px 12px 42px;
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fff;
+      font-size: 15px;
+    }
+    .search-box input:focus {
+      outline: none;
+      border-color: #1a237e;
+    }
+    .search-box::before {
+      content: "🔍";
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 16px;
+      pointer-events: none;
+    }
+    .filter-row {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 8px;
+      scrollbar-width: none;
+    }
+    .filter-row::-webkit-scrollbar { display: none; }
+    .chip {
+      flex-shrink: 0;
+      padding: 8px 14px;
+      background: #fff;
+      color: #333;
+      border: 2px solid transparent;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .chip.active {
+      background: #1a237e;
+      color: #fff;
+    }
+    .sort-select {
+      padding: 8px 12px;
+      background: #fff;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    /* ====== ТОВАРЫ (СПИСОК) ====== */
+    .products-list {
+      padding: 12px 16px 40px;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #888;
+    }
+    .empty-state .emoji { font-size: 50px; margin-bottom: 12px; }
+
+    .product-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .product-photo {
+      width: 72px;
+      height: 72px;
+      flex-shrink: 0;
+      border-radius: 10px;
+      object-fit: cover;
+      background: #f5f5f5;
+    }
+    .product-photo.placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      color: #ccc;
+    }
+    .product-info { flex: 1; min-width: 0; }
+    .product-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #222;
+      line-height: 1.3;
+      margin-bottom: 4px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .product-meta {
+      font-size: 12px;
+      color: #888;
+    }
+    .product-meta .cat {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #f5f5f5;
+      border-radius: 10px;
+      margin-right: 6px;
+    }
+    .product-cost {
+      font-size: 12px;
+      color: #888;
+      margin-top: 3px;
+    }
+    .product-cost b {
+      color: #444;
+      font-weight: 600;
+    }
+
+    /* Остаток */
+    .product-stock-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed #eee;
+    }
+    .stock-label { font-size: 12px; color: #888; }
+    .stock-value {
+      font-size: 22px;
+      font-weight: 800;
+      color: #1a237e;
+      line-height: 1;
+    }
+    .stock-value.zero { color: #d32f2f; }
+    .stock-value.low { color: #ef6c00; }
+
+    /* Кнопки быстрого изменения */
+    .qty-controls {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr) 1fr repeat(3, 1fr);
+      gap: 6px;
+    }
+    .qty-btn {
+      padding: 10px 0;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+      user-select: none;
+      transition: transform 0.05s, background 0.15s;
+    }
+    .qty-btn:active { transform: scale(0.94); }
+    .qty-btn.minus {
+      background: #ffebee;
+      color: #c62828;
+    }
+    .qty-btn.minus:hover { background: #ffcdd2; }
+    .qty-btn.plus {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .qty-btn.plus:hover { background: #c8e6c9;}
+    .qty-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .qty-custom {
+      display: flex;
+      align-items: center;
+      background: #f5f5f5;
+      border-radius: 10px;
+      padding: 0;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .qty-custom input {
+      width: 100%;
+      border: none;
+      background: transparent;
+      padding: 10px 4px;
+      font-size: 14px;
+      text-align: center;
+      -moz-appearance: textfield;
+    }
+    .qty-custom input::-webkit-outer-spin-button,
+    .qty-custom input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    .qty-custom input:focus { outline: none; }
+
+    /* Toast (подтверждение) */
+    #wmToast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 24px;
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      max-width: 90vw;
+      text-align: center;
+    }
+    #wmToast.show { opacity: 1; }
+    #wmToast.err { background: #d32f2f; }
+
+    .loading-block {
+      text-align: center;
+      padding: 60px 20px;
+      color: #888;
+    }
+    .loading-block .spinner {
+      display: inline-block;
+      width: 32px;
+      height: 32px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #1a237e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 10px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Mobile tweaks */
+    @media (max-width: 380px) {
+      .qty-controls { grid-template-columns: repeat(3, 1fr) 1.4fr repeat(3, 1fr); gap: 4px; }
+      .qty-btn { font-size: 13px; padding: 9px 0; }
+      .product-photo { width: 60px; height: 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============ НАЧАЛЬНЫЙ ЛОАДЕР ============ -->
+<div id="screenBoot"><div class="spinner"></div></div>
+
+<!-- ============ ЭКРАН ВХОДА ============ -->
+<div id="screenLogin" class="screen">
+  <div class="login-wrap">
+    <h2>🔐 Вход для управляющего складом</h2>
+    <p class="hint">Введите телефон и пароль, которые указали при подаче заявки.</p>
+    <form id="loginForm" onsubmit="return false;">
+      <div class="form-row">
+        <label>📱 Номер телефона</label>
+        <input type="tel" id="loginPhone" placeholder="+996 XXX XXX XXX" autocomplete="tel">
+      </div>
+      <div class="form-row">
+        <label>🔒 Пароль</label>
+        <input type="password" id="loginPassword" placeholder="Ваш пароль" autocomplete="current-password">
+      </div>
+      <button class="btn-primary" id="loginBtn" type="submit">Войти</button>
+    </form>
+    <div class="login-links">
+      Ещё нет заявки? <a href="warehouse-manager-signup.html">Подать заявку →</a><br>
+      <a href="index.html" style="display:inline-block; margin-top:8px; color:#888;">← В магазин</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ЭКРАН СТАТУСА (pending/rejected/blocked) ============ -->
+<div id="screenStatus" class="screen">
+  <div id="statusScreen" class="status-screen">
+    <div class="status-icon" id="statusIcon">⏳</div>
+    <div class="status-title" id="statusTitle">Ожидает одобрения</div>
+    <div class="status-desc" id="statusDesc">Ваша заявка отправлена. Ожидайте, пока администратор её рассмотрит.</div>
+    <div class="status-actions">
+      <button class="btn-refresh" onclick="refreshStatus()">🔄 Проверить</button>
+      <button class="btn-logout-2" onclick="wmLogout()">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ГЛАВНЫЙ ЭКРАН (approved) ============ -->
+<div id="screenMain" class="screen">
+  <div class="wm-header">
+    <div class="wm-header-top">
+      <div>
+        <h1>📦 Управление складом</h1>
+        <div class="sub" id="wmHeaderSub">—</div>
+      </div>
+      <div class="wm-header-actions">
+        <button class="wm-logout" onclick="wmLogout()">Выйти</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-box">
+      <input type="text" id="wmSearch" placeholder="Поиск по названию или категории..." oninput="rerenderProducts()" autocomplete="off">
+    </div>
+    <div class="filter-row" id="wmCatFilter">
+      <div class="chip active" data-cat="__all">Все категории</div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; padding-bottom:12px;">
+      <span style="font-size:12px; color:#666;">Сортировка:</span>
+      <select class="sort-select" id="wmSort" onchange="rerenderProducts()">
+        <option value="name">По названию</option>
+        <option value="stock-asc">Остаток: сначала мало</option>
+        <option value="stock-desc">Остаток: сначала много</option>
+        <option value="cat">По категории</option>
+      </select>
+      <span style="flex:1"></span>
+      <span id="wmCounter" style="font-size:12px; color:#666;">0 товаров</span>
+    </div>
+  </div>
+
+  <div id="wmProductsList" class="products-list">
+    <div class="loading-block">
+      <div class="spinner"></div>
+      <div>Загрузка товаров...</div>
+    </div>
+  </div>
+</div>
+
+<div id="wmToast"></div>
+
+<script>
+// ============================================================
+// УПРАВЛЯЮЩИЙ СКЛАДОМ — вход, проверка статуса, редактирование
+// ============================================================
+// Единственные действия, которые может выполнять этот файл:
+//   • читать products (для отображения)
+//   • читать warehouseManagers/{свой uid} (для проверки статуса)
+//   • обновлять stock/warehouseStock в products (только если approved)
+// Всё остальное — блокируется правилами Firestore.
+// ============================================================
+
+// ---------- ХРАНЕНИЕ СЕССИИ ----------
+const WM_SESSION_KEY = 'kerbenWmSession_v1';
+
+function saveWmSession(email, phone, name) {
+  try {
+    localStorage.setItem(WM_SESSION_KEY, JSON.stringify({ email, phone, name, ts: Date.now() }));
+  } catch (e) {}
+}
+function loadWmSession() {
+  try {
+    const raw = localStorage.getItem(WM_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function clearWmSession() {
+  try { localStorage.removeItem(WM_SESSION_KEY); } catch (e) {}
+}
+
+// ---------- УТИЛИТЫ ----------
+function normalizePhone(phone) {
+  let n = String(phone || '').replace(/[^\d+]/g, '');
+  if (n.startsWith('0')) n = '+996' + n.substring(1);
+  if (!n.startsWith('+')) n = n.startsWith('996') ? '+' + n : '+996' + n;
+  return n;
+}
+function phoneToWmEmail(normalizedPhone) {
+  const digits = normalizedPhone.replace(/[^\d]/g, '');
+  return 'wm_' + digits + '@kerben-warehouse.local';
+}
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+  // Убираем boot-лоадер, как только показали любой полноценный экран
+  const boot = document.getElementById('screenBoot');
+  if (boot) boot.style.display = 'none';
+}
+function toast(msg, err) {
+  const t = document.getElementById('wmToast');
+  t.textContent = msg;
+  t.classList.toggle('err', !!err);
+  t.classList.add('show');
+  clearTimeout(window._wmToastTimer);
+  window._wmToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ---------- ВХОД / ВЫХОД ----------
+// Флаг «идёт вход» — защита от одновременного двойного submit
+// (например, если пользователь тапнул кнопку два раза подряд).
+let _wmLoginBusy = false;
+
+async function wmLogin() {
+  if (_wmLoginBusy) return;
+
+  const phone = document.getElementById('loginPhone').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  if (!phone) { Swal.fire('Ошибка', 'Введите телефон', 'warning'); return; }
+  if (!password) { Swal.fire('Ошибка', 'Введите пароль', 'warning'); return; }
+
+  _wmLoginBusy = true;
+
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.textContent = 'Проверяем...';
+
+  const normalizedPhone = normalizePhone(phone);
+  const email = phoneToWmEmail(normalizedPhone);
+
+  try {
+    const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+    // Успешный вход в Firebase Auth
+    saveWmSession(email, normalizedPhone, '');
+    btn.textContent = 'Проверяем статус...';
+    await checkWmStatusAndRender(cred.user);
+    _wmLoginBusy = false;
+  } catch (err) {
+    _wmLoginBusy = false;
+    btn.disabled = false;
+    btn.textContent = 'Войти';
+    console.warn('[wm-login] err:', err);
+    if (err && (err.code === 'auth/user-not-found'
+             || err.code === 'auth/wrong-password'
+             || err.code === 'auth/invalid-credential'
+             || err.code === 'auth/invalid-login-credentials')) {
+      Swal.fire('Неверные данные', 'Проверьте телефон и пароль. Если ещё не подавали заявку — <a href="warehouse-manager-signup.html">подайте её здесь</a>.', 'error');
+    } else if (err && err.code === 'auth/too-many-requests') {
+      Swal.fire('Слишком много попыток', 'Firebase временно заблокировал вход. Попробуйте через несколько минут.', 'warning');
+    } else {
+      Swal.fire('Ошибка', (err && err.message) || 'Не удалось войти', 'error');
+    }
+  }
+}
+
+async function wmLogout() {
+  const c = await Swal.fire({
+    title: 'Выйти?',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Да, выйти',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#c62828'
+  });
+  if (!c.isConfirmed) return;
+  clearWmSession();
+  try { await firebase.auth().signOut(); } catch (e) {}
+  stopStatusListener();
+  showScreen('screenLogin');
+  document.getElementById('loginBtn').disabled = false;
+  document.getElementById('loginBtn').textContent = 'Войти';
+  document.getElementById('loginPassword').value = '';
+}
+
+// ---------- ПРОВЕРКА СТАТУСА ----------
+let _statusUnsub = null;
+let _currentWmDoc = null;
+let _currentUserUid = null;
+
+function stopStatusListener() {
+  if (_statusUnsub) { try { _statusUnsub(); } catch (e) {} _statusUnsub = null; }
+  _currentWmDoc = null;
+  _currentUserUid = null;
+}
+
+async function checkWmStatusAndRender(user) {
+  if (!user || !user.uid) {
+    showScreen('screenLogin');
+    return;
+  }
+  _currentUserUid = user.uid;
+
+  // Подписываемся на изменения СВОЕГО документа. Так, если админ
+  // заблокирует управляющего прямо во время работы — экран мгновенно
+  // переключится на «заблокировано» и все кнопки станут недоступны.
+  stopStatusListener();
+  _statusUnsub = db.collection('warehouseManagers').doc(user.uid)
+    .onSnapshot(doc => {
+      if (!doc.exists) {
+        applyStatus({ status: 'missing' });
+        return;
+      }
+      _currentWmDoc = { id: doc.id, ...doc.data() };
+      applyStatus(_currentWmDoc);
+    }, err => {
+      console.warn('[wm] status listener error:', err);
+      // Скорее всего permission-denied — не наша заявка / вышел из аккаунта.
+      applyStatus({ status: 'missing' });
+    });
+}
+
+function applyStatus(data) {
+  const st = data && data.status ? data.status : 'missing';
+  const iconEl = document.getElementById('statusIcon');
+  const titleEl = document.getElementById('statusTitle');
+  const descEl = document.getElementById('statusDesc');
+  const screenEl = document.getElementById('statusScreen');
+  const subEl = document.getElementById('wmHeaderSub');
+
+  // Убираем прежние классы status
+  screenEl.classList.remove('pending', 'rejected', 'blocked');
+
+  if (st === 'approved') {
+    if (subEl) subEl.textContent = data.name ? ('Управляющий: ' + data.name) : '';
+    showScreen('screenMain');
+    loadProductsForWm();
+    return;
+  }
+
+  if (st === 'pending') {
+    iconEl.textContent = '⏳';
+    titleEl.textContent = 'Ожидает одобрения';
+    descEl.textContent = 'Ваша заявка отправлена и рассматривается администратором. Как только её одобрят — вы автоматически получите доступ.';
+    screenEl.classList.add('pending');
+    showScreen('screenStatus');
+    return;
+  }
+
+  if (st === 'rejected') {
+    iconEl.textContent = '❌';
+    titleEl.textContent = 'Заявка отклонена';
+    descEl.innerHTML = 'Администратор отклонил вашу заявку. ' +
+      (data.note ? '<br><br>Комментарий: <b>' + escapeHtml(data.note) + '</b>' : 'Обратитесь к нему для уточнения причины.');
+    screenEl.classList.add('rejected');
+    showScreen('screenStatus');
+    return;
+  }
+
+  if (st === 'blocked') {
+    iconEl.textContent = '🚫';
+    titleEl.textContent = 'Доступ заблокирован';
+    descEl.innerHTML = 'Администратор заблокировал ваш доступ. Вы не можете изменять остатки товаров. ' +
+      (data.note ? '<br><br>Комментарий: <b>' + escapeHtml(data.note) + '</b>' : '');
+    screenEl.classList.add('blocked');
+    showScreen('screenStatus');
+    return;
+  }
+
+  // missing (документа нет — например, удалили админом)
+  iconEl.textContent = '❓';
+  titleEl.textContent = 'Заявка не найдена';
+  descEl.innerHTML = 'В базе нет вашей заявки. Возможно, администратор её удалил. Подайте заявку заново.';
+  screenEl.classList.add('rejected');
+  showScreen('screenStatus');
+}
+
+function refreshStatus() {
+  const user = firebase.auth().currentUser;
+  if (!user) { showScreen('screenLogin'); return; }
+  // onSnapshot уже поднимает свежие данные — просто сообщаем пользователю
+  toast('Проверено. Обновление придёт автоматически.');
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// ---------- ЗАГРУЗКА ТОВАРОВ ----------
+let _wmProducts = [];
+let _wmCurrentCat = '__all';
+
+async function loadProductsForWm() {
+  const container = document.getElementById('wmProductsList');
+  container.innerHTML = '<div class="loading-block"><div class="spinner"></div><div>Загрузка товаров...</div></div>';
+  try {
+    const snap = await db.collection('products').get();
+    const items = [];
+    snap.forEach(doc => {
+      items.push({ id: doc.id, ...doc.data() });
+    });
+    _wmProducts = items;
+    buildCategoryChips();
+    rerenderProducts();
+  } catch (err) {
+    console.error('[wm] load products err:', err);
+    container.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><div>Не удалось загрузить товары.<br><small>' + escapeHtml(err && err.message || '') + '</small></div></div>';
+  }
+}
+
+function buildCategoryChips() {
+  const cats = new Set();
+  _wmProducts.forEach(p => {
+    if (p.category) cats.add(String(p.category));
+  });
+  const filter = document.getElementById('wmCatFilter');
+  filter.innerHTML = '';
+  const chipAll = document.createElement('div');
+  chipAll.className = 'chip active';
+  chipAll.dataset.cat = '__all';
+  chipAll.textContent = 'Все категории';
+  filter.appendChild(chipAll);
+
+  Array.from(cats).sort().forEach(c => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.dataset.cat = c;
+    chip.textContent = c;
+    filter.appendChild(chip);
+  });
+
+  filter.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      filter.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      _wmCurrentCat = chip.dataset.cat || '__all';
+      rerenderProducts();
+    });
+  });
+}
+
+function computeEffectiveStock(product) {
+  const ws = product.warehouseStock;
+  if (ws && typeof ws === 'object') {
+    let sum = 0;
+    Object.keys(ws).forEach(id => {
+      const v = Number(ws[id]);
+      if (isFinite(v)) sum += Math.max(0, Math.floor(v));
+    });
+    return sum;
+  }
+  const s = Number(product.stock);
+  if (!isFinite(s)) return 0;
+  return Math.max(0, Math.floor(s));
+}
+
+function rerenderProducts() {
+  const q = (document.getElementById('wmSearch').value || '').trim().toLowerCase();
+  const cat = _wmCurrentCat;
+  const sortMode = document.getElementById('wmSort').value;
+
+  let list = _wmProducts.slice();
+
+  if (cat && cat !== '__all') {
+    list = list.filter(p => String(p.category || '') === cat);
+  }
+  if (q) {
+    list = list.filter(p => {
+      const name = String(p.title || p.name || '').toLowerCase();
+      const category = String(p.category || '').toLowerCase();
+      return name.includes(q) || category.includes(q);
+    });
+  }
+
+  list.sort(function (a, b) {
+    if (sortMode === 'stock-asc') {
+      return computeEffectiveStock(a) - computeEffectiveStock(b);
+    }
+    if (sortMode === 'stock-desc') {
+      return computeEffectiveStock(b) - computeEffectiveStock(a);
+    }
+    if (sortMode === 'cat') {
+      const c = String(a.category || '').localeCompare(String(b.category || ''));
+      if (c !== 0) return c;
+    }
+    return String(a.title || a.name || '').localeCompare(String(b.title || b.name || ''));
+  });
+
+  document.getElementById('wmCounter').textContent = list.length + ' ' + declOfNum(list.length, ['товар','товара','товаров']);
+
+  const container = document.getElementById('wmProductsList');
+  if (list.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">🔍</div><div>Ничего не найдено</div></div>';
+    return;
+  }
+
+  // Виртуализация не нужна — просто рендерим (обычно <500 позиций).
+  const parts = list.map(renderProductCard);
+  container.innerHTML = parts.join('');
+
+  attachCardHandlers();
+}
+
+function declOfNum(n, titles) {
+  const cases = [2, 0, 1, 1, 1, 2];
+  return titles[(n % 100 > 4 && n % 100 < 20) ? 2 : cases[(n % 10 < 5) ? n % 10 : 5]];
+}
+
+function renderProductCard(p) {
+  const stock = computeEffectiveStock(p);
+  const image = p.image || p.imageUrl || '';
+  const title = escapeHtml(p.title || p.name || 'Без названия');
+  const category = escapeHtml(p.category || '');
+  const cost = Number(p.cost || p.costPrice || 0);
+  const stockClass = stock === 0 ? 'zero' : (stock <= 5 ? 'low' : '');
+
+  return (
+    '<div class="product-card" data-id="' + escapeHtml(p.id) + '">' +
+      (image
+        ? '<img class="product-photo" src="' + escapeHtml(image) + '" alt="" loading="lazy" onerror="this.classList.add(\'placeholder\'); this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'product-photo placeholder\',textContent:\'📦\'}))">'
+        : '<div class="product-photo placeholder">📦</div>') +
+      '<div class="product-info">' +
+        '<div class="product-title">' + title + '</div>' +
+        '<div class="product-meta">' + (category ? '<span class="cat">' + category + '</span>' : '') + '</div>' +
+        (cost > 0 ? '<div class="product-cost">Цена закупа: <b>' + cost.toLocaleString('ru-RU') + ' сом</b></div>' : '') +
+        '<div class="product-stock-row">' +
+          '<span class="stock-label">На складе:</span>' +
+          '<span class="stock-value ' + stockClass + '" data-stock-for="' + escapeHtml(p.id) + '">' + stock + '</span>' +
+        '</div>' +
+        '<div class="qty-controls">' +
+          '<button class="qty-btn minus" data-delta="-10">−10</button>' +
+          '<button class="qty-btn minus" data-delta="-5">−5</button>' +
+          '<button class="qty-btn minus" data-delta="-1">−1</button>' +
+          '<div class="qty-custom"><input type="number" class="qty-custom-input" placeholder="кол-во" inputmode="numeric"></div>' +
+          '<button class="qty-btn plus" data-delta="1">+1</button>' +
+          '<button class="qty-btn plus" data-delta="5">+5</button>' +
+          '<button class="qty-btn plus" data-delta="10">+10</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function attachCardHandlers() {
+  const cards = document.querySelectorAll('.product-card');
+  cards.forEach(card => {
+    const productId = card.dataset.id;
+    const stockEl = card.querySelector('[data-stock-for]');
+    const customInput = card.querySelector('.qty-custom-input');
+
+    card.querySelectorAll('.qty-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const delta = parseInt(btn.dataset.delta || '0', 10);
+        if (!delta) return;
+        applyStockChange(productId, delta, stockEl, btn);
+      });
+    });
+
+    if (customInput) {
+      // Ввод произвольного количества: Enter или blur применяет как «+X» (или «-X» если минус)
+      customInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          applyCustomChange(productId, customInput, stockEl);
+        }
+      });
+      // Иконка/кнопка «применить» через blur не делаем, чтобы случайно
+      // не срабатывало при переключении фокуса. Пользователь либо жмёт
+      // Enter, либо использует +/−/1/5/10.
+    }
+  });
+}
+
+async function applyCustomChange(productId, inputEl, stockEl) {
+  const rawVal = (inputEl.value || '').trim();
+  if (!rawVal) return;
+  const num = parseInt(rawVal, 10);
+  if (!isFinite(num) || num === 0) {
+    toast('Введите число (например 15 или -3)', true);
+    return;
+  }
+  // Пользователь может ввести отрицательное число («−»), но лучше сначала
+  // подтвердить крупное изменение чтобы не было случайных ошибок.
+  const confirm = await Swal.fire({
+    title: 'Изменить остаток?',
+    html: 'Изменение: <b>' + (num > 0 ? '+' + num : num) + '</b> шт.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Да, изменить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#1a237e'
+  });
+  if (!confirm.isConfirmed) return;
+  inputEl.value = '';
+  await applyStockChange(productId, num, stockEl, null);
+}
+
+// Защита от «дабл-тапа» — блокируем повторные клики пока предыдущее
+// изменение уходит в Firestore. Иначе быстрый двойной тап на «+10»
+// может отправить два инкремента вместо одного.
+const _pendingChanges = new Set();
+
+async function applyStockChange(productId, delta, stockEl, btn) {
+  if (!productId) return;
+  if (_pendingChanges.has(productId)) {
+    toast('Подождите, идёт сохранение...', true);
+    return;
+  }
+
+  // Крупные изменения — подтверждение (защита от случайного нажатия)
+  if (Math.abs(delta) >= 20) {
+    const c = await Swal.fire({
+      title: 'Точно изменить на ' + (delta > 0 ? '+' : '') + delta + ' шт?',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Да, применить',
+      cancelButtonText: 'Отмена',
+      confirmButtonColor: '#1a237e'
+    });
+    if (!c.isConfirmed) return;
+  }
+
+  _pendingChanges.add(productId);
+  if (btn) btn.disabled = true;
+
+  try {
+    // Находим продукт в кэше
+    const product = _wmProducts.find(p => p.id === productId);
+    if (!product) throw new Error('Товар не найден в списке');
+
+    // ТРАНЗАКЦИЯ: чтобы 2 одновременных изменения не перезаписали друг друга.
+    // В транзакции читаем актуальное значение stock и пишем stock + delta.
+    // Не используем FieldValue.increment напрямую на «числовом», потому что
+    // хотим ЗАПРЕТИТЬ уходить в отрицательный остаток.
+    const ref = db.collection('products').doc(productId);
+    let newStock = 0;
+    await db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      if (!doc.exists) throw new Error('Товар удалён');
+      const data = doc.data() || {};
+      const ws = data.warehouseStock;
+
+      const updatePayload = {
+        lastStockChangeBy: (_currentWmDoc && _currentWmDoc.name) ? _currentWmDoc.name : (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'wm',
+        lastStockChangeByUid: firebase.auth().currentUser ? firebase.auth().currentUser.uid : null,
+        lastStockChangeAt: Date.now()
+      };
+
+      if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
+        // Multi-warehouse режим. Изменяем ПЕРВЫЙ склад (или primary, если
+        // его id есть в списке). Более сложную логику выбора склада
+        // мы намеренно не даём — управляющий должен работать через
+        // тот же поток, что и админ (см. admin-warehouse.html).
+        const keys = Object.keys(ws).sort();
+        const targetWh = keys[0];
+        const cur = Math.max(0, Math.floor(Number(ws[targetWh]) || 0));
+        const next = Math.max(0, cur + delta);
+        if (delta < 0 && next === cur) {
+          throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
+        }
+        updatePayload['warehouseStock.' + targetWh] = next;
+        newStock = next;
+        // Пересчитываем общую сумму по всем складам чтобы синхронизировать UI
+        let sum = 0;
+        keys.forEach(k => {
+          const val = (k === targetWh) ? next : Math.max(0, Math.floor(Number(ws[k]) || 0));
+          sum += val;
+        });
+        newStock = sum;
+        // Обновим локальный кэш
+        product.warehouseStock = Object.assign({}, ws, { [targetWh]: next });
+      } else {
+        const cur = Math.max(0, Math.floor(Number(data.stock) || 0));
+        const next = Math.max(0, cur + delta);
+        if (delta < 0 && next === cur && cur === 0) {
+          throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
+        }
+        updatePayload.stock = next;
+        newStock = next;
+        product.stock = next;
+      }
+      tx.update(ref, updatePayload);
+    });
+
+    // Обновляем UI
+    if (stockEl) {
+      stockEl.textContent = newStock;
+      stockEl.classList.remove('zero', 'low');
+      if (newStock === 0) stockEl.classList.add('zero');
+      else if (newStock <= 5) stockEl.classList.add('low');
+    }
+    toast('Изменение сохранено: ' + (delta > 0 ? '+' : '') + delta + ' шт (остаток ' + newStock + ')');
+
+  } catch (err) {
+    console.error('[wm] stock change err:', err);
+    let msg = 'Не удалось сохранить';
+    if (err && err.code === 'permission-denied') {
+      msg = 'Доступ заблокирован. Обратитесь к администратору.';
+      // На всякий случай: перечитаем свой статус, вдруг блокировка пришла.
+      const user = firebase.auth().currentUser;
+      if (user) checkWmStatusAndRender(user);
+    } else if (err && err.message) {
+      msg = err.message;
+    }
+    toast(msg, true);
+  } finally {
+    _pendingChanges.delete(productId);
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ---------- ИНИЦИАЛИЗАЦИЯ ----------
+// Слушаем ТОЛЬКО submit формы — он срабатывает и на клик по кнопке
+// type=submit, и на Enter в input. Отдельный click на кнопке был бы
+// дублирующим и мог бы вызвать wmLogin() дважды.
+document.getElementById('loginForm').addEventListener('submit', (e) => { e.preventDefault(); wmLogin(); });
+
+// Автовход: если Firebase Auth уже помнит пользователя с wm-email, сразу
+// проверяем статус и показываем нужный экран.
+// ВАЖНО: onAuthStateChanged срабатывает несколько раз при загрузке
+// (сначала user=null, потом user=восстановленный из persistence).
+// Чтобы не «мигать» экраном входа для уже залогиненного управляющего —
+// первый null-эвент игнорируем в течение 1500 мс. Если за это время
+// пришёл нормальный user — показываем нужный экран. Если пришёл ещё
+// один null — значит пользователь действительно не залогинен, показываем
+// экран входа.
+function initWmAuth() {
+  let firstStateReceived = false;
+  const fallbackTimer = setTimeout(() => {
+    // Прошло 1.5с и никакого user не появилось → покажем экран входа
+    if (!firstStateReceived) {
+      firstStateReceived = true;
+      stopStatusListener();
+      showScreen('screenLogin');
+    }
+  }, 1500);
+
+  firebase.auth().onAuthStateChanged(async function (user) {
+    if (user && user.email && /^wm_.*@kerben-warehouse[.]local$/i.test(user.email)) {
+      // Это управляющий складом
+      firstStateReceived = true;
+      clearTimeout(fallbackTimer);
+      await checkWmStatusAndRender(user);
+    } else if (user && (!user.email || !/^wm_.*@kerben-warehouse[.]local$/i.test(user.email))) {
+      // Кто-то другой (анонимный / админ) — показываем экран входа wm
+      firstStateReceived = true;
+      clearTimeout(fallbackTimer);
+      stopStatusListener();
+      showScreen('screenLogin');
+    }
+    // Если user=null — ждём таймер: возможно, Firebase ещё восстанавливает
+    // сессию из IndexedDB (первые ~200-500мс).
+  });
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initWmAuth);
+} else {
+  initWmAuth();
+}
+
+// Освежаем статус при возврате в вкладку (могли одобрить, пока телефон был закрыт)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  const user = firebase.auth().currentUser;
+  if (user && _currentUserUid === user.uid && _statusUnsub) {
+    // onSnapshot автоматически принесёт свежие данные — ничего делать не надо
+    return;
+  }
+  if (user) checkWmStatusAndRender(user);
+});
+</script>
+</body>
+</html>

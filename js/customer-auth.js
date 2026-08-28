@@ -1117,6 +1117,14 @@ async function showCustomerDashboard() {
             <span style="color:#ccc;">›</span>
           </div>
           
+          <div onclick="openWarehouseManagerSignup()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span style="font-size:18px;">📦</span>
+              <span style="font-size:15px; color:#333;">Стать управляющим складом</span>
+            </div>
+            <span style="color:#ccc;">›</span>
+          </div>
+          
           <div onclick="openAdminLoginFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
             <div style="display:flex; align-items:center; gap:12px;">
               <span style="font-size:18px;">🔐</span>
@@ -1200,6 +1208,14 @@ async function showCustomerDashboard() {
             <div style="display:flex; align-items:center; gap:12px;">
               <span style="font-size:18px;">🤝</span>
               <span style="font-size:15px; color:#333;">Управление агентами</span>
+            </div>
+            <span style="color:#ccc;">›</span>
+          </div>
+          
+          <div onclick="openWarehouseManagersAdminFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span style="font-size:18px;">👥</span>
+              <span style="font-size:15px; color:#333;">Управляющие складом (заявки)</span>
             </div>
             <span style="color:#ccc;">›</span>
           </div>
@@ -1427,6 +1443,26 @@ function openPriceRoundingFromProfile() {
 function openAgentsManagementFromProfile() {
   closeProfileAndRun(() => {
     if (typeof openAgentsManagement === 'function') openAgentsManagement();
+  });
+}
+
+// ==================== УПРАВЛЯЮЩИЙ СКЛАДОМ ====================
+
+// Пункт «Стать управляющим складом» — открывает страницу заявки.
+// Доступен любому пользователю (включая гостя). После одобрения админом
+// человек получит доступ к отдельному разделу управления остатками
+// (без прав администратора).
+function openWarehouseManagerSignup() {
+  closeProfileAndRun(() => {
+    window.location.href = 'warehouse-manager-signup.html';
+  });
+}
+
+// Пункт «Управляющие складом (заявки)» в админ-панели — открывает страницу
+// модерации заявок (одобрить/отклонить/заблокировать).
+function openWarehouseManagersAdminFromProfile() {
+  closeProfileAndRun(() => {
+    window.location.href = 'admin-warehouse-managers.html';
   });
 }
 

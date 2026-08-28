@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Управляющие складом — Кербен</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/firebase-config.js?v=2"></script>
+  <script src="js/auth.js?v=2"></script>
+  <script src="js/admin-reauth.js?v=2"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      padding-bottom: 70px;
+    }
+    input, textarea, select { font-family: inherit; font-size: 16px; }
+    .swal2-container { z-index: 999999 !important; }
+
+    .page-header {
+      background: linear-gradient(135deg, #1a237e, #283593);
+      color: white;
+      padding: 20px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .page-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .page-header h1 {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .page-header p {
+      font-size: 13px;
+      opacity: 0.85;
+      margin-top: 4px;
+    }
+    .back-btn {
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border: none;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      font-size: 20px;
+      cursor: pointer;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      padding: 16px;
+    }
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 14px 10px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .stat-card .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a237e;
+    }
+    .stat-card .stat-label {
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+    .stat-card.pending .stat-value { color: #f57f17; }
+    .stat-card.approved .stat-value { color: #2e7d32; }
+    .stat-card.blocked .stat-value { color: #c62828; }
+
+    .toolbar {
+      padding: 0 16px 12px;
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 10px 18px;
+      background: white;
+      color: #666;
+      border: none;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .tab-btn.active { background: #1a237e; color: white; }
+
+    .content { padding: 0 16px 40px; }
+
+    .manager-card {
+      background: white;
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    .manager-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .manager-name {
+      font-size: 17px;
+      font-weight: 700;
+      color: #222;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-badge.pending { background: #fff8e1; color: #f57f17; }
+    .status-badge.approved { background: #e8f5e9; color: #2e7d32; }
+    .status-badge.rejected { background: #ffebee; color: #c62828; }
+    .status-badge.blocked { background: #eceff1; color: #37474f; }
+
+    .manager-info {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.6;
+    }
+    .manager-info b { color: #333; font-weight: 600; }
+    .manager-note {
+      background: #fff8e1;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #f57f17;
+      margin-top: 10px;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .actions button {
+      padding: 10px 4px;
+      border: none;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.05s;
+    }
+    .actions button:active { transform: scale(0.96); }
+    .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-approve { background: #e8f5e9; color: #2e7d32; }
+    .btn-approve:hover { background: #c8e6c9; }
+    .btn-reject { background: #ffebee; color: #c62828; }
+    .btn-block { background: #fce4ec; color: #ad1457; }
+    .btn-unblock { background: #e3f2fd; color: #1565c0; }
+    .btn-delete { background: #eceff1; color: #455a64; }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #888;
+    }
+    .empty-state .emoji { font-size: 50px; margin-bottom: 12px; }
+
+    .loading-block {
+      text-align: center;
+      padding: 60px 20px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 36px;
+      height: 36px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #1a237e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .access-denied {
+      max-width: 480px;
+      margin: 60px auto;
+      background: #fff;
+      border-radius: 16px;
+      padding: 30px 24px;
+      text-align: center;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.08);
+    }
+    .access-denied .emoji { font-size: 50px; }
+    .access-denied h2 { color: #c62828; margin: 12px 0 8px; }
+    .access-denied p { color: #666; font-size: 14px; line-height: 1.5; }
+    .access-denied a {
+      display: inline-block;
+      margin-top: 18px;
+      padding: 10px 20px;
+      background: #1a237e;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    @media (max-width: 380px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .actions { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<div id="accessDenied" class="access-denied" style="display:none;">
+  <div class="emoji">🔒</div>
+  <h2>Доступ только для админа</h2>
+  <p>Эта страница доступна только администратору. Войдите под админ-аккаунтом, чтобы модерировать заявки управляющих складом.</p>
+  <a href="profile.html">Войти как админ</a>
+</div>
+
+<div id="mainWrap" style="display:none;">
+  <div class="page-header">
+    <div class="page-header-top">
+      <div>
+        <h1>👥 Управляющие складом</h1>
+        <p>Заявки на роль и активные управляющие</p>
+      </div>
+      <button class="back-btn" onclick="history.length > 1 ? history.back() : (window.location.href = 'profile.html')" title="Назад">←</button>
+    </div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card pending"><div class="stat-value" id="cntPending">0</div><div class="stat-label">На модерации</div></div>
+    <div class="stat-card approved"><div class="stat-value" id="cntApproved">0</div><div class="stat-label">Одобрено</div></div>
+    <div class="stat-card blocked"><div class="stat-value" id="cntBlocked">0</div><div class="stat-label">Заблокировано</div></div>
+    <div class="stat-card"><div class="stat-value" id="cntRejected">0</div><div class="stat-label">Отклонено</div></div>
+  </div>
+
+  <div class="toolbar">
+    <button class="tab-btn active" data-tab="all">Все</button>
+    <button class="tab-btn" data-tab="pending">⏳ Новые заявки</button>
+    <button class="tab-btn" data-tab="approved">✅ Одобрены</button>
+    <button class="tab-btn" data-tab="blocked">🚫 Заблокированы</button>
+    <button class="tab-btn" data-tab="rejected">❌ Отклонены</button>
+  </div>
+
+  <div id="managersList" class="content">
+    <div class="loading-block"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// АДМИН-ПАНЕЛЬ УПРАВЛЯЮЩИХ СКЛАДОМ
+// ============================================================
+// Читает и модерирует коллекцию warehouseManagers.
+// Работает только под админом (firestore.rules пускают READ этой
+// коллекции полностью только админу, обычному user'у отдают только
+// его собственный документ).
+// ============================================================
+
+let _allManagers = [];
+let _currentTab = 'all';
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  } catch (e) { return '—'; }
+}
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+async function ensureAdmin() {
+  // Восстанавливаем сессию Firebase Auth админа (тихо, из сохранённого пароля).
+  // Если админ уже вошёл, admin-reauth сам обеспечит логин.
+  let ok = false;
+  try {
+    if (typeof kerbenReAuthAdminIfNeeded === 'function') {
+      ok = await kerbenReAuthAdminIfNeeded();
+    }
+  } catch (e) { ok = false; }
+
+  if (!ok) {
+    // Возможно, всё-таки залогинен — проверим напрямую.
+    try {
+      const u = firebase.auth().currentUser;
+      if (u && u.email === 'admin@kerben.local') ok = true;
+    } catch (e) {}
+  }
+
+  if (!ok) {
+    document.getElementById('accessDenied').style.display = 'block';
+    document.getElementById('mainWrap').style.display = 'none';
+    return false;
+  }
+
+  document.getElementById('accessDenied').style.display = 'none';
+  document.getElementById('mainWrap').style.display = 'block';
+  return true;
+}
+
+async function loadManagers() {
+  const container = document.getElementById('managersList');
+  container.innerHTML = '<div class="loading-block"><div class="spinner"></div></div>';
+  try {
+    const snap = await db.collection('warehouseManagers').get();
+    const list = [];
+    snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+    _allManagers = list;
+
+    // Стата
+    const cnt = { pending: 0, approved: 0, blocked: 0, rejected: 0 };
+    list.forEach(m => {
+      const s = m.status || 'pending';
+      if (cnt[s] !== undefined) cnt[s]++;
+    });
+    document.getElementById('cntPending').textContent = cnt.pending;
+    document.getElementById('cntApproved').textContent = cnt.approved;
+    document.getElementById('cntBlocked').textContent = cnt.blocked;
+    document.getElementById('cntRejected').textContent = cnt.rejected;
+
+    renderList();
+  } catch (err) {
+    console.error('[wm-admin] load err:', err);
+    container.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><div>Не удалось загрузить: ' + escapeHtml(err && err.message || '') + '</div></div>';
+  }
+}
+
+function renderList() {
+  const container = document.getElementById('managersList');
+  let list = _allManagers.slice();
+  if (_currentTab !== 'all') {
+    list = list.filter(m => (m.status || 'pending') === _currentTab);
+  }
+  // Сортировка: pending → approved → blocked → rejected, внутри — по дате создания
+  const order = { pending: 0, approved: 1, blocked: 2, rejected: 3 };
+  list.sort((a, b) => {
+    const oa = order[a.status || 'pending'] ?? 9;
+    const ob = order[b.status || 'pending'] ?? 9;
+    if (oa !== ob) return oa - ob;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  });
+
+  if (list.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><div>Пока нет заявок в этой категории</div></div>';
+    return;
+  }
+
+  container.innerHTML = list.map(renderManagerCard).join('');
+  attachCardHandlers();
+}
+
+function renderManagerCard(m) {
+  const status = m.status || 'pending';
+  const statusLabel = {
+    pending: '⏳ Новая заявка',
+    approved: '✅ Одобрен',
+    rejected: '❌ Отклонён',
+    blocked: '🚫 Заблокирован'
+  }[status] || status;
+
+  return (
+    '<div class="manager-card" data-id="' + escapeHtml(m.id) + '">' +
+      '<div class="manager-card-top">' +
+        '<div>' +
+          '<div class="manager-name">👤 ' + escapeHtml(m.name || '(без имени)') + '</div>' +
+        '</div>' +
+        '<span class="status-badge ' + status + '">' + statusLabel + '</span>' +
+      '</div>' +
+      '<div class="manager-info">' +
+        '<div><b>Телефон:</b> ' + escapeHtml(m.phone || '—') + '</div>' +
+        '<div><b>Заявка подана:</b> ' + fmtDate(m.createdAt) + '</div>' +
+        (m.approvedAt ? '<div><b>Одобрено:</b> ' + fmtDate(m.approvedAt) + '</div>' : '') +
+        (m.blockedAt ? '<div><b>Заблокировано:</b> ' + fmtDate(m.blockedAt) + '</div>' : '') +
+      '</div>' +
+      (m.note ? '<div class="manager-note">💬 ' + escapeHtml(m.note) + '</div>' : '') +
+      '<div class="actions">' + renderActions(status) + '</div>' +
+    '</div>'
+  );
+}
+
+function renderActions(status) {
+  const parts = [];
+  if (status === 'pending') {
+    parts.push('<button class="btn-approve" data-act="approve">✅ Одобрить</button>');
+    parts.push('<button class="btn-reject" data-act="reject">❌ Отклонить</button>');
+    parts.push('<button class="btn-delete" data-act="delete">🗑 Удалить</button>');
+  } else if (status === 'approved') {
+    parts.push('<button class="btn-block" data-act="block">🚫 Заблокировать</button>');
+    parts.push('<button class="btn-reject" data-act="reject">❌ Отозвать одобрение</button>');
+    parts.push('<button class="btn-delete" data-act="delete">🗑 Удалить</button>');
+  } else if (status === 'blocked') {
+    parts.push('<button class="btn-unblock" data-act="approve">🔓 Разблокировать</button>');
+    parts.push('<button class="btn-reject" data-act="reject">❌ Отклонить</button>');
+    parts.push('<button class="btn-delete" data-act="delete">🗑 Удалить</button>');
+  } else if (status === 'rejected') {
+    parts.push('<button class="btn-approve" data-act="approve">✅ Одобрить</button>');
+    parts.push('<button class="btn-block" data-act="block">🚫 Заблокировать</button>');
+    parts.push('<button class="btn-delete" data-act="delete">🗑 Удалить</button>');
+  }
+  return parts.join('');
+}
+
+function attachCardHandlers() {
+  document.querySelectorAll('.manager-card').forEach(card => {
+    const id = card.dataset.id;
+    card.querySelectorAll('.actions button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const act = btn.dataset.act;
+        handleAction(id, act, btn);
+      });
+    });
+  });
+}
+
+async function handleAction(id, action, btn) {
+  const mgr = _allManagers.find(m => m.id === id);
+  if (!mgr) return;
+
+  const confirmMsgs = {
+    approve: {
+      title: 'Одобрить управляющего?',
+      text: 'После одобрения ' + (mgr.name || 'этот человек') + ' сможет менять остатки товаров.',
+      confirmText: 'Да, одобрить',
+      confirmColor: '#2e7d32'
+    },
+    reject: {
+      title: 'Отклонить заявку?',
+      text: (mgr.name || 'Управляющий') + ' потеряет доступ к разделу управления складом.',
+      confirmText: 'Да, отклонить',
+      confirmColor: '#c62828'
+    },
+    block: {
+      title: 'Заблокировать управляющего?',
+      text: (mgr.name || 'Управляющий') + ' немедленно потеряет возможность менять остатки.',
+      confirmText: 'Да, заблокировать',
+      confirmColor: '#ad1457'
+    },
+    delete: {
+      title: 'Удалить заявку?',
+      text: 'Документ будет удалён из базы. Firebase Auth пользователь останется — если нужно полное удаление, снесите его вручную в Firebase Console.',
+      confirmText: 'Да, удалить',
+      confirmColor: '#455a64'
+    }
+  };
+
+  const cfg = confirmMsgs[action];
+  if (!cfg) return;
+
+  let note = '';
+  if (action === 'reject' || action === 'block') {
+    const res = await Swal.fire({
+      title: cfg.title,
+      text: cfg.text,
+      input: 'textarea',
+      inputLabel: 'Комментарий (не обязательно)',
+      inputPlaceholder: 'Причина отклонения / блокировки (пользователь это увидит)',
+      inputAttributes: { maxlength: 500 },
+      showCancelButton: true,
+      confirmButtonText: cfg.confirmText,
+      cancelButtonText: 'Отмена',
+      confirmButtonColor: cfg.confirmColor
+    });
+    if (!res.isConfirmed) return;
+    note = res.value || '';
+  } else {
+    const c = await Swal.fire({
+      title: cfg.title,
+      text: cfg.text,
+      icon: action === 'delete' ? 'warning' : 'question',
+      showCancelButton: true,
+      confirmButtonText: cfg.confirmText,
+      cancelButtonText: 'Отмена',
+      confirmButtonColor: cfg.confirmColor
+    });
+    if (!c.isConfirmed) return;
+  }
+
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = '...';
+
+  try {
+    const ref = db.collection('warehouseManagers').doc(id);
+    if (action === 'delete') {
+      await ref.delete();
+    } else {
+      const patch = {};
+      if (action === 'approve') {
+        patch.status = 'approved';
+        patch.approvedAt = Date.now();
+        patch.blockedAt = firebase.firestore.FieldValue.delete();
+        patch.note = firebase.firestore.FieldValue.delete();
+      } else if (action === 'reject') {
+        patch.status = 'rejected';
+        patch.note = note || firebase.firestore.FieldValue.delete();
+      } else if (action === 'block') {
+        patch.status = 'blocked';
+        patch.blockedAt = Date.now();
+        patch.note = note || firebase.firestore.FieldValue.delete();
+      }
+      await ref.update(patch);
+    }
+    Swal.fire({ toast: true, position: 'top', showConfirmButton: false, timer: 1600, icon: 'success',
+      title: action === 'delete' ? 'Удалено' : 'Сохранено' });
+    await loadManagers();
+  } catch (err) {
+    console.error('[wm-admin] action err:', err);
+    Swal.fire('Ошибка', (err && err.message) || 'Не удалось выполнить', 'error');
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+// ---------- ТАБЫ ----------
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    _currentTab = btn.dataset.tab || 'all';
+    renderList();
+  });
+});
+
+// ---------- ИНИЦИАЛИЗАЦИЯ ----------
+(async function () {
+  // Ждём Firebase Auth (админ-сессия могла ещё не подняться)
+  if (typeof kerbenWaitForAuth === 'function') {
+    try { await kerbenWaitForAuth(5000); } catch (e) {}
+  }
+  // Дополнительная задержка чтобы admin-reauth.js успел вписать пароль
+  await new Promise(r => setTimeout(r, 300));
+
+  const ok = await ensureAdmin();
+  if (ok) await loadManagers();
+})();
+</script>
+</body>
+</html>

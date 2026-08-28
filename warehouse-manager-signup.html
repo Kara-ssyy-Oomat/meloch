@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Стать управляющим складом — Кербен</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/firebase-config.js?v=2"></script>
+  <script src="js/auth.js?v=2"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    input, textarea, select { font-family: inherit; font-size: 16px; }
+    .swal2-container { z-index: 999999 !important; }
+
+    .signup-wrap {
+      max-width: 460px;
+      width: 100%;
+      background: #fff;
+      border-radius: 20px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+      overflow: hidden;
+    }
+    .signup-header {
+      background: linear-gradient(135deg, #1a237e, #283593);
+      color: #fff;
+      padding: 28px 24px;
+      text-align: center;
+    }
+    .signup-header .emoji { font-size: 42px; }
+    .signup-header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+    .signup-header p {
+      font-size: 13px;
+      opacity: 0.9;
+      margin-top: 8px;
+      line-height: 1.4;
+    }
+    .signup-body { padding: 24px; }
+    .info-box {
+      background: #e8f0fe;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #1a237e;
+      line-height: 1.5;
+    }
+    .info-box b { color: #0d1b5c; }
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 6px;
+    }
+    .field input {
+      width: 100%;
+      padding: 14px 14px;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 15px;
+      background: #fafafa;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .field input:focus {
+      outline: none;
+      border-color: #1a237e;
+      background: #fff;
+    }
+    .submit-btn {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #1a237e, #3949ab);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: opacity 0.15s, transform 0.05s;
+    }
+    .submit-btn:hover { opacity: 0.95; }
+    .submit-btn:active { transform: scale(0.98); }
+    .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .footer-links {
+      text-align: center;
+      padding: 16px 20px 22px;
+      font-size: 13px;
+      color: #666;
+      border-top: 1px solid #f0f0f0;
+    }
+    .footer-links a {
+      color: #1a237e;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer-links a:hover { text-decoration: underline; }
+
+    .status-note {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.5;
+      display: none;
+    }
+    .status-note.pending {
+      background: #fff8e1;
+      color: #e65100;
+      display: block;
+    }
+    .status-note.approved {
+      background: #e8f5e9;
+      color: #1b5e20;
+      display: block;
+    }
+    .status-note.rejected, .status-note.blocked {
+      background: #ffebee;
+      color: #b71c1c;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="signup-wrap">
+    <div class="signup-header">
+      <div class="emoji">📦</div>
+      <h1>Заявка управляющего складом</h1>
+      <p>Заполните заявку, чтобы получить доступ к разделу управления остатками товаров. Администратор рассмотрит её и одобрит.</p>
+    </div>
+
+    <div class="signup-body">
+      <div class="info-box">
+        <b>Что будет доступно после одобрения:</b><br>
+        • список товаров и остатки<br>
+        • быстрое изменение количества (кнопки +/−)<br>
+        • поиск и фильтр по категориям<br><br>
+        <b>Что НЕ будет доступно:</b> оборот, выручка, продажи, отчёты, данные клиентов, админ-панель.
+      </div>
+
+      <form id="wmSignupForm" onsubmit="return false;">
+        <div class="field">
+          <label for="wmName">👤 Ваше имя</label>
+          <input type="text" id="wmName" placeholder="Например, Айгуль" maxlength="80" autocomplete="name" required>
+        </div>
+
+        <div class="field">
+          <label for="wmPhone">📱 Номер телефона</label>
+          <input type="tel" id="wmPhone" placeholder="+996 XXX XXX XXX" maxlength="30" autocomplete="tel" required>
+        </div>
+
+        <div class="field">
+          <label for="wmPassword">🔒 Придумайте пароль</label>
+          <input type="password" id="wmPassword" placeholder="Минимум 6 символов" minlength="6" maxlength="60" required>
+        </div>
+
+        <div class="field">
+          <label for="wmPassword2">🔒 Повторите пароль</label>
+          <input type="password" id="wmPassword2" placeholder="Повторите пароль" minlength="6" maxlength="60" required>
+        </div>
+
+        <button class="submit-btn" id="wmSubmitBtn" type="submit">Подать заявку</button>
+
+        <div id="wmStatusNote" class="status-note"></div>
+      </form>
+    </div>
+
+    <div class="footer-links">
+      Уже подавали заявку? <a href="warehouse-manager.html">Войти в раздел управления</a><br>
+      <a href="index.html" style="display:inline-block; margin-top:10px; color:#888;">← Вернуться в магазин</a>
+    </div>
+  </div>
+
+  <script>
+    // Нормализация номера телефона (+996 ...)
+    function normalizePhone(phone) {
+      let n = String(phone || '').replace(/[^\d+]/g, '');
+      if (n.startsWith('0')) n = '+996' + n.substring(1);
+      if (!n.startsWith('+')) {
+        n = n.startsWith('996') ? '+' + n : '+996' + n;
+      }
+      return n;
+    }
+
+    // Из телефона делаем «локальный email» для Firebase Auth:
+    //   +996XXXXXXXXX → wm_996XXXXXXXXX@kerben-warehouse.local
+    // Никакой реальный ящик не нужен — email тут используется как
+    // логин Firebase Auth и как «маркер роли» в firestore.rules.
+    function phoneToWmEmail(normalizedPhone) {
+      const digits = normalizedPhone.replace(/[^\d]/g, '');
+      return 'wm_' + digits + '@kerben-warehouse.local';
+    }
+
+    function showStatus(kind, html) {
+      const el = document.getElementById('wmStatusNote');
+      el.className = 'status-note ' + kind;
+      el.innerHTML = html;
+    }
+
+    // Флаг «идёт отправка» — защищает от повторного вызова, если
+    // одновременно сработают и submit формы, и click кнопки, и Enter в поле.
+    let _wmSignupBusy = false;
+
+    async function submitWmSignup() {
+      if (_wmSignupBusy) return;
+      _wmSignupBusy = true;
+
+      const name = document.getElementById('wmName').value.trim();
+      const phoneRaw = document.getElementById('wmPhone').value.trim();
+      const password = document.getElementById('wmPassword').value;
+      const password2 = document.getElementById('wmPassword2').value;
+
+      if (!name) { showStatus('rejected', 'Введите имя'); _wmSignupBusy = false; return; }
+      if (!phoneRaw) { showStatus('rejected', 'Введите номер телефона'); _wmSignupBusy = false; return; }
+      if (!password || password.length < 6) {
+        showStatus('rejected', 'Пароль минимум 6 символов'); _wmSignupBusy = false; return;
+      }
+      if (password !== password2) {
+        showStatus('rejected', 'Пароли не совпадают'); _wmSignupBusy = false; return;
+      }
+
+      const phone = normalizePhone(phoneRaw);
+      const email = phoneToWmEmail(phone);
+
+      const btn = document.getElementById('wmSubmitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Отправляем заявку...';
+
+      try {
+        // 1) Создаём Firebase Auth пользователя (или входим, если уже есть).
+        //    Это даст нам стабильный uid для документа warehouseManagers/{uid}.
+        let uid = null;
+        try {
+          const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+          uid = cred.user.uid;
+        } catch (err) {
+          if (err && err.code === 'auth/email-already-in-use') {
+            // Уже подавали заявку под этим телефоном. Пробуем войти —
+            // это единственный способ определить: подошёл ли пароль
+            // и какой у заявки статус.
+            try {
+              const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+              uid = cred.user.uid;
+            } catch (signInErr) {
+              btn.disabled = false;
+              btn.textContent = 'Подать заявку';
+              showStatus('rejected',
+                'Заявка с этим телефоном уже существует, а пароль не подходит. ' +
+                'Если это ваш номер, откройте <a href="warehouse-manager.html">вход в раздел управления</a> и введите правильный пароль. ' +
+                'Если забыли пароль — обратитесь к администратору.');
+              return;
+            }
+          } else if (err && err.code === 'auth/weak-password') {
+            btn.disabled = false;
+            btn.textContent = 'Подать заявку';
+            showStatus('rejected', 'Firebase считает этот пароль слишком слабым. Используйте минимум 6 символов, лучше — буквы + цифры.');
+            _wmSignupBusy = false;
+            return;
+          } else {
+            throw err;
+          }
+        }
+
+        if (!uid) throw new Error('Не удалось получить UID');
+
+        // 2) Проверяем, есть ли уже документ (повторная заявка того же человека).
+        const existingDocRef = db.collection('warehouseManagers').doc(uid);
+        const existingDoc = await existingDocRef.get();
+
+        if (existingDoc.exists) {
+          const data = existingDoc.data() || {};
+          if (data.status === 'approved') {
+            showStatus('approved', '✅ Ваша заявка уже одобрена. <a href="warehouse-manager.html">Открыть раздел управления складом →</a>');
+          } else if (data.status === 'pending') {
+            showStatus('pending', '⏳ Ваша заявка уже отправлена и ожидает одобрения администратором. Мы уведомим вас как только её рассмотрят.');
+          } else if (data.status === 'rejected') {
+            showStatus('rejected', '❌ Ваша прошлая заявка была отклонена администратором. Обратитесь к нему для уточнения причины.');
+          } else if (data.status === 'blocked') {
+            showStatus('blocked', '🚫 Ваш аккаунт заблокирован администратором. Обратитесь к нему для разблокировки.');
+          } else {
+            showStatus('pending', '⏳ Заявка получена. Ожидайте одобрения.');
+          }
+          btn.disabled = false;
+          btn.textContent = 'Подать заявку';
+          _wmSignupBusy = false;
+          return;
+        }
+
+        // 3) Создаём новую заявку
+        await existingDocRef.set({
+          firebaseUid: uid,
+          email: email,
+          name: name,
+          phone: phone,
+          status: 'pending',
+          createdAt: Date.now()
+        });
+
+        // Успех — сразу переходим в раздел управления, там покажется
+        // экран «Ожидает одобрения». Firebase Auth сессия уже установлена
+        // (createUserWithEmailAndPassword автоматически входит), так что
+        // страница warehouse-manager.html сразу увидит подходящий email.
+        showStatus('pending', '✅ Заявка отправлена! Переносим вас в раздел управления...');
+        btn.textContent = 'Заявка отправлена';
+        btn.disabled = true;
+        setTimeout(function () {
+          window.location.href = 'warehouse-manager.html';
+        }, 1400);
+      } catch (err) {
+        console.error('[wm-signup] error:', err);
+        btn.disabled = false;
+        btn.textContent = 'Подать заявку';
+        _wmSignupBusy = false;
+        showStatus('rejected', 'Ошибка отправки заявки: ' + (err && err.message ? err.message : 'неизвестная ошибка'));
+      }
+    }
+
+    // ВАЖНО: слушаем ТОЛЬКО событие submit формы. Оно срабатывает
+    // и на клик по кнопке type=submit, и на Enter в поле ввода —
+    // так что отдельный click-хендлер на кнопке не нужен и вызывал
+    // бы двойной submitWmSignup().
+    document.getElementById('wmSignupForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      submitWmSignup();
+    });
+  </script>
+</body>
+</html>

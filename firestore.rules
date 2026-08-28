@@ -66,6 +66,67 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // =========================================================
+    //         УПРАВЛЯЮЩИЙ СКЛАДОМ (warehouse manager)
+    // =========================================================
+    // Управляющие складом входят под своим Firebase Auth email
+    // вида wm_<phone>@kerben-warehouse.local. По этому суффиксу
+    // мы отличаем их от админа и обычных клиентов — БЕЗ лишних
+    // reads (проверка только по токену).
+    //
+    // ПРАВИЛА ДОСТУПА:
+    //  • НЕ видят: customers, orders, sellers, agents, expenses,
+    //    payouts, chatMessages, warehouseMovements, stockAlerts,
+    //    settings/private и т.п. — то есть НИКАКИХ финансов, оборота,
+    //    выручки, продаж, отчётов, статистики, данных клиентов.
+    //  • Видят: products (для управления остатками).
+    //  • Могут менять в products ТОЛЬКО поле stock/warehouseStock
+    //    (и метаданные lastStockChangeBy/At). Цены, названия, фото
+    //    и любые другие поля — читать нельзя менять.
+    //  • Заблокированный (status='blocked') / отклонённый (rejected)
+    //    / ещё не одобренный (pending) — не может ничего менять,
+    //    даже stock. Проверка через документ warehouseManagers/{uid}.
+    // =========================================================
+    function isWarehouseManagerEmail() {
+      return request.auth != null
+          && request.auth.token.email != null
+          && request.auth.token.email.matches('^wm_.*@kerben-warehouse[.]local$');
+    }
+
+    function isApprovedWarehouseManager() {
+      return isWarehouseManagerEmail()
+          && exists(/databases/$(database)/documents/warehouseManagers/$(request.auth.uid))
+          && get(/databases/$(database)/documents/warehouseManagers/$(request.auth.uid)).data.status == 'approved';
+    }
+
+    // Обычный доступ = обычный клиент / админ (НЕ управляющий складом).
+    // Используется в тех коллекциях, куда wm не должен даже читать.
+    function isRegularAuthed() {
+      return isAuthed() && !isWarehouseManagerEmail();
+    }
+
+    // Изменения в товаре, которые разрешены управляющему складом.
+    // Только stock, warehouseStock и служебные метки времени/автора.
+    function wmOnlyChangesStockFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['stock', 'warehouseStock',
+                       'lastStockChangeBy', 'lastStockChangeAt',
+                       'lastStockChangeByUid', 'updatedAt']);
+    }
+
+    // Валидация того, что итоговый stock — число [0..10_000_000].
+    // Защита от прямых запросов в DevTools: если wm попробует записать
+    // отрицательный или гигантский остаток, правила откажут.
+    // ВАЖНО: используем `is number` а не `is int`. Firestore Web SDK
+    // сериализует все JS-числа как double, даже целые — `is int` бы
+    // отвергал даже валидные значения.
+    function wmStockValueOk() {
+      return !('stock' in request.resource.data)
+          || (request.resource.data.stock is number
+              && request.resource.data.stock >= 0
+              && request.resource.data.stock <= 10000000);
+    }
+
     function isAdminPhone(p) {
       return p == '0559009860'
           || p == '+996559009860'
@@ -148,10 +209,15 @@ service cloud.firestore {
     // настоящих посетителей site работает прозрачно: js/auth.js
     // автоматически логинит каждого анонимно перед первым запросом.
     // DELETE — ТОЛЬКО админ.
+    // Управляющий складом (isApprovedWarehouseManager) — может менять
+    // ТОЛЬКО stock/warehouseStock (см. wmOnlyChangesStockFields).
+    // Заблокированный или неодобренный wm — не сможет обновить ничего.
     match /products/{id} {
       allow read: if isAuthed();
-      allow create, update: if
-        reasonableDocSize()
+      allow create: if
+        // Управляющий складом НЕ создаёт товары (только админ/продавец)
+        !isWarehouseManagerEmail()
+        && reasonableDocSize()
         && strOk('name', 500)
         && strOk('description', 5000)
         && strOk('category', 200)
@@ -162,6 +228,35 @@ service cloud.firestore {
         && numOk('quantity', -1000000, 10000000)
         && numOk('cost', 0, 100000000)
         && numOk('priceWholesale', 0, 100000000);
+      allow update: if reasonableDocSize() && (
+        // === АДМИН и обычные аутентифицированные роли (продавец и т.п.) ===
+        // Оставляем прежнюю валидацию — обычный поток редактирования товара.
+        (!isWarehouseManagerEmail()
+          && strOk('name', 500)
+          && strOk('description', 5000)
+          && strOk('category', 200)
+          && strOk('subcategory', 200)
+          && strOk('imageUrl', 2000)
+          && strOk('image', 2000)
+          && numOk('price', 0, 100000000)
+          && numOk('quantity', -1000000, 10000000)
+          && numOk('cost', 0, 100000000)
+          && numOk('priceWholesale', 0, 100000000))
+        ||
+        // === УПРАВЛЯЮЩИЙ СКЛАДОМ ===
+        // 1) должен быть ОДОБРЕН (status='approved' в warehouseManagers)
+        // 2) может менять ТОЛЬКО поля stock/warehouseStock и метки
+        // 3) stock — целое число 0..10_000_000 (не даём уйти в минус
+        //    даже через прямой запрос в DevTools).
+        // ПРИМЕЧАНИЕ: warehouseStock (map) валидируется только на уровне
+        //    клиента-транзакции (Math.max(0, cur+delta)) — Firestore
+        //    rules не поддерживают итерацию по map. Это ОК: даже если wm
+        //    руками отправит warehouseStock, он поменяет лишь свои остатки,
+        //    а рассинхрон с реальностью админ увидит в отчёте склада.
+        (isApprovedWarehouseManager()
+          && wmOnlyChangesStockFields()
+          && wmStockValueOk())
+      );
       allow delete: if isAdminUser();
     }
 
@@ -171,10 +266,12 @@ service cloud.firestore {
     // READ — только залогиненный. Анонимный auth получает каждый
     // посетитель автоматически в js/auth.js, поэтому каталог
     // открывается как обычно, а боты с curl-ом отрезаны.
+    // Управляющий складом sellers НЕ видит (это данные о продавцах,
+    // не относящиеся к его работе с остатками).
     match /sellers/{id} {
-      allow read: if isAuthed();
-      allow create, update: if
-        reasonableDocSize()
+      allow read: if isRegularAuthed();
+      allow create, update: if isRegularAuthed()
+        && reasonableDocSize()
         && strOk('name', 200)
         && strOk('phone', 30)
         && strOk('description', 2000);
@@ -182,9 +279,9 @@ service cloud.firestore {
     }
 
     match /seller_categories/{id} {
-      allow read: if isAuthed();
-      allow create, update: if
-        reasonableDocSize()
+      allow read: if isRegularAuthed();
+      allow create, update: if isRegularAuthed()
+        && reasonableDocSize()
         && strOk('name', 200)
         && strOk('description', 2000);
       allow delete: if isAdminUser();
@@ -214,11 +311,12 @@ service cloud.firestore {
     // =========================================================
     //                  AGENTS / CLIENT-AGENTS
     // =========================================================
-    // READ — только залогиненный (анонимный auth подходит).
+    // READ — только обычный залогиненный (анонимный auth подходит).
+    // Управляющий складом НЕ видит агентов и клиентов агентов.
     match /agents/{id} {
-      allow read: if isAuthed();
-      allow create, update: if
-        reasonableDocSize()
+      allow read: if isRegularAuthed();
+      allow create, update: if isRegularAuthed()
+        && reasonableDocSize()
         && strOk('name', 200)
         && strOk('phone', 30)
         && strOk('email', 200);
@@ -226,9 +324,9 @@ service cloud.firestore {
     }
 
     match /clientAgents/{id} {
-      allow read: if isAuthed();
-      allow create, update: if
-        reasonableDocSize()
+      allow read: if isRegularAuthed();
+      allow create, update: if isRegularAuthed()
+        && reasonableDocSize()
         && strOk('phone', 30)
         && strOk('agentId', 200);
       allow delete: if isAdminUser();
@@ -252,26 +350,23 @@ service cloud.firestore {
     // agentExpenses — расходы агентов. Их вносит сам агент через
     // agent-profit.html. У агентов нет отдельного auth — оставляем
     // открытым на запись (с валидацией) и удаление.
-    // READ — только залогиненный (5000+ документов, удобная цель для
-    // выгрузки финансовых данных конкурентами через REST API).
+    // Управляющий складом финансовые данные агентов НЕ видит.
     match /agentExpenses/{id} {
-      allow read: if isAuthed();
-      allow create, update: if
-        reasonableDocSize()
+      allow read: if isRegularAuthed();
+      allow create, update: if isRegularAuthed()
+        && reasonableDocSize()
         && strOk('description', 2000)
         && strOk('agentId', 200)
         && numOk('amount', -1000000000, 1000000000)
         && reasonableTimestamp();
-      allow delete: if true;
+      allow delete: if !isWarehouseManagerEmail();
     }
 
     // agentPayouts — выплаты агентам от компании. Создаются админом
     // в admin-agents.html.
-    // READ — только залогиненный (админ и агенты видят выплаты).
-    // CREATE/UPDATE — только админ, с валидацией.
-    // DELETE — только админ.
+    // Управляющий складом ВЫПЛАТЫ агентам НЕ видит.
     match /agentPayouts/{id} {
-      allow read: if isAuthed();
+      allow read: if isRegularAuthed();
       allow create, update: if isAdminUser()
         && reasonableDocSize()
         && strOk('agentId', 200)
@@ -292,8 +387,10 @@ service cloud.firestore {
     //          остальные поля не меняются). Клиент НЕ может поменять
     //          сумму, товары, телефон или статус «Доставлен».
     // DELETE — только админ.
+    // Управляющий складом ЗАКАЗЫ ВООБЩЕ НЕ ВИДИТ — там суммы, выручка,
+    // клиентские данные, т.е. финансы и оборот, к которым у него доступа нет.
     match /orders/{orderId} {
-      allow read: if isAuthed();
+      allow read: if isRegularAuthed();
       allow delete: if isAdminUser();
 
       allow update: if reasonableDocSize() && (
@@ -393,12 +490,14 @@ service cloud.firestore {
     //          ordersCount/totalSpent — может расти (через increment) или
     //          оставаться прежним, но не уменьшаться вручную.
     // DELETE — только админ.
+    // Управляющий складом клиентов НЕ видит (это ПД других пользователей).
     match /customers/{customerId} {
-      allow read: if isAuthed();
+      allow read: if isRegularAuthed();
       allow delete: if isAdminUser();
 
       allow create: if
-        reasonableDocSize()
+        !isWarehouseManagerEmail()
+        && reasonableDocSize()
         && noPlaintextPasswordAdded()
         && notElevatingToAdmin()
         && strOk('name', 200)
@@ -570,16 +669,11 @@ service cloud.firestore {
     //                          CHAT
     // =========================================================
     // chatClients — список клиентов чата.
-    //   READ — только залогиненные (анонимный auth подходит).
-    //   UPDATE — клиент может менять name/pushToken/lastActive свои,
-    //            но не подменять чужой документ. Защита по совпадению
-    //            phone в resource.data — клиент не может изменить
-    //            запись с другим phone, кроме своего.
-    //   DELETE — только админ.
+    // Управляющий складом чат НЕ видит (там переписки клиентов).
     match /chatClients/{id} {
-      allow read: if isAuthed();
-      allow create: if
-        reasonableDocSize()
+      allow read: if isRegularAuthed();
+      allow create: if isRegularAuthed()
+        && reasonableDocSize()
         && strOk('name', 200)
         && strOk('phone', 30)
         && strOk('pushToken', 500);
@@ -588,7 +682,7 @@ service cloud.firestore {
         || (
           // Клиент может менять свой документ (name/pushToken/hasUnread/lastActive),
           // но не телефон.
-          isAuthed()
+          isRegularAuthed()
           && fieldUnchanged('phone')
           && strOk('name', 200)
           && strOk('pushToken', 500)
@@ -598,20 +692,17 @@ service cloud.firestore {
     }
 
     // chatMessages — сообщения чата.
-    //   READ — только залогиненные.
-    //   CREATE — любой залогиненный (с валидацией текста и блокировкой
-    //            заблокированных клиентов).
-    //   UPDATE — админ всё; клиент только отмечает «прочитано».
-    //   DELETE — только админ.
+    // Управляющий складом переписку клиентов НЕ видит.
     match /chatMessages/{id} {
-      allow read: if isAuthed();
+      allow read: if isRegularAuthed();
       allow delete: if isAdminUser();
       allow update: if reasonableDocSize() && (
         isAdminUser()
-        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        || (isRegularAuthed()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']))
       );
       allow create: if
-        isAuthed()
+        isRegularAuthed()
         && reasonableDocSize()
         && strOk('text', 5000)
         && strOk('clientId', 200)
@@ -631,6 +722,69 @@ service cloud.firestore {
     match /warehouseMovements/{movId} {
       allow read: if isAdminUser();
       allow create, update: if isAdminUser() && reasonableDocSize();
+      allow delete: if isAdminUser();
+    }
+
+    // =========================================================
+    //             УПРАВЛЯЮЩИЕ СКЛАДОМ (warehouseManagers)
+    // =========================================================
+    // Каждый желающий может подать заявку: создаётся Firebase Auth
+    // пользователь и документ warehouseManagers/{firebaseUid}
+    // со статусом 'pending'. Пока админ не одобрит (status='approved')
+    // — заявитель НЕ может править товары. Админ может одобрить,
+    // отклонить, заблокировать (status='blocked') или разблокировать.
+    //
+    //   READ:
+    //     • Админ читает всё (модерация).
+    //     • Сам заявитель читает ТОЛЬКО свой документ (по совпадению
+    //       auth.uid == documentId) — чтобы страница управляющего
+    //       могла узнать свой статус и отобразить нужный экран.
+    //   CREATE:
+    //     • Только сам заявитель (auth.uid == documentId), только
+    //       со статусом 'pending', с валидацией полей. Нельзя
+    //       поставить себе status='approved' сразу.
+    //   UPDATE:
+    //     • Только админ. Меняет status, note, approvedAt, blockedAt.
+    //     • Сам заявитель может обновить своё имя/телефон/pushToken
+    //       (не сможет одобрить/заблокировать сам себя).
+    //   DELETE: только админ.
+    // =========================================================
+    match /warehouseManagers/{uid} {
+      allow read: if isAdminUser()
+        || (isAuthed() && request.auth.uid == uid);
+
+      allow create: if
+        isAuthed()
+        && request.auth.uid == uid
+        && reasonableDocSize()
+        && request.resource.data.keys().hasAll(['status', 'phone', 'name', 'email'])
+        && request.resource.data.status == 'pending'
+        && strOk('name', 200)
+        && strOk('phone', 30)
+        && strOk('email', 200)
+        && strOk('note', 2000)
+        && (
+          // email должен соответствовать паттерну wm_...@kerben-warehouse.local
+          request.resource.data.email is string
+          && request.resource.data.email.matches('^wm_.*@kerben-warehouse[.]local$')
+        )
+        && request.auth.token.email == request.resource.data.email;
+
+      allow update: if reasonableDocSize() && (
+        // Админ может менять статус (одобрить/отклонить/заблокировать/разблокировать)
+        isAdminUser()
+        ||
+        // Сам заявитель — только своё имя (телефон и email не меняем,
+        // status менять НЕ может — эскалация запрещена).
+        (isAuthed() && request.auth.uid == uid
+          && fieldUnchanged('status')
+          && fieldUnchanged('email')
+          && fieldUnchanged('phone')
+          && fieldUnchanged('approvedAt')
+          && fieldUnchanged('blockedAt')
+          && strOk('name', 200))
+      );
+
       allow delete: if isAdminUser();
     }
 
