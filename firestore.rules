@@ -726,6 +726,61 @@ service cloud.firestore {
     }
 
     // =========================================================
+    //          ЖУРНАЛ ИЗМЕНЕНИЙ СКЛАДА (stockChangeLog)
+    // =========================================================
+    // Каждое изменение остатка (сделанное управляющим складом или
+    // админом через новую панель) сохраняется отдельным документом.
+    // Админ видит всю историю и может «отменить» изменение — при
+    // отмене на товар применяется обратная дельта, а запись
+    // помечается reverted=true (аудит-след не удаляется).
+    //
+    //   READ:  только админ.
+    //   CREATE: админ ИЛИ одобренный управляющий (создаёт лог от
+    //           своего имени; поля changedByUid / changedByEmail
+    //           обязаны совпадать с request.auth). Начальное
+    //           reverted всегда false.
+    //   UPDATE: только админ (пометка reverted).
+    //   DELETE: только админ.
+    // =========================================================
+    match /stockChangeLog/{logId} {
+      allow read: if isAdminUser();
+
+      allow create: if reasonableDocSize() && (
+        isAdminUser()
+        ||
+        (isApprovedWarehouseManager()
+          && request.resource.data.keys().hasAll(['productId', 'warehouseId',
+              'oldStock', 'newStock', 'delta',
+              'changedByUid', 'changedByEmail', 'at'])
+          && request.resource.data.productId is string
+          && request.resource.data.productId.size() <= 200
+          && request.resource.data.warehouseId is string
+          && request.resource.data.warehouseId.size() <= 200
+          && request.resource.data.oldStock is number
+          && request.resource.data.oldStock >= 0
+          && request.resource.data.oldStock <= 10000000
+          && request.resource.data.newStock is number
+          && request.resource.data.newStock >= 0
+          && request.resource.data.newStock <= 10000000
+          && request.resource.data.delta is number
+          && request.resource.data.delta >= -10000000
+          && request.resource.data.delta <= 10000000
+          && request.resource.data.changedByUid == request.auth.uid
+          && request.resource.data.changedByEmail == request.auth.token.email
+          && request.resource.data.at is number
+          && strOk('changedByName', 200)
+          && strOk('productTitle', 500)
+          && strOk('productImage', 2000)
+          && strOk('role', 50)
+          && (!('reverted' in request.resource.data)
+              || request.resource.data.reverted == false))
+      );
+
+      allow update: if isAdminUser() && reasonableDocSize();
+      allow delete: if isAdminUser();
+    }
+
+    // =========================================================
     //             УПРАВЛЯЮЩИЕ СКЛАДОМ (warehouseManagers)
     // =========================================================
     // Каждый желающий может подать заявку: создаётся Firebase Auth

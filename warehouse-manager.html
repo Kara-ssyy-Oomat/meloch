@@ -327,14 +327,15 @@
       border-radius: 10px;
       margin-right: 6px;
     }
-    .product-cost {
-      font-size: 12px;
-      color: #888;
+    .product-price {
+      font-size: 13px;
+      color: #2e7d32;
       margin-top: 3px;
-    }
-    .product-cost b {
-      color: #444;
       font-weight: 600;
+    }
+    .product-price b {
+      color: #1b5e20;
+      font-weight: 700;
     }
 
     /* Остаток */
@@ -775,6 +776,24 @@ function escapeHtml(s) {
   });
 }
 
+// ---------- НАСТРОЙКИ СКЛАДА ----------
+// ID главного склада (fetched from settings/warehouse). Управляющий
+// видит и меняет остатки ТОЛЬКО этого склада. Если админ не выбрал
+// главный склад — работаем в legacy-режиме через product.stock.
+let _primaryWarehouseId = '';
+
+async function loadPrimaryWarehouseId() {
+  try {
+    const doc = await db.collection('settings').doc('warehouse').get();
+    if (doc.exists) {
+      _primaryWarehouseId = String(doc.data().primaryWarehouseId || '');
+    }
+  } catch (e) {
+    console.warn('[wm] не удалось прочитать primaryWarehouseId:', e);
+    _primaryWarehouseId = '';
+  }
+}
+
 // ---------- ЗАГРУЗКА ТОВАРОВ ----------
 let _wmProducts = [];
 let _wmCurrentCat = '__all';
@@ -783,6 +802,7 @@ async function loadProductsForWm() {
   const container = document.getElementById('wmProductsList');
   container.innerHTML = '<div class="loading-block"><div class="spinner"></div><div>Загрузка товаров...</div></div>';
   try {
+    await loadPrimaryWarehouseId();
     const snap = await db.collection('products').get();
     const items = [];
     snap.forEach(doc => {
@@ -828,15 +848,18 @@ function buildCategoryChips() {
   });
 }
 
+// Управляющий видит остаток ТОЛЬКО главного склада (primaryWarehouseId).
+// Другие склады намеренно скрыты — управляющий не должен работать с
+// перемещениями между складами, только оперативно править главный.
+// Если у товара есть warehouseStock, но нет ключа primaryWarehouseId —
+// показываем 0 (значит на главный склад товар ещё не поступил).
+// Если primaryWarehouseId не задан админом — fallback на legacy stock.
 function computeEffectiveStock(product) {
   const ws = product.warehouseStock;
-  if (ws && typeof ws === 'object') {
-    let sum = 0;
-    Object.keys(ws).forEach(id => {
-      const v = Number(ws[id]);
-      if (isFinite(v)) sum += Math.max(0, Math.floor(v));
-    });
-    return sum;
+  if (_primaryWarehouseId && ws && typeof ws === 'object') {
+    const v = Number(ws[_primaryWarehouseId]);
+    if (isFinite(v)) return Math.max(0, Math.floor(v));
+    return 0;
   }
   const s = Number(product.stock);
   if (!isFinite(s)) return 0;
@@ -900,8 +923,10 @@ function renderProductCard(p) {
   const image = p.image || p.imageUrl || '';
   const title = escapeHtml(p.title || p.name || 'Без названия');
   const category = escapeHtml(p.category || '');
-  const cost = Number(p.cost || p.costPrice || 0);
+  // Управляющему показываем ТОЛЬКО цену продажи (не закупочную).
+  const price = Number(p.price || 0);
   const stockClass = stock === 0 ? 'zero' : (stock <= 5 ? 'low' : '');
+  const stockLabel = _primaryWarehouseId ? 'На главном складе:' : 'На складе:';
 
   return (
     '<div class="product-card" data-id="' + escapeHtml(p.id) + '">' +
@@ -911,9 +936,9 @@ function renderProductCard(p) {
       '<div class="product-info">' +
         '<div class="product-title">' + title + '</div>' +
         '<div class="product-meta">' + (category ? '<span class="cat">' + category + '</span>' : '') + '</div>' +
-        (cost > 0 ? '<div class="product-cost">Цена закупа: <b>' + cost.toLocaleString('ru-RU') + ' сом</b></div>' : '') +
+        (price > 0 ? '<div class="product-price">Цена: <b>' + price.toLocaleString('ru-RU') + ' сом</b></div>' : '') +
         '<div class="product-stock-row">' +
-          '<span class="stock-label">На складе:</span>' +
+          '<span class="stock-label">' + stockLabel + '</span>' +
           '<span class="stock-value ' + stockClass + '" data-stock-for="' + escapeHtml(p.id) + '">' + stock + '</span>' +
         '</div>' +
         '<div class="qty-controls">' +
@@ -1013,16 +1038,25 @@ async function applyStockChange(productId, delta, stockEl, btn) {
   if (btn) btn.disabled = true;
 
   try {
-    // Находим продукт в кэше
     const product = _wmProducts.find(p => p.id === productId);
     if (!product) throw new Error('Товар не найден в списке');
 
     // ТРАНЗАКЦИЯ: чтобы 2 одновременных изменения не перезаписали друг друга.
-    // В транзакции читаем актуальное значение stock и пишем stock + delta.
-    // Не используем FieldValue.increment напрямую на «числовом», потому что
-    // хотим ЗАПРЕТИТЬ уходить в отрицательный остаток.
+    // В той же транзакции пишем запись в stockChangeLog — это гарантирует
+    // атомарность: либо остаток изменён И журнал обновлён, либо ни то ни другое.
+    // Управляющий ВСЕГДА работает только с главным складом (primaryWarehouseId).
     const ref = db.collection('products').doc(productId);
+    const logRef = db.collection('stockChangeLog').doc();
+    const authUser = firebase.auth().currentUser;
+    const changerUid = authUser ? authUser.uid : null;
+    const changerEmail = (authUser && authUser.email) || '';
+    const changerName = (_currentWmDoc && _currentWmDoc.name) ? _currentWmDoc.name
+                      : (changerEmail || 'wm');
+
     let newStock = 0;
+    let oldStock = 0;
+    let warehouseUsed = _primaryWarehouseId || '__flat';
+
     await db.runTransaction(async (tx) => {
       const doc = await tx.get(ref);
       if (!doc.exists) throw new Error('Товар удалён');
@@ -1030,16 +1064,32 @@ async function applyStockChange(productId, delta, stockEl, btn) {
       const ws = data.warehouseStock;
 
       const updatePayload = {
-        lastStockChangeBy: (_currentWmDoc && _currentWmDoc.name) ? _currentWmDoc.name : (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'wm',
-        lastStockChangeByUid: firebase.auth().currentUser ? firebase.auth().currentUser.uid : null,
+        lastStockChangeBy: changerName,
+        lastStockChangeByUid: changerUid,
         lastStockChangeAt: Date.now()
       };
 
-      if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
-        // Multi-warehouse режим. Изменяем ПЕРВЫЙ склад (или primary, если
-        // его id есть в списке). Более сложную логику выбора склада
-        // мы намеренно не даём — управляющий должен работать через
-        // тот же поток, что и админ (см. admin-warehouse.html).
+      if (_primaryWarehouseId) {
+        // Основной путь: изменяем ТОЛЬКО главный склад.
+        // Читаем текущее значение именно по primaryWarehouseId (не сумму!),
+        // чтобы отображаемое число соответствовало тому, что реально меняем.
+        const cur = (ws && typeof ws === 'object')
+          ? Math.max(0, Math.floor(Number(ws[_primaryWarehouseId]) || 0))
+          : Math.max(0, Math.floor(Number(data.stock) || 0));
+        const next = Math.max(0, cur + delta);
+        if (delta < 0 && next === cur) {
+          throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
+        }
+        // Точечное обновление конкретного ключа в map — не затрагивает
+        // остатки других складов и не создаёт race-condition с админом.
+        updatePayload['warehouseStock.' + _primaryWarehouseId] = next;
+        oldStock = cur;
+        newStock = next;
+        warehouseUsed = _primaryWarehouseId;
+        product.warehouseStock = Object.assign({}, (ws || {}), { [_primaryWarehouseId]: next });
+      } else if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
+        // Fallback: админ ещё не выбрал главный склад — берём первый.
+        // Управляющий всё равно должен работать, чтобы бизнес не встал.
         const keys = Object.keys(ws).sort();
         const targetWh = keys[0];
         const cur = Math.max(0, Math.floor(Number(ws[targetWh]) || 0));
@@ -1048,27 +1098,43 @@ async function applyStockChange(productId, delta, stockEl, btn) {
           throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
         }
         updatePayload['warehouseStock.' + targetWh] = next;
+        oldStock = cur;
         newStock = next;
-        // Пересчитываем общую сумму по всем складам чтобы синхронизировать UI
-        let sum = 0;
-        keys.forEach(k => {
-          const val = (k === targetWh) ? next : Math.max(0, Math.floor(Number(ws[k]) || 0));
-          sum += val;
-        });
-        newStock = sum;
-        // Обновим локальный кэш
+        warehouseUsed = targetWh;
         product.warehouseStock = Object.assign({}, ws, { [targetWh]: next });
       } else {
+        // Совсем legacy — товар без warehouseStock, используем flat stock.
         const cur = Math.max(0, Math.floor(Number(data.stock) || 0));
         const next = Math.max(0, cur + delta);
         if (delta < 0 && next === cur && cur === 0) {
           throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
         }
         updatePayload.stock = next;
+        oldStock = cur;
         newStock = next;
+        warehouseUsed = '__flat';
         product.stock = next;
       }
       tx.update(ref, updatePayload);
+
+      // Пишем журнал изменений (админ увидит в admin-warehouse-managers.html
+      // и сможет отменить). Транзакция гарантирует, что запись появится
+      // ТОЛЬКО если update товара прошёл успешно.
+      tx.set(logRef, {
+        productId: productId,
+        productTitle: String(product.title || product.name || ''),
+        productImage: String(product.image || product.imageUrl || ''),
+        warehouseId: warehouseUsed,
+        oldStock: oldStock,
+        newStock: newStock,
+        delta: delta,
+        changedByUid: changerUid,
+        changedByEmail: changerEmail,
+        changedByName: changerName,
+        role: 'warehouseManager',
+        at: Date.now(),
+        reverted: false
+      });
     });
 
     // Обновляем UI

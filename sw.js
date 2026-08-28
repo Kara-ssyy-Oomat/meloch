@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.29.0-isolate-warehouses'; // Пауза одного склада больше не делает товары безлимитными. Клиент видит и покупает только остаток активного главного склада; второй склад не трогается.
+const CACHE_VERSION = 'kerben-v4.30.0-wm-main-warehouse-only'; // Управляющий складом видит и меняет остатки ТОЛЬКО главного склада. Закупочная цена скрыта. Все изменения пишутся в журнал stockChangeLog — админ может откатить любое.
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

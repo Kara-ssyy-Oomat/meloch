@@ -227,9 +227,116 @@
       font-weight: 600;
     }
 
+    /* ================= ЖУРНАЛ ИЗМЕНЕНИЙ СКЛАДА ================= */
+    .log-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .log-toolbar input, .log-toolbar select {
+      flex: 1;
+      min-width: 140px;
+      padding: 8px 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 14px;
+      background: white;
+    }
+    .log-card {
+      background: white;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 8px;
+      display: grid;
+      grid-template-columns: 52px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .log-card.reverted {
+      opacity: 0.55;
+      background: #fafafa;
+    }
+    .log-photo {
+      width: 52px;
+      height: 52px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #f5f5f5;
+    }
+    .log-photo.placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+    .log-body {
+      min-width: 0;
+    }
+    .log-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #222;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .log-meta {
+      font-size: 11px;
+      color: #666;
+      margin-top: 3px;
+      line-height: 1.4;
+    }
+    .log-meta b { color: #333; }
+    .log-delta {
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .log-delta.plus { color: #2e7d32; }
+    .log-delta.minus { color: #c62828; }
+    .log-stock-transition {
+      font-size: 11px;
+      color: #666;
+      margin-top: 3px;
+    }
+    .log-right {
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    .btn-undo {
+      padding: 6px 12px;
+      background: #fff3e0;
+      color: #e65100;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-undo:hover { background: #ffe0b2; }
+    .btn-undo:disabled { opacity: 0.4; cursor: not-allowed; }
+    .badge-reverted {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #eceff1;
+      color: #607d8b;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
     @media (max-width: 380px) {
       .stats-row { grid-template-columns: repeat(2, 1fr); }
       .actions { grid-template-columns: repeat(2, 1fr); }
+      .log-card { grid-template-columns: 44px 1fr; }
+      .log-photo { width: 44px; height: 44px; }
+      .log-right { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; }
     }
   </style>
 </head>
@@ -266,10 +373,28 @@
     <button class="tab-btn" data-tab="approved">✅ Одобрены</button>
     <button class="tab-btn" data-tab="blocked">🚫 Заблокированы</button>
     <button class="tab-btn" data-tab="rejected">❌ Отклонены</button>
+    <button class="tab-btn" data-tab="log">📋 Журнал изменений</button>
   </div>
 
   <div id="managersList" class="content">
     <div class="loading-block"><div class="spinner"></div></div>
+  </div>
+
+  <div id="logSection" class="content" style="display:none;">
+    <div class="log-toolbar">
+      <input id="logSearch" type="search" placeholder="🔍 Поиск по товару или управляющему" />
+      <select id="logFilter">
+        <option value="all">Все изменения</option>
+        <option value="active">Только активные</option>
+        <option value="reverted">Только отменённые</option>
+        <option value="today">Сегодня</option>
+        <option value="week">За 7 дней</option>
+      </select>
+      <button class="tab-btn" onclick="loadStockLog()" style="background:#e8eaf6;color:#1a237e;">🔄 Обновить</button>
+    </div>
+    <div id="logList">
+      <div class="loading-block"><div class="spinner"></div></div>
+    </div>
   </div>
 </div>
 
@@ -542,23 +667,280 @@ async function handleAction(id, action, btn) {
   }
 }
 
+// ============================================================
+// ЖУРНАЛ ИЗМЕНЕНИЙ СКЛАДА
+// ============================================================
+// Читает коллекцию stockChangeLog (создаётся автоматически при
+// каждом изменении остатка со стороны управляющего складом).
+// Даёт возможность отменить любое изменение — применяется обратная
+// дельта к товару и запись помечается reverted=true.
+// ============================================================
+
+let _allLogs = [];
+let _logFilter = 'all';
+let _logSearch = '';
+// Кэш primaryWarehouseId для отображения понятного текста в записях,
+// сделанных до того, как админ выбрал главный склад.
+let _adminPrimaryWhId = '';
+
+async function loadStockLog() {
+  const container = document.getElementById('logList');
+  container.innerHTML = '<div class="loading-block"><div class="spinner"></div></div>';
+  try {
+    if (!_adminPrimaryWhId) {
+      try {
+        const s = await db.collection('settings').doc('warehouse').get();
+        if (s.exists) _adminPrimaryWhId = String(s.data().primaryWarehouseId || '');
+      } catch (e) {}
+    }
+    // Берём последние 300 изменений — этого хватит на любую активную
+    // историю. Если понадобится больше — сделаем пагинацию.
+    const snap = await db.collection('stockChangeLog')
+      .orderBy('at', 'desc')
+      .limit(300)
+      .get();
+    _allLogs = [];
+    snap.forEach(d => _allLogs.push({ id: d.id, ...d.data() }));
+    renderLogList();
+  } catch (err) {
+    console.error('[log] load err:', err);
+    container.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><div>Не удалось загрузить журнал: ' + escapeHtml(err && err.message || '') + '</div></div>';
+  }
+}
+
+function renderLogList() {
+  const container = document.getElementById('logList');
+  let list = _allLogs.slice();
+
+  if (_logFilter === 'active') list = list.filter(l => !l.reverted);
+  else if (_logFilter === 'reverted') list = list.filter(l => l.reverted);
+  else if (_logFilter === 'today') {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const t = startOfDay.getTime();
+    list = list.filter(l => (l.at || 0) >= t);
+  } else if (_logFilter === 'week') {
+    const t = Date.now() - 7 * 24 * 3600 * 1000;
+    list = list.filter(l => (l.at || 0) >= t);
+  }
+
+  if (_logSearch) {
+    const q = _logSearch.toLowerCase();
+    list = list.filter(l =>
+      String(l.productTitle || '').toLowerCase().includes(q)
+      || String(l.changedByName || '').toLowerCase().includes(q)
+      || String(l.changedByEmail || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (list.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="emoji">📋</div><div>Записей нет</div></div>';
+    return;
+  }
+
+  container.innerHTML = list.map(renderLogCard).join('');
+  attachLogHandlers();
+}
+
+function renderLogCard(l) {
+  const delta = Number(l.delta) || 0;
+  const deltaClass = delta > 0 ? 'plus' : (delta < 0 ? 'minus' : '');
+  const deltaText = (delta > 0 ? '+' : '') + delta;
+  const image = l.productImage || '';
+  const isMainWh = l.warehouseId && _adminPrimaryWhId && l.warehouseId === _adminPrimaryWhId;
+  const whLabel = l.warehouseId === '__flat' ? 'общий'
+                : isMainWh ? '⭐ главный'
+                : (l.warehouseId ? 'склад ' + l.warehouseId.substring(0, 6) : '—');
+
+  return (
+    '<div class="log-card ' + (l.reverted ? 'reverted' : '') + '" data-id="' + escapeHtml(l.id) + '">' +
+      (image
+        ? '<img class="log-photo" src="' + escapeHtml(image) + '" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'log-photo placeholder\',textContent:\'📦\'}))">'
+        : '<div class="log-photo placeholder">📦</div>') +
+      '<div class="log-body">' +
+        '<div class="log-title">' + escapeHtml(l.productTitle || '(без названия)') + '</div>' +
+        '<div class="log-meta">' +
+          '<b>👤 ' + escapeHtml(l.changedByName || l.changedByEmail || '—') + '</b>' +
+          ' · ' + fmtDate(l.at) +
+          ' · ' + escapeHtml(whLabel) +
+        '</div>' +
+        '<div class="log-stock-transition">' +
+          'Было <b>' + (l.oldStock ?? '?') + '</b> → стало <b>' + (l.newStock ?? '?') + '</b>' +
+        '</div>' +
+      '</div>' +
+      '<div class="log-right">' +
+        '<div class="log-delta ' + deltaClass + '">' + deltaText + '</div>' +
+        (l.reverted
+          ? '<span class="badge-reverted">отменено</span>'
+          : '<button class="btn-undo" data-act="undo">↺ Отменить</button>') +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function attachLogHandlers() {
+  document.querySelectorAll('.log-card').forEach(card => {
+    const id = card.dataset.id;
+    const btn = card.querySelector('.btn-undo');
+    if (btn) {
+      btn.addEventListener('click', () => undoLogEntry(id, btn));
+    }
+  });
+}
+
+async function undoLogEntry(logId, btn) {
+  const entry = _allLogs.find(l => l.id === logId);
+  if (!entry) return;
+  if (entry.reverted) {
+    Swal.fire('Уже отменено', 'Это изменение уже было откатано ранее.', 'info');
+    return;
+  }
+  const revDelta = -Number(entry.delta || 0);
+  const confirm = await Swal.fire({
+    title: 'Отменить это изменение?',
+    html:
+      '<div style="text-align:left;font-size:14px;line-height:1.6;">' +
+      '<b>' + escapeHtml(entry.productTitle || '') + '</b><br>' +
+      '👤 ' + escapeHtml(entry.changedByName || '') + '<br>' +
+      '📅 ' + fmtDate(entry.at) + '<br><br>' +
+      'Было применено: <b>' + (entry.delta > 0 ? '+' : '') + entry.delta + '</b> шт.<br>' +
+      'При отмене будет применено: <b>' + (revDelta > 0 ? '+' : '') + revDelta + '</b> шт.' +
+      '<br><br><small style="color:#888;">Если склад ушёл в минус (кто-то уже забрал товар), новое значение будет не меньше 0.</small>' +
+      '</div>',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Да, отменить',
+    cancelButtonText: 'Не надо',
+    confirmButtonColor: '#e65100'
+  });
+  if (!confirm.isConfirmed) return;
+
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = '...';
+
+  try {
+    const productRef = db.collection('products').doc(entry.productId);
+    const logRef = db.collection('stockChangeLog').doc(logId);
+    let restoredValue = 0;
+    let usedWh = entry.warehouseId;
+
+    await db.runTransaction(async (tx) => {
+      const pDoc = await tx.get(productRef);
+      const lDoc = await tx.get(logRef);
+
+      if (!lDoc.exists) throw new Error('Запись журнала не найдена');
+      if (lDoc.data().reverted === true) throw new Error('Изменение уже было отменено');
+
+      if (!pDoc.exists) {
+        // Товар удалён — отменить остатки не можем, но помечаем лог reverted
+        tx.update(logRef, {
+          reverted: true,
+          revertedAt: Date.now(),
+          revertedNote: 'Товар удалён'
+        });
+        return;
+      }
+
+      const data = pDoc.data() || {};
+      const patch = {
+        lastStockChangeBy: 'админ (откат)',
+        lastStockChangeByUid: firebase.auth().currentUser ? firebase.auth().currentUser.uid : null,
+        lastStockChangeAt: Date.now()
+      };
+
+      if (entry.warehouseId === '__flat') {
+        const cur = Math.max(0, Math.floor(Number(data.stock) || 0));
+        const next = Math.max(0, cur + revDelta);
+        patch.stock = next;
+        restoredValue = next;
+      } else {
+        const ws = data.warehouseStock || {};
+        const cur = Math.max(0, Math.floor(Number(ws[entry.warehouseId]) || 0));
+        const next = Math.max(0, cur + revDelta);
+        patch['warehouseStock.' + entry.warehouseId] = next;
+        restoredValue = next;
+      }
+      tx.update(productRef, patch);
+      tx.update(logRef, {
+        reverted: true,
+        revertedAt: Date.now(),
+        revertedBy: firebase.auth().currentUser ? firebase.auth().currentUser.email : 'admin',
+        revertedStockAfter: restoredValue
+      });
+    });
+
+    // Обновляем локальный кэш
+    entry.reverted = true;
+    entry.revertedAt = Date.now();
+
+    Swal.fire({
+      toast: true, position: 'top', showConfirmButton: false, timer: 2200, icon: 'success',
+      title: 'Отменено. Остаток: ' + restoredValue
+    });
+    renderLogList();
+  } catch (err) {
+    console.error('[log] undo err:', err);
+    Swal.fire('Ошибка отмены', (err && err.message) || 'Не удалось откатить изменение', 'error');
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
 // ---------- ТАБЫ ----------
 document.querySelectorAll('.tab-btn').forEach(btn => {
+  // Кнопка «Обновить» внутри тулбара журнала — это не таб.
+  if (btn.getAttribute('onclick')) return;
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.toolbar .tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    _currentTab = btn.dataset.tab || 'all';
-    renderList();
+    const tab = btn.dataset.tab || 'all';
+
+    const managersList = document.getElementById('managersList');
+    const logSection = document.getElementById('logSection');
+
+    if (tab === 'log') {
+      managersList.style.display = 'none';
+      logSection.style.display = 'block';
+      if (_allLogs.length === 0) loadStockLog();
+      else renderLogList();
+    } else {
+      logSection.style.display = 'none';
+      managersList.style.display = 'block';
+      _currentTab = tab;
+      renderList();
+    }
   });
 });
 
+// Поиск / фильтр журнала. Инициализируем сразу — элементы уже в DOM,
+// т.к. скрипт стоит в конце <body>.
+(function initLogControls() {
+  const searchInput = document.getElementById('logSearch');
+  const filterSel = document.getElementById('logFilter');
+  if (searchInput) {
+    let searchTimer;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        _logSearch = (searchInput.value || '').trim();
+        renderLogList();
+      }, 200);
+    });
+  }
+  if (filterSel) {
+    filterSel.addEventListener('change', () => {
+      _logFilter = filterSel.value;
+      renderLogList();
+    });
+  }
+})();
+
 // ---------- ИНИЦИАЛИЗАЦИЯ ----------
 (async function () {
-  // Ждём Firebase Auth (админ-сессия могла ещё не подняться)
   if (typeof kerbenWaitForAuth === 'function') {
     try { await kerbenWaitForAuth(5000); } catch (e) {}
   }
-  // Дополнительная задержка чтобы admin-reauth.js успел вписать пароль
   await new Promise(r => setTimeout(r, 300));
 
   const ok = await ensureAdmin();
