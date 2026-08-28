@@ -12,6 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/firebase-config.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
+  <script src="js/wm-reauth.js?v=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { -webkit-tap-highlight-color: transparent; }
@@ -634,11 +635,44 @@
 // ============================================================
 
 // ---------- ХРАНЕНИЕ СЕССИИ ----------
+// Ключи-«индикаторы» видны и другим страницам сайта (js/wm-reauth.js)
+// — по ним показывается плавающая кнопка «📦 Мой склад» и запускается
+// тихое восстановление сессии, если Firebase Auth забыл её.
+// Пароль хранится ОБФУСЦИРОВАННЫМ (XOR + base64) на 30 дней. Это не
+// криптостойко и не заменяет пароль от аккаунта, но защищает от простого
+// подсматривания через DevTools.
 const WM_SESSION_KEY = 'kerbenWmSession_v1';
+const WM_CREDS_KEY = 'kerbenWmCreds_v1';
+const WM_CREDS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const WM_OBFUSC_KEY = 'kerben_wm_local_obfusc_2026';
 
-function saveWmSession(email, phone, name) {
+function _wmObfuscate(text) {
+  let x = '';
+  for (let i = 0; i < text.length; i++) {
+    x += String.fromCharCode(text.charCodeAt(i) ^ WM_OBFUSC_KEY.charCodeAt(i % WM_OBFUSC_KEY.length));
+  }
+  return btoa(unescape(encodeURIComponent(x)));
+}
+
+function saveWmSession(email, phone, name, status, uid) {
   try {
-    localStorage.setItem(WM_SESSION_KEY, JSON.stringify({ email, phone, name, ts: Date.now() }));
+    if (typeof kerbenSaveWmSession === 'function') {
+      kerbenSaveWmSession({ email: email, phone: phone, name: name, status: status, uid: uid });
+      return;
+    }
+    localStorage.setItem(WM_SESSION_KEY, JSON.stringify({
+      email: email, phone: phone, name: name || '', status: status || '', uid: uid || '', ts: Date.now()
+    }));
+  } catch (e) {}
+}
+function saveWmCreds(email, password, phone) {
+  try {
+    localStorage.setItem(WM_CREDS_KEY, JSON.stringify({
+      e: email,
+      p: _wmObfuscate(password),
+      ph: phone || '',
+      ts: Date.now()
+    }));
   } catch (e) {}
 }
 function loadWmSession() {
@@ -650,6 +684,7 @@ function loadWmSession() {
 }
 function clearWmSession() {
   try { localStorage.removeItem(WM_SESSION_KEY); } catch (e) {}
+  try { localStorage.removeItem(WM_CREDS_KEY); } catch (e) {}
 }
 
 // ---------- УТИЛИТЫ ----------
@@ -704,8 +739,9 @@ async function wmLogin() {
 
   try {
     const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
-    // Успешный вход в Firebase Auth
-    saveWmSession(email, normalizedPhone, '');
+    saveWmSession(email, normalizedPhone, '', '', cred.user && cred.user.uid);
+    saveWmCreds(email, password, normalizedPhone);
+    if (typeof kerbenSaveWmCreds === 'function') kerbenSaveWmCreds(email, password, normalizedPhone);
     btn.textContent = 'Проверяем статус...';
     await checkWmStatusAndRender(cred.user);
     _wmLoginBusy = false;
@@ -754,6 +790,7 @@ async function wmLogout() {
   });
   if (!c.isConfirmed) return;
   clearWmSession();
+  if (typeof kerbenClearWmSession === 'function') kerbenClearWmSession();
   try { await firebase.auth().signOut(); } catch (e) {}
   stopStatusListener();
   showScreen('screenLogin');
@@ -806,6 +843,19 @@ function applyStatus(data) {
   const descEl = document.getElementById('statusDesc');
   const screenEl = document.getElementById('statusScreen');
   const subEl = document.getElementById('wmHeaderSub');
+
+  // Сохраняем статус локально — профиль и ярлык «Мой склад» на главной
+  // читают его без повторного входа.
+  try {
+    const u = firebase.auth().currentUser;
+    saveWmSession(
+      (u && u.email) || (data && data.email) || '',
+      (data && data.phone) || '',
+      (data && data.name) || '',
+      st,
+      (u && u.uid) || (data && data.id) || ''
+    );
+  } catch (e) {}
 
   // Убираем прежние классы status
   screenEl.classList.remove('pending', 'rejected', 'blocked');
@@ -1456,30 +1506,35 @@ document.getElementById('loginForm').addEventListener('submit', (e) => { e.preve
 // экран входа.
 function initWmAuth() {
   let firstStateReceived = false;
+
+  async function trySilentRestoreThenLogin() {
+    if (typeof kerbenRestoreWmSession === 'function') {
+      try {
+        const ok = await kerbenRestoreWmSession();
+        if (ok) return;
+      } catch (e) {}
+    }
+    stopStatusListener();
+    showScreen('screenLogin');
+  }
+
   const fallbackTimer = setTimeout(() => {
-    // Прошло 1.5с и никакого user не появилось → покажем экран входа
     if (!firstStateReceived) {
       firstStateReceived = true;
-      stopStatusListener();
-      showScreen('screenLogin');
+      trySilentRestoreThenLogin();
     }
   }, 1500);
 
   firebase.auth().onAuthStateChanged(async function (user) {
     if (user && user.email && /^wm_.*@kerben-warehouse[.]local$/i.test(user.email)) {
-      // Это управляющий складом
       firstStateReceived = true;
       clearTimeout(fallbackTimer);
       await checkWmStatusAndRender(user);
     } else if (user && (!user.email || !/^wm_.*@kerben-warehouse[.]local$/i.test(user.email))) {
-      // Кто-то другой (анонимный / админ) — показываем экран входа wm
       firstStateReceived = true;
       clearTimeout(fallbackTimer);
-      stopStatusListener();
-      showScreen('screenLogin');
+      await trySilentRestoreThenLogin();
     }
-    // Если user=null — ждём таймер: возможно, Firebase ещё восстанавливает
-    // сессию из IndexedDB (первые ~200-500мс).
   });
 }
 

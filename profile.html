@@ -354,6 +354,7 @@
   <script src="js/app-check.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/admin-reauth.js?v=2"></script>
+  <script src="js/wm-reauth.js?v=1"></script>
   <script src="js/pending-orders.js?v=2"></script>
   <script src="js/bot-blocker.js?v=1"></script>
   <script src="js/background-pause.js?v=1"></script>
@@ -1669,13 +1670,7 @@
           </div>
           `}
           
-          <div class="menu-item" onclick="navigateTop('warehouse-manager-signup.html')">
-            <div class="menu-item-left">
-              <span class="menu-icon">📦</span>
-              <span class="menu-text">Стать управляющим складом</span>
-            </div>
-            <span class="menu-arrow">›</span>
-          </div>
+          ${_getWmMenuItemHtml()}
           
           ${!isAdmin && !currentCustomer.isAdmin ? `
           <div class="menu-item" onclick="openAdminLogin()">
@@ -1689,6 +1684,8 @@
         </div>
         
         ${adminPanelHtml}
+        
+        ${_getWmPanelHtml()}
         
         ${_getSellerPanelHtml()}
         
@@ -1709,6 +1706,63 @@
       } catch(e) {}
     }
     
+    // ==================== ПАНЕЛЬ УПРАВЛЯЮЩЕГО СКЛАДОМ ====================
+    function _getWmLocalSession() {
+      try {
+        if (typeof kerbenGetWmSession === 'function') return kerbenGetWmSession();
+        const raw = localStorage.getItem('kerbenWmSession_v1');
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) { return null; }
+    }
+
+    function _getWmMenuItemHtml() {
+      const sess = _getWmLocalSession();
+      if (sess && (sess.status === 'approved' || sess.status === 'pending')) {
+        return '';
+      }
+      return `
+          <div class="menu-item" onclick="navigateTop('warehouse-manager-signup.html')">
+            <div class="menu-item-left">
+              <span class="menu-icon">📦</span>
+              <span class="menu-text">Стать управляющим складом</span>
+            </div>
+            <span class="menu-arrow">›</span>
+          </div>`;
+    }
+
+    function _getWmPanelHtml() {
+      const sess = _getWmLocalSession();
+      if (!sess) return '';
+      const st = sess.status || 'pending';
+      if (st === 'approved') {
+        return `
+          <div class="menu-section">
+            <div class="menu-section-title">📦 Управление складом</div>
+            <div class="menu-item admin-menu-item" onclick="navigateTop('warehouse-manager.html')" style="background:#1a237e;">
+              <div class="menu-item-left">
+                <span class="menu-icon">🏭</span>
+                <span class="menu-text">Открыть мой склад</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+          </div>`;
+      }
+      if (st === 'pending') {
+        return `
+          <div class="menu-section">
+            <div class="menu-section-title">📦 Заявка на склад</div>
+            <div class="menu-item" onclick="navigateTop('warehouse-manager.html')" style="background:#fff8e1;">
+              <div class="menu-item-left">
+                <span class="menu-icon">⏳</span>
+                <span class="menu-text">Ожидает одобрения администратора</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+          </div>`;
+      }
+      return '';
+    }
+
     // ==================== ПАНЕЛЬ ПРОДАВЦА ====================
     function _getSellerPanelHtml() {
       try {

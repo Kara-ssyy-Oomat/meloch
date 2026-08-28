@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.32.0-wm-movements-integration'; // Изменения от управляющего складом теперь дублируются в warehouseMovements (type='adjustment'), появляются в admin-warehouse.html → «Движения» и могут быть отменены оттуда bulk-cancel'ом. Кросс-ссылки между stockChangeLog и warehouseMovements защищают от двойной отмены.
+const CACHE_VERSION = 'kerben-v4.33.0-wm-persistent-entry'; // Управляющий складом больше не вводит пароль каждый раз: сессия восстанавливается тихо. В профиле появляется панель «Мой склад», на главной — кнопка снизу, как у админа.
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -130,6 +130,7 @@ const STATIC_CACHE_URLS = [
   './js/app-check.js',
   './js/telegram-client.js',
   './js/customer-auth.js',
+  './js/wm-reauth.js',
   './js/pending-orders.js',
   './js/persist-profile.js',
   './js/chat.js',

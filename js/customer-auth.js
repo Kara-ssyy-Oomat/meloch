@@ -1117,13 +1117,7 @@ async function showCustomerDashboard() {
             <span style="color:#ccc;">›</span>
           </div>
           
-          <div onclick="openWarehouseManagerSignup()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <span style="font-size:18px;">📦</span>
-              <span style="font-size:15px; color:#333;">Стать управляющим складом</span>
-            </div>
-            <span style="color:#ccc;">›</span>
-          </div>
+          ${getWmSignupMenuRowHtml()}
           
           <div onclick="openAdminLoginFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
             <div style="display:flex; align-items:center; gap:12px;">
@@ -1133,6 +1127,8 @@ async function showCustomerDashboard() {
             <span style="color:#ccc;">›</span>
           </div>
         </div>
+        
+        ${getWmPanelInProfileHtml()}
         
         <!-- Панель администратора (видна только админам) -->
         <div id="adminPanelInProfile" style="display:none; background:#fff; margin-top:10px;">
@@ -1448,10 +1444,71 @@ function openAgentsManagementFromProfile() {
 
 // ==================== УПРАВЛЯЮЩИЙ СКЛАДОМ ====================
 
+function _readWmLocalSession() {
+  try {
+    if (typeof kerbenGetWmSession === 'function') return kerbenGetWmSession();
+    const raw = localStorage.getItem('kerbenWmSession_v1');
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+
+function getWmSignupMenuRowHtml() {
+  const sess = _readWmLocalSession();
+  if (sess && (sess.status === 'approved' || sess.status === 'pending')) return '';
+  return `
+          <div onclick="openWarehouseManagerSignup()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span style="font-size:18px;">📦</span>
+              <span style="font-size:15px; color:#333;">Стать управляющим складом</span>
+            </div>
+            <span style="color:#ccc;">›</span>
+          </div>`;
+}
+
+function getWmPanelInProfileHtml() {
+  const sess = _readWmLocalSession();
+  if (!sess) return '';
+  const st = sess.status || 'pending';
+  if (st === 'approved') {
+    return `
+        <div style="background:#fff; margin-top:10px;">
+          <div style="padding:16px 20px; border-bottom:1px solid #f0f0f0;">
+            <div style="font-size:15px; font-weight:600; color:#1a237e;">📦 Управление складом</div>
+          </div>
+          <div onclick="openWarehouseManagerFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; cursor:pointer; background:#1a237e;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span style="font-size:18px;">🏭</span>
+              <span style="font-size:15px; color:#fff; font-weight:600;">Открыть мой склад</span>
+            </div>
+            <span style="color:#fff;">›</span>
+          </div>
+        </div>`;
+  }
+  if (st === 'pending') {
+    return `
+        <div style="background:#fff; margin-top:10px;">
+          <div style="padding:16px 20px; border-bottom:1px solid #f0f0f0;">
+            <div style="font-size:15px; font-weight:600; color:#f57f17;">📦 Заявка на склад</div>
+          </div>
+          <div onclick="openWarehouseManagerFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; cursor:pointer; background:#fff8e1;">
+            <div style="display:flex; align-items:center; gap:12px;">
+              <span style="font-size:18px;">⏳</span>
+              <span style="font-size:15px; color:#333;">Ожидает одобрения администратора</span>
+            </div>
+            <span style="color:#ccc;">›</span>
+          </div>
+        </div>`;
+  }
+  return '';
+}
+
+function openWarehouseManagerFromProfile() {
+  closeProfileAndRun(() => {
+    window.location.href = 'warehouse-manager.html';
+  });
+}
+
 // Пункт «Стать управляющим складом» — открывает страницу заявки.
-// Доступен любому пользователю (включая гостя). После одобрения админом
-// человек получит доступ к отдельному разделу управления остатками
-// (без прав администратора).
 function openWarehouseManagerSignup() {
   closeProfileAndRun(() => {
     window.location.href = 'warehouse-manager-signup.html';
