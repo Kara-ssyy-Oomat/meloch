@@ -122,8 +122,18 @@
       var creds = getStoredPassword();
       if (!creds || !creds.email || !creds.password) return finish(false);
 
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        finish(false);
+      }, 8000);
+
       firebase.auth().signInWithEmailAndPassword(creds.email, creds.password)
         .then(function (res) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
           saveSession({
             email: creds.email,
             phone: creds.phone,
@@ -132,6 +142,9 @@
           finish(true);
         })
         .catch(function (err) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
           var code = err && err.code ? err.code : '';
           if (code === 'auth/wrong-password' ||
               code === 'auth/invalid-credential' ||

@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.33.1-wm-profile-only'; // Кнопка «Управление складом» только в профиле и только у одобренных управляющих — как панель админа. Ярлык со всех страниц убран.
+const CACHE_VERSION = 'kerben-v4.33.2-wm-load-fix'; // Склад: не зависать на крутилке (persistence + auth wait)
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

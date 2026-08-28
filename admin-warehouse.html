@@ -10,7 +10,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="js/auth.js?v=2"></script>
+  <script src="js/auth.js?v=3"></script>
   <script src="js/admin-reauth.js?v=2"></script>
   <script src="js/bot-blocker.js?v=1"></script>
   <script src="js/background-pause.js?v=1"></script>
@@ -1190,9 +1190,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadData();
 });
 
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(label || 'timeout')), ms);
+    })
+  ]);
+}
+
+function showLoadError(msg) {
+  const html = '<div class="empty-state"><div class="emoji">⚠️</div><p>' +
+    (msg || 'Не удалось загрузить данные') +
+    '</p><p style="font-size:13px;margin-top:8px;"><button onclick="loadData()" style="padding:8px 14px;border:none;border-radius:8px;background:#1a237e;color:#fff;font-weight:600;cursor:pointer;">Повторить</button></p></div>';
+  ['warehousesList', 'productsStockList', 'alertsList'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  });
+}
+
 async function loadData() {
   try {
-    await Promise.all([loadWarehouses(), loadProducts(), loadMovements(), loadPrimaryWarehouse()]);
+    // Как на admin-orders.html: сначала дожидаемся Firebase Auth.
+    // Правила требуют request.auth != null — запрос без auth зависает
+    // на спиннере, а не сразу падает с permission-denied.
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(5000); } catch (e) {}
+    }
+    await Promise.all([
+      withTimeout(loadWarehouses(), 20000, 'Склады: превышено время ожидания'),
+      withTimeout(loadProducts(), 25000, 'Товары: превышено время ожидания'),
+      withTimeout(loadMovements(), 20000, 'Движения: превышено время ожидания'),
+      withTimeout(loadPrimaryWarehouse(), 8000, 'Настройки склада: превышено время ожидания')
+    ]);
     updateStats();
     renderWarehouses();
     // Запускаем реалтайм-слушатель ПОСЛЕ первичной загрузки,
@@ -1200,6 +1230,7 @@ async function loadData() {
     startOrdersRealtimeListener();
   } catch (e) {
     console.error('Ошибка загрузки:', e);
+    showLoadError('Не удалось загрузить данные: ' + (e && e.message ? e.message : e));
     Swal.fire('Ошибка', 'Не удалось загрузить данные: ' + e.message, 'error');
   }
 }

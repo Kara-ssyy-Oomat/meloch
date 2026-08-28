@@ -10,9 +10,15 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="js/firebase-config.js?v=2"></script>
-  <script src="js/auth.js?v=2"></script>
-  <script src="js/wm-reauth.js?v=1"></script>
+  <script>
+    // Не включать IndexedDB-persistence и анонимный вход:
+    // иначе Firestore-запросы и экран «Загрузка» зависают.
+    window.KERBEN_SKIP_PERSISTENCE = true;
+    window.KERBEN_SKIP_ANONYMOUS_AUTH = true;
+  </script>
+  <script src="js/firebase-config.js?v=3"></script>
+  <script src="js/auth.js?v=3"></script>
+  <script src="js/wm-reauth.js?v=2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { -webkit-tap-highlight-color: transparent; }
@@ -714,6 +720,14 @@ function toast(msg, err) {
   clearTimeout(window._wmToastTimer);
   window._wmToastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise(function (_, reject) {
+      setTimeout(function () { reject(new Error(label || 'timeout')); }, ms);
+    })
+  ]);
+}
 
 // ---------- ВХОД / ВЫХОД ----------
 // Флаг «идёт вход» — защита от одновременного двойного submit
@@ -815,25 +829,36 @@ async function checkWmStatusAndRender(user) {
     showScreen('screenLogin');
     return;
   }
+  stopStatusListener();
   _currentUserUid = user.uid;
 
-  // Подписываемся на изменения СВОЕГО документа. Так, если админ
-  // заблокирует управляющего прямо во время работы — экран мгновенно
-  // переключится на «заблокировано» и все кнопки станут недоступны.
-  stopStatusListener();
-  _statusUnsub = db.collection('warehouseManagers').doc(user.uid)
-    .onSnapshot(doc => {
-      if (!doc.exists) {
-        applyStatus({ status: 'missing' });
-        return;
-      }
+  const ref = db.collection('warehouseManagers').doc(user.uid);
+
+  // Сначала разовое .get() — иначе при зависшем onSnapshot boot-спиннер
+  // крутится вечно. Слушатель подключаем уже после первого экрана.
+  try {
+    const doc = await withTimeout(ref.get(), 8000, 'status-timeout');
+    if (!doc.exists) {
+      applyStatus({ status: 'missing' });
+    } else {
       _currentWmDoc = { id: doc.id, ...doc.data() };
       applyStatus(_currentWmDoc);
-    }, err => {
-      console.warn('[wm] status listener error:', err);
-      // Скорее всего permission-denied — не наша заявка / вышел из аккаунта.
+    }
+  } catch (err) {
+    console.warn('[wm] status get:', err);
+    applyStatus({ status: 'missing' });
+  }
+
+  _statusUnsub = ref.onSnapshot(doc => {
+    if (!doc.exists) {
       applyStatus({ status: 'missing' });
-    });
+      return;
+    }
+    _currentWmDoc = { id: doc.id, ...doc.data() };
+    applyStatus(_currentWmDoc);
+  }, err => {
+    console.warn('[wm] status listener error:', err);
+  });
 }
 
 function applyStatus(data) {
@@ -877,9 +902,10 @@ function applyStatus(data) {
   screenEl.classList.remove('pending', 'rejected', 'blocked');
 
   if (st === 'approved') {
+    const alreadyMain = document.getElementById('screenMain') && document.getElementById('screenMain').classList.contains('active');
     if (subEl) subEl.textContent = data.name ? ('Управляющий: ' + data.name) : '';
     showScreen('screenMain');
-    loadProductsForWm();
+    if (!alreadyMain || !_wmProducts.length) loadProductsForWm();
     return;
   }
 
@@ -975,7 +1001,7 @@ async function loadProductsForWm() {
   container.innerHTML = '<div class="loading-block"><div class="spinner"></div><div>Загрузка товаров...</div></div>';
   try {
     await loadPrimaryWarehouseId();
-    const snap = await db.collection('products').get();
+    const snap = await withTimeout(db.collection('products').get(), 20000, 'products-timeout');
     const items = [];
     snap.forEach(doc => {
       items.push({ id: doc.id, ...doc.data() });
@@ -1527,7 +1553,13 @@ function initWmAuth() {
     if (typeof kerbenRestoreWmSession === 'function') {
       try {
         const ok = await kerbenRestoreWmSession();
-        if (ok) return;
+        if (ok) {
+          const u = firebase.auth().currentUser;
+          if (u && u.email && /^wm_.*@kerben-warehouse[.]local$/i.test(u.email)) {
+            await checkWmStatusAndRender(u);
+            return;
+          }
+        }
       } catch (e) {}
     }
     stopStatusListener();
@@ -1540,6 +1572,18 @@ function initWmAuth() {
       trySilentRestoreThenLogin();
     }
   }, 1500);
+
+  // Если restore/onSnapshot всё же завис — не держим крутилку дольше 4 сек.
+  setTimeout(() => {
+    const boot = document.getElementById('screenBoot');
+    if (!boot || boot.style.display === 'none') return;
+    const u = firebase.auth().currentUser;
+    if (u && u.email && /^wm_.*@kerben-warehouse[.]local$/i.test(u.email)) {
+      checkWmStatusAndRender(u);
+    } else {
+      showScreen('screenLogin');
+    }
+  }, 4000);
 
   firebase.auth().onAuthStateChanged(async function (user) {
     if (user && user.email && /^wm_.*@kerben-warehouse[.]local$/i.test(user.email)) {

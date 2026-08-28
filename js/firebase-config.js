@@ -30,17 +30,24 @@ function initFirebase() {
     // IndexedDB, не списывая Read из платного плана. Сильно снижает расход
     // у постоянных посетителей и вернувшихся клиентов.
     // synchronizeTabs = true — кэш разделяется между вкладками одного клиента.
-    try {
-      db.enablePersistence({ synchronizeTabs: true })
-        .then(() => console.log('🗃️ Firestore offline-cache включён (IndexedDB)'))
-        .catch((err) => {
-          if (err && err.code === 'failed-precondition') {
-            console.log('🗃️ Offline-cache: открыто несколько вкладок без synchronizeTabs');
-          } else if (err && err.code === 'unimplemented') {
-            console.log('🗃️ Offline-cache: браузер не поддерживает IndexedDB');
-          }
-        });
-    } catch (e) { /* старый SDK — игнорируем */ }
+    //
+    // ВАЖНО: enablePersistence нельзя вызывать параллельно с .get()/onSnapshot —
+    // запросы, стартовавшие пока persistence ещё поднимается, у Firebase
+    // зависают навсегда (крутилка на warehouse-manager / admin-warehouse-managers).
+    // На этих страницах ставим window.KERBEN_SKIP_PERSISTENCE = true ДО этого файла.
+    if (!window.KERBEN_SKIP_PERSISTENCE) {
+      try {
+        db.enablePersistence({ synchronizeTabs: true })
+          .then(() => console.log('🗃️ Firestore offline-cache включён (IndexedDB)'))
+          .catch((err) => {
+            if (err && err.code === 'failed-precondition') {
+              console.log('🗃️ Offline-cache: открыто несколько вкладок без synchronizeTabs');
+            } else if (err && err.code === 'unimplemented') {
+              console.log('🗃️ Offline-cache: браузер не поддерживает IndexedDB');
+            }
+          });
+      } catch (e) { /* старый SDK — игнорируем */ }
+    }
 
     console.log('Firebase initialized successfully');
 
@@ -53,7 +60,7 @@ function initFirebase() {
     // и закрыть базы от случайных скриптов / ботов с улицы.
     // Если SDK не загружен или Anonymous Auth выключен в Console — сайт всё
     // равно продолжит работать (правила пока разрешают чтение всем).
-    if (typeof kerbenEnsureSignedIn === 'function') {
+    if (!window.KERBEN_SKIP_ANONYMOUS_AUTH && typeof kerbenEnsureSignedIn === 'function') {
       kerbenEnsureSignedIn();
     }
 
@@ -64,7 +71,9 @@ function initFirebase() {
     //  - при открытии чата (внутри toggleChat/loadChatMessages)
     //  - при возврате вкладки на передний план (visibilitychange)
     //  - при первой загрузке (один раз)
-    setupCheapChatBadgeCheck();
+    if (!window.KERBEN_SKIP_ANONYMOUS_AUTH) {
+      setupCheapChatBadgeCheck();
+    }
     
   } catch (error) {
     console.error('Firebase initialization error:', error);

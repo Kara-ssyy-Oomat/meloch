@@ -54,6 +54,13 @@
   // Гарантирует, что в Firebase auth есть какой-то пользователь.
   // Если уже залогинен — ничего не делает. Иначе — анонимный вход.
   global.kerbenEnsureSignedIn = function () {
+    if (global.KERBEN_SKIP_ANONYMOUS_AUTH) {
+      try {
+        return Promise.resolve(firebase.auth().currentUser || null);
+      } catch (e) {
+        return Promise.resolve(null);
+      }
+    }
     if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
       console.warn('[Kerben Auth] firebase-auth SDK не загружен');
       return Promise.resolve(null);
@@ -249,6 +256,9 @@
   // требуют `request.auth != null`.
   let _autoStartAttempts = 0;
   function _autoStart() {
+    // Страницы управляющего складом логинятся своим email (wm_…@kerben-warehouse.local).
+    // Анонимный вход здесь ломает восстановление сессии и гоняет крутилку.
+    if (global.KERBEN_SKIP_ANONYMOUS_AUTH) return;
     _autoStartAttempts++;
     try {
       if (typeof firebase !== 'undefined'

@@ -11,8 +11,12 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="js/firebase-config.js?v=2"></script>
-  <script src="js/auth.js?v=2"></script>
+  <script>
+    // Persistence + параллельные .get() на этой странице зависали на крутилке.
+    window.KERBEN_SKIP_PERSISTENCE = true;
+  </script>
+  <script src="js/firebase-config.js?v=3"></script>
+  <script src="js/auth.js?v=3"></script>
   <script src="js/admin-reauth.js?v=2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -342,6 +346,11 @@
 </head>
 <body>
 
+<div id="pageBoot" class="loading-block" style="min-height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;">
+  <div class="spinner"></div>
+  <div style="font-size:13px;color:#666;">Загрузка…</div>
+</div>
+
 <div id="accessDenied" class="access-denied" style="display:none;">
   <div class="emoji">🔒</div>
   <h2>Доступ только для админа</h2>
@@ -411,6 +420,20 @@
 let _allManagers = [];
 let _currentTab = 'all';
 
+function hidePageBoot() {
+  const boot = document.getElementById('pageBoot');
+  if (boot) boot.style.display = 'none';
+}
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(label || 'timeout')), ms);
+    })
+  ]);
+}
+
 function fmtDate(ts) {
   if (!ts) return '—';
   try {
@@ -444,11 +467,13 @@ async function ensureAdmin() {
   }
 
   if (!ok) {
+    hidePageBoot();
     document.getElementById('accessDenied').style.display = 'block';
     document.getElementById('mainWrap').style.display = 'none';
     return false;
   }
 
+  hidePageBoot();
   document.getElementById('accessDenied').style.display = 'none';
   document.getElementById('mainWrap').style.display = 'block';
   return true;
@@ -458,7 +483,7 @@ async function loadManagers() {
   const container = document.getElementById('managersList');
   container.innerHTML = '<div class="loading-block"><div class="spinner"></div></div>';
   try {
-    const snap = await db.collection('warehouseManagers').get();
+    const snap = await withTimeout(db.collection('warehouseManagers').get(), 15000, 'managers-timeout');
     const list = [];
     snap.forEach(d => list.push({ id: d.id, ...d.data() }));
     _allManagers = list;
@@ -735,10 +760,11 @@ async function loadStockLog() {
     }
     // Берём последние 300 изменений — этого хватит на любую активную
     // историю. Если понадобится больше — сделаем пагинацию.
-    const snap = await db.collection('stockChangeLog')
-      .orderBy('at', 'desc')
-      .limit(300)
-      .get();
+    const snap = await withTimeout(
+      db.collection('stockChangeLog').orderBy('at', 'desc').limit(300).get(),
+      15000,
+      'log-timeout'
+    );
     _allLogs = [];
     snap.forEach(d => _allLogs.push({ id: d.id, ...d.data() }));
     renderLogList();
@@ -1035,13 +1061,20 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 // ---------- ИНИЦИАЛИЗАЦИЯ ----------
 (async function () {
-  if (typeof kerbenWaitForAuth === 'function') {
-    try { await kerbenWaitForAuth(5000); } catch (e) {}
-  }
-  await new Promise(r => setTimeout(r, 300));
+  try {
+    if (typeof kerbenWaitForAuth === 'function') {
+      try { await kerbenWaitForAuth(5000); } catch (e) {}
+    }
+    await new Promise(r => setTimeout(r, 300));
 
-  const ok = await ensureAdmin();
-  if (ok) await loadManagers();
+    const ok = await withTimeout(ensureAdmin(), 12000, 'admin-auth-timeout').catch(() => false);
+    if (ok) await loadManagers();
+    else hidePageBoot();
+  } catch (e) {
+    console.error('[wm-admin] init:', e);
+    hidePageBoot();
+    document.getElementById('accessDenied').style.display = 'block';
+  }
 })();
 </script>
 </body>
