@@ -463,6 +463,21 @@ async function loadManagers() {
     snap.forEach(d => list.push({ id: d.id, ...d.data() }));
     _allManagers = list;
 
+    // Для уже одобренных раньше (до появления индекса) — дописываем
+    // warehouseManagerByPhone, чтобы в профиле появилась кнопка.
+    list.forEach(m => {
+      if ((m.status || '') !== 'approved') return;
+      const phoneKey = String(m.phone || '').replace(/[^\d]/g, '');
+      if (!phoneKey) return;
+      db.collection('warehouseManagerByPhone').doc(phoneKey).set({
+        uid: m.id,
+        status: 'approved',
+        name: m.name || '',
+        phone: m.phone || '',
+        email: m.email || ''
+      }, { merge: true }).catch(function () {});
+    });
+
     // Стата
     const cnt = { pending: 0, approved: 0, blocked: 0, rejected: 0 };
     list.forEach(m => {
@@ -655,6 +670,31 @@ async function handleAction(id, action, btn) {
         patch.note = note || firebase.firestore.FieldValue.delete();
       }
       await ref.update(patch);
+    }
+    // Синхронизируем индекс по телефону — профиль клиента читает его,
+    // чтобы показать «Управление складом» только одобренным.
+    try {
+      const phoneKey = String(mgr.phone || '').replace(/[^\d]/g, '');
+      if (phoneKey) {
+        const idxRef = db.collection('warehouseManagerByPhone').doc(phoneKey);
+        if (action === 'delete') {
+          await idxRef.delete();
+        } else {
+          const idxStatus = action === 'approve' ? 'approved'
+                          : action === 'reject' ? 'rejected'
+                          : action === 'block' ? 'blocked'
+                          : (mgr.status || 'pending');
+          await idxRef.set({
+            uid: id,
+            status: idxStatus,
+            name: mgr.name || '',
+            phone: mgr.phone || '',
+            email: mgr.email || ''
+          }, { merge: true });
+        }
+      }
+    } catch (idxErr) {
+      console.warn('[wm-admin] phone index:', idxErr);
     }
     Swal.fire({ toast: true, position: 'top', showConfirmButton: false, timer: 1600, icon: 'success',
       title: action === 'delete' ? 'Удалено' : 'Сохранено' });

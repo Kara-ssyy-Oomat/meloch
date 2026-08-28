@@ -1128,7 +1128,7 @@ async function showCustomerDashboard() {
           </div>
         </div>
         
-        ${getWmPanelInProfileHtml()}
+        <div id="wmProfilePanelWrap"></div>
         
         <!-- Панель администратора (видна только админам) -->
         <div id="adminPanelInProfile" style="display:none; background:#fff; margin-top:10px;">
@@ -1233,6 +1233,7 @@ async function showCustomerDashboard() {
   
   // Показываем админ-панель если пользователь - админ
   setTimeout(() => showAdminPanelInProfile(), 100);
+  setTimeout(() => loadWmPanelForLoggedCustomer(), 150);
 }
 
 // Открыть избранное из профиля
@@ -1444,19 +1445,9 @@ function openAgentsManagementFromProfile() {
 
 // ==================== УПРАВЛЯЮЩИЙ СКЛАДОМ ====================
 
-function _readWmLocalSession() {
-  try {
-    if (typeof kerbenGetWmSession === 'function') return kerbenGetWmSession();
-    const raw = localStorage.getItem('kerbenWmSession_v1');
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
-}
-
 function getWmSignupMenuRowHtml() {
-  const sess = _readWmLocalSession();
-  if (sess && (sess.status === 'approved' || sess.status === 'pending')) return '';
   return `
-          <div onclick="openWarehouseManagerSignup()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+          <div onclick="openWarehouseManagerSignup()" id="wmSignupMenuItem" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
             <div style="display:flex; align-items:center; gap:12px;">
               <span style="font-size:18px;">📦</span>
               <span style="font-size:15px; color:#333;">Стать управляющим складом</span>
@@ -1465,41 +1456,50 @@ function getWmSignupMenuRowHtml() {
           </div>`;
 }
 
-function getWmPanelInProfileHtml() {
-  const sess = _readWmLocalSession();
-  if (!sess) return '';
-  const st = sess.status || 'pending';
-  if (st === 'approved') {
-    return `
-        <div style="background:#fff; margin-top:10px;">
-          <div style="padding:16px 20px; border-bottom:1px solid #f0f0f0;">
-            <div style="font-size:15px; font-weight:600; color:#1a237e;">📦 Управление складом</div>
-          </div>
-          <div onclick="openWarehouseManagerFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; cursor:pointer; background:#1a237e;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <span style="font-size:18px;">🏭</span>
-              <span style="font-size:15px; color:#fff; font-weight:600;">Открыть мой склад</span>
-            </div>
-            <span style="color:#fff;">›</span>
-          </div>
-        </div>`;
+function renderApprovedWmPanelInProfile() {
+  const wrap = document.getElementById('wmProfilePanelWrap');
+  if (!wrap) return;
+  wrap.innerHTML =
+    '<div style="background:#fff; margin-top:10px;">' +
+      '<div style="padding:16px 20px; border-bottom:1px solid #f0f0f0;">' +
+        '<div style="font-size:15px; font-weight:600; color:#28a745;">📦 Управление складом</div>' +
+      '</div>' +
+      '<div onclick="openWarehouseManagerFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">' +
+        '<div style="display:flex; align-items:center; gap:12px;">' +
+          '<span style="font-size:18px;">🏭</span>' +
+          '<span style="font-size:15px; color:#333;">Управление складом</span>' +
+        '</div>' +
+        '<span style="color:#ccc;">›</span>' +
+      '</div>' +
+    '</div>';
+  const signup = document.getElementById('wmSignupMenuItem');
+  if (signup) signup.style.display = 'none';
+}
+
+async function loadWmPanelForLoggedCustomer() {
+  const phone = (typeof currentCustomer !== 'undefined' && currentCustomer && currentCustomer.phone)
+    ? currentCustomer.phone : '';
+  const key = String(phone || '').replace(/[^\d]/g, '');
+  if (!key || typeof db === 'undefined') return;
+  try {
+    const doc = await db.collection('warehouseManagerByPhone').doc(key).get();
+    if (doc.exists && doc.data() && doc.data().status === 'approved') {
+      renderApprovedWmPanelInProfile();
+      try {
+        if (typeof kerbenSaveWmSession === 'function') {
+          kerbenSaveWmSession({
+            phone: phone,
+            status: 'approved',
+            uid: doc.data().uid || '',
+            name: doc.data().name || '',
+            email: doc.data().email || ''
+          });
+        }
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('[profile] wm panel:', e);
   }
-  if (st === 'pending') {
-    return `
-        <div style="background:#fff; margin-top:10px;">
-          <div style="padding:16px 20px; border-bottom:1px solid #f0f0f0;">
-            <div style="font-size:15px; font-weight:600; color:#f57f17;">📦 Заявка на склад</div>
-          </div>
-          <div onclick="openWarehouseManagerFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; cursor:pointer; background:#fff8e1;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <span style="font-size:18px;">⏳</span>
-              <span style="font-size:15px; color:#333;">Ожидает одобрения администратора</span>
-            </div>
-            <span style="color:#ccc;">›</span>
-          </div>
-        </div>`;
-  }
-  return '';
 }
 
 function openWarehouseManagerFromProfile() {

@@ -5,9 +5,6 @@
 // (обфусцированный, TTL 30 дней). При следующем открытии
 // warehouse-manager.html сессия восстанавливается тихо — без формы входа.
 //
-// На главной и в профиле, если заявка одобрена, появляется ярлык
-// «📦 Мой склад» — как панель админа снизу, без повторного логина.
-//
 // ВАЖНО: восстанавливать Firebase Auth (wm_...@kerben-warehouse.local)
 // можно ТОЛЬКО на warehouse-manager.html. На витрине магазина нужна
 // анонимная/клиентская сессия, иначе каталог сломается.
@@ -161,72 +158,10 @@
     window.location.href = url;
   }
 
-  function currentPageName() {
-    var path = (window.location.pathname || '').toLowerCase();
-    return path.substring(path.lastIndexOf('/') + 1) || 'index.html';
-  }
-
-  function shouldShowFab() {
-    // Не на самой панели склада и не внутри iframe (там нижнее меню родителя)
-    var page = currentPageName();
-    if (page === 'warehouse-manager.html' || page === 'warehouse-manager-signup.html') return false;
-    if (window.parent !== window) return false;
-    var sess = getSession();
-    if (!sess) return false;
-    if (sess.status === 'blocked' || sess.status === 'rejected' || sess.status === 'missing') return false;
-    return true;
-  }
-
-  function mountShortcut() {
-    if (document.getElementById('wmShortcutFab')) return;
-    if (!shouldShowFab()) return;
-
-    var sess = getSession() || {};
-    var approved = sess.status === 'approved';
-    var label = approved ? 'Мой склад' : 'Заявка на склад';
-    var emoji = approved ? '📦' : '⏳';
-
-    var style = document.createElement('style');
-    style.id = 'wmShortcutStyles';
-    style.textContent =
-      '#wmShortcutFab{' +
-        'position:fixed;left:12px;right:12px;' +
-        'bottom:calc(64px + env(safe-area-inset-bottom,0px));' +
-        'z-index:9998;display:flex;align-items:center;justify-content:center;gap:8px;' +
-        'padding:12px 16px;border:none;border-radius:14px;cursor:pointer;' +
-        'font-size:15px;font-weight:700;color:#fff;' +
-        'background:linear-gradient(135deg,#1a237e,#3949ab);' +
-        'box-shadow:0 6px 18px rgba(26,35,126,0.35);' +
-        'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
-        '-webkit-tap-highlight-color:transparent;' +
-      '}' +
-      '#wmShortcutFab:active{transform:scale(0.98);}' +
-      'body.wm-fab-pad{padding-bottom:calc(120px + env(safe-area-inset-bottom,0px)) !important;}';
-    document.head.appendChild(style);
-
-    var btn = document.createElement('button');
-    btn.id = 'wmShortcutFab';
-    btn.type = 'button';
-    btn.innerHTML = emoji + ' ' + label;
-    btn.addEventListener('click', openWarehouseManagerPage);
-    document.body.appendChild(btn);
-    document.body.classList.add('wm-fab-pad');
-  }
-
   global.kerbenGetWmSession = getSession;
   global.kerbenSaveWmSession = saveSession;
   global.kerbenSaveWmCreds = saveCreds;
   global.kerbenClearWmSession = clearSession;
   global.kerbenRestoreWmSession = tryRestoreWmSession;
   global.kerbenOpenWarehouseManager = openWarehouseManagerPage;
-  global.kerbenMountWmShortcut = mountShortcut;
-
-  function bootFab() {
-    try { mountShortcut(); } catch (e) {}
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootFab);
-  } else {
-    bootFab();
-  }
 })(typeof window !== 'undefined' ? window : this);

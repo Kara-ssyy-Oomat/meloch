@@ -882,6 +882,33 @@ service cloud.firestore {
       allow delete: if isAdminUser();
     }
 
+    // Индекс «телефон → статус заявки». Нужен профилю: обычный клиент
+    // (анонимный auth) не может читать warehouseManagers/{чужой uid},
+    // но может прочитать СВОЙ телефонный ключ и узнать, одобрен ли он.
+    // list закрыт — нельзя выгрузить все телефоны.
+    match /warehouseManagerByPhone/{phoneKey} {
+      allow get: if isAuthed();
+      allow list: if isAdminUser();
+      allow create: if isAuthed() && reasonableDocSize() && strOk('uid', 200)
+        && strOk('name', 200) && strOk('phone', 30) && strOk('email', 200)
+        && (
+          request.resource.data.status == 'pending'
+          ||
+          (isApprovedWarehouseManager()
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.status == 'approved')
+        );
+      allow update: if isAdminUser()
+        || (isApprovedWarehouseManager()
+            && request.resource.data.uid == request.auth.uid
+            && strOk('status', 50)
+            && strOk('uid', 200)
+            && strOk('name', 200)
+            && strOk('phone', 30)
+            && strOk('email', 200));
+      allow delete: if isAdminUser();
+    }
+
     // =========================================================
     //                ВСЁ ОСТАЛЬНОЕ — НАГЛУХО
     // =========================================================

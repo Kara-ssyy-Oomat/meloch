@@ -855,6 +855,22 @@ function applyStatus(data) {
       st,
       (u && u.uid) || (data && data.id) || ''
     );
+    // Чтобы в профиле появилась кнопка «Управление складом» как у админа —
+    // пишем индекс по телефону (профиль читает его под обычной сессией).
+    if (st === 'approved' && u && data && data.phone) {
+      const phoneKey = String(data.phone).replace(/[^\d]/g, '');
+      if (phoneKey) {
+        db.collection('warehouseManagerByPhone').doc(phoneKey).set({
+          uid: u.uid,
+          status: 'approved',
+          name: data.name || '',
+          phone: data.phone || '',
+          email: (u.email || data.email || '')
+        }, { merge: true }).catch(function (e) {
+          console.warn('[wm] phone index:', e);
+        });
+      }
+    }
   } catch (e) {}
 
   // Убираем прежние классы status

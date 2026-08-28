@@ -1685,7 +1685,7 @@
         
         ${adminPanelHtml}
         
-        ${_getWmPanelHtml()}
+        <div id="wmProfilePanelWrap"></div>
         
         ${_getSellerPanelHtml()}
         
@@ -1699,6 +1699,8 @@
       
       // Восстанавливаем бейджи после пересоздания DOM
       if (isAdmin) applyBadgeCounts();
+
+      _loadWmPanelForCustomer(currentCustomer && currentCustomer.phone);
       
       // Сохраняем HTML в кэш для мгновенной загрузки
       try {
@@ -1707,21 +1709,9 @@
     }
     
     // ==================== ПАНЕЛЬ УПРАВЛЯЮЩЕГО СКЛАДОМ ====================
-    function _getWmLocalSession() {
-      try {
-        if (typeof kerbenGetWmSession === 'function') return kerbenGetWmSession();
-        const raw = localStorage.getItem('kerbenWmSession_v1');
-        return raw ? JSON.parse(raw) : null;
-      } catch (e) { return null; }
-    }
-
     function _getWmMenuItemHtml() {
-      const sess = _getWmLocalSession();
-      if (sess && (sess.status === 'approved' || sess.status === 'pending')) {
-        return '';
-      }
       return `
-          <div class="menu-item" onclick="navigateTop('warehouse-manager-signup.html')">
+          <div class="menu-item" id="wmSignupMenuItem" onclick="navigateTop('warehouse-manager-signup.html')">
             <div class="menu-item-left">
               <span class="menu-icon">📦</span>
               <span class="menu-text">Стать управляющим складом</span>
@@ -1730,37 +1720,50 @@
           </div>`;
     }
 
-    function _getWmPanelHtml() {
-      const sess = _getWmLocalSession();
-      if (!sess) return '';
-      const st = sess.status || 'pending';
-      if (st === 'approved') {
-        return `
-          <div class="menu-section">
-            <div class="menu-section-title">📦 Управление складом</div>
-            <div class="menu-item admin-menu-item" onclick="navigateTop('warehouse-manager.html')" style="background:#1a237e;">
-              <div class="menu-item-left">
-                <span class="menu-icon">🏭</span>
-                <span class="menu-text">Открыть мой склад</span>
-              </div>
-              <span class="menu-arrow">›</span>
-            </div>
-          </div>`;
+    function _wmPhoneKey(phone) {
+      return String(phone || '').replace(/[^\d]/g, '');
+    }
+
+    function _renderApprovedWmPanel() {
+      const wrap = document.getElementById('wmProfilePanelWrap');
+      if (!wrap) return;
+      wrap.innerHTML =
+        '<div class="menu-section">' +
+          '<div class="menu-section-title">📦 Управление складом</div>' +
+          '<div class="menu-item admin-menu-item" onclick="navigateTop(\'warehouse-manager.html\')">' +
+            '<div class="menu-item-left">' +
+              '<span class="menu-icon">🏭</span>' +
+              '<span class="menu-text">Управление складом</span>' +
+            '</div>' +
+            '<span class="menu-arrow">›</span>' +
+          '</div>' +
+        '</div>';
+      const signup = document.getElementById('wmSignupMenuItem');
+      if (signup) signup.style.display = 'none';
+    }
+
+    async function _loadWmPanelForCustomer(phone) {
+      const key = _wmPhoneKey(phone);
+      if (!key || typeof db === 'undefined') return;
+      try {
+        const doc = await db.collection('warehouseManagerByPhone').doc(key).get();
+        if (doc.exists && doc.data() && doc.data().status === 'approved') {
+          _renderApprovedWmPanel();
+          try {
+            if (typeof kerbenSaveWmSession === 'function') {
+              kerbenSaveWmSession({
+                phone: phone,
+                status: 'approved',
+                uid: doc.data().uid || '',
+                name: doc.data().name || '',
+                email: doc.data().email || ''
+              });
+            }
+          } catch (e) {}
+        }
+      } catch (e) {
+        console.warn('[profile] wm panel:', e);
       }
-      if (st === 'pending') {
-        return `
-          <div class="menu-section">
-            <div class="menu-section-title">📦 Заявка на склад</div>
-            <div class="menu-item" onclick="navigateTop('warehouse-manager.html')" style="background:#fff8e1;">
-              <div class="menu-item-left">
-                <span class="menu-icon">⏳</span>
-                <span class="menu-text">Ожидает одобрения администратора</span>
-              </div>
-              <span class="menu-arrow">›</span>
-            </div>
-          </div>`;
-      }
-      return '';
     }
 
     // ==================== ПАНЕЛЬ ПРОДАВЦА ====================

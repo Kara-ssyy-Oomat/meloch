@@ -331,6 +331,20 @@
           status: 'pending',
           createdAt: Date.now()
         });
+        try {
+          const phoneKey = phone.replace(/[^\d]/g, '');
+          if (phoneKey) {
+            await db.collection('warehouseManagerByPhone').doc(phoneKey).set({
+              uid: uid,
+              status: 'pending',
+              name: name,
+              phone: phone,
+              email: email
+            });
+          }
+        } catch (idxErr) {
+          console.warn('[wm-signup] phone index:', idxErr);
+        }
 
         // Успех — сразу переходим в раздел управления, там покажется
         // экран «Ожидает одобрения». Firebase Auth сессия уже установлена
