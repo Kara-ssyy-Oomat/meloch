@@ -716,13 +716,52 @@ service cloud.firestore {
     // =========================================================
     //             WAREHOUSE MOVEMENTS (история склада)
     // =========================================================
-    // Пишется Cloud Function (Admin SDK — rules игнорируются) и админом
-    // из admin-warehouse.html (приход, перемещение, корректировка).
-    // Клиент-покупатель никогда сюда не пишет.
+    // Пишется Cloud Function (Admin SDK — rules игнорируются), админом
+    // из admin-warehouse.html (приход, перемещение, корректировка) и
+    // одобренным управляющим складом (только записи type='adjustment'
+    // от своего имени — чтобы админ видел все правки остатков в одном
+    // списке движений и мог их отменить).
+    //
+    //   READ  — только админ (там суммы, клиенты и т.п.).
+    //   CREATE — админ; или wm с ОЧЕНЬ строгой валидацией:
+    //     • type строго 'adjustment' (не 'sale'/'transfer'/'receipt' —
+    //       эти типы имеют бизнес-смысл, wm не должен их эмулировать);
+    //     • createdByUid == request.auth.uid (не подделать автора);
+    //     • sourceRole == 'warehouseManager';
+    //     • нет cancelled/undoOfId полей (это админ ставит при откате).
+    //   UPDATE — только админ (пометка cancelled).
+    //   DELETE — только админ.
     match /warehouseMovements/{movId} {
       allow read: if isAdminUser();
-      allow create, update: if isAdminUser() && reasonableDocSize();
-      allow delete: if isAdminUser();
+      allow create: if reasonableDocSize() && (
+        isAdminUser()
+        ||
+        (isApprovedWarehouseManager()
+          && request.resource.data.keys().hasAll(['type', 'direction', 'qty',
+              'productId', 'sourceRole', 'createdByUid'])
+          && request.resource.data.type == 'adjustment'
+          && request.resource.data.direction in ['in', 'out']
+          && request.resource.data.qty is number
+          && request.resource.data.qty > 0
+          && request.resource.data.qty <= 10000000
+          && numOk('oldQty', 0, 10000000)
+          && numOk('newQty', 0, 10000000)
+          && numOk('createdAtMs', 0, 99999999999999)
+          && strOk('productId', 200)
+          && strOk('productTitle', 500)
+          && strOk('warehouseId', 200)
+          && strOk('warehouseName', 200)
+          && strOk('note', 500)
+          && strOk('sourceLogId', 200)
+          && strOk('sourceRole', 50)
+          && strOk('createdByEmail', 200)
+          && strOk('createdByName', 200)
+          && request.resource.data.sourceRole == 'warehouseManager'
+          && request.resource.data.createdByUid == request.auth.uid
+          && !('cancelled' in request.resource.data)
+          && !('undoOfId' in request.resource.data))
+      );
+      allow update, delete: if isAdminUser() && reasonableDocSize();
     }
 
     // =========================================================

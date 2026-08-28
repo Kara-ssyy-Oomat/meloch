@@ -872,6 +872,9 @@ function escapeHtml(s) {
 // видит и меняет остатки ТОЛЬКО этого склада. Если админ не выбрал
 // главный склад — работаем в legacy-режиме через product.stock.
 let _primaryWarehouseId = '';
+// Название главного склада — используем при записи в warehouseMovements,
+// чтобы админ на admin-warehouse.html видел «Приход/Списание: Название».
+let _primaryWarehouseName = '';
 
 async function loadPrimaryWarehouseId() {
   try {
@@ -882,6 +885,18 @@ async function loadPrimaryWarehouseId() {
   } catch (e) {
     console.warn('[wm] не удалось прочитать primaryWarehouseId:', e);
     _primaryWarehouseId = '';
+  }
+  // Название склада (для истории движений)
+  _primaryWarehouseName = '';
+  if (_primaryWarehouseId) {
+    try {
+      const whDoc = await db.collection('warehouses').doc(_primaryWarehouseId).get();
+      if (whDoc.exists) {
+        _primaryWarehouseName = String(whDoc.data().name || '');
+      }
+    } catch (e) {
+      console.warn('[wm] не удалось прочитать имя склада:', e);
+    }
   }
 }
 
@@ -1235,6 +1250,12 @@ async function saveAllPendingChanges() {
   async function runOne(productId, change) {
     const productRef = db.collection('products').doc(productId);
     const logRef = db.collection('stockChangeLog').doc();
+    // Дополнительно пишем в warehouseMovements adjustment-запись, чтобы
+    // изменение появилось у админа на admin-warehouse.html → «Движения»
+    // и он мог отменить её оттуда (bulk-cancel уже умеет type='adjustment').
+    // Кросс-ссылки sourceLogId ↔ movementId сохраняем в обоих документах,
+    // чтобы при отмене из любого места пометить связанную запись.
+    const movRef = db.collection('warehouseMovements').doc();
     let realOld = 0;
     let realNew = 0;
     let warehouseUsed = _primaryWarehouseId || '__flat';
@@ -1289,7 +1310,36 @@ async function saveAllPendingChanges() {
           changedByName: changerName,
           role: 'warehouseManager',
           at: Date.now(),
-          reverted: false
+          reverted: false,
+          movementId: movRef.id
+        });
+
+        // Запись в warehouseMovements. Мы используем тот же формат, что и
+        // ручная корректировка админа из admin-warehouse.html (тип
+        // 'adjustment', direction 'in'/'out', qty > 0). Так админ видит
+        // все изменения в одном списке и может делать bulk-cancel.
+        // warehouseId=__flat означает, что у товара не было warehouseStock —
+        // в этом случае warehouseName пустой, но запись всё равно валидна.
+        const direction = change.delta > 0 ? 'in' : 'out';
+        const qtyAbs = Math.abs(change.delta);
+        tx.set(movRef, {
+          productId: productId,
+          productTitle: change.title,
+          warehouseId: warehouseUsed === '__flat' ? '' : warehouseUsed,
+          warehouseName: warehouseUsed === _primaryWarehouseId ? _primaryWarehouseName : '',
+          type: 'adjustment',
+          qty: qtyAbs,
+          direction: direction,
+          oldQty: realOld,
+          newQty: realNew,
+          note: 'Управляющий: ' + changerName,
+          sourceLogId: logRef.id,
+          sourceRole: 'warehouseManager',
+          createdByUid: changerUid,
+          createdByEmail: changerEmail,
+          createdByName: changerName,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          createdAtMs: Date.now()
         });
       });
 

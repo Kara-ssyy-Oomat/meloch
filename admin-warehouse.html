@@ -3220,6 +3220,23 @@ async function undoSelectedMovements() {
               createdAt: firebase.firestore.FieldValue.serverTimestamp(),
               createdAtMs: Date.now()
             });
+            // Если это движение пришло от управляющего складом (sourceLogId
+            // сохраняется в warehouse-manager.html при пакетном сохранении) —
+            // помечаем связанную запись stockChangeLog как reverted, чтобы
+            // в admin-warehouse-managers.html «Журнал изменений» она тоже
+            // показывалась отменённой. Без этого админ мог бы случайно
+            // отменить одно и то же изменение дважды: сначала здесь через
+            // bulk-cancel, потом там через «↺ Отменить» — и остаток ушёл
+            // бы в неверную сторону.
+            if (m.sourceLogId) {
+              const logRef = db.collection('stockChangeLog').doc(m.sourceLogId);
+              tx.update(logRef, {
+                reverted: true,
+                revertedAt: Date.now(),
+                revertedBy: (firebase.auth().currentUser && firebase.auth().currentUser.email) || 'admin',
+                revertedNote: 'Отменено из «Движения» (bulk-cancel)'
+              });
+            }
           }
         });
         doneCount += movs.length;
