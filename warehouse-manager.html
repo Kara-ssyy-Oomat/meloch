@@ -357,63 +357,130 @@
     .stock-value.zero { color: #d32f2f; }
     .stock-value.low { color: #ef6c00; }
 
-    /* Кнопки быстрого изменения */
+    /* Компактный ряд: [+] [ввод количества] [−] */
     .qty-controls {
       margin-top: 12px;
       display: grid;
-      grid-template-columns: repeat(3, 1fr) 1fr repeat(3, 1fr);
-      gap: 6px;
+      grid-template-columns: 48px 1fr 48px;
+      gap: 8px;
+      align-items: center;
     }
     .qty-btn {
-      padding: 10px 0;
+      height: 46px;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
+      font-size: 26px;
+      font-weight: 800;
+      line-height: 1;
+      cursor: pointer;
+      color: #fff;
+      touch-action: manipulation;
+      user-select: none;
+      transition: transform 0.05s, background 0.15s, box-shadow 0.15s;
+    }
+    .qty-btn:active { transform: scale(0.94); }
+    .qty-btn.plus {
+      background: #2e7d32;
+      box-shadow: 0 2px 6px rgba(46,125,50,0.25);
+    }
+    .qty-btn.plus:hover { background: #388e3c; }
+    .qty-btn.minus {
+      background: #d32f2f;
+      box-shadow: 0 2px 6px rgba(211,47,47,0.25);
+    }
+    .qty-btn.minus:hover { background: #e53935; }
+    .qty-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .qty-input {
+      width: 100%;
+      height: 46px;
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 17px;
+      font-weight: 700;
+      background: #fff;
+      color: #333;
+      -moz-appearance: textfield;
+    }
+    .qty-input::-webkit-outer-spin-button,
+    .qty-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .qty-input:focus { outline: none; border-color: #1a237e; }
+
+    /* Карточка с не сохранёнными изменениями */
+    .product-card.pending {
+      border-left: 4px solid #ff9800;
+      background: #fffbf0;
+    }
+    .stock-value.pending-preview { color: #ff9800 !important; }
+    .stock-value.pending-preview::before {
+      content: "≈ ";
+      font-size: 0.65em;
+      vertical-align: middle;
+      opacity: 0.9;
+    }
+    .pending-badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 2px 8px;
+      background: #fff3e0;
+      color: #e65100;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 8px;
+      vertical-align: middle;
+    }
+
+    /* Нижняя плашка «Сохранить/Отмена» */
+    .wm-batch-bar {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      background: #fff;
+      box-shadow: 0 -6px 20px rgba(0,0,0,0.12);
+      padding: 12px 14px;
+      display: none;
+      gap: 8px;
+      align-items: center;
+      z-index: 300;
+      /* iOS safe area */
+      padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    }
+    .wm-batch-bar.show { display: flex; }
+    .wm-batch-bar .info {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+      line-height: 1.3;
+      min-width: 0;
+    }
+    .wm-batch-bar .info b { color: #e65100; }
+    .wm-batch-cancel {
+      padding: 12px 14px;
+      background: #eceff1;
+      color: #333;
+      border: none;
+      border-radius: 12px;
       font-size: 14px;
       font-weight: 700;
       cursor: pointer;
-      touch-action: manipulation;
-      user-select: none;
-      transition: transform 0.05s, background 0.15s;
+      white-space: nowrap;
     }
-    .qty-btn:active { transform: scale(0.94); }
-    .qty-btn.minus {
-      background: #ffebee;
-      color: #c62828;
-    }
-    .qty-btn.minus:hover { background: #ffcdd2; }
-    .qty-btn.plus {
-      background: #e8f5e9;
-      color: #2e7d32;
-    }
-    .qty-btn.plus:hover { background: #c8e6c9;}
-    .qty-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-    .qty-custom {
-      display: flex;
-      align-items: center;
-      background: #f5f5f5;
-      border-radius: 10px;
-      padding: 0;
-      overflow: hidden;
-      min-width: 0;
-    }
-    .qty-custom input {
-      width: 100%;
+    .wm-batch-save {
+      padding: 12px 18px;
+      background: linear-gradient(135deg, #1a237e, #3949ab);
+      color: #fff;
       border: none;
-      background: transparent;
-      padding: 10px 4px;
-      font-size: 14px;
-      text-align: center;
-      -moz-appearance: textfield;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: 0 3px 10px rgba(26,35,126,0.25);
     }
-    .qty-custom input::-webkit-outer-spin-button,
-    .qty-custom input::-webkit-inner-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
+    .wm-batch-save:active { transform: translateY(1px); }
+    .wm-batch-save:disabled, .wm-batch-cancel:disabled {
+      opacity: 0.5; cursor: not-allowed;
     }
-    .qty-custom input:focus { outline: none; }
 
     /* Toast (подтверждение) */
     #wmToast {
@@ -456,8 +523,9 @@
 
     /* Mobile tweaks */
     @media (max-width: 380px) {
-      .qty-controls { grid-template-columns: repeat(3, 1fr) 1.4fr repeat(3, 1fr); gap: 4px; }
-      .qty-btn { font-size: 13px; padding: 9px 0; }
+      .qty-controls { grid-template-columns: 42px 1fr 42px; gap: 6px; }
+      .qty-btn { height: 42px; font-size: 22px; }
+      .qty-input { height: 42px; font-size: 15px; }
       .product-photo { width: 60px; height: 60px; }
     }
   </style>
@@ -542,6 +610,13 @@
       <div class="spinner"></div>
       <div>Загрузка товаров...</div>
     </div>
+  </div>
+
+  <!-- Плашка «Сохранить/Отмена» появляется, когда есть несохранённые изменения -->
+  <div class="wm-batch-bar" id="wmBatchBar">
+    <div class="info" id="wmBatchInfo">Изменено: <b>0</b> товаров</div>
+    <button type="button" class="wm-batch-cancel" id="wmBatchCancelBtn" onclick="cancelBatch()">Отмена</button>
+    <button type="button" class="wm-batch-save" id="wmBatchSaveBtn" onclick="saveAllPendingChanges()">💾 Сохранить остатки</button>
   </div>
 </div>
 
@@ -653,6 +728,22 @@ async function wmLogin() {
 }
 
 async function wmLogout() {
+  if (typeof _pendingBatch !== 'undefined' && _pendingBatch.size > 0) {
+    const w = await Swal.fire({
+      title: 'Есть несохранённые изменения',
+      html: 'У вас <b>' + _pendingBatch.size + '</b> ' +
+            declOfNum(_pendingBatch.size, ['несохранённое изменение','несохранённых изменения','несохранённых изменений']) +
+            '. Если выйти — они пропадут.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Всё равно выйти',
+      cancelButtonText: 'Остаться',
+      confirmButtonColor: '#c62828'
+    });
+    if (!w.isConfirmed) return;
+    _pendingBatch.clear();
+    updateBatchBar();
+  }
   const c = await Swal.fire({
     title: 'Выйти?',
     icon: 'question',
@@ -919,17 +1010,23 @@ function declOfNum(n, titles) {
 }
 
 function renderProductCard(p) {
-  const stock = computeEffectiveStock(p);
+  const baseStock = computeEffectiveStock(p);
+  const pending = _pendingBatch.get(p.id);
+  const displayed = pending ? pending.newStock : baseStock;
   const image = p.image || p.imageUrl || '';
   const title = escapeHtml(p.title || p.name || 'Без названия');
   const category = escapeHtml(p.category || '');
-  // Управляющему показываем ТОЛЬКО цену продажи (не закупочную).
   const price = Number(p.price || 0);
-  const stockClass = stock === 0 ? 'zero' : (stock <= 5 ? 'low' : '');
+  const stockClass = (pending ? 'pending-preview ' : '')
+                   + (displayed === 0 ? 'zero' : (displayed <= 5 ? 'low' : ''));
   const stockLabel = _primaryWarehouseId ? 'На главном складе:' : 'На складе:';
+  const cardClass = 'product-card' + (pending ? ' pending' : '');
+  const pendingBadge = pending
+    ? '<span class="pending-badge">' + (pending.delta > 0 ? '+' : '') + pending.delta + '</span>'
+    : '';
 
   return (
-    '<div class="product-card" data-id="' + escapeHtml(p.id) + '">' +
+    '<div class="' + cardClass + '" data-id="' + escapeHtml(p.id) + '">' +
       (image
         ? '<img class="product-photo" src="' + escapeHtml(image) + '" alt="" loading="lazy" onerror="this.classList.add(\'placeholder\'); this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'product-photo placeholder\',textContent:\'📦\'}))">'
         : '<div class="product-photo placeholder">📦</div>') +
@@ -939,16 +1036,15 @@ function renderProductCard(p) {
         (price > 0 ? '<div class="product-price">Цена: <b>' + price.toLocaleString('ru-RU') + ' сом</b></div>' : '') +
         '<div class="product-stock-row">' +
           '<span class="stock-label">' + stockLabel + '</span>' +
-          '<span class="stock-value ' + stockClass + '" data-stock-for="' + escapeHtml(p.id) + '">' + stock + '</span>' +
+          '<span>' +
+            '<span class="stock-value ' + stockClass + '" data-stock-for="' + escapeHtml(p.id) + '">' + displayed + '</span>' +
+            pendingBadge +
+          '</span>' +
         '</div>' +
         '<div class="qty-controls">' +
-          '<button class="qty-btn minus" data-delta="-10">−10</button>' +
-          '<button class="qty-btn minus" data-delta="-5">−5</button>' +
-          '<button class="qty-btn minus" data-delta="-1">−1</button>' +
-          '<div class="qty-custom"><input type="number" class="qty-custom-input" placeholder="кол-во" inputmode="numeric"></div>' +
-          '<button class="qty-btn plus" data-delta="1">+1</button>' +
-          '<button class="qty-btn plus" data-delta="5">+5</button>' +
-          '<button class="qty-btn plus" data-delta="10">+10</button>' +
+          '<button type="button" class="qty-btn plus" title="Прибавить">+</button>' +
+          '<input class="qty-input" type="number" inputmode="numeric" value="1" min="1" max="1000000" data-qty-for="' + escapeHtml(p.id) + '">' +
+          '<button type="button" class="qty-btn minus" title="Отнять">−</button>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -959,209 +1055,338 @@ function attachCardHandlers() {
   const cards = document.querySelectorAll('.product-card');
   cards.forEach(card => {
     const productId = card.dataset.id;
-    const stockEl = card.querySelector('[data-stock-for]');
-    const customInput = card.querySelector('.qty-custom-input');
+    const plusBtn = card.querySelector('.qty-btn.plus');
+    const minusBtn = card.querySelector('.qty-btn.minus');
+    const qtyInput = card.querySelector('.qty-input');
 
-    card.querySelectorAll('.qty-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const delta = parseInt(btn.dataset.delta || '0', 10);
-        if (!delta) return;
-        applyStockChange(productId, delta, stockEl, btn);
-      });
-    });
+    function readQty() {
+      if (!qtyInput) return 1;
+      const raw = (qtyInput.value || '').trim();
+      const n = parseInt(raw, 10);
+      return isFinite(n) && n > 0 ? n : 1;
+    }
 
-    if (customInput) {
-      // Ввод произвольного количества: Enter или blur применяет как «+X» (или «-X» если минус)
-      customInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          applyCustomChange(productId, customInput, stockEl);
-        }
+    if (plusBtn) {
+      plusBtn.addEventListener('click', function () {
+        stagePendingChange(productId, +1, readQty());
       });
-      // Иконка/кнопка «применить» через blur не делаем, чтобы случайно
-      // не срабатывало при переключении фокуса. Пользователь либо жмёт
-      // Enter, либо использует +/−/1/5/10.
+    }
+    if (minusBtn) {
+      minusBtn.addEventListener('click', function () {
+        stagePendingChange(productId, -1, readQty());
+      });
+    }
+    if (qtyInput) {
+      qtyInput.addEventListener('focus', function () {
+        try { qtyInput.select(); } catch (e) {}
+      });
     }
   });
 }
 
-async function applyCustomChange(productId, inputEl, stockEl) {
-  const rawVal = (inputEl.value || '').trim();
-  if (!rawVal) return;
-  const num = parseInt(rawVal, 10);
-  if (!isFinite(num) || num === 0) {
-    toast('Введите число (например 15 или -3)', true);
+// ---------- НАКОПЛЕНИЕ ИЗМЕНЕНИЙ (batch) ----------
+// _pendingBatch : Map<productId, { delta, oldStock, newStock, title, image }>
+// Пользователь жмёт [+] или [−] несколько раз по разным товарам — все
+// изменения накапливаются в этой карте. UI показывает предпросмотр (оранжевым),
+// а в БД ничего не пишется. Только после клика «Сохранить остатки» все
+// изменения улетают в Firestore в отдельных транзакциях + пишется журнал.
+let _pendingBatch = new Map();
+let _isSaving = false;
+
+function stagePendingChange(productId, sign, qty) {
+  if (_isSaving) {
+    toast('Идёт сохранение, подождите...', true);
     return;
   }
-  // Пользователь может ввести отрицательное число («−»), но лучше сначала
-  // подтвердить крупное изменение чтобы не было случайных ошибок.
-  const confirm = await Swal.fire({
-    title: 'Изменить остаток?',
-    html: 'Изменение: <b>' + (num > 0 ? '+' + num : num) + '</b> шт.',
+  const product = _wmProducts.find(function (p) { return p.id === productId; });
+  if (!product) return;
+  const q = Math.max(1, Math.floor(Number(qty) || 1));
+  const baseStock = computeEffectiveStock(product);
+  const existing = _pendingBatch.get(productId);
+  const curDelta = existing ? existing.delta : 0;
+  const newDelta = curDelta + sign * q;
+  const newStock = Math.max(0, baseStock + newDelta);
+
+  if (newDelta === 0) {
+    _pendingBatch.delete(productId);
+  } else {
+    if (sign < 0 && newStock === 0 && baseStock + newDelta < 0) {
+      toast('Больше вычесть нельзя — остаток уйдёт в 0', true);
+    }
+    _pendingBatch.set(productId, {
+      delta: newDelta,
+      oldStock: baseStock,
+      newStock: newStock,
+      title: String(product.title || product.name || ''),
+      image: String(product.image || product.imageUrl || '')
+    });
+  }
+
+  updateCardVisual(productId);
+  updateBatchBar();
+}
+
+function updateCardVisual(productId) {
+  const card = document.querySelector('.product-card[data-id="' + cssEscape(productId) + '"]');
+  if (!card) return;
+  const product = _wmProducts.find(function (p) { return p.id === productId; });
+  const baseStock = product ? computeEffectiveStock(product) : 0;
+  const pending = _pendingBatch.get(productId);
+  const displayed = pending ? pending.newStock : baseStock;
+
+  const stockEl = card.querySelector('[data-stock-for]');
+  if (stockEl) {
+    stockEl.textContent = displayed;
+    stockEl.classList.remove('zero', 'low', 'pending-preview');
+    if (pending) stockEl.classList.add('pending-preview');
+    if (displayed === 0) stockEl.classList.add('zero');
+    else if (displayed <= 5) stockEl.classList.add('low');
+  }
+
+  // Обновляем badge с дельтой (+5 / −3)
+  let badge = card.querySelector('.pending-badge');
+  if (pending) {
+    const badgeText = (pending.delta > 0 ? '+' : '') + pending.delta;
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'pending-badge';
+      const container = stockEl && stockEl.parentNode;
+      if (container) container.appendChild(badge);
+    }
+    badge.textContent = badgeText;
+    card.classList.add('pending');
+  } else {
+    if (badge) badge.remove();
+    card.classList.remove('pending');
+  }
+}
+
+function cssEscape(s) {
+  if (window.CSS && CSS.escape) return CSS.escape(s);
+  return String(s).replace(/["\\]/g, '\\$&');
+}
+
+function updateBatchBar() {
+  const bar = document.getElementById('wmBatchBar');
+  const info = document.getElementById('wmBatchInfo');
+  if (!bar || !info) return;
+  const count = _pendingBatch.size;
+  if (count === 0) {
+    bar.classList.remove('show');
+    document.body.style.paddingBottom = '';
+    return;
+  }
+  info.innerHTML = 'Изменено: <b>' + count + '</b> ' +
+    declOfNum(count, ['товар','товара','товаров']) +
+    ' <span style="color:#888;font-weight:500;">— не забудьте сохранить</span>';
+  bar.classList.add('show');
+  document.body.style.paddingBottom = '90px';
+}
+
+async function cancelBatch() {
+  if (_pendingBatch.size === 0) return;
+  const res = await Swal.fire({
+    title: 'Отменить все изменения?',
+    text: 'Введённые +/− не будут сохранены — остатки вернутся к исходным значениям.',
     icon: 'question',
     showCancelButton: true,
-    confirmButtonText: 'Да, изменить',
-    cancelButtonText: 'Отмена',
-    confirmButtonColor: '#1a237e'
+    confirmButtonText: 'Да, отменить',
+    cancelButtonText: 'Не надо',
+    confirmButtonColor: '#607d8b'
   });
-  if (!confirm.isConfirmed) return;
-  inputEl.value = '';
-  await applyStockChange(productId, num, stockEl, null);
+  if (!res.isConfirmed) return;
+  _pendingBatch.clear();
+  rerenderProducts();
+  updateBatchBar();
+  toast('Изменения отменены');
 }
 
-// Защита от «дабл-тапа» — блокируем повторные клики пока предыдущее
-// изменение уходит в Firestore. Иначе быстрый двойной тап на «+10»
-// может отправить два инкремента вместо одного.
-const _pendingChanges = new Set();
+async function saveAllPendingChanges() {
+  if (_pendingBatch.size === 0) return;
+  if (_isSaving) return;
+  _isSaving = true;
 
-async function applyStockChange(productId, delta, stockEl, btn) {
-  if (!productId) return;
-  if (_pendingChanges.has(productId)) {
-    toast('Подождите, идёт сохранение...', true);
-    return;
-  }
+  const saveBtn = document.getElementById('wmBatchSaveBtn');
+  const cancelBtn = document.getElementById('wmBatchCancelBtn');
+  if (saveBtn) saveBtn.disabled = true;
+  if (cancelBtn) cancelBtn.disabled = true;
 
-  // Крупные изменения — подтверждение (защита от случайного нажатия)
-  if (Math.abs(delta) >= 20) {
-    const c = await Swal.fire({
-      title: 'Точно изменить на ' + (delta > 0 ? '+' : '') + delta + ' шт?',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Да, применить',
-      cancelButtonText: 'Отмена',
-      confirmButtonColor: '#1a237e'
-    });
-    if (!c.isConfirmed) return;
-  }
+  const authUser = firebase.auth().currentUser;
+  const changerUid = authUser ? authUser.uid : null;
+  const changerEmail = (authUser && authUser.email) || '';
+  const changerName = (_currentWmDoc && _currentWmDoc.name) ? _currentWmDoc.name
+                    : (changerEmail || 'wm');
 
-  _pendingChanges.add(productId);
-  if (btn) btn.disabled = true;
+  const items = Array.from(_pendingBatch.entries());
+  const total = items.length;
+  let succeeded = 0;
+  let failed = 0;
+  const errors = [];
 
-  try {
-    const product = _wmProducts.find(p => p.id === productId);
-    if (!product) throw new Error('Товар не найден в списке');
+  Swal.fire({
+    title: 'Сохранение остатков...',
+    html: '<div>Обработано <b id="wmSaveProgress">0</b> из <b>' + total + '</b></div>',
+    allowOutsideClick: false,
+    allowEscapeKey: false,
+    showConfirmButton: false,
+    didOpen: function () { Swal.showLoading(); }
+  });
 
-    // ТРАНЗАКЦИЯ: чтобы 2 одновременных изменения не перезаписали друг друга.
-    // В той же транзакции пишем запись в stockChangeLog — это гарантирует
-    // атомарность: либо остаток изменён И журнал обновлён, либо ни то ни другое.
-    // Управляющий ВСЕГДА работает только с главным складом (primaryWarehouseId).
-    const ref = db.collection('products').doc(productId);
+  async function runOne(productId, change) {
+    const productRef = db.collection('products').doc(productId);
     const logRef = db.collection('stockChangeLog').doc();
-    const authUser = firebase.auth().currentUser;
-    const changerUid = authUser ? authUser.uid : null;
-    const changerEmail = (authUser && authUser.email) || '';
-    const changerName = (_currentWmDoc && _currentWmDoc.name) ? _currentWmDoc.name
-                      : (changerEmail || 'wm');
-
-    let newStock = 0;
-    let oldStock = 0;
+    let realOld = 0;
+    let realNew = 0;
     let warehouseUsed = _primaryWarehouseId || '__flat';
 
-    await db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
-      if (!doc.exists) throw new Error('Товар удалён');
-      const data = doc.data() || {};
-      const ws = data.warehouseStock;
+    try {
+      await db.runTransaction(async function (tx) {
+        const doc = await tx.get(productRef);
+        if (!doc.exists) throw new Error('Товар удалён');
+        const data = doc.data() || {};
+        const ws = data.warehouseStock;
 
-      const updatePayload = {
-        lastStockChangeBy: changerName,
-        lastStockChangeByUid: changerUid,
-        lastStockChangeAt: Date.now()
-      };
+        const patch = {
+          lastStockChangeBy: changerName,
+          lastStockChangeByUid: changerUid,
+          lastStockChangeAt: Date.now()
+        };
 
-      if (_primaryWarehouseId) {
-        // Основной путь: изменяем ТОЛЬКО главный склад.
-        // Читаем текущее значение именно по primaryWarehouseId (не сумму!),
-        // чтобы отображаемое число соответствовало тому, что реально меняем.
-        const cur = (ws && typeof ws === 'object')
-          ? Math.max(0, Math.floor(Number(ws[_primaryWarehouseId]) || 0))
-          : Math.max(0, Math.floor(Number(data.stock) || 0));
-        const next = Math.max(0, cur + delta);
-        if (delta < 0 && next === cur) {
-          throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
+        if (_primaryWarehouseId) {
+          const cur = (ws && typeof ws === 'object')
+            ? Math.max(0, Math.floor(Number(ws[_primaryWarehouseId]) || 0))
+            : Math.max(0, Math.floor(Number(data.stock) || 0));
+          const next = Math.max(0, cur + change.delta);
+          patch['warehouseStock.' + _primaryWarehouseId] = next;
+          realOld = cur; realNew = next;
+          warehouseUsed = _primaryWarehouseId;
+        } else if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
+          const keys = Object.keys(ws).sort();
+          const targetWh = keys[0];
+          const cur = Math.max(0, Math.floor(Number(ws[targetWh]) || 0));
+          const next = Math.max(0, cur + change.delta);
+          patch['warehouseStock.' + targetWh] = next;
+          realOld = cur; realNew = next;
+          warehouseUsed = targetWh;
+        } else {
+          const cur = Math.max(0, Math.floor(Number(data.stock) || 0));
+          const next = Math.max(0, cur + change.delta);
+          patch.stock = next;
+          realOld = cur; realNew = next;
+          warehouseUsed = '__flat';
         }
-        // Точечное обновление конкретного ключа в map — не затрагивает
-        // остатки других складов и не создаёт race-condition с админом.
-        updatePayload['warehouseStock.' + _primaryWarehouseId] = next;
-        oldStock = cur;
-        newStock = next;
-        warehouseUsed = _primaryWarehouseId;
-        product.warehouseStock = Object.assign({}, (ws || {}), { [_primaryWarehouseId]: next });
-      } else if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
-        // Fallback: админ ещё не выбрал главный склад — берём первый.
-        // Управляющий всё равно должен работать, чтобы бизнес не встал.
-        const keys = Object.keys(ws).sort();
-        const targetWh = keys[0];
-        const cur = Math.max(0, Math.floor(Number(ws[targetWh]) || 0));
-        const next = Math.max(0, cur + delta);
-        if (delta < 0 && next === cur) {
-          throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
-        }
-        updatePayload['warehouseStock.' + targetWh] = next;
-        oldStock = cur;
-        newStock = next;
-        warehouseUsed = targetWh;
-        product.warehouseStock = Object.assign({}, ws, { [targetWh]: next });
-      } else {
-        // Совсем legacy — товар без warehouseStock, используем flat stock.
-        const cur = Math.max(0, Math.floor(Number(data.stock) || 0));
-        const next = Math.max(0, cur + delta);
-        if (delta < 0 && next === cur && cur === 0) {
-          throw new Error('Остаток уже 0 — нельзя уменьшить дальше');
-        }
-        updatePayload.stock = next;
-        oldStock = cur;
-        newStock = next;
-        warehouseUsed = '__flat';
-        product.stock = next;
-      }
-      tx.update(ref, updatePayload);
-
-      // Пишем журнал изменений (админ увидит в admin-warehouse-managers.html
-      // и сможет отменить). Транзакция гарантирует, что запись появится
-      // ТОЛЬКО если update товара прошёл успешно.
-      tx.set(logRef, {
-        productId: productId,
-        productTitle: String(product.title || product.name || ''),
-        productImage: String(product.image || product.imageUrl || ''),
-        warehouseId: warehouseUsed,
-        oldStock: oldStock,
-        newStock: newStock,
-        delta: delta,
-        changedByUid: changerUid,
-        changedByEmail: changerEmail,
-        changedByName: changerName,
-        role: 'warehouseManager',
-        at: Date.now(),
-        reverted: false
+        tx.update(productRef, patch);
+        tx.set(logRef, {
+          productId: productId,
+          productTitle: change.title,
+          productImage: change.image,
+          warehouseId: warehouseUsed,
+          oldStock: realOld,
+          newStock: realNew,
+          delta: change.delta,
+          changedByUid: changerUid,
+          changedByEmail: changerEmail,
+          changedByName: changerName,
+          role: 'warehouseManager',
+          at: Date.now(),
+          reverted: false
+        });
       });
-    });
 
-    // Обновляем UI
-    if (stockEl) {
-      stockEl.textContent = newStock;
-      stockEl.classList.remove('zero', 'low');
-      if (newStock === 0) stockEl.classList.add('zero');
-      else if (newStock <= 5) stockEl.classList.add('low');
+      // Обновляем локальный кэш товара, чтобы UI показывал реальное значение
+      const product = _wmProducts.find(function (p) { return p.id === productId; });
+      if (product) {
+        if (warehouseUsed === '__flat') {
+          product.stock = realNew;
+        } else {
+          product.warehouseStock = Object.assign({}, product.warehouseStock || {}, { [warehouseUsed]: realNew });
+        }
+      }
+      succeeded++;
+    } catch (err) {
+      failed++;
+      errors.push({ title: change.title, msg: (err && err.message) || String(err) });
+      console.error('[wm-save] err for', productId, err);
     }
-    toast('Изменение сохранено: ' + (delta > 0 ? '+' : '') + delta + ' шт (остаток ' + newStock + ')');
 
-  } catch (err) {
-    console.error('[wm] stock change err:', err);
-    let msg = 'Не удалось сохранить';
-    if (err && err.code === 'permission-denied') {
-      msg = 'Доступ заблокирован. Обратитесь к администратору.';
-      // На всякий случай: перечитаем свой статус, вдруг блокировка пришла.
-      const user = firebase.auth().currentUser;
-      if (user) checkWmStatusAndRender(user);
-    } else if (err && err.message) {
-      msg = err.message;
-    }
-    toast(msg, true);
-  } finally {
-    _pendingChanges.delete(productId);
-    if (btn) btn.disabled = false;
+    const prog = document.getElementById('wmSaveProgress');
+    if (prog) prog.textContent = succeeded + failed;
   }
+
+  // Параллелим до 4 транзакций одновременно — быстрее для 20-100 товаров,
+  // но не забиваем сеть и не рискуем словить write-conflicts на одном
+  // товаре (мы каждый товар пишем один раз, конфликтов быть не должно).
+  const CONCURRENCY = 4;
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const i = cursor++;
+      const [pid, change] = items[i];
+      await runOne(pid, change);
+    }
+  }
+  const workers = [];
+  for (let w = 0; w < Math.min(CONCURRENCY, items.length); w++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+
+  // ГЛАВНОЕ: тригерим сброс кэша товаров у всех клиентов сайта.
+  // Основной сайт слушает settings/productsRevision через onSnapshot —
+  // как только updatedAt поменялся, он сбрасывает кэш и подтягивает
+  // свежие остатки. Так покупатель видит новый склад сразу, а не через
+  // 15 минут (FRESH_DURATION в product-loader.js).
+  // Пишем ТОЛЬКО если что-то реально сохранилось.
+  if (succeeded > 0) {
+    try {
+      await db.collection('settings').doc('productsRevision').set({
+        updatedAt: Date.now(),
+        by: changerName,
+        source: 'warehouse-manager',
+        changedCount: succeeded
+      }, { merge: true });
+    } catch (e) {
+      console.warn('[wm] не удалось обновить productsRevision (сайт обновится через 15 мин):', e);
+    }
+  }
+
+  Swal.close();
+
+  if (failed === 0) {
+    _pendingBatch.clear();
+    rerenderProducts();
+    updateBatchBar();
+    Swal.fire({
+      icon: 'success',
+      title: 'Сохранено',
+      html: 'Обновлено товаров: <b>' + succeeded + '</b>.<br><small style="color:#666;">Новые остатки уже видны на сайте.</small>',
+      timer: 2600,
+      showConfirmButton: false
+    });
+  } else {
+    // Оставляем в _pendingBatch только те, что упали — чтобы пользователь мог повторить
+    const failedTitles = new Set(errors.map(function (e) { return e.title; }));
+    const kept = new Map();
+    _pendingBatch.forEach(function (v, k) {
+      if (failedTitles.has(v.title)) kept.set(k, v);
+    });
+    _pendingBatch = kept;
+    rerenderProducts();
+    updateBatchBar();
+    const errList = errors.slice(0, 5).map(function (e) {
+      return '<div style="font-size:12px;">• ' + escapeHtml(e.title) + ': ' + escapeHtml(e.msg) + '</div>';
+    }).join('');
+    Swal.fire({
+      icon: succeeded > 0 ? 'warning' : 'error',
+      title: succeeded > 0 ? 'Сохранено частично' : 'Не удалось сохранить',
+      html: 'Успешно: <b>' + succeeded + '</b><br>Ошибок: <b>' + failed + '</b>' +
+            (errList ? '<div style="text-align:left;margin-top:10px;">' + errList + '</div>' : '')
+    });
+  }
+
+  _isSaving = false;
+  if (saveBtn) saveBtn.disabled = false;
+  if (cancelBtn) cancelBtn.disabled = false;
 }
 
 // ---------- ИНИЦИАЛИЗАЦИЯ ----------
@@ -1213,6 +1438,15 @@ if (document.readyState === 'loading') {
 } else {
   initWmAuth();
 }
+
+// Защита от случайного закрытия вкладки с несохранёнными изменениями
+window.addEventListener('beforeunload', function (e) {
+  if (typeof _pendingBatch !== 'undefined' && _pendingBatch.size > 0 && !_isSaving) {
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
 
 // Освежаем статус при возврате в вкладку (могли одобрить, пока телефон был закрыт)
 document.addEventListener('visibilitychange', () => {

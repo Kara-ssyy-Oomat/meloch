@@ -201,6 +201,88 @@ function hideSplashScreen() {
   }
 }
 
+// ========================================================================
+// РЕАЛ-ТАЙМ ИНВАЛИДАЦИЯ КЭША ТОВАРОВ (settings/productsRevision)
+// ========================================================================
+// Управляющий складом (warehouse-manager.html) после кнопки «Сохранить
+// остатки» пишет в settings/productsRevision новое updatedAt. Мы слушаем
+// этот документ через onSnapshot — как только он поменялся, значит на
+// складе только что что-то поправили. В этом случае сбрасываем кэш
+// товаров и подтягиваем свежие данные из Firestore.
+//
+// Стоимость: 1 read на первую подписку + 1 read на каждое реальное
+// изменение (обычно 5-20 раз в сутки суммарно у всех управляющих).
+// В обычные дни без изменений на складе — 0 дополнительных reads
+// в час/сутки/минуту. То есть кэш инвалидируется ТОЛЬКО когда есть
+// реальные изменения, а не «сам по себе».
+// ========================================================================
+let _productsRevisionUnsub = null;
+let _productsRevisionInitial = true;
+const LS_REVISION_SEEN_KEY = 'productsRevisionSeen';
+
+function startProductsRevisionListener() {
+  if (_productsRevisionUnsub) return; // уже подписаны
+  if (typeof db === 'undefined' || !db) return;
+  try {
+    _productsRevisionUnsub = db.collection('settings').doc('productsRevision')
+      .onSnapshot(function (doc) {
+        if (!doc || !doc.exists) { _productsRevisionInitial = false; return; }
+        const data = doc.data() || {};
+        const newTs = Number(data.updatedAt) || 0;
+        if (!newTs) { _productsRevisionInitial = false; return; }
+
+        let lastSeen = 0;
+        try { lastSeen = parseInt(localStorage.getItem(LS_REVISION_SEEN_KEY) || '0'); } catch (_) {}
+
+        // Первый snapshot после подписки: только фиксируем текущее значение,
+        // не перезагружаем товары (у нас уже могли быть свежие после этого ts).
+        if (_productsRevisionInitial) {
+          _productsRevisionInitial = false;
+          if (newTs > lastSeen) {
+            try { localStorage.setItem(LS_REVISION_SEEN_KEY, String(newTs)); } catch (_) {}
+            // Если данные в LS-кэше старее последнего изменения — сбрасываем,
+            // чтобы следующий loadProducts() пошёл в Firestore.
+            let lsTime = 0;
+            try { lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0'); } catch (_) {}
+            if (lsTime > 0 && lsTime < newTs) {
+              productsCache = [];
+              productsCacheTime = 0;
+              try {
+                localStorage.removeItem(LS_PRODUCTS_KEY);
+                localStorage.removeItem(LS_PRODUCTS_TIME_KEY);
+              } catch (_) {}
+              console.log('[Products] инвалидация кэша: склад был обновлён после кэша');
+              loadProducts();
+            }
+          }
+          return;
+        }
+
+        // Последующие обновления: reload только если это новее того,
+        // что мы уже видели (защита от повторных срабатываний из кэша SDK).
+        if (newTs <= lastSeen) return;
+        try { localStorage.setItem(LS_REVISION_SEEN_KEY, String(newTs)); } catch (_) {}
+
+        console.log('[Products] склад обновлён (' + (data.by || 'кем-то') +
+          ', товаров: ' + (data.changedCount || '?') + ') — обновляю кэш');
+
+        // Сбрасываем кэш и грузим свежие товары
+        productsCache = [];
+        productsCacheTime = 0;
+        try {
+          localStorage.removeItem(LS_PRODUCTS_KEY);
+          localStorage.removeItem(LS_PRODUCTS_TIME_KEY);
+        } catch (_) {}
+        loadProducts();
+      }, function (err) {
+        // Не падаем, просто логируем — кэш сработает по обычному 15-мин таймеру
+        console.warn('[Products] revision listener error:', err && (err.code || err.message));
+      });
+  } catch (e) {
+    console.warn('[Products] revision listener setup failed:', e && e.message);
+  }
+}
+
 // Загрузка товаров с мгновенным отображением из localStorage
 async function loadProducts() {
   try {
@@ -214,6 +296,11 @@ async function loadProducts() {
     if (typeof kerbenWaitForAuth === 'function') {
       try { await kerbenWaitForAuth(); } catch (e) {}
     }
+
+    // Стартуем real-time слушатель ревизии склада (idempotent — сам следит
+    // чтобы не подписаться дважды). Это делает изменения от warehouse-manager
+    // мгновенно видимыми на сайте, минуя 15-минутный «свежий» кэш.
+    startProductsRevisionListener();
 
     // 1) Проверяем in-memory кэш (самый быстрый)
     const now = Date.now();

@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.30.0-wm-main-warehouse-only'; // Управляющий складом видит и меняет остатки ТОЛЬКО главного склада. Закупочная цена скрыта. Все изменения пишутся в журнал stockChangeLog — админ может откатить любое.
+const CACHE_VERSION = 'kerben-v4.31.0-wm-batch-save'; // Управляющий копит изменения на панели и сохраняет одной кнопкой; после сохранения settings/productsRevision триггерит мгновенную инвалидацию кэша товаров на сайте (без ожидания 15-мин FRESH_DURATION).
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
