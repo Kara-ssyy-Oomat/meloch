@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.33.4-agent-autocomplete-fix'; // Агент: подсказки клиентов подгружаются из Firestore прямо в момент открытия формы заказа
+const CACHE_VERSION = 'kerben-v4.33.5-agent-merge-fix'; // Агент: при восстановлении из облака не затираем более свежие локальные записи клиентов
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

@@ -821,11 +821,14 @@
               const phone = d.phone || doc.id;
               const key = _normalizePhoneKey(phone);
               if (!key || !d.name) return;
+              // Для облачных записей без createdAt → 0 (очень старые),
+              // чтобы при мёрже они НЕ перезаписали более свежие локальные
+              // правки (например, если агент вручную поменял имя клиента).
               restored.set(key, {
                 name: d.name,
                 phone: phone,
                 address: d.address || '',
-                updatedAt: _tsToMs(d.createdAt) || Date.now()
+                updatedAt: _tsToMs(d.createdAt) || _tsToMs(d.updatedAt) || 0
               });
             });
           }
@@ -855,7 +858,7 @@
                   name: name,
                   phone: phone,
                   address: address,
-                  updatedAt: _tsToMs(d.updatedAt) || Date.now()
+                  updatedAt: _tsToMs(d.updatedAt) || 0
                 });
               })());
             });
