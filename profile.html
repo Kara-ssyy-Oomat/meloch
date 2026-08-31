@@ -1965,10 +1965,19 @@
           // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
           if (window.PersistProfile) window.PersistProfile.remove();
           try { localStorage.removeItem('customerData'); } catch(e) {}
+          // Сбрасываем только «метку агента» — иначе cart.html посчитает,
+          // что заказы оформляются агентом за клиента, и НЕ создаст
+          // customerData локально → после заказа профиль останется
+          // пустым и агент не сможет автоматически войти обратно.
+          // Список клиентов агента (agentClients / agentLastClient)
+          // оставляем — это локальный кэш автоподсказок; если агент
+          // снова войдёт как агент, подсказки не потеряются.
+          try { localStorage.removeItem('currentAgent'); } catch(e) {}
           sessionStorage.removeItem('profileHtmlCache');
           sessionStorage.clear();
           currentCustomer = null;
           isAdmin = false;
+          isAgent = false;
           showLoginForm();
         }
       });

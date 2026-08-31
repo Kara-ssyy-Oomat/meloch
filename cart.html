@@ -765,6 +765,121 @@
 
     function saveAgentLastClient(data) { saveAgentClient(data); }
 
+    // ---- Восстановление списка клиентов агента из Firestore ----
+    // Если localStorage.agentClients был потерян (очистили Chrome, новое
+    // устройство, iPad, приватный режим и т.п.) — подтягиваем клиентов,
+    // связанных с этим агентом, из облака и мёржим в localStorage.
+    // Источники:
+    //   1) customers.where(registeredByAgentId == agentId) — клиенты,
+    //      которых агент сам создал при оформлении заказа
+    //   2) clientAgents.where(agentId == agentId) — клиенты, назначенные
+    //      админом через admin-agents.html (там нет адреса → тянем
+    //      адрес из соответствующего customers-документа).
+    // Запускается один раз за вкладку/сессию (флаг в sessionStorage),
+    // фоново, чтобы не тормозить открытие корзины.
+    async function restoreAgentClientsFromCloud() {
+      try {
+        if (!isAgentUser()) return;
+        const agentInfo = getAgentInfo();
+        if (!agentInfo || !agentInfo.id) return;
+
+        const sessionKey = 'agentClientsSynced_' + agentInfo.id;
+        if (sessionStorage.getItem(sessionKey) === 'true') return;
+
+        if (typeof db === 'undefined' || !db) return;
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(); } catch(e) {}
+        }
+
+        const [customersSnap, clientAgentsSnap] = await Promise.all([
+          db.collection('customers')
+            .where('registeredByAgentId', '==', agentInfo.id)
+            .limit(500).get().catch(() => null),
+          db.collection('clientAgents')
+            .where('agentId', '==', agentInfo.id)
+            .limit(500).get().catch(() => null)
+        ]);
+
+        const restored = new Map(); // phoneKey → record
+
+        if (customersSnap) {
+          customersSnap.forEach(doc => {
+            const d = doc.data() || {};
+            const phone = d.phone || doc.id;
+            const key = _normalizePhoneKey(phone);
+            if (!key || !d.name) return;
+            restored.set(key, {
+              name: d.name,
+              phone: phone,
+              address: d.address || '',
+              updatedAt: d.createdAt || Date.now()
+            });
+          });
+        }
+
+        if (clientAgentsSnap && clientAgentsSnap.size > 0) {
+          const joinPromises = [];
+          clientAgentsSnap.forEach(doc => {
+            const d = doc.data() || {};
+            const phone = d.phone || doc.id;
+            const key = _normalizePhoneKey(phone);
+            if (!key) return;
+            if (restored.has(key)) return; // уже есть из customers — пропускаем
+            joinPromises.push((async () => {
+              let address = '';
+              let name = d.clientName || '';
+              try {
+                const cDoc = await db.collection('customers').doc(phone).get();
+                if (cDoc && cDoc.exists) {
+                  const cd = cDoc.data() || {};
+                  address = cd.address || '';
+                  if (!name) name = cd.name || '';
+                }
+              } catch(e) {}
+              if (!name) name = 'Клиент';
+              restored.set(key, {
+                name: name,
+                phone: phone,
+                address: address,
+                updatedAt: d.updatedAt || Date.now()
+              });
+            })());
+          });
+          await Promise.all(joinPromises);
+        }
+
+        if (restored.size === 0) {
+          sessionStorage.setItem(sessionKey, 'true');
+          return;
+        }
+
+        // Мёржим с текущим localStorage (более свежая запись побеждает)
+        const existing = getAgentClients();
+        const merged = new Map();
+        for (const c of existing) {
+          const k = _normalizePhoneKey(c.phone);
+          if (k) merged.set(k, c);
+        }
+        for (const [k, c] of restored.entries()) {
+          const cur = merged.get(k);
+          if (!cur || (c.updatedAt || 0) > (cur.updatedAt || 0)) {
+            merged.set(k, c);
+          }
+        }
+
+        const list = Array.from(merged.values())
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+          .slice(0, 500);
+        try { localStorage.setItem('agentClients', JSON.stringify(list)); } catch(e) {}
+
+        sessionStorage.setItem(sessionKey, 'true');
+        console.log('[Cart] Восстановлено клиентов агента из облака:',
+          restored.size, '(итого в списке:', list.length + ')');
+      } catch(e) {
+        console.warn('[Cart] Ошибка восстановления клиентов агента:', e && e.message);
+      }
+    }
+
     // ---- Поиск клиентов агента (для автоподсказок) ----
     // Умеет:
     //   • точное совпадение подстроки (fast path)
@@ -1911,6 +2026,9 @@
     
     document.addEventListener('DOMContentLoaded', () => {
       loadProducts();
+      // Фоново подтягиваем клиентов агента из Firestore, если localStorage
+      // был очищен (новое устройство / очистка Chrome). Один раз за сессию.
+      try { restoreAgentClientsFromCloud(); } catch(e) {}
     });
 
     // Слушаем сообщение от родителя для обновления корзины при повторном открытии
