@@ -1959,6 +1959,30 @@
         //     от номера — но для клиента, введённого агентом, пусть клиент
         //     сам зарегистрируется, если захочет).
         const _isPlacedByAgent = !!agentInfo;
+
+        // ═══════════════════════════════════════════════════════════
+        // ВАЖНО: сохраняем customerData в localStorage ПЕРВЫМ ДЕЛОМ,
+        // ДО любых Firestore-вызовов. Иначе если Firestore недоступен
+        // (permission-denied, оффлайн, квота исчерпана и т.п.) — код
+        // ниже упадёт в catch, и профиль клиента останется несохранён.
+        // Тогда пользователь после заказа не сможет автоматически
+        // войти в личный кабинет.
+        // ═══════════════════════════════════════════════════════════
+        if (!_isPlacedByAgent) {
+          try {
+            const _localPhone = phone.replace(/[^\d+]/g, '');
+            const _nPhoneLocal = _localPhone.startsWith('0') ? '+996' + _localPhone.substring(1) :
+                                 _localPhone.startsWith('+') ? _localPhone :
+                                 _localPhone.startsWith('996') ? '+' + _localPhone : '+996' + _localPhone;
+            const customerDataForProfile = {
+              id: _nPhoneLocal, name, phone: _nPhoneLocal, address: address || '', createdAt: Date.now()
+            };
+            localStorage.setItem('customerData', JSON.stringify(customerDataForProfile));
+            if (window.PersistProfile) window.PersistProfile.save(customerDataForProfile);
+            console.log('[Cart] customerData сохранён локально (до Firestore-попыток)');
+          } catch(e) { console.warn('[Cart] локальное сохранение customerData:', e && e.message); }
+        }
+
         (async function _bgCustomerReg() {
           try {
             const normalizedPhone = phone.replace(/[^\d+]/g, '');
