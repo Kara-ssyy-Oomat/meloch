@@ -1519,18 +1519,16 @@
         if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
           submitBtn.textContent = '⏳ Отправка заказа...';
           try {
-            // ЖЁСТКИЙ ТАЙМАУТ 1.5 сек: клиент НЕ должен ждать долго перед
-            // отправкой. Если проверка не успела — уезжаем как есть,
-            // CF на сервере защитит склад через Math.min(available, need).
-            // Раньше было 3с — на медленной сети клиенты видели «Отправка…»
-            // слишком долго и заказ иногда не успевал пройти до закрытия
-            // вкладки (уходил в offline queue → приходил только при
-            // следующем визите).
+            // Fresh-check ДО отправки заказа. Раньше был hard-таймаут 1.5с:
+            // если Firestore медленный → заказ уходил на устаревших данных →
+            // склад показывал 0, но клиент отправлял 340шт → CF писала
+            // OVERSELL. Теперь таймаут 4с (запас) + fallback: если Firestore
+            // не ответил, помечаем как unfulfilled чтобы админ не потерял.
             const freshDocsP = Promise.all(
               cart.map(item => db.collection('products').doc(item.id).get())
             );
             const freshTimeoutP = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 1500)
+              setTimeout(() => reject(new Error('__FRESH_CHECK_TIMEOUT__')), 4000)
             );
             const freshDocs = await Promise.race([freshDocsP, freshTimeoutP]);
             const summaryLinesHtml = [];

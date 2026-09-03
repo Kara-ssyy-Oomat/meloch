@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.33.6-profile-save-fix'; // Профиль клиента сохраняется локально ДО Firestore-попыток — работает даже когда Firestore недоступен (квота/403/оффлайн)
+const CACHE_VERSION = 'kerben-v4.34.0-stock-shortage-fix'; // Склад: параллельное списание, детекция OVERSELL, баннер shortage у админа, увеличен fresh-check timeout
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

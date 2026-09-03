@@ -72,6 +72,8 @@ async function _claimOrderForStockDeduction(orderRef) {
     // при частичном сбое флаг уже true, а часть товаров ещё не списана —
     // retry должен досписывать оставшиеся (по stockDeductionProcessedIds).
     if (d.stockDeductionStatus === 'done'
+        || d.stockDeductionStatus === 'done_with_shortage'
+        || d.stockDeductionStatus === 'shortage'
         || d.stockDeductionStatus === 'skipped'
         || d.stockDeductionStatus === 'skipped_cancelled'
         || d.stockDeductionStatus === 'skipped_unfulfilled') {
@@ -116,53 +118,51 @@ async function _claimOrderForStockDeduction(orderRef) {
  */
 async function _deductOneProduct(productId, needQty, ctx, meta) {
   const need = Math.max(0, Math.floor(needQty || 0));
-  if (!productId || need <= 0) return null;
+  if (!productId || need <= 0) return { deductions: null, shortage: 0, productExists: !!productId };
 
   const productRef = db.collection('products').doc(productId);
   meta = meta || {};
 
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(productRef);
-    if (!snap.exists) return null;
+    if (!snap.exists) {
+      return { deductions: null, shortage: need, productExists: false, reason: 'product_deleted' };
+    }
     const product = snap.data() || {};
 
-    if (typeof product.stock !== 'number' || !isFinite(product.stock)) return null;
+    if (typeof product.stock !== 'number' || !isFinite(product.stock)) {
+      return { deductions: null, shortage: 0, productExists: true, reason: 'no_stock_tracking' };
+    }
 
     const ws = product.warehouseStock;
     const hasWarehouseSetup = ws && typeof ws === 'object' && Object.keys(ws).length > 0;
 
     // Защитная сеть: если товар распродан (stock<=0) и склад не разбит по
     // warehouseStock — пропускаем списание (не уходим в отрицательный сток).
-    // На клиенте getEffectiveStock() теперь блокирует такие товары, но
-    // на случай race-condition (два заказа одновременно на последнюю единицу)
-    // или устаревшего кэша у клиента — тут финальный барьер.
     if (product.stock <= 0 && !hasWarehouseSetup) {
-      console.warn('[StockDeduct] skip productId=' + productId +
-        ' — stock уже 0 без warehouseStock (возможен oversell). need=' + need);
-      return null;
+      console.warn('[StockDeduct] OVERSELL productId=' + productId +
+        ' — stock уже 0 без warehouseStock. need=' + need);
+      return { deductions: null, shortage: need, productExists: true, reason: 'out_of_stock' };
     }
 
     // Глобальная пауза всей системы складов → безлимит, не списываем.
-    // Пауза ОДНОГО склада больше не делает товар безлимитным и не
-    // отменяет списание с другого (главного) склада.
-    if (ctx.warehousePaused) return null;
+    if (ctx.warehousePaused) {
+      return { deductions: null, shortage: 0, productExists: true, reason: 'warehouse_paused' };
+    }
 
     const title = product.title || meta.productTitle || '';
 
     if (!hasWarehouseSetup) {
       // Защита от ухода stock в минус: списываем только то что реально есть.
-      // Если клиент заказал больше — логируем oversell, но stock не станет
-      // отрицательным.
       const available = Math.max(0, Math.floor(product.stock));
       const actualDeduct = Math.min(available, need);
-      if (actualDeduct < need) {
+      const shortage = need - actualDeduct;
+      if (shortage > 0) {
         console.warn('[StockDeduct] OVERSELL productId=' + productId +
-          ' need=' + need + ' available=' + available +
-          ' shortfall=' + (need - actualDeduct));
+          ' need=' + need + ' available=' + available + ' shortfall=' + shortage);
       }
       if (actualDeduct <= 0) {
-        // Ничего не осталось для списания — просто выходим.
-        return null;
+        return { deductions: null, shortage: need, productExists: true, reason: 'out_of_stock' };
       }
       tx.update(productRef, {
         stock: admin.firestore.FieldValue.increment(-actualDeduct)
@@ -188,7 +188,13 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
           createdAtMs: Date.now()
         });
       }
-      return {};
+      return {
+        deductions: {},
+        shortage,
+        productExists: true,
+        reason: shortage > 0 ? 'partial_stock' : 'ok',
+        actualDeduct
+      };
     }
 
     let remaining = need;
@@ -222,14 +228,12 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
     }
 
     // Если складов не хватило (oversell / гонка) — НЕ уводим ни один склад
-    // в отрицательный остаток. Просто логируем, что реально списали меньше
-    // чем заказано. itemDeductions уже содержит только то что реально ушло
-    // со складов — правильно для возврата при отмене.
-    if (remaining > 0) {
+    // в отрицательный остаток. Просто логируем, что реально списали меньше.
+    const shortage = remaining > 0 ? remaining : 0;
+    if (shortage > 0) {
       console.warn('[StockDeduct] OVERSELL productId=' + productId +
-        ' need=' + need + ' shortfall=' + remaining +
+        ' need=' + need + ' shortfall=' + shortage +
         ' (склады до списания: ' + JSON.stringify(ws) + ')');
-      // remaining оставляем > 0 только для лога — списывать больше нечего.
     }
 
     const newTotal = Object.values(updatedWs).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -262,7 +266,12 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
         });
       }
     }
-    return itemDeductions;
+    return {
+      deductions: itemDeductions,
+      shortage,
+      productExists: true,
+      reason: shortage > 0 ? (Object.keys(itemDeductions).length === 0 ? 'out_of_stock' : 'partial_stock') : 'ok'
+    };
   });
 }
 
@@ -360,62 +369,117 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     address: orderData.address || ''
   };
 
-  // Последовательно — транзакции Firestore; надёжнее параллели при лимитах
+  // Собираем недосписания — админ увидит их в интерфейсе.
+  // Если orderData уже имеет прошлые shortages (после retry) — сохраняем.
+  const shortages = Array.isArray(orderData.stockDeductionShortages)
+    ? orderData.stockDeductionShortages.slice() : [];
+  const shortageIds = new Set(shortages.map(s => s && s.productId).filter(Boolean));
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // ПАРАЛЛЕЛЬНАЯ обработка товаров с ограничением concurrency=5.
+  // Раньше был sequential for-of → заказ из 10 позиций = 10 транзакций
+  // подряд = 5-10 сек. Теперь идут по 5 одновременно = в разы быстрее.
+  // Транзакция сама повторяется при конфликте по документу — параллель
+  // безопасна.
+  // ═════════════════════════════════════════════════════════════════════════
+  const CONCURRENCY = 5;
+  const queue = items.filter(i => i && i.id && !processedIds.has(i.id));
+  const results = new Map(); // itemId -> { deductions, shortage, reason, productTitle }
+
+  async function worker() {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) return;
+      const qty = Math.max(0, Math.floor(item.qty || 0));
+      if (qty <= 0) {
+        results.set(item.id, { deductions: null, shortage: 0, reason: 'zero_qty', productTitle: item.title || '' });
+        continue;
+      }
+      try {
+        const res = await _deductOneProduct(item.id, qty, ctx, Object.assign({}, meta, {
+          productTitle: item.title || ''
+        }));
+        results.set(item.id, Object.assign({ productTitle: item.title || '', requested: qty }, res));
+      } catch (e) {
+        results.set(item.id, { error: e, productTitle: item.title || '', requested: qty });
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker()));
+
+  // Собираем batch-обновление, чтобы не делать N update() последовательно
+  const batchUpdate = {};
+  const newProcessed = [];
+  const newDeducted = [];
+  let anyError = null;
+
   for (const item of items) {
     if (!item || !item.id) continue;
     if (processedIds.has(item.id)) continue;
-    const qty = Math.max(0, Math.floor(item.qty || 0));
-    if (qty <= 0) {
-      processedIds.add(item.id);
-      await orderRef.update({
-        stockDeductionProcessedIds: admin.firestore.FieldValue.arrayUnion(item.id)
-      }).catch(() => {});
-      continue;
-    }
-    try {
-      const ded = await _deductOneProduct(item.id, qty, ctx, Object.assign({}, meta, {
-        productTitle: item.title || ''
-      }));
-      processedIds.add(item.id);
-      if (ded === null) {
-        // Товар без учёта / пауза — только прогресс, без списания
-        await orderRef.update({
-          stockDeductionProcessedIds: admin.firestore.FieldValue.arrayUnion(item.id)
-        });
-        continue;
-      }
+    const res = results.get(item.id);
+    if (!res) continue;
+    if (res.error) { anyError = res.error; continue; }
+
+    newProcessed.push(item.id);
+    processedIds.add(item.id);
+
+    const { deductions, shortage, reason, productTitle, requested } = res;
+
+    if (deductions && Object.keys(deductions).length > 0) {
       anyDeducted = true;
       deductedIds.add(item.id);
-      if (ded && Object.keys(ded).length > 0) {
-        warehouseDeductions[item.id] = ded;
-        await orderRef.update({
-          stockDeductionProcessedIds: admin.firestore.FieldValue.arrayUnion(item.id),
-          stockDeductedProductIds: admin.firestore.FieldValue.arrayUnion(item.id),
-          [`warehouseDeductions.${item.id}`]: ded,
-          stockDeducted: true
-        });
-      } else {
-        // Списали только общий stock без разбивки по складам
-        await orderRef.update({
-          stockDeductionProcessedIds: admin.firestore.FieldValue.arrayUnion(item.id),
-          stockDeductedProductIds: admin.firestore.FieldValue.arrayUnion(item.id),
-          stockDeducted: true
-        });
-      }
-    } catch (e) {
-      console.error(`[StockDeduct] товар ${item.id}:`, e.message);
-      await orderRef.update({
-        stockDeductionStatus: 'failed',
-        stockDeductionError: String(e.message || e).slice(0, 500),
-        stockDeductionFinishedAt: Date.now(),
-        warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
-      }).catch(() => {});
-      throw e;
+      newDeducted.push(item.id);
+      warehouseDeductions[item.id] = deductions;
+      batchUpdate[`warehouseDeductions.${item.id}`] = deductions;
+    } else if (deductions !== null && reason === 'ok') {
+      // Списали только общий stock (без warehouseStock)
+      anyDeducted = true;
+      deductedIds.add(item.id);
+      newDeducted.push(item.id);
     }
+
+    if (shortage > 0 && !shortageIds.has(item.id)) {
+      shortages.push({
+        productId: item.id,
+        productTitle: productTitle || '',
+        requested: requested || 0,
+        deducted: (requested || 0) - shortage,
+        shortage,
+        reason: reason || 'unknown'
+      });
+      shortageIds.add(item.id);
+    }
+  }
+
+  if (anyError) {
+    console.error(`[StockDeduct] товар ошибка:`, anyError.message);
+    await orderRef.update({
+      stockDeductionStatus: 'failed',
+      stockDeductionError: String(anyError.message || anyError).slice(0, 500),
+      stockDeductionFinishedAt: Date.now(),
+      warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
+    }).catch(() => {});
+    throw anyError;
+  }
+
+  // Один update() на все прогресс-поля
+  if (newProcessed.length > 0 || newDeducted.length > 0 || Object.keys(batchUpdate).length > 0) {
+    const upd = Object.assign({}, batchUpdate);
+    if (newProcessed.length > 0) {
+      upd.stockDeductionProcessedIds = admin.firestore.FieldValue.arrayUnion(...newProcessed);
+    }
+    if (newDeducted.length > 0) {
+      upd.stockDeductedProductIds = admin.firestore.FieldValue.arrayUnion(...newDeducted);
+      upd.stockDeducted = true;
+    }
+    await orderRef.update(upd).catch(err => {
+      console.warn('[StockDeduct] batch update:', err.message);
+    });
   }
 
   // Финализация: если заказ уже отменили — вернём то, что списали
   let needReturn = false;
+  const hasShortage = shortages.length > 0;
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(orderRef);
     if (!snap.exists) return;
@@ -425,23 +489,37 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
 
     const finalDeductions = Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null;
 
+    // Финальный статус:
+    //   'done'              — всё списано без проблем
+    //   'done_with_shortage'— часть списана, но были OVERSELL — АДМИН ДОЛЖЕН ВИДЕТЬ!
+    //   'shortage'          — вообще ничего не списали, все товары OVERSELL
+    //   'skipped'           — списывать было нечего (без учёта склада)
+    let finalStatus;
     if (_isCancelledStatus(d.status)) {
-      tx.update(orderRef, {
-        stockDeducted: anyDeducted,
-        stockDeductionStatus: anyDeducted ? 'done' : 'skipped',
-        warehouseDeductions: finalDeductions,
-        stockDeductionFinishedAt: Date.now()
-      });
-      needReturn = anyDeducted;
-      return;
+      finalStatus = anyDeducted ? 'done' : 'skipped';
+    } else if (anyDeducted && hasShortage) {
+      finalStatus = 'done_with_shortage';
+    } else if (!anyDeducted && hasShortage) {
+      finalStatus = 'shortage';
+    } else {
+      finalStatus = anyDeducted ? 'done' : 'skipped';
     }
 
-    tx.update(orderRef, {
+    const upd = {
       stockDeducted: anyDeducted,
-      stockDeductionStatus: anyDeducted ? 'done' : 'skipped',
+      stockDeductionStatus: finalStatus,
       warehouseDeductions: finalDeductions,
       stockDeductionFinishedAt: Date.now()
-    });
+    };
+    if (hasShortage) {
+      upd.stockDeductionShortages = shortages;
+      upd.stockDeductionHasShortage = true;
+    }
+
+    if (_isCancelledStatus(d.status)) {
+      needReturn = anyDeducted;
+    }
+    tx.update(orderRef, upd);
   });
 
   if (needReturn) {
@@ -508,6 +586,8 @@ exports.deductStockOnOrderCreate = functions
     // Только полностью завершённые статусы — выход.
     // stockDeducted===true без done — частичный прогресс, его дожимает retry.
     if (data.stockDeductionStatus === 'done'
+        || data.stockDeductionStatus === 'done_with_shortage'
+        || data.stockDeductionStatus === 'shortage'
         || data.stockDeductionStatus === 'skipped'
         || data.stockDeductionStatus === 'skipped_cancelled'
         || data.stockDeductionStatus === 'skipped_unfulfilled') {

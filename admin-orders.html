@@ -749,6 +749,30 @@ function createOrderCard(order, index) {
         </div>
         ` : '')}
 
+        ${_orderShortages(order).length > 0 ? `
+        <!-- Баннер: списание прошло не полностью (OVERSELL) -->
+        <div style="background:#ffebee; border-left:4px solid #c62828; padding:10px 12px; border-radius:6px; margin-bottom:10px;">
+          <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:6px;">
+            ⚠️ Со склада не хватило товара!
+            <span style="font-size:11px; font-weight:400; color:#999;">
+              (${order.stockDeductionStatus === 'done_with_shortage' ? 'часть списана' : 'ничего не списано'})
+            </span>
+          </div>
+          <div style="font-size:12px; color:#555; line-height:1.6; margin-bottom:6px;">
+            ${_orderShortages(order).map(sh => {
+              const t = (sh.productTitle || sh.productId || '—').toString().replace(/</g, '&lt;');
+              const need = sh.requested || 0;
+              const got = sh.deducted || 0;
+              const miss = sh.shortage || 0;
+              return `• <b>${t}</b> — заказано ${need}, списано ${got}, <span style="color:#c62828;">не хватило ${miss}</span>`;
+            }).join('<br>')}
+          </div>
+          <div style="font-size:11px; color:#795548;">
+            💡 Клиент видел товар в наличии из-за устаревшего кэша. Свяжись с клиентом или пополни склад и нажми «Списать» ниже.
+          </div>
+        </div>
+        ` : ''}
+
         ${_shouldOfferManualStockDeduct(order) ? `
         <!-- Баннер: заказ НЕ списан со склада — предлагаем списать вручную -->
         <div style="background:#fffde7; border-left:4px solid #fbc02d; padding:10px 12px; border-radius:6px; margin-bottom:10px;">
@@ -757,6 +781,7 @@ function createOrderCard(order, index) {
             <span style="font-size:11px; color:#999; font-weight:400;">
               (${order.stockDeductionStatus === 'skipped_unfulfilled' ? 'все товары были распроданы'
                 : order.stockDeductionStatus === 'skipped' ? 'склад был на паузе или без учёта'
+                : order.stockDeductionStatus === 'shortage' ? 'все товары уже распроданы на складе'
                 : 'списание не выполнялось'})
             </span>
           </div>
@@ -1675,13 +1700,23 @@ function _shouldOfferManualStockDeduct(order) {
   if (!order) return false;
   if (order.deleted) return false;
   if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return false;
-  if (order.stockDeducted === true) return false;
   const st = order.stockDeductionStatus;
   if (st === 'processing') return false;
   if (st === 'done') return false;
-  // Показываем для: skipped, skipped_unfulfilled, skipped_cancelled (странно, но
-  // если статус изменили обратно из cancelled), failed, pending (застряло), undefined
+  // 'done_with_shortage' — часть списана, часть нет. Кнопка бесполезна
+  // (админ должен решать в ручную), но баннер shortage покажем отдельно.
+  if (st === 'done_with_shortage') return false;
+  if (order.stockDeducted === true && !order.stockDeductionHasShortage) return false;
+  // Показываем для: skipped, shortage (всё пропало), skipped_unfulfilled,
+  // skipped_cancelled, failed, pending (застряло), undefined
   return true;
+}
+
+// НОВЫЙ: показывать баннер с недостачей (shortage) — товар был в заказе,
+// но склад не смог его выдать (реально был 0 в момент списания).
+function _orderShortages(order) {
+  if (!order) return [];
+  return Array.isArray(order.stockDeductionShortages) ? order.stockDeductionShortages : [];
 }
 
 async function manuallyDeductOrderStock(orderId) {
