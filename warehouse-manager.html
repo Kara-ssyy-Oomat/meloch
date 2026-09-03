@@ -1371,6 +1371,13 @@ async function saveAllPendingChanges() {
             : Math.max(0, Math.floor(Number(data.stock) || 0));
           const next = Math.max(0, cur + change.delta);
           patch['warehouseStock.' + _primaryWarehouseId] = next;
+          // Синхронизируем общий stock = сумма по всем складам, чтобы админ-
+          // статистика не расходилась с warehouseStock.
+          const wsCopy = Object.assign({}, ws || {});
+          wsCopy[_primaryWarehouseId] = next;
+          patch.stock = Object.values(wsCopy).reduce(function (s, v) {
+            return s + (Math.max(0, Math.floor(Number(v) || 0)));
+          }, 0);
           realOld = cur; realNew = next;
           warehouseUsed = _primaryWarehouseId;
         } else if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
@@ -1379,6 +1386,11 @@ async function saveAllPendingChanges() {
           const cur = Math.max(0, Math.floor(Number(ws[targetWh]) || 0));
           const next = Math.max(0, cur + change.delta);
           patch['warehouseStock.' + targetWh] = next;
+          const wsCopy = Object.assign({}, ws);
+          wsCopy[targetWh] = next;
+          patch.stock = Object.values(wsCopy).reduce(function (s, v) {
+            return s + (Math.max(0, Math.floor(Number(v) || 0)));
+          }, 0);
           realOld = cur; realNew = next;
           warehouseUsed = targetWh;
         } else {
