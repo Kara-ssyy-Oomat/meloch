@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.34.0-stock-shortage-fix'; // Склад: параллельное списание, детекция OVERSELL, баннер shortage у админа, увеличен fresh-check timeout
+const CACHE_VERSION = 'kerben-v4.34.1-stock-statuses-fix'; // Склад v4.34.1: admin-warehouse realtime не зависает на новых статусах, cancel-flow не ждёт 6с при shortage, rules защищают shortage-поля
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

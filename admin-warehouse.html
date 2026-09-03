@@ -1293,7 +1293,13 @@ function startOrdersRealtimeListener() {
 const CF_STATUS_WAIT_TIMEOUT_MS = 30000;
 
 // Финальные статусы CF — при них уже точно можно читать products
-const CF_TERMINAL_OK_STATUSES = new Set(['done', 'skipped', 'skipped_cancelled']);
+// 'done_with_shortage' — часть товаров списана, часть нет (OVERSELL)
+// 'shortage' — ничего не списали, все OVERSELL
+// 'skipped_unfulfilled' — заказ пришёл когда все товары были распроданы
+const CF_TERMINAL_OK_STATUSES = new Set([
+  'done', 'done_with_shortage', 'shortage',
+  'skipped', 'skipped_cancelled', 'skipped_unfulfilled'
+]);
 const CF_TERMINAL_FAIL_STATUSES = new Set(['failed']);
 
 async function _handleNewOrderRealtime(orderDoc) {

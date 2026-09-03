@@ -419,6 +419,8 @@ service cloud.firestore {
           && fieldUnchanged('stockDeductionError')
           && fieldUnchanged('stockDeductedProductIds')
           && fieldUnchanged('stockDeductionProcessedIds')
+          && fieldUnchanged('stockDeductionShortages')
+          && fieldUnchanged('stockDeductionHasShortage')
           && (
             !('status' in request.resource.data)
             || request.resource.data.status == resource.data.status
@@ -473,6 +475,10 @@ service cloud.firestore {
           !('stockDeducted' in request.resource.data)
           || request.resource.data.stockDeducted == false
         )
+        // Клиент не должен подделывать shortage-поля — их устанавливает
+        // только Cloud Function после реального списания.
+        && !('stockDeductionShortages' in request.resource.data)
+        && !('stockDeductionHasShortage' in request.resource.data)
         && !isPhoneBlocked(request.resource.data.phone);
     }
 

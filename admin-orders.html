@@ -1533,8 +1533,11 @@ async function returnStockFromOrder(orderData) {
           Object.assign(orderData, d);
           if (orderData.stockDeducted === true
               || orderData.stockDeductionStatus === 'done'
+              || orderData.stockDeductionStatus === 'done_with_shortage'
+              || orderData.stockDeductionStatus === 'shortage'
               || orderData.stockDeductionStatus === 'skipped'
-              || orderData.stockDeductionStatus === 'skipped_cancelled') {
+              || orderData.stockDeductionStatus === 'skipped_cancelled'
+              || orderData.stockDeductionStatus === 'skipped_unfulfilled') {
             break;
           }
         } catch (e) { break; }
@@ -1545,7 +1548,9 @@ async function returnStockFromOrder(orderData) {
   // Если при оформлении заказа товары не списывались — не возвращаем
   if (orderData.stockDeducted === false) return;
   if (orderData.stockDeductionStatus === 'skipped'
-      || orderData.stockDeductionStatus === 'skipped_cancelled') return;
+      || orderData.stockDeductionStatus === 'skipped_cancelled'
+      || orderData.stockDeductionStatus === 'skipped_unfulfilled'
+      || orderData.stockDeductionStatus === 'shortage') return;
 
   // Проверяем: если stockDeducted === true, значит товары БЫЛИ списаны,
   // и мы ОБЯЗАНЫ их вернуть — даже если сейчас склады на паузе.
