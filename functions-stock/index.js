@@ -266,11 +266,13 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
         });
       }
     }
+    const totalDeducted = Object.values(itemDeductions).reduce((s, v) => s + (Number(v) || 0), 0);
     return {
       deductions: itemDeductions,
       shortage,
       productExists: true,
-      reason: shortage > 0 ? (Object.keys(itemDeductions).length === 0 ? 'out_of_stock' : 'partial_stock') : 'ok'
+      actualDeduct: totalDeducted,
+      reason: shortage > 0 ? (totalDeducted === 0 ? 'out_of_stock' : 'partial_stock') : 'ok'
     };
   });
 }
@@ -423,16 +425,19 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     newProcessed.push(item.id);
     processedIds.add(item.id);
 
-    const { deductions, shortage, reason, productTitle, requested } = res;
+    const { deductions, shortage, reason, productTitle, requested, actualDeduct } = res;
 
-    if (deductions && Object.keys(deductions).length > 0) {
-      anyDeducted = true;
-      deductedIds.add(item.id);
-      newDeducted.push(item.id);
+    // Что-то реально ушло со склада (в warehouseStock ИЛИ общий stock)?
+    const deductedFromWarehouse = deductions && Object.keys(deductions).length > 0;
+    const deductedFromCommon = deductions && Object.keys(deductions).length === 0
+      && typeof actualDeduct === 'number' && actualDeduct > 0;
+    const wasDeducted = deductedFromWarehouse || deductedFromCommon;
+
+    if (deductedFromWarehouse) {
       warehouseDeductions[item.id] = deductions;
       batchUpdate[`warehouseDeductions.${item.id}`] = deductions;
-    } else if (deductions !== null && reason === 'ok') {
-      // Списали только общий stock (без warehouseStock)
+    }
+    if (wasDeducted) {
       anyDeducted = true;
       deductedIds.add(item.id);
       newDeducted.push(item.id);
