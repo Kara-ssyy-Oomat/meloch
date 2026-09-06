@@ -1805,7 +1805,15 @@
       // Восстанавливаем бейджи после пересоздания DOM
       if (isAdmin) applyBadgeCounts();
 
-      _loadWmPanelForCustomer(currentCustomer && currentCustomer.phone);
+      // Если уже знаем что WM approved — сразу рисуем панель без async-запроса
+      if (_wmApproved) {
+        _renderApprovedWmPanel();
+      }
+      // Загружаем актуальный статус WM только один раз за сессию
+      if (!_wmCheckDone) {
+        _wmCheckDone = true;
+        _loadWmPanelForCustomer(currentCustomer && currentCustomer.phone);
+      }
       
       // Сохраняем HTML в кэш для мгновенной загрузки
       try {
@@ -1814,7 +1822,12 @@
     }
     
     // ==================== ПАНЕЛЬ УПРАВЛЯЮЩЕГО СКЛАДОМ ====================
+    let _wmApproved = false;
+    let _wmCheckDone = false;
+    try { _wmApproved = sessionStorage.getItem('wmApproved') === 'true'; } catch(e) {}
+
     function _getWmMenuItemHtml() {
+      if (_wmApproved) return '';
       return `
           <div class="menu-item" id="wmSignupMenuItem" onclick="navigateTop('warehouse-manager-signup.html')">
             <div class="menu-item-left">
@@ -1830,6 +1843,8 @@
     }
 
     function _renderApprovedWmPanel() {
+      _wmApproved = true;
+      try { sessionStorage.setItem('wmApproved', 'true'); } catch(e) {}
       const wrap = document.getElementById('wmProfilePanelWrap');
       if (!wrap) return;
       wrap.innerHTML =
@@ -1865,6 +1880,9 @@
               });
             }
           } catch (e) {}
+        } else {
+          _wmApproved = false;
+          try { sessionStorage.setItem('wmApproved', 'false'); } catch(e) {}
         }
       } catch (e) {
         console.warn('[profile] wm panel:', e);
