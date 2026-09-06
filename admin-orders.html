@@ -1612,77 +1612,97 @@ async function returnStockFromOrder(orderData) {
     } catch(e) {}
   }
 
-  const batch = db.batch();
-
   const allProductIds = new Set();
   items.forEach(i => { if (i.id) allProductIds.add(i.id); });
   Object.keys(deductions).forEach(pid => allProductIds.add(pid));
 
   const productIds = [...allProductIds];
-  const productDocs = await Promise.all(
-    productIds.map(pid => db.collection('products').doc(pid).get())
-  );
+  const orderId = orderData.id || (orderData._orderRef && orderData._orderRef.id) || '';
 
-  for (let idx = 0; idx < productIds.length; idx++) {
-    const productId = productIds[idx];
-    const productDoc = productDocs[idx];
-    if (!productDoc.exists) continue;
-    const product = productDoc.data();
-    
-    const hasStock = typeof product.stock === 'number';
-    const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
+  // Каждый товар обрабатываем в отдельной транзакции — защита от гонки
+  // с Cloud Function (deductStockOnOrderCreate), которая может
+  // одновременно писать в тот же product document.
+  for (const productId of productIds) {
+    const productRef = db.collection('products').doc(productId);
     const itemDed = deductions[productId];
     const hasDeductions = itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0;
-    if (!hasStock && !hasWarehouse && !hasDeductions) continue;
-    
-    const ws = product.warehouseStock || {};
     const item = items.find(i => i.id === productId);
+
     let returnQty = 0;
+    let returnWhId = '';
 
     if (hasDeductions) {
-      for (const [whId, qty] of Object.entries(itemDed)) {
-        if (!globalPausedNow && pausedWhIds.has(whId)) {
-          // Склад на индивидуальной паузе — ищем фоллбэк
-          const fallbackWh = primaryWhId && !pausedWhIds.has(primaryWhId)
-            ? primaryWhId
-            : Object.keys(ws).find(id => !pausedWhIds.has(id)) || null;
-          if (fallbackWh) {
-            ws[fallbackWh] = (ws[fallbackWh] || 0) + qty;
-            returnQty += qty;
+      // Есть разбивка по складам — транзакция
+      await db.runTransaction(async (tx) => {
+        const productDoc = await tx.get(productRef);
+        if (!productDoc.exists) return;
+        const product = productDoc.data() || {};
+        const hasStock = typeof product.stock === 'number';
+        const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
+        if (!hasStock && !hasWarehouse && !hasDeductions) return;
+
+        const ws = { ...(product.warehouseStock || {}) };
+        returnQty = 0;
+
+        for (const [whId, qty] of Object.entries(itemDed)) {
+          if (!globalPausedNow && pausedWhIds.has(whId)) {
+            const fallbackWh = primaryWhId && !pausedWhIds.has(primaryWhId)
+              ? primaryWhId
+              : Object.keys(ws).find(id => !pausedWhIds.has(id)) || null;
+            if (fallbackWh) {
+              ws[fallbackWh] = (ws[fallbackWh] || 0) + qty;
+              returnQty += qty;
+            }
+            continue;
           }
-          continue;
+          ws[whId] = (ws[whId] || 0) + qty;
+          returnQty += qty;
         }
-        ws[whId] = (ws[whId] || 0) + qty;
-        returnQty += qty;
-      }
+
+        if (returnQty > 0) {
+          const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+          tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+        }
+      });
+      returnWhId = Object.keys(itemDed)[0] || '';
+
     } else if (item && item.qty > 0) {
       returnQty = item.qty;
       if (primaryWhId) {
         if (!globalPausedNow && pausedWhIds.has(primaryWhId)) continue;
-        ws[primaryWhId] = (ws[primaryWhId] || 0) + returnQty;
+
+        await db.runTransaction(async (tx) => {
+          const productDoc = await tx.get(productRef);
+          if (!productDoc.exists) return;
+          const product = productDoc.data() || {};
+          const hasStock = typeof product.stock === 'number';
+          const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
+          if (!hasStock && !hasWarehouse) return;
+
+          const ws = { ...(product.warehouseStock || {}) };
+          ws[primaryWhId] = (ws[primaryWhId] || 0) + returnQty;
+          const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+          tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+        });
+        returnWhId = primaryWhId;
       } else {
-        batch.update(db.collection('products').doc(productId), {
+        // Нет складов — атомарный increment (уже безопасен)
+        await productRef.update({
           stock: firebase.firestore.FieldValue.increment(returnQty)
         });
-        continue;
+        returnWhId = '';
       }
     }
 
+    // Движение по складу
     if (returnQty > 0) {
-      const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-      batch.update(db.collection('products').doc(productId), { 
-        warehouseStock: ws, 
-        stock: newTotal 
-      });
-
-      const returnWhId = (hasDeductions ? Object.keys(itemDed)[0] : primaryWhId) || '';
-      const orderId = orderData.id || (orderData._orderRef && orderData._orderRef.id) || '';
       const movRef = db.collection('warehouseMovements').doc(
         orderId ? `return_${orderId}_${productId}` : undefined
       );
-      batch.set(movRef, {
+      const productTitle = item ? item.title : '';
+      await movRef.set({
         productId,
-        productTitle: item ? item.title : product.title || '',
+        productTitle,
         warehouseId: returnWhId,
         warehouseName: '',
         type: 'return',
@@ -1708,19 +1728,16 @@ async function returnStockFromOrder(orderData) {
   // никогда не спишутся снова, а на складе они уже возвращены → минус в учёте.
   // Сбрасывая эти поля, мы разрешаем повторное списание через CF при разотмене.
   if (orderData._orderRef) {
-    batch.update(orderData._orderRef, {
+    await orderData._orderRef.update({
       warehouseDeductions: {},
       stockDeducted: false,
       stockDeductedProductIds: [],
       stockDeductionProcessedIds: [],
-      // stockDeductionStatus/finishedAt стираем, чтобы CF не сочла «уже done»
       stockDeductionStatus: firebase.firestore.FieldValue.delete(),
       stockDeductionFinishedAt: firebase.firestore.FieldValue.delete(),
       stockDeductionError: firebase.firestore.FieldValue.delete()
     });
   }
-
-  await batch.commit();
 }
 
 // ============================================================================
