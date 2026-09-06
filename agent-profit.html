@@ -1457,6 +1457,37 @@
               .catch(function (err) { console.warn('[Profit] placedByAgentId query:', err && err.message); return null; })
           );
         }
+
+        // 4-й источник: привязка клиента к агенту через clientAgents.
+        // agent-delivery.html использует эту коллекцию, и без неё
+        // цифры «Список доставки» и «Моя прибыль» расходятся.
+        // Схема: clientAgents → список телефонов → запрос orders по phone.
+        let clientPhones = [];
+        if (currentAgent.id) {
+          try {
+            const caSnap = await db.collection('clientAgents')
+              .where('agentId', '==', currentAgent.id)
+              .limit(200).get();
+            caSnap.forEach(function (doc) {
+              const phone = (doc.data() && doc.data().phone) || doc.id;
+              if (phone) clientPhones.push(phone);
+            });
+          } catch (err) {
+            console.warn('[Profit] clientAgents query:', err && err.message);
+          }
+        }
+        // Firestore `in` поддерживает до 30 значений за запрос,
+        // разбиваем на чанки.
+        if (clientPhones.length > 0) {
+          for (let ci = 0; ci < clientPhones.length; ci += 30) {
+            const chunk = clientPhones.slice(ci, ci + 30);
+            queries.push(
+              db.collection('orders').where('phone', 'in', chunk).limit(500).get()
+                .catch(function (err) { console.warn('[Profit] phone chunk query:', err && err.message); return null; })
+            );
+          }
+        }
+
         const snapshots = await Promise.all(queries);
 
         const dedupe = new Map();

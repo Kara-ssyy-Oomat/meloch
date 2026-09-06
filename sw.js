@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.36.0-whatsapp-button'; // Нижняя панель: «Чат» заменён на «WhatsApp» (открывает wa.me/996705009860 в новой вкладке). На profile.html — большая зелёная WhatsApp-кнопка после статистики + пункт меню «Написать в WhatsApp» вместо «Чат с продавцом»
+const CACHE_VERSION = 'kerben-v4.36.1-sync-agent-orders'; // Синхронизация: agent-delivery и agent-profit теперь используют одинаковую логику поиска заказов агента (partner + agentId + placedByAgentId + clientAgents phone). Одинаковый фильтр отменённых + excludedFromAgent
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

@@ -561,31 +561,35 @@
         const orders = [];
         snapshot.forEach(doc => {
           const data = doc.data();
-          // Только активные заказы (не отменённые)
-          if (data.status !== 'Отменён') {
-            const phone = data.phone || '';
-            const normalizedPhone = normalizePhone(phone);
-            const clientAgentId = clientAgentsMap[phone] || clientAgentsMap[normalizedPhone] || clientAgentsMap[phone.replace('+996', '')] || null;
+          // Пропускаем отменённые заказы (все варианты написания)
+          const st = data.status;
+          if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
+          // Пропускаем заказы, исключённые админом из прибыли агента
+          if (data.excludedFromAgent === true) return;
+
+          const phone = data.phone || '';
+          const normalizedPhone = normalizePhone(phone);
+          const clientAgentId = clientAgentsMap[phone] || clientAgentsMap[normalizedPhone] || clientAgentsMap[phone.replace('+996', '')] || null;
             
-            // Фильтрация по агенту
-            if (agentFilter === 'all') {
-              // Все клиенты (только для админа)
+          // Фильтрация по агенту
+          if (agentFilter === 'all') {
+            orders.push({ id: doc.id, ...data });
+          } else if (agentFilter === 'own') {
+            if (!clientAgentId && !data.partner) {
               orders.push({ id: doc.id, ...data });
-            } else if (agentFilter === 'own') {
-              // Только наши клиенты (без агента)
-              if (!clientAgentId && !data.partner) {
-                orders.push({ id: doc.id, ...data });
-              }
-            } else {
-              // Конкретный агент — проверяем и clientAgents, и поле partner
-              const selectedAgent = allAgentsList.find(a => a.id === agentFilter);
-              const agentName = selectedAgent ? selectedAgent.name : '';
-              const matchByClientAgents = clientAgentId === agentFilter;
-              const matchByPartner = data.partner && (data.partner === agentFilter || data.partner === agentName);
+            }
+          } else {
+            // Конкретный агент — проверяем ВСЕ возможные привязки
+            // (синхронно с agent-profit.html для одинаковых цифр)
+            const selectedAgent = allAgentsList.find(a => a.id === agentFilter);
+            const agentName = selectedAgent ? selectedAgent.name : '';
+            const matchByClientAgents = clientAgentId === agentFilter;
+            const matchByPartner = data.partner && (data.partner === agentFilter || data.partner === agentName);
+            const matchByAgentId = data.agentId && data.agentId === agentFilter;
+            const matchByPlacedBy = data.placedByAgentId && data.placedByAgentId === agentFilter;
               
-              if (matchByClientAgents || matchByPartner) {
-                orders.push({ id: doc.id, ...data });
-              }
+            if (matchByClientAgents || matchByPartner || matchByAgentId || matchByPlacedBy) {
+              orders.push({ id: doc.id, ...data });
             }
           }
         });
