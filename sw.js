@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.36.1-sync-agent-orders'; // Синхронизация: agent-delivery и agent-profit теперь используют одинаковую логику поиска заказов агента (partner + agentId + placedByAgentId + clientAgents phone). Одинаковый фильтр отменённых + excludedFromAgent
+const CACHE_VERSION = 'kerben-v4.36.2-agent-session-persist'; // Профиль агента: checkAgentStatus НЕ сбрасывает isAgent если Firestore недоступен (race condition). Бэкап currentAgent в IndexedDB (iOS Safari fix). kerbenWaitForAuth увеличен до 6с
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

@@ -290,7 +290,11 @@
     save: saveProfile,
     load: loadProfile,
     remove: removeProfile,
-    requestPersist: requestPersistentStorage
+    requestPersist: requestPersistentStorage,
+    // Утилиты для бэкапа других данных (currentAgent) в IndexedDB
+    _saveToIDB: saveToIDB,
+    _loadFromIDB: loadFromIDB,
+    _removeFromIDB: removeFromIDB
   };
 
 })();

@@ -932,7 +932,26 @@
 
             // Фолбэк: если агент уже авторизован в localStorage и телефон совпадает
             try {
-              const agentRaw = localStorage.getItem('currentAgent');
+              let agentRaw = localStorage.getItem('currentAgent');
+              // Бэкап: на iOS Safari localStorage может очиститься.
+              // Восстанавливаем из IndexedDB через PersistProfile._loadFromIDB.
+              if (!agentRaw && window.PersistProfile && window.PersistProfile._loadFromIDB) {
+                window.PersistProfile._loadFromIDB('currentAgent', function (idbRaw) {
+                  if (idbRaw) {
+                    try {
+                      localStorage.setItem('currentAgent', idbRaw);
+                      const a = JSON.parse(idbRaw);
+                      const ap = normalizePhone(a && a.phone);
+                      if (ap && ap === normalizedPhone && !isAgent) {
+                        isAgent = true;
+                        sessionStorage.setItem('isAgent_' + normalizedPhone, 'true');
+                        console.log('[Agent] ✅ Восстановлен из IndexedDB:', a.name);
+                        if (_dashboardCache) renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
+                      }
+                    } catch (e) {}
+                  }
+                });
+              }
               if (agentRaw) {
                 const agent = JSON.parse(agentRaw);
                 const agentPhone = normalizePhone(agent && agent.phone);
@@ -1021,10 +1040,13 @@
     // форму входа вместо дашборда).
     async function checkAgentStatus(normalizedPhone) {
       // Ждём Firebase Auth (иначе Firestore rules откажут в чтении agents).
-      // Простой ретрай — до 3 секунд, чтобы не блокировать UI слишком долго.
+      // Увеличен до 6с — при холодном старте после закрытия браузера
+      // анонимная авторизация может занять 2-4 секунды.
+      let authReady = false;
       try {
         if (typeof kerbenWaitForAuth === 'function') {
-          await kerbenWaitForAuth(3000).catch(() => {});
+          await kerbenWaitForAuth(6000);
+          authReady = true;
         }
       } catch (e) {}
 
@@ -1039,12 +1061,14 @@
         }
 
         let foundAgentDoc = null;
+        let firestoreQueried = false; // успешно ли сходили в Firestore
         for (const variant of variants) {
           try {
             const snap = await db.collection('agents')
               .where('phone', '==', variant)
               .limit(1)
               .get();
+            firestoreQueried = true; // запрос прошёл без ошибки
             if (!snap.empty) {
               foundAgentDoc = snap.docs[0];
               break;
@@ -1054,9 +1078,10 @@
 
         // Фолбэк: если по индексу не нашли (например phone сохранён с
         // другим форматом или отсутствует поле), читаем всю коллекцию.
-        if (!foundAgentDoc) {
+        if (!foundAgentDoc && !firestoreQueried) {
           try {
             const agentsSnap = await db.collection('agents').get();
+            firestoreQueried = true;
             agentsSnap.forEach(doc => {
               if (foundAgentDoc) return;
               const agentData = doc.data();
@@ -1070,30 +1095,42 @@
 
         if (foundAgent) {
           const agentData = foundAgentDoc.data() || {};
-          // Сохраняем данные агента для agent-profit.html и cart.html —
-          // без этого кнопка «Прибыль агента» ведёт на форму логина.
+          const savedAgent = {
+            id: foundAgentDoc.id,
+            name: agentData.name || currentCustomer?.name || '',
+            phone: agentData.phone || normalizedPhone
+          };
+          try { localStorage.setItem('currentAgent', JSON.stringify(savedAgent)); } catch (e) {}
+          // Бэкап в IndexedDB (как PersistProfile для customerData):
+          // на iOS Safari localStorage может очиститься через 7 дней.
           try {
-            const savedAgent = {
-              id: foundAgentDoc.id,
-              name: agentData.name || currentCustomer?.name || '',
-              phone: agentData.phone || normalizedPhone
-            };
-            localStorage.setItem('currentAgent', JSON.stringify(savedAgent));
-          } catch (e) { /* localStorage может быть недоступен */ }
+            if (window.PersistProfile && window.PersistProfile._saveToIDB) {
+              window.PersistProfile._saveToIDB('currentAgent', JSON.stringify(savedAgent));
+            }
+          } catch (e) {}
         }
 
-        if (foundAgent !== isAgent) {
-          isAgent = foundAgent;
-          // Обновить UI если статус изменился
-          if (_dashboardCache) {
-            renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
+        // КРИТИЧНО: если Firestore запрос НЕ удался (permission-denied,
+        // нет сети и т.п.), НЕ сбрасываем isAgent = false!
+        // Иначе кэшированное значение из localStorage.currentAgent будет
+        // перезатёрто, и кнопка «Прибыль агента» исчезнет. Сбрасываем
+        // isAgent только если мы ТОЧНО спросили Firestore и агента НЕТ.
+        if (firestoreQueried) {
+          if (foundAgent !== isAgent) {
+            isAgent = foundAgent;
+            if (_dashboardCache) {
+              renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
+            }
           }
+          sessionStorage.setItem('isAgent_' + normalizedPhone, foundAgent ? 'true' : 'false');
+        } else {
+          // Firestore не отвечает — доверяем кэшу localStorage.currentAgent.
+          // Если isAgent уже true из кэша — оставляем.
+          console.log('[Agent] Firestore недоступен — сохраняем кэшированный isAgent=' + isAgent);
         }
-
-        // Сохраняем в кэш
-        sessionStorage.setItem('isAgent_' + normalizedPhone, foundAgent ? 'true' : 'false');
       } catch (e) {
-        console.log('Ошибка проверки агента:', e);
+        // Глобальная ошибка — НЕ трогаем isAgent, доверяем кэшу.
+        console.log('Ошибка проверки агента (кэш сохранён):', e);
       }
     }
     
