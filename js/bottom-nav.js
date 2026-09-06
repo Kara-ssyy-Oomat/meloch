@@ -147,7 +147,9 @@
       home: '<svg class="bnav-svg" viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>',
       categories: '<svg class="bnav-svg" viewBox="0 0 24 24"><path d="M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h6v6h-6V5zm0 8h6v6h-6v-6zm8-8h2v6h-2V5zm0 8h2v6h-2v-6z"/></svg>',
       cart: '<svg class="bnav-svg" viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14.6l.1-.1L8.2 12h7.4c.8 0 1.4-.4 1.7-1l3.9-7-1.7-1-3.9 7H8.5L4.3 2H1v2h2l3.6 7.6-1.4 2.5c-.7 1.3.3 2.9 1.8 2.9h12v-2H7.4c-.1 0-.2-.1-.2-.4z"/></svg>',
-      chat: '<svg class="bnav-svg" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/></svg>',
+      // WhatsApp SVG — заменяет прежнюю иконку «Чат» в нижнем меню.
+      // Клик по этой кнопке открывает переписку в WhatsApp на номер магазина.
+      chat: '<svg class="bnav-svg" viewBox="0 0 24 24" fill="#25D366"><path d="M17.5 14.4c-.3-.1-1.7-.8-2-.9-.3-.1-.5-.1-.7.1-.2.3-.7.9-.9 1.1-.2.2-.3.2-.6.1-.3-.1-1.2-.4-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6.1-.1.3-.3.4-.5.1-.2.2-.3.3-.5.1-.2.1-.4 0-.5s-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.1.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.4zM12 2C6.5 2 2 6.5 2 12c0 1.9.5 3.7 1.5 5.3L2 22l4.8-1.5c1.5.9 3.3 1.4 5.2 1.4 5.5 0 10-4.5 10-10S17.5 2 12 2zm0 18.2c-1.7 0-3.3-.5-4.7-1.4l-.3-.2-2.9.9.9-2.8-.2-.3C4 15 3.5 13.5 3.5 12c0-4.7 3.8-8.5 8.5-8.5s8.5 3.8 8.5 8.5-3.8 8.2-8.5 8.2z"/></svg>',
       profile: '<svg class="bnav-svg" viewBox="0 0 24 24"><path d="M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z"/></svg>'
     };
 
@@ -162,9 +164,8 @@
           '<button class="bnav-item' + (activeTab === 'cart' ? ' active' : '') + '" data-nav="cart">' +
             icons.cart + '<span class="bnav-text">Корзина</span>' +
             '<span id="navCartBadge" class="bnav-badge">0</span></button>' +
-          '<button class="bnav-item' + (activeTab === 'chat' ? ' active' : '') + '" data-nav="chat">' +
-            icons.chat + '<span class="bnav-text">Чат</span>' +
-            '<span id="navChatBadge" class="bnav-badge" style="display:none">!</span></button>' +
+          '<button class="bnav-item" data-nav="whatsapp">' +
+            icons.chat + '<span class="bnav-text">WhatsApp</span></button>' +
           '<button class="bnav-item' + (activeTab === 'profile' ? ' active' : '') + '" data-nav="profile">' +
             icons.profile + '<span class="bnav-text">Профиль</span></button>' +
         '</div>';
@@ -179,8 +180,8 @@
           '<a href="index.html?page=cart" class="bnav-item' + (activeTab === 'cart' ? ' active' : '') + '">' +
             icons.cart + '<span class="bnav-text">Корзина</span>' +
             '<span id="navCartBadge" class="bnav-badge">0</span></a>' +
-          '<a href="index.html?page=chat" class="bnav-item' + (activeTab === 'chat' ? ' active' : '') + '">' +
-            icons.chat + '<span class="bnav-text">Чат</span></a>' +
+          '<a href="https://wa.me/996705009860" target="_blank" rel="noopener" class="bnav-item">' +
+            icons.chat + '<span class="bnav-text">WhatsApp</span></a>' +
           '<a href="index.html?page=profile" class="bnav-item' + (activeTab === 'profile' ? ' active' : '') + '">' +
             icons.profile + '<span class="bnav-text">Профиль</span></a>' +
         '</div>';
@@ -194,7 +195,14 @@
       navBar.querySelector('[data-nav="home"]').addEventListener('click', navGoHome);
       navBar.querySelector('[data-nav="categories"]').addEventListener('click', navGoCategories);
       navBar.querySelector('[data-nav="cart"]').addEventListener('click', navGoCart);
-      navBar.querySelector('[data-nav="chat"]').addEventListener('click', navGoChat);
+      // WhatsApp: открываем чат с магазином в WhatsApp (новая вкладка/приложение)
+      var _waBtn = navBar.querySelector('[data-nav="whatsapp"]');
+      if (_waBtn) {
+        _waBtn.addEventListener('click', function () {
+          try { window.open('https://wa.me/996705009860', '_blank', 'noopener'); }
+          catch (e) { window.location.href = 'https://wa.me/996705009860'; }
+        });
+      }
       navBar.querySelector('[data-nav="profile"]').addEventListener('click', navGoProfile);
     }
 
