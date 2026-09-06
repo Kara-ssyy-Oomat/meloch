@@ -1921,8 +1921,15 @@ function updateCustomerUI() {
 // Заполнение формы заказа данными клиента
 // force=true — перезаписать поля формы (после правки админа в облаке).
 // force=false — как раньше: заполнять только пустые поля.
+// ВАЖНО: для АГЕНТА не подставляем его данные — форма ожидает данные КЛИЕНТА,
+// а не самого агента. Автозаполнение делает автокомплит в agent-order-form.js.
 function fillOrderFormWithCustomerData(force) {
   if (!currentCustomer) return;
+
+  // Если пользователь — агент, форма на index.html работает в «режиме клиента»
+  try {
+    if (window.KerbenAgent && window.KerbenAgent.isAgentUser && window.KerbenAgent.isAgentUser()) return;
+  } catch (e) {}
 
   const nameInput = document.getElementById('name');
   const phoneInput = document.getElementById('phone');

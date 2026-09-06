@@ -449,6 +449,22 @@ document.getElementById('submitOrder').onclick = async () => {
     const [ , partnerFromLookup ] = await Promise.all([authWaitP, partnerLookupP]);
     if (!partner && partnerFromLookup) partner = partnerFromLookup;
 
+    // ═══ АГЕНТ оформляет заказ от имени клиента ═══════════════
+    // Форма на index.html показывает баннер и меняет плейсхолдеры.
+    // Здесь мы дописываем в заказ поля placedByAgent/agentId, чтобы
+    // админ и agent-profit.html увидели этот заказ у нужного агента.
+    // Также автоматически подставляем имя агента в partner, если он
+    // не выбран из dropdown.
+    let agentInfo = null;
+    try {
+      if (window.KerbenAgent && window.KerbenAgent.isAgentUser && window.KerbenAgent.isAgentUser()) {
+        agentInfo = window.KerbenAgent.getAgentInfo();
+      }
+    } catch (e) {}
+    if (agentInfo && !partner && agentInfo.name) {
+      partner = agentInfo.name;
+    }
+
     const orderPayload = {
       name,
       phone,
@@ -472,6 +488,17 @@ document.getElementById('submitOrder').onclick = async () => {
       status: isUnfulfilledOrder ? 'unfulfilled' : 'pending',
       partner: partner || null,
       referredBy: referredBy || null,
+      // Кто оформил заказ. Если это агент со своего устройства — тут его
+      // данные. В карточке заказа админ увидит, что имя/телефон в заказе
+      // это КЛИЕНТ, а оформлял его агент.
+      placedByAgent: agentInfo ? {
+        id: agentInfo.id || null,
+        name: agentInfo.name,
+        phone: agentInfo.phone || null
+      } : null,
+      placedByAgentId: agentInfo ? (agentInfo.id || null) : null,
+      placedByAgentName: agentInfo ? agentInfo.name : null,
+      agentId: agentInfo ? (agentInfo.id || null) : null,
       stockDeducted: false,
       // stockDeductionStatus ВСЕГДА 'pending' — так требуют правила Firestore
       // (клиент не может подделать статус списания). Для unfulfilled-заказов
@@ -522,6 +549,12 @@ document.getElementById('submitOrder').onclick = async () => {
               if (typeof removePendingOrderBackup === 'function') {
                 try { removePendingOrderBackup(orderRef.id); } catch (e) {}
               }
+              // Автозаполнение клиента для агента — только после server-confirmed
+              try {
+                if (agentInfo && window.KerbenAgent && window.KerbenAgent.saveAgentClient) {
+                  window.KerbenAgent.saveAgentClient({ name: name, phone: phone, address: address });
+                }
+              } catch (e) {}
             } else {
               console.warn('[OrderSubmit] orderNotify без server-confirm — backup оставляем для retry', res);
             }
