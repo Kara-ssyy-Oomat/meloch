@@ -1434,29 +1434,49 @@
           searchValues.push(currentAgent.id);
         }
 
-        const snapshot = await db.collection('orders')
-          .where('partner', 'in', searchValues)
-          .limit(500)
-          .get();
+        // Заказ агента может «попасть» к нему в прибыль по трём независимым
+        // полям (все три пишут разные части кода в разное время):
+        //   • partner — «Кто порекомендовал» (заполняется на клиенте
+        //     при оформлении: index.html/cart.html)
+        //   • agentId — старое поле для заказов, оформленных на agent-profit.html
+        //   • placedByAgentId — новое поле: заказ оформлен АГЕНТОМ с его
+        //     устройства (см. js/order-submit.js — режим агента на index.html)
+        // Firestore не поддерживает OR, поэтому делаем 3 параллельных
+        // запроса и объединяем по doc.id. Для несуществующих полей
+        // Firestore просто вернёт пустой снепшот — это безопасно.
+        const queries = [
+          db.collection('orders').where('partner', 'in', searchValues).limit(500).get()
+        ];
+        if (currentAgent.id) {
+          queries.push(
+            db.collection('orders').where('agentId', '==', currentAgent.id).limit(500).get()
+              .catch(function (err) { console.warn('[Profit] agentId query:', err && err.message); return null; })
+          );
+          queries.push(
+            db.collection('orders').where('placedByAgentId', '==', currentAgent.id).limit(500).get()
+              .catch(function (err) { console.warn('[Profit] placedByAgentId query:', err && err.message); return null; })
+          );
+        }
+        const snapshots = await Promise.all(queries);
 
-        allOrders = [];
-        snapshot.forEach(doc => {
-          const data = doc.data() || {};
-          // 1) Заказы, вручную исключённые админом из прибыли этого агента,
-          //    НЕ должны попадать ни в список, ни в статистику, ни в клиентов,
-          //    ни в график. Флаг ставится в admin-orders.html (кнопка
-          //    «🚫 Не считать агенту»). См. также toggleOrderExcludedFromAgent.
-          if (data.excludedFromAgent === true) return;
-          // 2) ОТМЕНЁННЫЕ ЗАКАЗЫ агент вообще не должен видеть — они не
-          //    приносят ни ему прибыли, ни бизнесу продажи. Раньше они
-          //    показывались в списке с профитом 0, теперь скрыты полностью.
-          //    Проверяем все возможные варианты статуса (en/ru/старая/новая
-          //    орфография), чтобы ни один отменённый не проскочил.
-          const st = data.status;
-          if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
-          allOrders.push({ id: doc.id, ...data });
-        });
-        allOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        const dedupe = new Map();
+        for (const snap of snapshots) {
+          if (!snap) continue;
+          snap.forEach(function (doc) {
+            const data = doc.data() || {};
+            // Фильтр: исключено админом из прибыли этого агента
+            if (data.excludedFromAgent === true) return;
+            // Фильтр: отменённые заказы не показываем (не приносят прибыли)
+            const st = data.status;
+            if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
+            if (!dedupe.has(doc.id)) {
+              dedupe.set(doc.id, Object.assign({ id: doc.id }, data));
+            }
+          });
+        }
+
+        allOrders = Array.from(dedupe.values());
+        allOrders.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
 
         filterOrders();
       } catch (e) {

@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.35.1-hide-referredBy-for-agent'; // Главная: у агента скрыто поле «Кто вам порекомендовал?» — реферером автоматически становится сам агент
+const CACHE_VERSION = 'kerben-v4.35.2-agent-profit-multi-source'; // Моя прибыль: заказы находятся по partner + agentId + placedByAgentId (три параллельных запроса, дедуп по id). Order-submit: если оформляет агент — partner всегда = agent.name
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

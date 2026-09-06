@@ -461,7 +461,10 @@ document.getElementById('submitOrder').onclick = async () => {
         agentInfo = window.KerbenAgent.getAgentInfo();
       }
     } catch (e) {}
-    if (agentInfo && !partner && agentInfo.name) {
+    if (agentInfo && agentInfo.name) {
+      // Если заказ оформляет сам агент со своего устройства — партнёром ВСЕГДА
+      // является он, даже если у клиента раньше была привязка к другому агенту
+      // (partnerFromLookup). Иначе заказ попадёт в чужую прибыль.
       partner = agentInfo.name;
     }
 
