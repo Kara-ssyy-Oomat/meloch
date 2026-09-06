@@ -2470,46 +2470,48 @@ async function saveStockChanges() {
   try {
     Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
-    const batch = db.batch();
     const movementBatch = [];
-    const autoUnblockedIds = []; // товары которые сейчас авто-разблокируем
+    const autoUnblockedIds = [];
 
+    // Каждый товар в отдельной транзакции — защита от гонки с Cloud Function,
+    // которая может одновременно списывать stock при оформлении заказа.
     for (const productId of changedIds) {
       const newQty = stockChanges[productId];
-      const product = products.find(p => p.id === productId);
-      if (!product) continue;
-      
-      const ws = product.warehouseStock || {};
-      const oldQty = ws[warehouseId] || 0;
-      const diff = newQty - oldQty;
-      
-      // Обновляем warehouseStock
-      ws[warehouseId] = newQty;
-      
-      // Пересчитываем общий stock как сумму всех складов
-      const totalStock = Object.values(ws).reduce((sum, v) => sum + (v || 0), 0);
-      
       const productRef = db.collection('products').doc(productId);
-      const updateData = {
-        warehouseStock: ws,
-        stock: totalStock
-      };
+      const localProduct = products.find(p => p.id === productId);
 
-      // АВТО-РАЗБЛОКИРОВКА: если товар был заблокирован и общий остаток
-      // теперь > 0 — автоматически снимаем блокировку. Админу удобно —
-      // вписал «Пополнение», товар сразу вернулся в витрину.
-      if (product.blocked === true && totalStock > 0) {
-        updateData.blocked = false;
-        autoUnblockedIds.push(productId);
-      }
+      let diff = 0;
+      let oldQty = 0;
+      let wasAutoUnblocked = false;
 
-      batch.update(productRef, updateData);
-      
-      // Записываем движение
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(productRef);
+        if (!snap.exists) return;
+        const product = snap.data() || {};
+
+        const ws = { ...(product.warehouseStock || {}) };
+        oldQty = ws[warehouseId] || 0;
+        diff = newQty - oldQty;
+
+        ws[warehouseId] = newQty;
+        const totalStock = Object.values(ws).reduce((sum, v) => sum + (Number(v) || 0), 0);
+
+        const updateData = { warehouseStock: ws, stock: totalStock };
+
+        if (product.blocked === true && totalStock > 0) {
+          updateData.blocked = false;
+          wasAutoUnblocked = true;
+        }
+
+        tx.update(productRef, updateData);
+      });
+
+      if (wasAutoUnblocked) autoUnblockedIds.push(productId);
+
       if (diff !== 0) {
         movementBatch.push({
           productId,
-          productTitle: product.title || '',
+          productTitle: (localProduct && localProduct.title) || '',
           warehouseId,
           warehouseName: wh ? wh.name : '',
           type: diff > 0 ? 'receipt' : 'adjustment',
@@ -2523,13 +2525,14 @@ async function saveStockChanges() {
       }
     }
     
-    // Добавляем движения в тот же batch
-    for (const mov of movementBatch) {
-      const movRef = db.collection('warehouseMovements').doc();
-      batch.set(movRef, mov);
+    // Движения пишем отдельным batch (не участвуют в гонке по stock)
+    if (movementBatch.length > 0) {
+      const movBatch = db.batch();
+      for (const mov of movementBatch) {
+        movBatch.set(db.collection('warehouseMovements').doc(), mov);
+      }
+      await movBatch.commit();
     }
-    
-    await batch.commit();
 
     // Обновляем локальный массив (иначе UI до loadProducts покажет старое)
     autoUnblockedIds.forEach(id => {
@@ -2709,17 +2712,27 @@ async function executeTransfer() {
   try {
     Swal.fire({ title: 'Перемещение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
-    const transferBatch = db.batch();
-    
+    const movementDocs = [];
+
+    // Каждый товар в транзакции — читаем актуальный warehouseStock,
+    // чтобы Cloud Function не перетёрла наши правки и наоборот.
     for (const it of items) {
-      const ws = it.product.warehouseStock || {};
-      ws[fromId] = Math.max(0, (ws[fromId] || 0) - it.qty);
-      ws[toId] = (ws[toId] || 0) + it.qty;
-      
-      transferBatch.update(db.collection('products').doc(it.id), { warehouseStock: ws });
-      
-      const movRef = db.collection('warehouseMovements').doc();
-      transferBatch.set(movRef, {
+      const productRef = db.collection('products').doc(it.id);
+
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(productRef);
+        if (!snap.exists) return;
+        const data = snap.data() || {};
+        const ws = { ...(data.warehouseStock || {}) };
+
+        ws[fromId] = Math.max(0, (ws[fromId] || 0) - it.qty);
+        ws[toId]   = (ws[toId] || 0) + it.qty;
+        const totalStock = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+
+        tx.update(productRef, { warehouseStock: ws, stock: totalStock });
+      });
+
+      movementDocs.push({
         productId: it.id,
         productTitle: it.product.title || '',
         type: 'transfer',
@@ -2733,7 +2746,14 @@ async function executeTransfer() {
       });
     }
     
-    await transferBatch.commit();
+    // Движения — отдельный batch (не конкурируют за stock)
+    if (movementDocs.length > 0) {
+      const movBatch = db.batch();
+      for (const mov of movementDocs) {
+        movBatch.set(db.collection('warehouseMovements').doc(), mov);
+      }
+      await movBatch.commit();
+    }
     
     Swal.fire({ icon: 'success', title: `Перемещено ${items.length} товаров!`, timer: 1500, showConfirmButton: false });
     
@@ -2896,40 +2916,54 @@ async function editProductStock(productId) {
   
   try {
     const newWs = result.value;
-    const totalStock = Object.values(newWs).reduce((sum, v) => sum + (v || 0), 0);
-    
-    const editBatch = db.batch();
     const productRef = db.collection('products').doc(productId);
-    editBatch.update(productRef, {
-      warehouseStock: newWs,
-      stock: totalStock
-    });
-    
-    // Записываем движения в тот же batch
-    const oldWs = product.warehouseStock || {};
-    for (const whId of Object.keys(newWs)) {
-      const oldQty = oldWs[whId] || 0;
-      const newQty = newWs[whId] || 0;
-      if (oldQty !== newQty) {
-        const wh = warehouses.find(w => w.id === whId);
-        const movRef = db.collection('warehouseMovements').doc();
-        editBatch.set(movRef, {
-          productId,
-          productTitle: product.title || '',
-          warehouseId: whId,
-          warehouseName: wh ? wh.name : '',
-          type: 'adjustment',
-          qty: Math.abs(newQty - oldQty),
-          direction: newQty > oldQty ? 'in' : 'out',
-          oldQty,
-          newQty,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          note: 'Ручная корректировка'
-        });
+    const movementDocs = [];
+
+    // Транзакция — читаем актуальные данные, мержим изменения.
+    // Защита от гонки: если Cloud Function одновременно списывает stock,
+    // транзакция автоматически перечитает и пересчитает.
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(productRef);
+      if (!snap.exists) throw new Error('Товар не найден');
+      const data = snap.data() || {};
+      const currentWs = { ...(data.warehouseStock || {}) };
+
+      // Применяем изменения по складам
+      for (const whId of Object.keys(newWs)) {
+        const oldQty = currentWs[whId] || 0;
+        const newQty = newWs[whId] || 0;
+        currentWs[whId] = newQty;
+
+        if (oldQty !== newQty) {
+          const whObj = warehouses.find(w => w.id === whId);
+          movementDocs.push({
+            productId,
+            productTitle: data.title || '',
+            warehouseId: whId,
+            warehouseName: whObj ? whObj.name : '',
+            type: 'adjustment',
+            qty: Math.abs(newQty - oldQty),
+            direction: newQty > oldQty ? 'in' : 'out',
+            oldQty,
+            newQty,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            note: 'Ручная корректировка'
+          });
+        }
       }
+
+      const totalStock = Object.values(currentWs).reduce((sum, v) => sum + (Number(v) || 0), 0);
+      tx.update(productRef, { warehouseStock: currentWs, stock: totalStock });
+    });
+
+    // Движения — отдельный batch
+    if (movementDocs.length > 0) {
+      const movBatch = db.batch();
+      for (const mov of movementDocs) {
+        movBatch.set(db.collection('warehouseMovements').doc(), mov);
+      }
+      await movBatch.commit();
     }
-    
-    await editBatch.commit();
     
     Swal.fire({ icon: 'success', title: 'Остатки обновлены!', timer: 1500, showConfirmButton: false });
     
@@ -3917,44 +3951,48 @@ async function doResetStocks() {
       return;
     }
 
-    // Делаем batch'ами по 400 (запас от лимита 500), параллельно
+    // Делаем batch'ами по 400 для scope=all (FieldValue.delete не зависит
+    // от текущих данных), а для scope=warehouse — индивидуальные транзакции,
+    // чтобы не перетирать параллельные обновления Cloud Function.
     const BATCH_SIZE = 400;
     let updated = 0;
-    for (let i = 0; i < targets.length; i += BATCH_SIZE) {
-      const slice = targets.slice(i, i + BATCH_SIZE);
-      const batch = db.batch();
-      for (const p of slice) {
-        const ref = db.collection('products').doc(p.id);
-        if (scope === 'all') {
-          // УДАЛЯЕМ поля stock и warehouseStock полностью.
-          // Пока склад ВКЛЮЧЁН, getEffectiveStock() вернёт 0 для таких
-          // товаров → они будут «нет в наличии». Это логичное поведение
-          // для «сброса остатков». Когда заново заведёшь остатки — контроль
-          // продолжит работать. Чтобы сделать товары безлимитными —
-          // приостанови склад целиком в настройках.
-          batch.update(ref, {
+
+    if (scope === 'all') {
+      for (let i = 0; i < targets.length; i += BATCH_SIZE) {
+        const slice = targets.slice(i, i + BATCH_SIZE);
+        const batch = db.batch();
+        for (const p of slice) {
+          batch.update(db.collection('products').doc(p.id), {
             stock: firebase.firestore.FieldValue.delete(),
             warehouseStock: firebase.firestore.FieldValue.delete()
           });
-        } else {
-          // Удаляем только указанный склад из warehouseStock; пересчитываем stock.
-          // Если после удаления складов не осталось — удаляем оба поля целиком.
-          const newWs = Object.assign({}, p.warehouseStock || {});
+        }
+        await batch.commit();
+        updated += slice.length;
+        btn.textContent = `⏳ Обнулено ${updated} / ${targets.length}…`;
+      }
+    } else {
+      for (const p of targets) {
+        const ref = db.collection('products').doc(p.id);
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists) return;
+          const data = snap.data() || {};
+          const newWs = { ...(data.warehouseStock || {}) };
           delete newWs[whId];
           const remaining = Object.values(newWs).reduce((s, v) => s + (Number(v) || 0), 0);
           if (Object.keys(newWs).length === 0) {
-            batch.update(ref, {
+            tx.update(ref, {
               stock: firebase.firestore.FieldValue.delete(),
               warehouseStock: firebase.firestore.FieldValue.delete()
             });
           } else {
-            batch.update(ref, { warehouseStock: newWs, stock: remaining });
+            tx.update(ref, { warehouseStock: newWs, stock: remaining });
           }
-        }
+        });
+        updated++;
+        if (updated % 50 === 0) btn.textContent = `⏳ Обнулено ${updated} / ${targets.length}…`;
       }
-      await batch.commit();
-      updated += slice.length;
-      btn.textContent = `⏳ Обнулено ${updated} / ${targets.length}…`;
     }
 
     // Записываем аудит-лог одной записью (для истории — кто и когда обнулил)

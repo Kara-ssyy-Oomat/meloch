@@ -316,34 +316,42 @@ async function saveEditProductModal() {
       delete p.variants;
     }
     
+    // Если variants null, удаляем поле
+    if (!updateData.variants) {
+      updateData.variants = firebase.firestore.FieldValue.delete();
+    }
+
     if (stock === null) {
+      // Удаляем stock целиком — FieldValue.delete() идемпотентен, транзакция не нужна
       updateData.stock = firebase.firestore.FieldValue.delete();
       updateData.warehouseStock = firebase.firestore.FieldValue.delete();
       p.warehouseStock = null;
+      await db.collection('products').doc(currentEditProductId).update(updateData);
     } else {
       const whSelectEl = document.getElementById('editStockWarehouse');
       const selectedWhId = whSelectEl ? whSelectEl.value : '';
 
       if (selectedWhId) {
-        // Записываем остаток на выбранный склад
-        const oldWs = p.warehouseStock || {};
-        const newWs = { ...oldWs, [selectedWhId]: stock };
-        const totalStock = Object.values(newWs).reduce((s, v) => s + (v || 0), 0);
-        updateData.warehouseStock = newWs;
-        updateData.stock = totalStock;
-        p.warehouseStock = newWs;
-        p.stock = totalStock;
+        // Транзакция — читаем актуальный warehouseStock, обновляем один склад.
+        // Защита от гонки: CF может одновременно списывать другой склад.
+        const productRef = db.collection('products').doc(currentEditProductId);
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(productRef);
+          const data = (snap.exists && snap.data()) || {};
+          const freshWs = { ...(data.warehouseStock || {}) };
+          freshWs[selectedWhId] = stock;
+          const totalStock = Object.values(freshWs).reduce((s, v) => s + (Number(v) || 0), 0);
+          updateData.warehouseStock = freshWs;
+          updateData.stock = totalStock;
+          tx.update(productRef, updateData);
+        });
+        p.warehouseStock = updateData.warehouseStock;
+        p.stock = updateData.stock;
       } else {
         updateData.stock = stock;
+        await db.collection('products').doc(currentEditProductId).update(updateData);
       }
     }
-    
-    // Если variants null, удаляем поле
-    if (!updateData.variants) {
-      updateData.variants = firebase.firestore.FieldValue.delete();
-    }
-    
-    await db.collection('products').doc(currentEditProductId).update(updateData);
     
     // Обновляем localStorage-кэш чтобы при перезагрузке данные были актуальны
     try {
