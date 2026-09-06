@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.34.2-wm-stock-sync'; // Склад v4.34.2: страница управляющего синхронизирует общий stock с суммой warehouseStock — админ-статистика не расходится
+const CACHE_VERSION = 'kerben-v4.34.3-agent-profit-restore'; // Профиль: checkAgentStatus сохраняет currentAgent в localStorage + agent-profit авто-восстановление сессии по customerData — кнопка «Моя прибыль» стабильно появляется и открывает дашборд
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

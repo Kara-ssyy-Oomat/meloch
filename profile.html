@@ -1014,19 +1014,74 @@
       }
     }
     
-    // Проверка статуса агента в фоне
+    // Проверка статуса агента в фоне.
+    // ВАЖНО: помимо флага isAgent, СОХРАНЯЕМ данные агента в
+    // localStorage.currentAgent — иначе agent-profit.html не увидит агента
+    // и покажет форму логина (пункт меню появляется, но клик открывает
+    // форму входа вместо дашборда).
     async function checkAgentStatus(normalizedPhone) {
+      // Ждём Firebase Auth (иначе Firestore rules откажут в чтении agents).
+      // Простой ретрай — до 3 секунд, чтобы не блокировать UI слишком долго.
       try {
-        const agentsSnap = await db.collection('agents').get();
-        let foundAgent = false;
-        agentsSnap.forEach(doc => {
-          const agentData = doc.data();
-          const agentPhone = normalizePhone(agentData.phone || doc.id);
-          if (agentPhone === normalizedPhone) {
-            foundAgent = true;
-          }
-        });
-        
+        if (typeof kerbenWaitForAuth === 'function') {
+          await kerbenWaitForAuth(3000).catch(() => {});
+        }
+      } catch (e) {}
+
+      try {
+        // Индексированный запрос по phone вместо чтения всей коллекции —
+        // быстрее и меньше трафика. Проверяем оба формата (нормализованный
+        // и исходный) на случай если в БД сохранён «0555…» вместо «+996…».
+        const variants = new Set([normalizedPhone]);
+        if (normalizedPhone.startsWith('+996')) {
+          variants.add('0' + normalizedPhone.substring(4));
+          variants.add(normalizedPhone.substring(1)); // 996XXX без плюса
+        }
+
+        let foundAgentDoc = null;
+        for (const variant of variants) {
+          try {
+            const snap = await db.collection('agents')
+              .where('phone', '==', variant)
+              .limit(1)
+              .get();
+            if (!snap.empty) {
+              foundAgentDoc = snap.docs[0];
+              break;
+            }
+          } catch (e) { /* пробуем следующий вариант */ }
+        }
+
+        // Фолбэк: если по индексу не нашли (например phone сохранён с
+        // другим форматом или отсутствует поле), читаем всю коллекцию.
+        if (!foundAgentDoc) {
+          try {
+            const agentsSnap = await db.collection('agents').get();
+            agentsSnap.forEach(doc => {
+              if (foundAgentDoc) return;
+              const agentData = doc.data();
+              const agentPhone = normalizePhone(agentData.phone || doc.id);
+              if (agentPhone === normalizedPhone) foundAgentDoc = doc;
+            });
+          } catch (e) { /* нет доступа — оставим foundAgentDoc=null */ }
+        }
+
+        const foundAgent = !!foundAgentDoc;
+
+        if (foundAgent) {
+          const agentData = foundAgentDoc.data() || {};
+          // Сохраняем данные агента для agent-profit.html и cart.html —
+          // без этого кнопка «Прибыль агента» ведёт на форму логина.
+          try {
+            const savedAgent = {
+              id: foundAgentDoc.id,
+              name: agentData.name || currentCustomer?.name || '',
+              phone: agentData.phone || normalizedPhone
+            };
+            localStorage.setItem('currentAgent', JSON.stringify(savedAgent));
+          } catch (e) { /* localStorage может быть недоступен */ }
+        }
+
         if (foundAgent !== isAgent) {
           isAgent = foundAgent;
           // Обновить UI если статус изменился
@@ -1034,7 +1089,7 @@
             renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
           }
         }
-        
+
         // Сохраняем в кэш
         sessionStorage.setItem('isAgent_' + normalizedPhone, foundAgent ? 'true' : 'false');
       } catch (e) {
