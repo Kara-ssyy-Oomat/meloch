@@ -147,48 +147,24 @@ document.addEventListener('DOMContentLoaded', function() {
   // Загрузка списка агентов в выпадающий список "Кто порекомендовал"
   const referredBySelect = document.getElementById('referredBy');
   if (referredBySelect) {
-    (async function loadAgentsIntoSelect(attempt) {
-      attempt = attempt || 1;
-      console.log('[Agents] Попытка загрузки списка агентов #' + attempt);
+    const AGENTS_CACHE_KEY = 'kerbenAgentsList_v1';
+    const AGENTS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 1 сутки
+
+    function renderAgentsIntoSelect(agents) {
+      // Удаляем ранее добавленные опции (кроме первой — placeholder)
+      while (referredBySelect.options.length > 1) referredBySelect.remove(1);
+      agents = (agents || []).slice().sort(function (a, b) {
+        return String(a.name).localeCompare(String(b.name), 'ru');
+      });
+      agents.forEach(function (a) {
+        if (!a || !a.name) return;
+        const opt = document.createElement('option');
+        opt.value = a.name;
+        opt.textContent = a.name;
+        referredBySelect.appendChild(opt);
+      });
+      // Автовыбор сохранённого агента
       try {
-        if (typeof db === 'undefined' || !db) {
-          console.warn('[Agents] db ещё не готов, повтор через 1 сек');
-          if (attempt < 10) return setTimeout(() => loadAgentsIntoSelect(attempt + 1), 1000);
-          return;
-        }
-        if (typeof kerbenWaitForAuth === 'function') {
-          console.log('[Agents] Ждём Firebase Auth...');
-          await kerbenWaitForAuth();
-          console.log('[Agents] Firebase Auth готов, делаем запрос');
-        }
-        const snap = await db.collection('agents').get();
-        console.log('[Agents] Получено документов:', snap.size);
-
-        const agents = [];
-        snap.forEach(doc => {
-          const d = doc.data();
-          console.log('[Agents] Агент:', doc.id, 'name=', d.name, 'active=', d.active);
-          // Показываем ВСЕХ, кроме явно заблокированных (active === false)
-          if (d.name && d.active !== false) {
-            agents.push({ id: doc.id, name: d.name });
-          }
-        });
-
-        // Удаляем ранее добавленные опции (кроме первой — placeholder)
-        while (referredBySelect.options.length > 1) {
-          referredBySelect.remove(1);
-        }
-
-        agents.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-        agents.forEach(a => {
-          const opt = document.createElement('option');
-          opt.value = a.name;
-          opt.textContent = a.name;
-          referredBySelect.appendChild(opt);
-        });
-        console.log('[Agents] Добавлено в список:', agents.length, 'агент(ов)');
-
-        // Автовыбор сохранённого агента
         const savedReferredBy = localStorage.getItem('savedReferredBy');
         const urlPartner = typeof getCurrentPartner === 'function' ? getCurrentPartner() : null;
         const preselect = urlPartner || savedReferredBy;
@@ -202,11 +178,62 @@ document.addEventListener('DOMContentLoaded', function() {
             }
           }
         }
+      } catch(e) {}
+    }
+
+    // 1) Мгновенно рисуем из кэша localStorage — даже если Firebase Auth ещё
+    //    не готов или сеть недоступна, пользователь сразу видит список.
+    try {
+      const raw = localStorage.getItem(AGENTS_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached && Array.isArray(cached.agents) && cached.agents.length > 0) {
+          renderAgentsIntoSelect(cached.agents);
+          console.log('[Agents] Показан кэш из localStorage:', cached.agents.length);
+        }
+      }
+    } catch(e) {}
+
+    // 2) Параллельно тянем свежий список из Firestore с большими retry
+    (async function loadAgentsIntoSelect(attempt) {
+      attempt = attempt || 1;
+      try {
+        if (typeof db === 'undefined' || !db) {
+          if (attempt < 15) return setTimeout(function () { loadAgentsIntoSelect(attempt + 1); }, 1000);
+          return;
+        }
+        // Ждём Firebase Auth до 8 сек — иначе rules 'isRegularAuthed' откажут.
+        // По умолчанию kerbenWaitForAuth ждёт 3 сек, но на медленной сети
+        // (3G, реконнект PWA) этого мало.
+        if (typeof kerbenWaitForAuth === 'function') {
+          await kerbenWaitForAuth(8000).catch(function () {});
+        }
+
+        const snap = await db.collection('agents').get();
+        const agents = [];
+        snap.forEach(function (doc) {
+          const d = doc.data() || {};
+          if (d.name && d.active !== false) {
+            agents.push({ id: doc.id, name: d.name });
+          }
+        });
+
+        renderAgentsIntoSelect(agents);
+        console.log('[Agents] Загружено с сервера:', agents.length);
+
+        // Сохраняем в кэш для следующего открытия / offline
+        try {
+          localStorage.setItem(AGENTS_CACHE_KEY, JSON.stringify({
+            agents: agents,
+            ts: Date.now()
+          }));
+        } catch(e) {}
       } catch(e) {
-        console.error('[Agents] Ошибка загрузки:', e && e.message ? e.message : e);
-        // Повторяем через 2 сек (max 3 попытки)
-        if (attempt < 3) {
-          setTimeout(() => loadAgentsIntoSelect(attempt + 1), 2000);
+        console.error('[Agents] Ошибка загрузки (попытка ' + attempt + '):', e && e.message ? e.message : e);
+        // До 5 попыток с экспоненциальной паузой (2с, 4с, 8с, 16с)
+        if (attempt < 5) {
+          const delay = Math.min(16000, 2000 * Math.pow(2, attempt - 1));
+          setTimeout(function () { loadAgentsIntoSelect(attempt + 1); }, delay);
         }
       }
     })();
