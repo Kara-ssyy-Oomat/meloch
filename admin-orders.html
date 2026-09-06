@@ -144,8 +144,8 @@
       </div>
 
       <!-- Фильтры -->
-      <div class="orders-filters" style="padding:8px 16px 12px; background:#fff; border-bottom:1px solid #e0e0e0; display:flex; gap:8px; align-items:center;">
-        <select id="ordersFilterCombined" onchange="applyOrdersCombinedFilter()" style="width:50%; padding:8px 10px; border:1px solid #e0e0e0; border-radius:8px; font-size:13px; background:#fff;">
+      <div class="orders-filters" style="padding:8px 16px 12px; background:#fff; border-bottom:1px solid #e0e0e0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <select id="ordersFilterCombined" onchange="applyOrdersCombinedFilter()" style="flex:1; min-width:120px; padding:8px 10px; border:1px solid #e0e0e0; border-radius:8px; font-size:13px; background:#fff;">
           <option value="all|all">Все</option>
           <option value="all|today">Сегодня</option>
           <option value="all|yesterday">Вчера</option>
@@ -158,6 +158,11 @@
           <option value="completed|all">✓ Готовы</option>
           <option value="cancelled|all">✕ Отменены</option>
           <option value="deleted|all">🗑️ Удалённые</option>
+        </select>
+        <select id="ordersFilterSource" onchange="applyOrdersSourceFilter()" style="min-width:110px; padding:8px 10px; border:1px solid #e0e0e0; border-radius:8px; font-size:13px; background:#fff;">
+          <option value="all">📋 Все заказы</option>
+          <option value="ours">🏪 Наши</option>
+          <option value="agent">🤝 Агентов</option>
         </select>
         <button onclick="openMergeOrdersModal()" style="padding:8px 12px; background:#667eea; color:white; border:none; border-radius:8px; cursor:pointer; font-size:13px;">🔗</button>
         <button onclick="loadOrdersManagement(true)" style="padding:8px 12px; background:#28a745; color:white; border:none; border-radius:8px; cursor:pointer; font-size:13px;">🔄</button>
@@ -431,15 +436,23 @@ function applyOrdersCombinedFilter() {
   const combo = document.getElementById('ordersFilterCombined');
   if (!combo) return;
   const [status, date] = combo.value.split('|');
-  
+
   // Сохраняем выбранный фильтр
   try { localStorage.setItem('ordersFilterValue', combo.value); } catch(e) {}
-  
+
   const statusEl = document.getElementById('ordersFilterStatus');
   const dateEl = document.getElementById('ordersFilterDate');
   if (statusEl) statusEl.value = status;
   if (dateEl) dateEl.value = date;
-  
+
+  updateOrdersManagementView();
+}
+
+function applyOrdersSourceFilter() {
+  const sourceEl = document.getElementById('ordersFilterSource');
+  if (sourceEl) {
+    try { localStorage.setItem('ordersFilterSource', sourceEl.value); } catch(e) {}
+  }
   updateOrdersManagementView();
 }
 
@@ -489,6 +502,7 @@ function renderOrdersManagementFromCache() {
 
   const comboEl = document.getElementById('ordersFilterCombined');
   const searchEl = document.getElementById('ordersSearchClient');
+  const sourceEl = document.getElementById('ordersFilterSource');
 
   let statusFilter = 'all';
   let dateFilter = 'all';
@@ -497,6 +511,7 @@ function renderOrdersManagementFromCache() {
     statusFilter = parts[0] || 'all';
     dateFilter = parts[1] || 'all';
   }
+  const sourceFilter = (sourceEl ? sourceEl.value : 'all') || 'all';
   const searchQuery = ((searchEl ? searchEl.value : '') || '').toLowerCase();
 
   const now = Date.now();
@@ -524,7 +539,7 @@ function renderOrdersManagementFromCache() {
 
     const status = normalizeStatus(order.status);
     const isDeleted = order.deleted === true;
-    
+
     // Для фильтра "Удалённые" показываем только удалённые; для остальных — скрываем удалённые
     if (statusFilter === 'deleted') {
       if (!isDeleted) return false;
@@ -534,12 +549,21 @@ function renderOrdersManagementFromCache() {
     }
     const statusMatch = true;
 
+    // Фильтр по источнику: наши заказы или заказы агентов
+    const hasAgent = !!(order.partner || order.referredBy);
+    let sourceMatch = true;
+    if (sourceFilter === 'ours') {
+      sourceMatch = !hasAgent;
+    } else if (sourceFilter === 'agent') {
+      sourceMatch = hasAgent;
+    }
+
     const name = (order.name || '').toLowerCase();
     const phone = (order.phone || '').toLowerCase();
     const itemsText = (order.items || []).map(i => (i.title || '').toLowerCase()).join(' ');
     const searchMatch = !searchQuery || name.includes(searchQuery) || phone.includes(searchQuery) || itemsText.includes(searchQuery);
 
-    return dateMatch && statusMatch && searchMatch;
+    return dateMatch && statusMatch && searchMatch && sourceMatch;
   });
 
   orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -549,7 +573,22 @@ function renderOrdersManagementFromCache() {
     return;
   }
 
+  // Считаем наши / агентов среди отфильтрованных
+  const oursCount = orders.filter(o => !(o.partner || o.referredBy)).length;
+  const agentCount = orders.filter(o => !!(o.partner || o.referredBy)).length;
+
   listDiv.innerHTML = '';
+
+  // Мини-статистика по источнику
+  const statsBar = document.createElement('div');
+  statsBar.style.cssText = 'display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center;';
+  statsBar.innerHTML = `
+    <span style="font-size:12px; color:#666; padding:4px 10px; background:#fff; border-radius:6px; border:1px solid #e0e0e0;">📋 Всего: <b>${orders.length}</b></span>
+    <span style="font-size:12px; color:#0f766e; padding:4px 10px; background:#f0fdfa; border-radius:6px; border:1px solid #ccfbf1;">🏪 Наши: <b>${oursCount}</b></span>
+    <span style="font-size:12px; color:#1976d2; padding:4px 10px; background:#e3f2fd; border-radius:6px; border:1px solid #bbdefb;">🤝 Агентов: <b>${agentCount}</b></span>
+  `;
+  listDiv.appendChild(statsBar);
+
   orders.forEach((order, index) => {
     const orderCard = createOrderCard(order, index);
     listDiv.appendChild(orderCard);
@@ -4230,13 +4269,20 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
 document.addEventListener('DOMContentLoaded', function() {
   if (!initFirebase()) return;
 
-  // Восстанавливаем сохранённый фильтр
+  // Восстанавливаем сохранённые фильтры
   try {
     const savedFilter = localStorage.getItem('ordersFilterValue');
     if (savedFilter) {
       const combo = document.getElementById('ordersFilterCombined');
       if (combo) {
         combo.value = savedFilter;
+      }
+    }
+    const savedSource = localStorage.getItem('ordersFilterSource');
+    if (savedSource) {
+      const sourceEl = document.getElementById('ordersFilterSource');
+      if (sourceEl) {
+        sourceEl.value = savedSource;
       }
     }
   } catch(e) {}
