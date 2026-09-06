@@ -1223,10 +1223,15 @@
     }
 
     // ============ ОТПРАВКА ЗАКАЗА ============
+    let _isSubmitting = false;
+
     async function submitOrderFromCart() {
+      if (_isSubmitting) return;
+      _isSubmitting = true;
       const submitBtn = document.getElementById('submitOrderBtn');
       
       if (cart.length === 0) {
+        _isSubmitting = false;
         Swal.fire('Ошибка', 'Корзина пуста', 'warning');
         return;
       }
@@ -1242,6 +1247,7 @@
             if (bp && bp.until > Date.now()) bypassed = true;
           } catch(e) {}
           if (!bypassed) {
+            _isSubmitting = false;
             Swal.fire({
               icon: 'warning',
               title: 'Минимальная сумма заказа',
@@ -1258,6 +1264,7 @@
         const cooldownUntil = parseInt(localStorage.getItem('firestoreCooldownUntil') || '0', 10) || 0;
         if (Date.now() < cooldownUntil) {
           const sec = Math.ceil((cooldownUntil - Date.now()) / 1000);
+          _isSubmitting = false;
           Swal.fire('Подождите', `Слишком много запросов. Повторите через ${sec} сек.`, 'warning');
           return;
         }
@@ -1360,7 +1367,7 @@
             };
           }
         });
-        if (!result.isConfirmed) return;
+        if (!result.isConfirmed) { _isSubmitting = false; return; }
         customerInfo = { name: result.value.name, phone: result.value.phone, address: result.value.address };
         driverInfo.driverName = result.value.driverName;
         driverInfo.driverPhone = result.value.driverPhone;
@@ -1448,11 +1455,12 @@
               return { name: n, phone: p, address: a, driverName: document.getElementById('swal-driver-name').value.trim(), driverPhone: document.getElementById('swal-driver-phone').value.trim() };
             }
           });
-          if (!editResult.isConfirmed) return;
+          if (!editResult.isConfirmed) { _isSubmitting = false; return; }
           customerInfo = { name: editResult.value.name, phone: editResult.value.phone, address: editResult.value.address };
           driverInfo.driverName = editResult.value.driverName;
           driverInfo.driverPhone = editResult.value.driverPhone;
         } else if (!result.isConfirmed) {
+          _isSubmitting = false;
           return;
         }
       }
@@ -2148,6 +2156,7 @@
           }
         } catch(e) {}
       } finally {
+        _isSubmitting = false;
         // ВСЕГДА разблокируем кнопку — даже если что-то неожиданное
         // упало посередине (например, Swal.fire бросил). Раньше при
         // необработанной ошибке кнопка навсегда оставалась в состоянии

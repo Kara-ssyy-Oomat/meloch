@@ -2,7 +2,11 @@
 // КЕРБЕН B2B Market — Order Submit (оформление заказа)
 // ===================================================================
 
+let _isSubmitting = false;
+
 document.getElementById('submitOrder').onclick = async () => {
+  if (_isSubmitting) return;
+  _isSubmitting = true;
   const submitBtn = document.getElementById('submitOrder');
   const name = document.getElementById('name').value.trim();
   const phone = document.getElementById('phone').value.trim();
@@ -749,6 +753,7 @@ document.getElementById('submitOrder').onclick = async () => {
       }
     } catch (e) {}
   } finally {
+    _isSubmitting = false;
     // ВСЕГДА разблокируем кнопку — при успехе, ошибке и любых
     // неожиданных исключениях. Раньше разблокировка была только в
     // catch — если что-то падало посередине после успешной записи

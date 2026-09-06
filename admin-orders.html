@@ -1261,143 +1261,141 @@ async function getCachedPrimaryWhId() {
   return _cachedPrimaryWhId;
 }
 
-// Возврат одного товара на склад (главный или по deductions)
+// Возврат одного товара на склад (главный или по deductions).
+// Чтение и запись product.stock/warehouseStock внутри runTransaction —
+// защита от гонки с Cloud Function (deductStockOnOrderCreate).
 async function returnStockForItem(orderId, productId, qty, context) {
   if (!productId || !qty || qty <= 0) return;
   context = context || {};
 
-  // Параллельно читаем товар и заказ
-  const [productDoc, orderDoc] = await Promise.all([
-    db.collection('products').doc(productId).get(),
-    db.collection('orders').doc(orderId).get()
-  ]);
-  if (!productDoc.exists) return;
-
+  // Читаем заказ и мета-данные (не участвуют в гонке с CF по продукту)
+  const orderDoc = await db.collection('orders').doc(orderId).get();
   const orderData = orderDoc.exists ? orderDoc.data() : {};
 
-  // Если при оформлении заказа товары не списывались — не возвращаем
   if (orderData.stockDeducted === false) return;
 
-  // Проверяем паузу складов — если приостановлено, не возвращаем (товары не списывались)
   try {
     const whSettings = await db.collection('settings').doc('warehouse').get();
     if (whSettings.exists && whSettings.data().paused === true) return;
   } catch(e) {}
-  
-  const product = productDoc.data();
+
   const deductions = orderData.warehouseDeductions || {};
   const itemDed = deductions[productId];
-  
-  // Если у товара нет stock/warehouseStock и не было списаний — товар без лимита, не трогаем
-  const hasStock = typeof product.stock === 'number';
-  const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
-  const hasDeductions = itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0;
-  if (!hasStock && !hasWarehouse && !hasDeductions) return;
 
-  // Загружаем список приостановленных складов (индивидуальная пауза).
-  // На такие склады возврат не производим — они заморожены.
-  // Деление по складам в warehouseDeductions сохраняем как есть, чтобы
-  // после снятия паузы вручную (или новым возвратом) можно было вернуть.
   const pausedWhIds = new Set();
   try {
     const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
     whSnap.forEach(d => pausedWhIds.add(d.id));
   } catch(e) {}
 
-  const ws = product.warehouseStock || {};
+  const primaryWhId = await getCachedPrimaryWhId();
+  const productRef = db.collection('products').doc(productId);
 
-  // Куда конкретно вернули (whId → qty) — для записи в warehouseMovements.
-  // Ключ '' (пустая строка) означает возврат без привязки к складу (общий stock).
-  const returnedByWh = {};
+  // returnedByWh заполняется внутри транзакции, используется для движений
+  let returnedByWh = {};
+  let productTitle = '';
 
-  const updates = []; // Собираем промисы для параллельной записи
+  if (itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0) {
+    // Есть разбивка по складам — транзакция на product
+    await db.runTransaction(async (tx) => {
+      const productDoc = await tx.get(productRef);
+      if (!productDoc.exists) return;
+      const product = productDoc.data() || {};
+      productTitle = product.title || '';
 
-  if (itemDed && typeof itemDed === 'object') {
-    let remaining = qty;
-    for (const whId of Object.keys(itemDed)) {
-      if (remaining <= 0) break;
-      // Приостановленный склад пропускаем — НЕ возвращаем на него.
-      if (pausedWhIds.has(whId)) continue;
-      const dedQty = itemDed[whId] || 0;
-      const returnQty = Math.min(remaining, dedQty);
-      ws[whId] = (ws[whId] || 0) + returnQty;
-      itemDed[whId] = dedQty - returnQty;
-      if (itemDed[whId] <= 0) delete itemDed[whId];
-      remaining -= returnQty;
-      returnedByWh[whId] = (returnedByWh[whId] || 0) + returnQty;
-    }
-    if (remaining > 0) {
-      const primaryWhId = await getCachedPrimaryWhId();
-      // Fallback-склад — главный, если он сам не на паузе; иначе любой
-      // не-приостановленный из ws. Если все недоступны — оставляем
-      // remaining в itemDed (он уже там лежит после цикла выше — мы не
-      // увеличили ws, не уменьшили itemDed на эту часть).
-      let fallbackWh = null;
-      if (primaryWhId && !pausedWhIds.has(primaryWhId)) {
-        fallbackWh = primaryWhId;
-      } else {
-        fallbackWh = Object.keys(ws).find(id => !pausedWhIds.has(id)) || null;
+      const hasStock = typeof product.stock === 'number';
+      const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
+      if (!hasStock && !hasWarehouse && Object.keys(itemDed).length === 0) return;
+
+      const ws = { ...(product.warehouseStock || {}) };
+      returnedByWh = {};
+      let remaining = qty;
+
+      for (const whId of Object.keys(itemDed)) {
+        if (remaining <= 0) break;
+        if (pausedWhIds.has(whId)) continue;
+        const dedQty = itemDed[whId] || 0;
+        const returnQty = Math.min(remaining, dedQty);
+        ws[whId] = (ws[whId] || 0) + returnQty;
+        itemDed[whId] = dedQty - returnQty;
+        if (itemDed[whId] <= 0) delete itemDed[whId];
+        remaining -= returnQty;
+        returnedByWh[whId] = (returnedByWh[whId] || 0) + returnQty;
       }
-      if (fallbackWh) {
-        ws[fallbackWh] = (ws[fallbackWh] || 0) + remaining;
-        returnedByWh[fallbackWh] = (returnedByWh[fallbackWh] || 0) + remaining;
-      }
-    }
 
+      if (remaining > 0) {
+        let fallbackWh = null;
+        if (primaryWhId && !pausedWhIds.has(primaryWhId)) {
+          fallbackWh = primaryWhId;
+        } else {
+          fallbackWh = Object.keys(ws).find(id => !pausedWhIds.has(id)) || null;
+        }
+        if (fallbackWh) {
+          ws[fallbackWh] = (ws[fallbackWh] || 0) + remaining;
+          returnedByWh[fallbackWh] = (returnedByWh[fallbackWh] || 0) + remaining;
+        }
+      }
+
+      const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+      tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+    });
+
+    // Обновляем deductions в заказе (вне транзакции — CF не трогает после done)
     if (Object.keys(itemDed).length === 0) delete deductions[productId];
     else deductions[productId] = itemDed;
-
     if (orderDoc.exists) {
-      updates.push(db.collection('orders').doc(orderId).update({ 
-        warehouseDeductions: Object.keys(deductions).length > 0 ? deductions : null 
-      }));
+      await db.collection('orders').doc(orderId).update({
+        warehouseDeductions: Object.keys(deductions).length > 0 ? deductions : null
+      });
     }
-  } else {
-    const primaryWhId = await getCachedPrimaryWhId();
-    // Если главный склад на паузе — не возвращаем, иначе обычное поведение.
-    if (primaryWhId) {
-      if (pausedWhIds.has(primaryWhId)) return;
+
+  } else if (primaryWhId) {
+    if (pausedWhIds.has(primaryWhId)) return;
+
+    // Нет разбивки, но есть главный склад — транзакция на product
+    await db.runTransaction(async (tx) => {
+      const productDoc = await tx.get(productRef);
+      if (!productDoc.exists) return;
+      const product = productDoc.data() || {};
+      productTitle = product.title || '';
+
+      const hasStock = typeof product.stock === 'number';
+      const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
+      if (!hasStock && !hasWarehouse) return;
+
+      const ws = { ...(product.warehouseStock || {}) };
       ws[primaryWhId] = (ws[primaryWhId] || 0) + qty;
-      returnedByWh[primaryWhId] = (returnedByWh[primaryWhId] || 0) + qty;
-    } else {
-      await db.collection('products').doc(productId).update({
-        stock: firebase.firestore.FieldValue.increment(qty)
-      });
-      // Пишем движение без привязки к складу (общий stock)
-      await _logOrderStockMovement({
-        productId,
-        productTitle: product.title || '',
-        warehouseId: '',
-        type: 'return',
-        direction: 'in',
-        qty,
-        orderId,
-        orderData,
-        context
-      });
-      return;
-    }
+      returnedByWh = {};
+      returnedByWh[primaryWhId] = qty;
+
+      const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+      tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+    });
+
+  } else {
+    // Нет складов — атомарный increment (уже безопасен без транзакции)
+    const productDoc = await productRef.get();
+    productTitle = productDoc.exists ? (productDoc.data().title || '') : '';
+
+    await productRef.update({
+      stock: firebase.firestore.FieldValue.increment(qty)
+    });
+    await _logOrderStockMovement({
+      productId, productTitle, warehouseId: '',
+      type: 'return', direction: 'in', qty,
+      orderId, orderData, context
+    });
+    return;
   }
 
-  const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-  updates.push(db.collection('products').doc(productId).update({ warehouseStock: ws, stock: newTotal }));
-  await Promise.all(updates);
-
-  // Пишем движения в warehouseMovements — по каждому реально пополненному складу.
-  // Без этих записей на странице «Движения» ничего не отображается для правки qty.
+  // Движения по складам
   const movementPromises = [];
   for (const [whId, movQty] of Object.entries(returnedByWh)) {
     if (!movQty || movQty <= 0) continue;
     movementPromises.push(_logOrderStockMovement({
-      productId,
-      productTitle: product.title || '',
-      warehouseId: whId,
-      type: 'return',
-      direction: 'in',
-      qty: movQty,
-      orderId,
-      orderData,
-      context
+      productId, productTitle, warehouseId: whId,
+      type: 'return', direction: 'in', qty: movQty,
+      orderId, orderData, context
     }));
   }
   if (movementPromises.length) await Promise.all(movementPromises);
@@ -1457,69 +1455,74 @@ async function _logOrderStockMovement(opts) {
   }
 }
 
-// Списание одного товара со склада (главный → остальные)
+// Списание одного товара со склада (главный → остальные).
+// Чтение и запись product.stock/warehouseStock внутри runTransaction —
+// защита от гонки с Cloud Function (deductStockOnOrderCreate).
 async function deductStockForItem(orderId, productId, qty, context) {
   if (!productId || !qty || qty <= 0) return;
   context = context || {};
 
-  // Параллельно: товар + главный склад + заказ + флаг паузы
-  const [productDoc, primaryWhId, orderDoc, whSettings] = await Promise.all([
-    db.collection('products').doc(productId).get(),
+  // Мета-данные (не участвуют в гонке с CF по продукту)
+  const [primaryWhId, orderDoc, whSettings] = await Promise.all([
     getCachedPrimaryWhId(),
     db.collection('orders').doc(orderId).get(),
     db.collection('settings').doc('warehouse').get()
   ]);
-  if (!productDoc.exists) return;
-  
-  // Если ВСЕ склады на глобальной паузе — не списываем
+
   if (whSettings.exists && whSettings.data().paused === true) return;
 
-  const product = productDoc.data();
   const orderData = orderDoc.exists ? orderDoc.data() : {};
-  
-  // Если у товара нет остатка и нет складов — он без лимита, не трогаем
-  const hasStock = typeof product.stock === 'number';
-  const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
-  if (!hasStock && !hasWarehouse) return;
 
-  // Загружаем список приостановленных складов (индивидуальная пауза)
   const pausedWhIds = new Set();
   try {
     const whSnap = await db.collection('warehouses').where('paused', '==', true).get();
     whSnap.forEach(d => pausedWhIds.add(d.id));
   } catch(e) {}
-  
-  const ws = product.warehouseStock || {};
 
-  let remaining = qty;
-  const itemDeductions = {};
+  const productRef = db.collection('products').doc(productId);
+  let itemDeductions = {};
+  let productTitle = '';
 
-  // Сначала с главного склада (если не на паузе)
-  if (primaryWhId && !pausedWhIds.has(primaryWhId) && (ws[primaryWhId] || 0) > 0) {
-    const deduct = Math.min(remaining, ws[primaryWhId]);
-    ws[primaryWhId] -= deduct;
-    remaining -= deduct;
-    itemDeductions[primaryWhId] = deduct;
-  }
+  // Транзакция: атомарное чтение + запись product stock
+  await db.runTransaction(async (tx) => {
+    const productDoc = await tx.get(productRef);
+    if (!productDoc.exists) return;
+    const product = productDoc.data() || {};
+    productTitle = product.title || '';
 
-  // Потом с остальных (пропуская приостановленные)
-  if (remaining > 0) {
-    const otherWh = Object.entries(ws)
-      .filter(([whId, whQty]) => whQty > 0 && whId !== primaryWhId && !pausedWhIds.has(whId))
-      .sort((a, b) => b[1] - a[1]);
-    for (const [whId, whQty] of otherWh) {
-      if (remaining <= 0) break;
-      const deduct = Math.min(remaining, whQty);
-      ws[whId] -= deduct;
+    const hasStock = typeof product.stock === 'number';
+    const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
+    if (!hasStock && !hasWarehouse) return;
+
+    const ws = { ...(product.warehouseStock || {}) };
+    let remaining = qty;
+    itemDeductions = {};
+
+    if (primaryWhId && !pausedWhIds.has(primaryWhId) && (ws[primaryWhId] || 0) > 0) {
+      const deduct = Math.min(remaining, ws[primaryWhId]);
+      ws[primaryWhId] -= deduct;
       remaining -= deduct;
-      itemDeductions[whId] = deduct;
+      itemDeductions[primaryWhId] = deduct;
     }
-  }
 
-  const newTotal = Object.values(ws).reduce((s, v) => s + (v || 0), 0);
-  const updates = [db.collection('products').doc(productId).update({ warehouseStock: ws, stock: newTotal })];
+    if (remaining > 0) {
+      const otherWh = Object.entries(ws)
+        .filter(([whId, whQty]) => whQty > 0 && whId !== primaryWhId && !pausedWhIds.has(whId))
+        .sort((a, b) => b[1] - a[1]);
+      for (const [whId, whQty] of otherWh) {
+        if (remaining <= 0) break;
+        const deduct = Math.min(remaining, whQty);
+        ws[whId] -= deduct;
+        remaining -= deduct;
+        itemDeductions[whId] = deduct;
+      }
+    }
 
-  // Обновляем warehouseDeductions в заказе
+    const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+    tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+  });
+
+  // Обновляем warehouseDeductions в заказе (вне транзакции — CF не трогает после done)
   if (Object.keys(itemDeductions).length > 0 && orderDoc.exists) {
     const deductions = orderData.warehouseDeductions || {};
     if (deductions[productId]) {
@@ -1529,26 +1532,17 @@ async function deductStockForItem(orderId, productId, qty, context) {
     } else {
       deductions[productId] = itemDeductions;
     }
-    updates.push(db.collection('orders').doc(orderId).update({ warehouseDeductions: deductions }));
+    await db.collection('orders').doc(orderId).update({ warehouseDeductions: deductions });
   }
 
-  await Promise.all(updates);
-
-  // Пишем движения в warehouseMovements — по каждому реально списанному складу.
-  // Без этих записей на странице «Движения» ничего не отображается для правки qty.
+  // Движения по складам
   const movementPromises = [];
   for (const [whId, movQty] of Object.entries(itemDeductions)) {
     if (!movQty || movQty <= 0) continue;
     movementPromises.push(_logOrderStockMovement({
-      productId,
-      productTitle: product.title || '',
-      warehouseId: whId,
-      type: 'sale',
-      direction: 'out',
-      qty: movQty,
-      orderId,
-      orderData,
-      context
+      productId, productTitle, warehouseId: whId,
+      type: 'sale', direction: 'out', qty: movQty,
+      orderId, orderData, context
     }));
   }
   if (movementPromises.length) await Promise.all(movementPromises);
