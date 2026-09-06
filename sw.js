@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.35.0-agent-order-form-index'; // Главная: форма заказа переключается в «режим клиента» для агента — баннер, автоподсказки клиентов, поле placedByAgent в заказе + fillOrderFormWithCustomerData не подставляет данные агента
+const CACHE_VERSION = 'kerben-v4.35.1-hide-referredBy-for-agent'; // Главная: у агента скрыто поле «Кто вам порекомендовал?» — реферером автоматически становится сам агент
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

@@ -283,6 +283,16 @@
     phoneInput.placeholder = 'Телефон клиента (+996...)';
     addressInput.placeholder = 'Адрес клиента';
 
+    // Скрываем поле «Кто вам порекомендовал?» — сам агент и есть реферер.
+    // (order-submit.js подставит его имя в partner автоматически.)
+    try {
+      const referredBySelect = document.getElementById('referredBy');
+      if (referredBySelect) {
+        referredBySelect.value = '';
+        referredBySelect.style.display = 'none';
+      }
+    } catch (e) {}
+
     // Очищаем поля, если там данные АГЕНТА (fillOrderFormWithCustomerData
     // мог их подставить до того как этот скрипт запустился)
     try {
