@@ -204,12 +204,10 @@
   // Возвращает промис, который резолвится за <500мс (обычно 50-200мс).
   // Если SDK не загружен — резолвится сразу.
   global.kerbenWaitForAuth = function (timeoutMs) {
-    // ВАЖНО: раньше здесь комментарий обещал «жёсткий таймаут 3 сек», но
-    // его в коде НЕ БЫЛО — при плохой сети (слабый LTE, реконнект)
-    // kerbenEnsureSignedIn'у onAuthStateChanged мог не сработать вовсе,
-    // и любой вызов `await kerbenWaitForAuth()` висел вечно, блокируя
-    // отправку заказа. Теперь таймаут реальный: по умолчанию 3 секунды.
-    var maxMs = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 3000;
+    // ВАЖНО: на медленных Android-устройствах с 4G анонимный вход Firebase
+    // занимает 3-6 секунд при холодном старте. Дефолт 6с достаточен для
+    // 95%+ устройств. Критичные пути (login, register) передают 8-10с.
+    var maxMs = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 6000;
     try {
       if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
         return Promise.resolve(null);

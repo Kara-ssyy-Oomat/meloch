@@ -1182,9 +1182,13 @@
         const cdPhone = (cd && cd.phone) ? String(cd.phone) : '';
         if (!cdPhone) return;
 
-        // Ждём Firebase Auth (правила требуют isRegularAuthed)
+        // Ждём Firebase Auth (правила требуют isRegularAuthed).
+        // 8с — запас для медленных Android на 4G
         if (typeof kerbenWaitForAuth === 'function') {
-          await kerbenWaitForAuth(3000).catch(() => {});
+          await kerbenWaitForAuth(8000).catch(() => {});
+        }
+        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
+          try { await kerbenEnsureSignedIn(); } catch (e) {}
         }
 
         // Нормализация телефона под все возможные форматы в БД
@@ -1285,6 +1289,11 @@
       try {
         Swal.fire({ title: 'Регистрация...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
         
+        // Ждём Firebase Auth
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(8000); } catch (e) {}
+        }
+
         // Проверяем уникальность телефона
         const existing = await db.collection('agents').where('phone', '==', phone).get();
         if (!existing.empty) {
@@ -1346,6 +1355,14 @@
       try {
         Swal.fire({ title: 'Вход...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
         
+        // Ждём Firebase Auth — правила требуют isAuthed
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(8000); } catch (e) {}
+        }
+        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
+          try { await kerbenEnsureSignedIn(); } catch (e) {}
+        }
+
         const snapshot = await db.collection('agents').where('phone', '==', phone).get();
         
         if (snapshot.empty) {

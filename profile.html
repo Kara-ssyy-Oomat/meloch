@@ -1045,13 +1045,17 @@
     // форму входа вместо дашборда).
     async function checkAgentStatus(normalizedPhone) {
       // Ждём Firebase Auth (иначе Firestore rules откажут в чтении agents).
-      // Увеличен до 6с — при холодном старте после закрытия браузера
-      // анонимная авторизация может занять 2-4 секунды.
+      // 8с — запас для медленных Android на 4G при холодном старте.
       let authReady = false;
       try {
         if (typeof kerbenWaitForAuth === 'function') {
-          await kerbenWaitForAuth(6000);
-          authReady = true;
+          await kerbenWaitForAuth(8000);
+          authReady = !!firebase.auth().currentUser;
+        }
+        // Если после 8с auth ещё не готов — явно запускаем
+        if (!authReady && typeof kerbenEnsureSignedIn === 'function') {
+          try { await kerbenEnsureSignedIn(); } catch (e) {}
+          authReady = !!firebase.auth().currentUser;
         }
       } catch (e) {}
 
@@ -1241,24 +1245,62 @@
     }
     
     // ==================== ВХОД ====================
+
+    // Утилита: дождаться Firebase Auth с несколькими попытками.
+    // Возвращает true если auth готов, false если после всех попыток нет user.
+    async function _ensureAuthReady() {
+      // Попытка 1: ждём до 8 секунд
+      if (typeof kerbenWaitForAuth === 'function') {
+        try { await kerbenWaitForAuth(8000); } catch (e) {}
+      }
+      if (firebase.auth().currentUser) return true;
+
+      // Попытка 2: явно запускаем signIn и ждём ещё 5 секунд
+      if (typeof kerbenEnsureSignedIn === 'function') {
+        try { await kerbenEnsureSignedIn(); } catch (e) {}
+      }
+      if (firebase.auth().currentUser) return true;
+
+      // Попытка 3: последний шанс — ещё 4 секунды
+      await new Promise(r => setTimeout(r, 4000));
+      return !!firebase.auth().currentUser;
+    }
+
+    // Утилита: выполнить Firestore запрос с авто-retry при permission-denied
+    async function _firestoreQueryWithRetry(queryFn, maxRetries) {
+      maxRetries = maxRetries || 2;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          return await queryFn();
+        } catch (err) {
+          const code = err && err.code ? String(err.code) : '';
+          const msg = err && err.message ? String(err.message) : '';
+          const isPermission = code === 'permission-denied' || msg.includes('permission');
+          if (!isPermission || attempt >= maxRetries) throw err;
+          // Permission-denied → auth не готов, ждём и повторяем
+          console.warn('[Auth Retry] permission-denied, попытка', attempt + 2);
+          if (typeof kerbenEnsureSignedIn === 'function') {
+            try { await kerbenEnsureSignedIn(); } catch (e) {}
+          }
+          await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        }
+      }
+    }
+
     async function login(phone, password) {
       try {
         Swal.fire({ title: 'Проверка...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
-        // Ждём Firebase Auth (новые rules требуют isAuthed для чтения customers).
-        // На Android/слабом 4G анонимный вход может занимать 3-6 сек — ждём до 8.
-        if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(8000); } catch (e) {}
+        const authOk = await _ensureAuthReady();
+        if (!authOk) {
+          console.warn('[Login] auth не готов после всех попыток, пробуем запрос...');
         }
 
         const normalizedPhone = normalizePhone(phone);
 
-        // Если auth всё ещё не готов — пробуем ещё раз перед запросом
-        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
-          try { await kerbenEnsureSignedIn(); } catch (e) {}
-        }
-
-        const snapshot = await db.collection('customers').where('phone', '==', normalizedPhone).limit(1).get();
+        const snapshot = await _firestoreQueryWithRetry(() =>
+          db.collection('customers').where('phone', '==', normalizedPhone).limit(1).get()
+        );
         
         if (snapshot.empty) {
           Swal.fire({ icon: 'error', title: 'Клиент не найден', text: 'Проверьте номер или зарегистрируйтесь' });
@@ -1315,9 +1357,6 @@
           try {
             if (typeof kerbenSignInAsAdmin === 'function') {
               await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
-              // Запоминаем пароль локально (обфусцированно, 30 дней).
-              // Это даёт admin-reauth.js возможность молча восстановить
-              // сессию после перезапуска браузера / истечения Firebase Auth.
               try { _storeAdminCredentialsLocally(password); } catch (_) {}
             }
           } catch (e) {
@@ -1337,13 +1376,10 @@
         
       } catch (error) {
         console.error('[Login] error:', error);
-        const isPermission = error && (error.code === 'permission-denied' || (error.message && error.message.includes('permission')));
         Swal.fire({
           icon: 'error',
-          title: 'Ошибка',
-          text: isPermission
-            ? 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.'
-            : 'Попробуйте позже'
+          title: 'Ошибка входа',
+          text: 'Проверьте интернет-соединение и попробуйте ещё раз.'
         });
       }
     }
@@ -1353,17 +1389,14 @@
       try {
         Swal.fire({ title: 'Регистрация...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
-        // Ждём Firebase Auth для чтения customers (rules: isAuthed)
-        if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(8000); } catch (e) {}
-        }
-        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
-          try { await kerbenEnsureSignedIn(); } catch (e) {}
-        }
+        const authOk = await _ensureAuthReady();
+        if (!authOk) console.warn('[Register] auth не готов, пробуем запрос...');
 
         const normalizedPhone = normalizePhone(data.phone);
         
-        const existing = await db.collection('customers').where('phone', '==', normalizedPhone).limit(1).get();
+        const existing = await _firestoreQueryWithRetry(() =>
+          db.collection('customers').where('phone', '==', normalizedPhone).limit(1).get()
+        );
         if (!existing.empty) {
           Swal.fire({ icon: 'warning', title: 'Телефон занят', text: 'Попробуйте войти' });
           return;
@@ -1434,8 +1467,12 @@
         await loadDashboard();
         
       } catch (error) {
-        console.error(error);
-        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Попробуйте позже' });
+        console.error('[Register] error:', error);
+        Swal.fire({
+          icon: 'error',
+          title: 'Ошибка регистрации',
+          text: 'Проверьте интернет-соединение и попробуйте ещё раз.'
+        });
       }
     }
     
