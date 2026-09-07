@@ -862,6 +862,11 @@
       if (typeof db === 'undefined' || !db) return null;
 
       try {
+        // Ждём Firebase Auth — без него rules откажут в чтении customers
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(6000); } catch (e) {}
+        }
+
         const normalizedPhone = normalizePhone(cookieData.phone);
         const snapshot = await db.collection('customers')
           .where('phone', '==', normalizedPhone)
@@ -1240,12 +1245,19 @@
       try {
         Swal.fire({ title: 'Проверка...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
-        // Ждём Firebase Auth (новые rules требуют isAuthed для чтения customers)
+        // Ждём Firebase Auth (новые rules требуют isAuthed для чтения customers).
+        // На Android/слабом 4G анонимный вход может занимать 3-6 сек — ждём до 8.
         if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(); } catch (e) {}
+          try { await kerbenWaitForAuth(8000); } catch (e) {}
         }
 
         const normalizedPhone = normalizePhone(phone);
+
+        // Если auth всё ещё не готов — пробуем ещё раз перед запросом
+        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
+          try { await kerbenEnsureSignedIn(); } catch (e) {}
+        }
+
         const snapshot = await db.collection('customers').where('phone', '==', normalizedPhone).limit(1).get();
         
         if (snapshot.empty) {
@@ -1324,8 +1336,15 @@
         await loadDashboard();
         
       } catch (error) {
-        console.error(error);
-        Swal.fire({ icon: 'error', title: 'Ошибка', text: 'Попробуйте позже' });
+        console.error('[Login] error:', error);
+        const isPermission = error && (error.code === 'permission-denied' || (error.message && error.message.includes('permission')));
+        Swal.fire({
+          icon: 'error',
+          title: 'Ошибка',
+          text: isPermission
+            ? 'Нет связи с сервером. Проверьте интернет и попробуйте ещё раз.'
+            : 'Попробуйте позже'
+        });
       }
     }
     
@@ -1336,7 +1355,10 @@
 
         // Ждём Firebase Auth для чтения customers (rules: isAuthed)
         if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(); } catch (e) {}
+          try { await kerbenWaitForAuth(8000); } catch (e) {}
+        }
+        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
+          try { await kerbenEnsureSignedIn(); } catch (e) {}
         }
 
         const normalizedPhone = normalizePhone(data.phone);
@@ -1423,6 +1445,11 @@
       let stats = { ordersCount: 0, totalSpent: 0 };
       
       try {
+        // Ждём Firebase Auth перед Firestore-запросами
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(6000); } catch (e) {}
+        }
+
         // Нормализуем телефон для поиска
         const userPhone = currentCustomer.phone || '';
         const normalizedPhone = normalizePhone(userPhone);
