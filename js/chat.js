@@ -230,8 +230,9 @@ async function loadChatMessages() {
 
   // Ждём Firebase Auth — иначе при первом открытии чата запрос может уйти
   // без auth-токена и правила `read: if isAuthed()` дадут permission-denied.
+  // 6с — запас для медленных Android на 4G
   if (typeof kerbenWaitForAuth === 'function') {
-    try { await kerbenWaitForAuth(); } catch (e) {}
+    try { await kerbenWaitForAuth(6000); } catch (e) {}
   }
 
   try {

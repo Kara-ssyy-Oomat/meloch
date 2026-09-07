@@ -76,8 +76,9 @@ document.getElementById('submitOrder').onclick = async () => {
   // Ждём готовности Firebase Auth — все запросы (orders, products, settings,
   // clientAgents) должны уйти с auth-токеном, иначе строгие rules
   // (isAuthed) блокируют их permission-denied.
+  // 6с — запас для медленных Android-устройств на 4G.
   if (typeof kerbenWaitForAuth === 'function') {
-    try { await kerbenWaitForAuth(); } catch (e) {}
+    try { await kerbenWaitForAuth(6000); } catch (e) {}
   }
 
   if (!name || !phone || !address || cart.length === 0) {

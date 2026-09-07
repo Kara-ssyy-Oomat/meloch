@@ -692,8 +692,9 @@ async function refreshBlockedProducts() {
 
   // 1) Ждём пока Firebase Auth выдаст auth.uid — иначе правила вернут
   // permission-denied и snap.empty будет ложно «всё удалено».
+  // 6с — запас для медленных Android на 4G
   if (typeof kerbenWaitForAuth === 'function') {
-    try { await kerbenWaitForAuth(); } catch (e) {}
+    try { await kerbenWaitForAuth(6000); } catch (e) {}
   }
 
   const ids = [...new Set(cart.map(item => item.id))];
