@@ -54,11 +54,19 @@ service cloud.firestore {
     //                        ХЕЛПЕРЫ
     // =========================================================
 
+    // Email из токена — безопасно, через get() со значением по умолчанию.
+    // У анонимного входа поля email в токене НЕТ вообще, и прямое обращение
+    // request.auth.token.email обрывало правило ошибкой
+    // «Property email is undefined on object» — то есть доступ запрещался
+    // всем обычным клиентам и агентам, а не только складским.
+    function authEmail() {
+      return request.auth != null ? request.auth.token.get('email', '') : '';
+    }
+
     // Админ через Firebase Auth (email-логин).
     function isAdminUser() {
       return request.auth != null
-          && request.auth.token.email != null
-          && request.auth.token.email == 'admin@kerben.local';
+          && authEmail() == 'admin@kerben.local';
     }
 
     // Любой залогиненный (включая анонимных) или админ.
@@ -89,8 +97,7 @@ service cloud.firestore {
     // =========================================================
     function isWarehouseManagerEmail() {
       return request.auth != null
-          && request.auth.token.email != null
-          && request.auth.token.email.matches('^wm_.*@kerben-warehouse[.]local$');
+          && authEmail().matches('^wm_.*@kerben-warehouse[.]local$');
     }
 
     function isApprovedWarehouseManager() {
@@ -811,7 +818,7 @@ service cloud.firestore {
           && request.resource.data.delta >= -10000000
           && request.resource.data.delta <= 10000000
           && request.resource.data.changedByUid == request.auth.uid
-          && request.resource.data.changedByEmail == request.auth.token.email
+          && request.resource.data.changedByEmail == authEmail()
           && request.resource.data.at is number
           && strOk('changedByName', 200)
           && strOk('productTitle', 500)
@@ -868,7 +875,7 @@ service cloud.firestore {
           request.resource.data.email is string
           && request.resource.data.email.matches('^wm_.*@kerben-warehouse[.]local$')
         )
-        && request.auth.token.email == request.resource.data.email;
+        && authEmail() == request.resource.data.email;
 
       allow update: if reasonableDocSize() && (
         // Админ может менять статус (одобрить/отклонить/заблокировать/разблокировать)
