@@ -51,7 +51,17 @@
       const raw = localStorage.getItem('currentAgent');
       if (!raw) return false;
       const a = JSON.parse(raw);
-      return !!(a && a.name && (a.id || a.phone));
+      if (!(a && a.name && (a.id || a.phone))) return false;
+      const cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+      if (!cd || !cd.phone) return false;
+      if (!a.phone) return true;
+      function digits(p) {
+        var d = String(p || '').replace(/\D/g, '');
+        if (d.indexOf('996') === 0) d = d.substring(3);
+        if (d.charAt(0) === '0') d = d.substring(1);
+        return d.slice(-9);
+      }
+      return digits(cd.phone) === digits(a.phone);
     } catch (e) { return false; }
   }
 

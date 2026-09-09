@@ -200,12 +200,27 @@
   /**
    * Удалить профиль из всех хранилищ (logout)
    */
+  function clearAgent() {
+    try { localStorage.removeItem('currentAgent'); } catch(e) {}
+    removeFromIDB('currentAgent');
+    try {
+      var keys = [];
+      for (var i = 0; i < sessionStorage.length; i++) keys.push(sessionStorage.key(i));
+      keys.forEach(function (k) {
+        if (k && (k.indexOf('isAgent_') === 0 || k === 'agentProfitCache')) {
+          sessionStorage.removeItem(k);
+        }
+      });
+    } catch (e) {}
+  }
+
   function removeProfile() {
     try { localStorage.removeItem('customerData'); } catch(e) {}
     try { localStorage.removeItem('customerData_ts'); } catch(e) {}
     removeFromIDB('customerData');
     removeFromIDB('customerData_ts');
     removeCookie();
+    clearAgent();
   }
 
   /**
@@ -294,7 +309,8 @@
     // Утилиты для бэкапа других данных (currentAgent) в IndexedDB
     _saveToIDB: saveToIDB,
     _loadFromIDB: loadFromIDB,
-    _removeFromIDB: removeFromIDB
+    _removeFromIDB: removeFromIDB,
+    clearAgent: clearAgent
   };
 
 })();

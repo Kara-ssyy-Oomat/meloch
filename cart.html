@@ -689,11 +689,19 @@
         const raw = localStorage.getItem('currentAgent');
         if (!raw) return false;
         const a = JSON.parse(raw);
-        // Раньше требовали id+name. Но при сохранении из profile.html
-        // (или после старой версии) id может отсутствовать — тогда
-        // restoreAgentClientsFromCloud() найдёт agentId по phone.
-        // Достаточно чтобы был name И (id ИЛИ phone).
-        return !!(a && a.name && (a.id || a.phone));
+        if (!(a && a.name && (a.id || a.phone))) return false;
+        // После выхода из профиля агента заказ должен быть обычным.
+        // Иначе остаётся баннер «Заказ от агента», хотя клиент вышел.
+        const cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+        if (!cd || !cd.phone) return false;
+        if (!a.phone) return true;
+        const digits = function (p) {
+          var d = String(p || '').replace(/\D/g, '');
+          if (d.indexOf('996') === 0) d = d.substring(3);
+          if (d.charAt(0) === '0') d = d.substring(1);
+          return d.slice(-9);
+        };
+        return digits(cd.phone) === digits(a.phone);
       } catch(e) { return false; }
     }
 

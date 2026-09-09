@@ -806,6 +806,7 @@
     let currentCustomer = null;
     let isAdmin = false;
     let isAgent = false;
+    let _agentCheckToken = 0;
     const KOREAN_MANAGER_PASSWORD = '556655';
     const APPLIANCES_MANAGER_PASSWORD = '777888';
 
@@ -1163,6 +1164,7 @@
     // и покажет форму логина (пункт меню появляется, но клик открывает
     // форму входа вместо дашборда).
     async function checkAgentStatus(normalizedPhone) {
+      const checkToken = _agentCheckToken;
       // Ждём Firebase Auth (иначе Firestore rules откажут в чтении agents).
       // 8с — запас для медленных Android на 4G при холодном старте.
       let authReady = false;
@@ -1261,6 +1263,7 @@
         }
 
         const foundAgent = !!foundAgentDoc;
+        if (checkToken !== _agentCheckToken) return;
 
         if (foundAgent) {
           const agentData = foundAgentDoc.data() || {};
@@ -1535,16 +1538,18 @@
         isAdmin = isAdminLogin;
         _saveProfileData();
 
-        // После входа — свежий агент из Firebase, не старый currentAgent
-        // с другого номера на этом телефоне.
+        // После входа — свежий агент из Firebase. Ошибка здесь
+        // не должна срывать сам вход («проверьте интернет»).
         try {
           sessionStorage.removeItem('isAgent_' + normalizedPhone);
           sessionStorage.removeItem('agentProfitCache');
           sessionStorage.removeItem('dashboardCache_' + normalizedPhone);
-        } catch (e) {}
-        _agentProfitCache = null;
-        isAgent = false;
-        await checkAgentStatus(normalizedPhone);
+          try { _agentProfitCache = null; } catch (e) {}
+          isAgent = false;
+          await checkAgentStatus(normalizedPhone);
+        } catch (e) {
+          console.warn('[Login] обновление агента:', e && e.message);
+        }
 
         // Миграция legacy plaintext → hash + привязка firebaseUid
         if (_legacyToMigrate && !_isAdminPhoneAttempt
@@ -1651,10 +1656,12 @@
         try {
           sessionStorage.removeItem('isAgent_' + normalizedPhone);
           sessionStorage.removeItem('agentProfitCache');
-        } catch (e) {}
-        _agentProfitCache = null;
-        isAgent = false;
-        await checkAgentStatus(normalizedPhone);
+          try { _agentProfitCache = null; } catch (e) {}
+          isAgent = false;
+          await checkAgentStatus(normalizedPhone);
+        } catch (e) {
+          console.warn('[Register] обновление агента:', e && e.message);
+        }
 
         // FIREBASE AUTH: для админа дополнительно входим в Firebase Auth
         if (isAdminRegister) {
@@ -2506,18 +2513,16 @@
         confirmButtonColor: '#dc3545'
       }).then(r => {
         if (r.isConfirmed) {
+          _agentCheckToken++;
           // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
           if (window.PersistProfile) window.PersistProfile.remove();
           try { localStorage.removeItem('customerData'); } catch(e) {}
           _clearCategoryManager();
-          // Сбрасываем только «метку агента» — иначе cart.html посчитает,
-          // что заказы оформляются агентом за клиента, и НЕ создаст
-          // customerData локально → после заказа профиль останется
-          // пустым и агент не сможет автоматически войти обратно.
-          // Список клиентов агента (agentClients / agentLastClient)
-          // оставляем — это локальный кэш автоподсказок; если агент
-          // снова войдёт как агент, подсказки не потеряются.
-          try { localStorage.removeItem('currentAgent'); } catch(e) {}
+          if (window.PersistProfile && window.PersistProfile.clearAgent) {
+            window.PersistProfile.clearAgent();
+          } else {
+            try { localStorage.removeItem('currentAgent'); } catch(e) {}
+          }
           sessionStorage.removeItem('profileHtmlCache');
           sessionStorage.clear();
           currentCustomer = null;

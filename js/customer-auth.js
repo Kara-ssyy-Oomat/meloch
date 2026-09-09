@@ -2027,6 +2027,11 @@ function logoutCustomer() {
       // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
       if (window.PersistProfile) window.PersistProfile.remove();
       try { localStorage.removeItem('customerData'); } catch(e) {}
+      if (window.PersistProfile && window.PersistProfile.clearAgent) {
+        window.PersistProfile.clearAgent();
+      } else {
+        try { localStorage.removeItem('currentAgent'); } catch(e) {}
+      }
       // Очищаем сессию категорийного менеджера
       try {
         localStorage.removeItem('userRole');
