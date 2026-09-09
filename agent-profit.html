@@ -898,7 +898,7 @@
         <h1>💰 Моя прибыль</h1>
         <div class="header-subtitle" id="agentName">Агент: ---</div>
         <!-- Метка версии: если её не видно, устройство держит старую копию -->
-        <div class="header-subtitle" style="font-size:11px; opacity:0.75;">версия 4.44</div>
+        <div class="header-subtitle" style="font-size:11px; opacity:0.75;">версия 4.45</div>
       </div>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
@@ -1135,7 +1135,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
   <script src="js/app-check.js?v=2"></script>
   <script src="js/persist-profile.js?v=2"></script>
-  <script src="js/auth.js?v=2"></script>
+  <script src="js/auth.js?v=3"></script>
   <script src="js/admin-reauth.js?v=2"></script>
   <script src="js/bot-blocker.js?v=2"></script>
   <!-- Загрузка заказов агента на 4G занимает время. С обычными 60 секундами
@@ -1643,10 +1643,11 @@
 
         if (!currentAgent || (!currentAgent.id && !currentAgent.name)) {
           if (fromProfile) {
+            var blocked = (typeof kerbenAuthBlockedReason === 'function') ? kerbenAuthBlockedReason() : '';
             _showResolveBox(
               _lastReadOk
                 ? 'Ваш номер не найден среди агентов. Войдите по телефону и паролю ниже.'
-                : 'Нет связи с базой. Проверьте интернет и нажмите «Повторить».',
+                : (blocked || 'Нет связи с базой. Проверьте интернет и нажмите «Повторить».'),
               true
             );
             showAuth();
@@ -1949,7 +1950,9 @@
           }
           var listNoAuth = document.getElementById('ordersList');
           if (listNoAuth) {
-            listNoAuth.innerHTML = '<div class="empty-state"><div class="empty-icon">📶</div><div>Нет связи с базой</div><div style="font-size:13px; color:#888; margin-top:8px;">Проверьте интернет и нажмите «Повторить»</div><div style="margin-top:10px;"><button onclick="retryAgentOrders()" style="padding:10px 16px; border:none; border-radius:8px; background:#9c27b0; color:#fff; cursor:pointer;">Повторить</button></div></div>';
+            var why = (typeof kerbenAuthBlockedReason === 'function' && kerbenAuthBlockedReason())
+              || 'Проверьте интернет и нажмите «Повторить»';
+            listNoAuth.innerHTML = '<div class="empty-state"><div class="empty-icon">📶</div><div>Нет связи с базой</div><div style="font-size:13px; color:#888; margin-top:8px;">' + why + '</div><div style="margin-top:10px;"><button onclick="retryAgentOrders()" style="padding:10px 16px; border:none; border-radius:8px; background:#9c27b0; color:#fff; cursor:pointer;">Повторить</button></div></div>';
           }
           return;
         }

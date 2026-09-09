@@ -61,8 +61,12 @@ function initPushNotifications() {
 // Запрос разрешения и подписка на push-уведомления
 async function subscribeToPush() {
   try {
-    // Запрашиваем разрешение
-    const permission = await Notification.requestPermission();
+    // Разрешение уже есть — второй запрос не нужен. Safari его отклоняет
+    // («prompting can only be done from a user gesture») и сыпет ошибками.
+    let permission = Notification.permission;
+    if (permission !== 'granted') {
+      permission = await Notification.requestPermission();
+    }
     if (permission !== 'granted') {
       console.log('🔔 Пользователь отклонил уведомления');
       return false;

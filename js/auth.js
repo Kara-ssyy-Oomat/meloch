@@ -97,9 +97,13 @@
           _signInInProgress = true;
           firebase.auth().signInAnonymously()
             .then(function () {
+              global.KERBEN_AUTH_ERROR = null;
               console.log('[Kerben Auth] анонимный вход успешно');
             })
             .catch(function (err) {
+              // Запоминаем причину: страницы показывают её пользователю
+              // вместо бесконечной «Проверки…».
+              global.KERBEN_AUTH_ERROR = err || null;
               console.warn('[Kerben Auth] анонимный вход не удался:', err && err.message);
               _markAuthReady();
             })
@@ -234,6 +238,23 @@
     } catch (e) {
       return Promise.resolve(null);
     }
+  };
+
+  // Браузер не даёт войти в Firebase: расширение-блокировщик, приватный
+  // режим или ограничение ключа по домену срезают Referer, и Google
+  // отвечает 403 «Requests from referer <empty> are blocked».
+  global.kerbenAuthBlockedReason = function () {
+    var err = global.KERBEN_AUTH_ERROR;
+    if (!err) return '';
+    var msg = String((err && (err.message || err.code)) || '');
+    if (/referer|referrer|blocked|403|api-key-not-valid|unauthorized-domain/i.test(msg)) {
+      return 'Браузер блокирует доступ к базе. Отключите блокировщик рекламы '
+        + 'или откройте сайт в обычном окне (не приватном).';
+    }
+    if (/too-many-requests/i.test(msg)) {
+      return 'Слишком много попыток входа. Подождите минуту и попробуйте снова.';
+    }
+    return '';
   };
 
   // Проверить, что текущий user — это админ (по email из Firebase Auth)

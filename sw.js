@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.44.0-profile-retries-orders'; // Профиль повторяет загрузку заказов вместо нулей
+const CACHE_VERSION = 'kerben-v4.45.0-auth-block-message'; // Понятное сообщение, когда браузер режет доступ к Firebase
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
