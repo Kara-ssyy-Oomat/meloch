@@ -780,6 +780,95 @@
     let currentCustomer = null;
     let isAdmin = false;
     let isAgent = false;
+    const KOREAN_MANAGER_PASSWORD = '556655';
+    const APPLIANCES_MANAGER_PASSWORD = '777888';
+
+    function _managerFromPassword(password) {
+      if (password === KOREAN_MANAGER_PASSWORD) {
+        return { role: 'korean', name: 'Менеджер корейских товаров', categories: ['корейские', 'часы', 'электроника'] };
+      }
+      if (password === APPLIANCES_MANAGER_PASSWORD) {
+        return { role: 'appliances', name: 'Менеджер бытовых техник', categories: ['бытовые'] };
+      }
+      return null;
+    }
+
+    function _activateCategoryManager(info) {
+      try {
+        localStorage.setItem('userRole', info.role);
+        localStorage.setItem('categoryManagerData', JSON.stringify(info));
+      } catch (e) {}
+    }
+
+    function _clearCategoryManager() {
+      try {
+        localStorage.removeItem('userRole');
+        localStorage.removeItem('categoryManagerData');
+      } catch (e) {}
+    }
+
+    function _isCategoryManager() {
+      try {
+        const role = localStorage.getItem('userRole');
+        if (role === 'korean' || role === 'appliances') return role;
+        const cm = JSON.parse(localStorage.getItem('categoryManagerData') || 'null');
+        if (cm && (cm.role === 'korean' || cm.role === 'appliances')) return cm.role;
+      } catch (e) {}
+      return null;
+    }
+
+    function _managerPanelHtml() {
+      const role = _isCategoryManager();
+      const roleName = role === 'korean' ? 'Менеджер корейских товаров' : 'Менеджер бытовых техник';
+      const cats = role === 'korean' ? 'корейские, часы, электроника' : 'бытовые';
+      return `
+          <div class="menu-section">
+            <div class="menu-section-title">🏷️ ${roleName}</div>
+            <div style="padding:0 16px 10px; font-size:12px; color:#888;">Категории: ${cats}</div>
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-products.html')">
+              <div class="menu-item-left">
+                <span class="menu-icon">➕</span>
+                <span class="menu-text">Добавить товар</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            <div class="menu-item admin-menu-item" onclick="navigateTop('admin-profit.html')">
+              <div class="menu-item-left">
+                <span class="menu-icon">💰</span>
+                <span class="menu-text">Отчет по прибыли</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+            <div class="menu-item" onclick="_logoutCategoryManager()">
+              <div class="menu-item-left">
+                <span class="menu-icon">🚪</span>
+                <span class="menu-text" style="color:#dc3545;">Выйти из режима менеджера</span>
+              </div>
+              <span class="menu-arrow">›</span>
+            </div>
+          </div>`;
+    }
+
+    function _logoutCategoryManager() {
+      _clearCategoryManager();
+      Swal.fire({ icon: 'info', title: 'Режим менеджера выключен', timer: 1400, showConfirmButton: false })
+        .then(() => { if (currentCustomer) loadDashboard(); else showLoginForm(); });
+    }
+
+    async function _enterAsCategoryManager(info) {
+      _activateCategoryManager(info);
+      if (!currentCustomer) {
+        currentCustomer = { name: info.name, phone: '', isAdmin: false, _managerOnly: true };
+      }
+      await Swal.fire({
+        icon: 'success',
+        title: '✅ Вход выполнен',
+        html: 'Вы вошли как <b>' + info.name + '</b><br><small>Только ваши категории: ' + info.categories.join(', ') + '</small>',
+        timer: 2000,
+        showConfirmButton: false
+      });
+      await loadDashboard();
+    }
     let _customerOrders = [];
     let _dashboardCache = null; // Кэш данных dashboard
     let _unsubOrders = null;
@@ -1003,11 +1092,11 @@
               renderDashboard({ ordersCount: 0, totalSpent: 0 }, []);
             } else {
               // Только если данных совсем нет — показываем форму входа
-              showLoginForm();
+              _showLoginOrManager();
             }
           }
         } else {
-          showLoginForm();
+          _showLoginOrManager();
         }
         updateCartBadge();
         _fillComplaintForms();
@@ -1019,9 +1108,9 @@
         // Fallback
         const saved = localStorage.getItem('customerData');
         if (saved) {
-          try { _onProfileLoaded(JSON.parse(saved)); } catch(e) { showLoginForm(); updateCartBadge(); }
+          try { _onProfileLoaded(JSON.parse(saved)); } catch(e) { _showLoginOrManager(); updateCartBadge(); }
         } else {
-          showLoginForm();
+          _showLoginOrManager();
           updateCartBadge();
         }
       }
@@ -1193,6 +1282,14 @@
     }
     
     // ==================== ФОРМА ВХОДА ====================
+    function _showLoginOrManager() {
+      if (_isCategoryManager()) {
+        loadDashboard();
+      } else {
+        showLoginForm();
+      }
+    }
+
     function showLoginForm() {
       document.getElementById('profileContent').innerHTML = `
         <div class="login-container">
@@ -1200,6 +1297,7 @@
           <div class="login-title">Вход в личный кабинет</div>
           <div class="login-subtitle">Войдите чтобы отслеживать заказы и получать скидки</div>
           <button class="login-btn" onclick="showLoginModal()">Войти</button>
+          <button class="login-btn" onclick="openAdminLogin()" style="margin-top:10px; background:#2e7d32;">Вход для админа / менеджера</button>
           <div class="register-link">Нет аккаунта? <a href="#" onclick="showRegisterModal(); return false;">Регистрация</a></div>
         </div>
       `;
@@ -1225,6 +1323,11 @@
       });
       
       if (formValues) {
+        const mgr = _managerFromPassword(formValues.password);
+        if (mgr) {
+          await _enterAsCategoryManager(mgr);
+          return;
+        }
         await login(formValues.phone, formValues.password);
       }
     }
@@ -1512,6 +1615,20 @@
     async function loadDashboard() {
       let orders = [];
       let stats = { ordersCount: 0, totalSpent: 0 };
+      if (!currentCustomer) {
+        if (_isCategoryManager()) {
+          const role = _isCategoryManager();
+          currentCustomer = {
+            name: role === 'korean' ? 'Менеджер корейских товаров' : 'Менеджер бытовых техник',
+            phone: '',
+            isAdmin: false,
+            _managerOnly: true
+          };
+        } else {
+          showLoginForm();
+          return;
+        }
+      }
       
       try {
         // Ждём Firebase Auth перед Firestore-запросами
@@ -1609,9 +1726,11 @@
         }
       }
       
-      // Админ-панель (только для админов)
+      // Админ-панель (полный админ) или панель категорийного менеджера
       let adminPanelHtml = '';
-      if (isAdmin || currentCustomer.isAdmin) {
+      if (_isCategoryManager()) {
+        adminPanelHtml = _managerPanelHtml();
+      } else if (isAdmin || currentCustomer.isAdmin) {
         adminPanelHtml = `
           <div class="menu-section">
             <div class="menu-section-title">🔐 Панель администратора</div>
@@ -1879,11 +1998,11 @@
           
           ${_getWmMenuItemHtml()}
           
-          ${!isAdmin && !currentCustomer.isAdmin ? `
+          ${!isAdmin && !currentCustomer.isAdmin && !_isCategoryManager() ? `
           <div class="menu-item" onclick="openAdminLogin()">
             <div class="menu-item-left">
               <span class="menu-icon">🔐</span>
-              <span class="menu-text">Вход для админа</span>
+              <span class="menu-text">Вход для админа / менеджера</span>
             </div>
             <span class="menu-arrow">›</span>
           </div>
@@ -2154,9 +2273,9 @@
     // ==================== ВХОД ДЛЯ АДМИНА ====================
     async function openAdminLogin() {
       const { value: password } = await Swal.fire({
-        title: '🔐 Вход для администратора',
+        title: '🔐 Вход для управления',
         input: 'password',
-        inputPlaceholder: 'Введите пароль администратора',
+        inputPlaceholder: 'Пароль админа или менеджера',
         showCancelButton: true,
         confirmButtonText: 'Войти',
         cancelButtonText: 'Отмена',
@@ -2164,6 +2283,11 @@
       });
       
       if (password) {
+        const mgr = _managerFromPassword(password);
+        if (mgr) {
+          await _enterAsCategoryManager(mgr);
+          return;
+        }
         const _adminInputHash = await _sha256(password);
         if (_adminInputHash === ADMIN_CUSTOMER_DATA.passwordHash) {
           // Проверяем телефон
@@ -2179,7 +2303,9 @@
             return;
           }
           
-          // Успешный вход
+          // Успешный вход главного админа — сбрасываем режим менеджера
+          _clearCategoryManager();
+          try { localStorage.setItem('userRole', 'admin'); } catch (e) {}
           currentCustomer.isAdmin = true;
           isAdmin = true;
           localStorage.setItem('customerData', JSON.stringify(currentCustomer));
@@ -2284,6 +2410,7 @@
           // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
           if (window.PersistProfile) window.PersistProfile.remove();
           try { localStorage.removeItem('customerData'); } catch(e) {}
+          _clearCategoryManager();
           // Сбрасываем только «метку агента» — иначе cart.html посчитает,
           // что заказы оформляются агентом за клиента, и НЕ создаст
           // customerData локально → после заказа профиль останется
