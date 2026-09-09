@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.39.1-agent-profit-simple-queries'; // Прибыль агента: простые запросы как в профиле
+const CACHE_VERSION = 'kerben-v4.40.0-agent-profit-in-profile'; // Прибыль агента внутри профиля — без холодного старта на телефоне
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -217,8 +217,10 @@ self.addEventListener('activate', (event) => {
       caches.keys().then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME && cacheName !== FIREBASE_CACHE && cacheName !== IMAGE_CACHE) {
-              console.log('[SW] Удаление старого кэша:', cacheName);
+            // HTML/JS кэш всегда сбрасываем при новой версии, иначе
+            // телефонное приложение продолжает открывать старую прибыль.
+            if (cacheName !== IMAGE_CACHE) {
+              console.log('[SW] Удаление кэша:', cacheName);
               return caches.delete(cacheName);
             }
           })
@@ -317,8 +319,9 @@ self.addEventListener('fetch', (event) => {
   const cleanRequest = new Request(cleanUrl, { headers: event.request.headers });
   
   event.respondWith(
-    // Стратегия Network First - всегда пытаемся загрузить свежее
-    fetch(event.request)
+    // HTML всегда с сети без HTTP-кэша — иначе PWA на телефоне
+    // держит старый profile.html / agent-profit.html.
+    fetch(event.request, event.request.url.match(/\.html(\?|$)/) ? { cache: 'no-store' } : undefined)
       .then((response) => {
         if (response && response.status === 200) {
           const responseToCache = response.clone();
