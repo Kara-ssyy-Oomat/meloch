@@ -1374,17 +1374,26 @@
       return n;
     }
 
-    async function _waitProfitAuth() {
-      if (typeof kerbenWaitForAuth === 'function') {
-        try { await kerbenWaitForAuth(10000); } catch (e) {}
-      }
-      if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
+    async function _ensureProfitAuth() {
+      if (typeof kerbenEnsureSignedIn === 'function') {
         try { await kerbenEnsureSignedIn(); } catch (e) {}
       }
-      if (!firebase.auth().currentUser) {
-        await new Promise(function (r) { setTimeout(r, 1500); });
+      var deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        var user = null;
+        try { user = firebase.auth().currentUser; } catch (e) {}
+        if (user) {
+          try { await user.getIdToken(); } catch (e) {}
+          return true;
+        }
+        try { await firebase.auth().signInAnonymously(); } catch (e) {}
+        await new Promise(function (r) { setTimeout(r, 400); });
       }
-      return !!firebase.auth().currentUser;
+      return !!(firebase.auth() && firebase.auth().currentUser);
+    }
+
+    async function _waitProfitAuth() {
+      return _ensureProfitAuth();
     }
 
     async function _resolveAgentRecord(agent) {
@@ -1740,12 +1749,12 @@
       _ordersRefreshBusy = true;
 
       try {
-        const authOk = await _waitProfitAuth();
+        const authOk = await _ensureProfitAuth();
         if (!authOk) {
           console.warn('[Profit] auth ещё не готов — повтор через 2с');
           _ordersRefreshBusy = false;
           _ordersAuthRetries++;
-          if (_ordersAuthRetries < 6) setTimeout(function () { startOrdersListener(); }, 2000);
+          if (_ordersAuthRetries < 8) setTimeout(function () { startOrdersListener(); }, 2000);
           return;
         }
         currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;
@@ -1755,17 +1764,12 @@
           listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>Загрузка заказов...</div></div>';
         }
 
-        // Как у админа: последние заказы списком, агента ищем уже в данных.
-        // Точечные where(partner/agentId) у агента часто пустые — поля
-        // записаны иначе, чем id/имя в профиле. Админ из‑за этого видел
-        // цифры, а агент — нет.
         var names = {};
         var ids = {};
         function _addName(n) {
           n = String(n || '').trim();
           if (!n) return;
           names[n] = true;
-          names[n.toLowerCase()] = true;
         }
         function _addId(id) {
           if (id) ids[String(id)] = true;
@@ -1806,23 +1810,102 @@
           console.warn('[Profit] clientAgents:', e && e.message);
         }
 
-        var snap = null;
-        try {
-          snap = await db.collection('orders').orderBy('timestamp', 'desc').limit(2000).get();
-        } catch (err1) {
-          console.warn('[Profit] orderBy timestamp:', err1 && err1.message);
+        function _keepOrder(data) {
+          if (!data || data.excludedFromAgent === true) return false;
+          var st = data.status;
+          if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
+          return true;
+        }
+
+        var dedupe = new Map();
+        var gotSnap = false;
+        function _addSnap(snap) {
+          if (!snap) return;
+          gotSnap = true;
+          snap.forEach(function (doc) {
+            var data = doc.data() || {};
+            if (!_keepOrder(data)) return;
+            if (!dedupe.has(doc.id)) {
+              dedupe.set(doc.id, Object.assign({ id: doc.id }, data));
+            }
+          });
+        }
+
+        // Простые запросы — как список заказов в профиле. Они у агента
+        // проходят. Большая выгрузка на 2000 на 4G падает, из‑за этого
+        // и было «Не удалось загрузить заказы».
+        var eq = [];
+        Object.keys(names).forEach(function (n) {
+          eq.push(db.collection('orders').where('partner', '==', n).limit(500).get());
+          eq.push(db.collection('orders').where('referredBy', '==', n).limit(500).get());
+        });
+        Object.keys(ids).forEach(function (id) {
+          eq.push(db.collection('orders').where('agentId', '==', id).limit(500).get());
+          eq.push(db.collection('orders').where('placedByAgentId', '==', id).limit(500).get());
+          eq.push(db.collection('orders').where('partner', '==', id).limit(500).get());
+          eq.push(db.collection('orders').where('partnerId', '==', id).limit(500).get());
+        });
+
+        var eqSnaps = await Promise.all(eq.map(function (p) {
+          return p.catch(function (err) {
+            console.warn('[Profit] eq', err && err.message);
+            return null;
+          });
+        }));
+        eqSnaps.forEach(_addSnap);
+
+        var phoneList = Object.keys(phoneTails);
+        if (dedupe.size === 0 && phoneList.length) {
+          var phoneEq = [];
+          var maxPhones = Math.min(phoneList.length, 30);
+          for (var pi = 0; pi < maxPhones; pi++) {
+            var tail = phoneList[pi];
+            phoneEq.push(db.collection('orders').where('phone', '==', '+996' + tail).limit(100).get());
+            phoneEq.push(db.collection('orders').where('phone', '==', '0' + tail).limit(100).get());
+          }
+          var phoneSnaps = await Promise.all(phoneEq.map(function (p) {
+            return p.catch(function () { return null; });
+          }));
+          phoneSnaps.forEach(_addSnap);
+        }
+
+        function _belongsToAgent(data) {
+          if (!_keepOrder(data)) return false;
+          var partner = String(data.partner || '').trim();
+          var referred = String(data.referredBy || '').trim();
+          if (partner && (names[partner] || ids[partner])) return true;
+          if (referred && (names[referred] || ids[referred])) return true;
+          if (data.agentId && ids[String(data.agentId)]) return true;
+          if (data.partnerId && ids[String(data.partnerId)]) return true;
+          if (data.placedByAgentId && ids[String(data.placedByAgentId)]) return true;
+          var ot = _phoneDigits(data.phone).slice(-9);
+          if (ot.length >= 9 && phoneTails[ot]) return true;
+          return false;
+        }
+
+        if (dedupe.size === 0) {
+          var scan = null;
           try {
-            snap = await db.collection('orders').limit(2000).get();
-          } catch (err2) {
-            console.warn('[Profit] orders fallback:', err2 && err2.message);
-            snap = null;
+            scan = await db.collection('orders').orderBy('timestamp', 'desc').limit(800).get();
+          } catch (err1) {
+            console.warn('[Profit] scan:', err1 && err1.message);
+          }
+          if (scan) {
+            gotSnap = true;
+            scan.forEach(function (doc) {
+              var data = doc.data() || {};
+              if (!_belongsToAgent(data)) return;
+              if (!dedupe.has(doc.id)) {
+                dedupe.set(doc.id, Object.assign({ id: doc.id }, data));
+              }
+            });
           }
         }
 
-        if (!snap) {
+        if (!gotSnap) {
           _ordersAuthRetries++;
           _ordersRefreshBusy = false;
-          if (_ordersAuthRetries < 6) {
+          if (_ordersAuthRetries < 8) {
             setTimeout(function () { startOrdersListener(); }, 2000);
             return;
           }
@@ -1833,31 +1916,6 @@
           return;
         }
         _ordersAuthRetries = 0;
-
-        function _belongsToAgent(data) {
-          if (data.excludedFromAgent === true) return false;
-          var st = data.status;
-          if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
-          var partner = String(data.partner || '').trim();
-          var referred = String(data.referredBy || '').trim();
-          if (partner && (names[partner] || names[partner.toLowerCase()] || ids[partner])) return true;
-          if (referred && (names[referred] || names[referred.toLowerCase()] || ids[referred])) return true;
-          if (data.agentId && ids[String(data.agentId)]) return true;
-          if (data.partnerId && ids[String(data.partnerId)]) return true;
-          if (data.placedByAgentId && ids[String(data.placedByAgentId)]) return true;
-          var ot = _phoneDigits(data.phone).slice(-9);
-          if (ot.length >= 9 && phoneTails[ot]) return true;
-          return false;
-        }
-
-        var dedupe = new Map();
-        snap.forEach(function (doc) {
-          var data = doc.data() || {};
-          if (!_belongsToAgent(data)) return;
-          if (!dedupe.has(doc.id)) {
-            dedupe.set(doc.id, Object.assign({ id: doc.id }, data));
-          }
-        });
 
         allOrders = Array.from(dedupe.values()).map(function (o) {
           o.timestamp = _orderTimeMs(o);
