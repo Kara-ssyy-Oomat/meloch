@@ -945,10 +945,10 @@
       <div class="filters-bar">
         <div class="filters-group">
           <select id="periodFilter" class="filter-select" onchange="filterOrders()">
-            <option value="all">📅 Все время</option>
+            <option value="all" selected>📅 Все время</option>
             <option value="today">📅 Сегодня</option>
             <option value="week">📅 Неделя</option>
-            <option value="month" selected>📅 Месяц</option>
+            <option value="month">📅 Месяц</option>
             <option value="year">📅 Год</option>
           </select>
           <span class="filter-divider">|</span>
@@ -1119,10 +1119,12 @@
     </div>
   </div>
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <!-- Firebase: тот же стек, что у profile / agent-delivery -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
+  <script src="js/app-check.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/admin-reauth.js?v=2"></script>
   <script src="js/bot-blocker.js?v=1"></script>
@@ -1137,10 +1139,12 @@
         projectId: "svoysayet",
         storageBucket: "svoysayet.firebasestorage.app",
         messagingSenderId: "450143000217",
-        appId: "1:450143000217:web:7495cefaea0b94966e8a08"
+        appId: "1:450143000217:web:7495cefaea0b94966e8a08",
+        measurementId: "G-Y8VG9E29FY"
       });
     }
     const db = firebase.firestore();
+    if (typeof kerbenStartAppCheckSetup === 'function') kerbenStartAppCheckSetup(db);
     
     // Данные
     let currentAgent = null;
@@ -1177,6 +1181,19 @@
       }
       if (phone && out.indexOf(phone) === -1) out.push(String(phone));
       return out;
+    }
+
+    function _orderTimeMs(order) {
+      var value = order && (order.timestamp || order.date || order.createdAt) || 0;
+      try {
+        if (value && typeof value.toMillis === 'function') return value.toMillis();
+        if (value && typeof value.toDate === 'function') return value.toDate().getTime();
+        if (value && typeof value.seconds === 'number') return value.seconds * 1000;
+      } catch (e) {}
+      var n = Number(value);
+      if (!isFinite(n) || n <= 0) return 0;
+      if (n < 100000000000) return n * 1000;
+      return n;
     }
 
     async function _waitProfitAuth() {
@@ -1531,33 +1548,24 @@
           listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>Загрузка заказов...</div></div>';
         }
 
-        const searchValues = [currentAgent.name];
-        if (currentAgent.id && currentAgent.id !== currentAgent.name) {
-          searchValues.push(currentAgent.id);
+        const searchValues = [];
+        if (currentAgent.name) searchValues.push(currentAgent.name);
+        if (currentAgent.id && currentAgent.id !== currentAgent.name) searchValues.push(currentAgent.id);
+
+        function _safeGet(q, label) {
+          return q.limit(500).get().catch(function (err) {
+            console.warn('[Profit]', label, err && err.message);
+            return null;
+          });
         }
 
-        // Заказ агента может «попасть» к нему в прибыль по трём независимым
-        // полям (все три пишут разные части кода в разное время):
-        //   • partner — «Кто порекомендовал» (заполняется на клиенте
-        //     при оформлении: index.html/cart.html)
-        //   • agentId — старое поле для заказов, оформленных на agent-profit.html
-        //   • placedByAgentId — новое поле: заказ оформлен АГЕНТОМ с его
-        //     устройства (см. js/order-submit.js — режим агента на index.html)
-        // Firestore не поддерживает OR, поэтому делаем 3 параллельных
-        // запроса и объединяем по doc.id. Для несуществующих полей
-        // Firestore просто вернёт пустой снепшот — это безопасно.
-        const queries = [
-          db.collection('orders').where('partner', 'in', searchValues).limit(500).get()
-        ];
+        const queries = [];
+        if (searchValues.length > 0) {
+          queries.push(_safeGet(db.collection('orders').where('partner', 'in', searchValues), 'partner'));
+        }
         if (currentAgent.id) {
-          queries.push(
-            db.collection('orders').where('agentId', '==', currentAgent.id).limit(500).get()
-              .catch(function (err) { console.warn('[Profit] agentId query:', err && err.message); return null; })
-          );
-          queries.push(
-            db.collection('orders').where('placedByAgentId', '==', currentAgent.id).limit(500).get()
-              .catch(function (err) { console.warn('[Profit] placedByAgentId query:', err && err.message); return null; })
-          );
+          queries.push(_safeGet(db.collection('orders').where('agentId', '==', currentAgent.id), 'agentId'));
+          queries.push(_safeGet(db.collection('orders').where('placedByAgentId', '==', currentAgent.id), 'placedByAgentId'));
         }
 
         // 4-й источник: привязка клиента к агенту через clientAgents.
@@ -1583,11 +1591,14 @@
         if (clientPhones.length > 0) {
           for (let ci = 0; ci < clientPhones.length; ci += 30) {
             const chunk = clientPhones.slice(ci, ci + 30);
-            queries.push(
-              db.collection('orders').where('phone', 'in', chunk).limit(500).get()
-                .catch(function (err) { console.warn('[Profit] phone chunk query:', err && err.message); return null; })
-            );
+            queries.push(_safeGet(db.collection('orders').where('phone', 'in', chunk), 'phone'));
           }
+        }
+
+        if (queries.length === 0) {
+          allOrders = [];
+          filterOrders();
+          return;
         }
 
         const snapshots = await Promise.all(queries);
@@ -1608,7 +1619,10 @@
           });
         }
 
-        allOrders = Array.from(dedupe.values());
+        allOrders = Array.from(dedupe.values()).map(function (o) {
+          o.timestamp = _orderTimeMs(o);
+          return o;
+        });
         allOrders.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
 
         filterOrders();
@@ -1659,7 +1673,7 @@
       today.setHours(0, 0, 0, 0);
       
       filteredOrders = allOrders.filter(order => {
-        const orderTime = order.timestamp || 0;
+        const orderTime = _orderTimeMs(order);
         let periodMatch = true;
         
         switch(periodFilter) {
