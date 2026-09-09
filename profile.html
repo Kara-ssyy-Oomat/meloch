@@ -1216,12 +1216,22 @@
           try {
             const agentsSnap = await db.collection('agents').limit(500).get();
             firestoreQueried = true;
+            function _phoneTail(p) {
+              var d = String(p || '').replace(/\D/g, '');
+              if (d.indexOf('996') === 0) d = d.substring(3);
+              if (d.charAt(0) === '0') d = d.substring(1);
+              return d.slice(-9);
+            }
+            const wantTail = _phoneTail(normalizedPhone);
             agentsSnap.forEach(doc => {
               const agentData = doc.data() || {};
               const phoneFromField = normalizePhone(agentData.phone || '');
               const phoneFromId = normalizePhone(doc.id || '');
+              const tailField = _phoneTail(agentData.phone || '');
+              const tailId = _phoneTail(doc.id || '');
               if (phoneFromField === normalizedPhone
-                  || phoneFromId === normalizedPhone) {
+                  || phoneFromId === normalizedPhone
+                  || (wantTail && wantTail.length >= 9 && (tailField === wantTail || tailId === wantTail))) {
                 _pushAgentDoc(doc);
               }
             });

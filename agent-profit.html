@@ -1174,14 +1174,16 @@
 
     function _phoneDigits(phone) {
       var d = String(phone || '').replace(/\D/g, '');
-      if (d.indexOf('996') === 0 && d.length >= 12) d = d.substring(3);
-      if (d.charAt(0) === '0' && d.length >= 10) d = d.substring(1);
+      if (d.indexOf('996') === 0) d = d.substring(3);
+      if (d.charAt(0) === '0') d = d.substring(1);
       return d;
     }
 
     function _phonesMatch(a, b) {
       var da = _phoneDigits(a), db = _phoneDigits(b);
-      return !!(da && db && da === db);
+      if (!da || !db) return false;
+      if (da === db) return true;
+      return da.slice(-9) === db.slice(-9) && da.slice(-9).length >= 9;
     }
 
     function _phoneVariants(phone) {
@@ -1256,7 +1258,7 @@
       }
       if (found.length === 0 && phones && phones.length) {
         try {
-          var all = await db.collection('agents').limit(500).get();
+          var all = await db.collection('agents').limit(2000).get();
           all.forEach(function (doc) {
             if (seen[doc.id]) return;
             var data = doc.data() || {};
@@ -1268,7 +1270,9 @@
               found.push(_agentFromDoc(doc));
             }
           });
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[Profit] поиск агентов:', e && e.message);
+        }
       }
       return found;
     }
@@ -1595,15 +1599,28 @@
           try { await kerbenEnsureSignedIn(); } catch (e) {}
         }
 
-        const cands = await _findAgentsByPhones([phone]);
+        let cands = [];
+        try {
+          cands = await _findAgentsByPhones([phone]);
+        } catch (findErr) {
+          console.error('[Profit] поиск агента:', findErr);
+          Swal.fire('Ошибка', 'Не удалось проверить агента. Проверьте интернет и попробуйте ещё раз.', 'error');
+          return;
+        }
+        const pass = String(password || '').trim();
         const withPass = [];
         for (let ci = 0; ci < cands.length; ci++) {
-          if (String(cands[ci]._password || '') === password) withPass.push(cands[ci]);
+          const stored = String(cands[ci]._password == null ? '' : cands[ci]._password).trim();
+          if (stored && stored === pass) withPass.push(cands[ci]);
         }
         let match = await _pickBestAgent(withPass);
+        // Если пароль в базе не задан, но агент с этим телефоном один — пускаем
+        if (!match && cands.length === 1 && !cands[0]._hasPassword) {
+          match = cands[0];
+        }
         
         if (!match) {
-          Swal.fire('Ошибка', cands.length ? 'Неверный пароль' : 'Агент не найден', 'warning');
+          Swal.fire('Ошибка', cands.length ? 'Неверный пароль' : 'Агент не найден. Проверьте номер телефона.', 'warning');
           return;
         }
         
