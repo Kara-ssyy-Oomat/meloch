@@ -1755,70 +1755,71 @@
           listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>Загрузка заказов...</div></div>';
         }
 
-        const searchValues = [];
-        if (currentAgent.name) searchValues.push(currentAgent.name);
-        if (currentAgent.id && currentAgent.id !== currentAgent.name) searchValues.push(currentAgent.id);
+        // Как у админа: последние заказы списком, агента ищем уже в данных.
+        // Точечные where(partner/agentId) у агента часто пустые — поля
+        // записаны иначе, чем id/имя в профиле. Админ из‑за этого видел
+        // цифры, а агент — нет.
+        var names = {};
+        var ids = {};
+        function _addName(n) {
+          n = String(n || '').trim();
+          if (!n) return;
+          names[n] = true;
+          names[n.toLowerCase()] = true;
+        }
+        function _addId(id) {
+          if (id) ids[String(id)] = true;
+        }
+        _addName(currentAgent.name);
+        _addId(currentAgent.id);
+        _addName(currentAgent.phone);
+        _addId(currentAgent.phone);
 
-        let anySnap = false;
-        let anyError = false;
-        function _safeGet(q, label) {
-          return q.limit(500).get().then(function (s) {
-            anySnap = true;
-            return s;
-          }).catch(function (err) {
-            console.warn('[Profit]', label, err && err.message);
-            anyError = true;
-            return null;
+        var phoneTails = {};
+        function _addPhoneTail(p) {
+          var t = _phoneDigits(p).slice(-9);
+          if (t.length >= 9) phoneTails[t] = true;
+        }
+
+        try {
+          var twins = await _findAgentsByPhones(
+            [currentAgent.phone, currentAgent.name].filter(Boolean)
+          );
+          twins.forEach(function (a) {
+            _addName(a.name);
+            _addId(a.id);
+            _addName(a.phone);
           });
-        }
+        } catch (e) {}
 
-        const queries = [];
-        if (searchValues.length > 0) {
-          queries.push(_safeGet(db.collection('orders').where('partner', 'in', searchValues), 'partner'));
-          queries.push(_safeGet(db.collection('orders').where('referredBy', 'in', searchValues), 'referredBy'));
-        }
-        if (currentAgent.id) {
-          queries.push(_safeGet(db.collection('orders').where('agentId', '==', currentAgent.id), 'agentId'));
-          queries.push(_safeGet(db.collection('orders').where('placedByAgentId', '==', currentAgent.id), 'placedByAgentId'));
-          queries.push(_safeGet(db.collection('orders').where('partnerId', '==', currentAgent.id), 'partnerId'));
-        }
-
-        // 4-й источник: привязка клиента к агенту через clientAgents.
-        // agent-delivery.html использует эту коллекцию, и без неё
-        // цифры «Список доставки» и «Моя прибыль» расходятся.
-        // Схема: clientAgents → список телефонов → запрос orders по phone.
-        let clientPhones = [];
-        if (currentAgent.id) {
-          try {
-            const caSnap = await db.collection('clientAgents')
-              .where('agentId', '==', currentAgent.id)
-              .limit(200).get();
+        try {
+          if (currentAgent.id) {
+            var caSnap = await db.collection('clientAgents')
+              .where('agentId', '==', currentAgent.id).limit(500).get();
             caSnap.forEach(function (doc) {
-              const phone = (doc.data() && doc.data().phone) || doc.id;
-              if (phone) clientPhones.push(phone);
+              var phone = (doc.data() && doc.data().phone) || doc.id;
+              _addPhoneTail(phone);
+              _addPhoneTail(doc.id);
             });
-          } catch (err) {
-            console.warn('[Profit] clientAgents query:', err && err.message);
+          }
+        } catch (e) {
+          console.warn('[Profit] clientAgents:', e && e.message);
+        }
+
+        var snap = null;
+        try {
+          snap = await db.collection('orders').orderBy('timestamp', 'desc').limit(2000).get();
+        } catch (err1) {
+          console.warn('[Profit] orderBy timestamp:', err1 && err1.message);
+          try {
+            snap = await db.collection('orders').limit(2000).get();
+          } catch (err2) {
+            console.warn('[Profit] orders fallback:', err2 && err2.message);
+            snap = null;
           }
         }
-        // Firestore `in` поддерживает до 30 значений за запрос,
-        // разбиваем на чанки.
-        if (clientPhones.length > 0) {
-          for (let ci = 0; ci < clientPhones.length; ci += 30) {
-            const chunk = clientPhones.slice(ci, ci + 30);
-            queries.push(_safeGet(db.collection('orders').where('phone', 'in', chunk), 'phone'));
-          }
-        }
 
-        if (queries.length === 0) {
-          allOrders = [];
-          filterOrders();
-          return;
-        }
-
-        const snapshots = await Promise.all(queries);
-
-        if (!anySnap && anyError) {
+        if (!snap) {
           _ordersAuthRetries++;
           _ordersRefreshBusy = false;
           if (_ordersAuthRetries < 6) {
@@ -1833,21 +1834,30 @@
         }
         _ordersAuthRetries = 0;
 
-        const dedupe = new Map();
-        for (const snap of snapshots) {
-          if (!snap) continue;
-          snap.forEach(function (doc) {
-            const data = doc.data() || {};
-            // Фильтр: исключено админом из прибыли этого агента
-            if (data.excludedFromAgent === true) return;
-            // Фильтр: отменённые заказы не показываем (не приносят прибыли)
-            const st = data.status;
-            if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
-            if (!dedupe.has(doc.id)) {
-              dedupe.set(doc.id, Object.assign({ id: doc.id }, data));
-            }
-          });
+        function _belongsToAgent(data) {
+          if (data.excludedFromAgent === true) return false;
+          var st = data.status;
+          if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
+          var partner = String(data.partner || '').trim();
+          var referred = String(data.referredBy || '').trim();
+          if (partner && (names[partner] || names[partner.toLowerCase()] || ids[partner])) return true;
+          if (referred && (names[referred] || names[referred.toLowerCase()] || ids[referred])) return true;
+          if (data.agentId && ids[String(data.agentId)]) return true;
+          if (data.partnerId && ids[String(data.partnerId)]) return true;
+          if (data.placedByAgentId && ids[String(data.placedByAgentId)]) return true;
+          var ot = _phoneDigits(data.phone).slice(-9);
+          if (ot.length >= 9 && phoneTails[ot]) return true;
+          return false;
         }
+
+        var dedupe = new Map();
+        snap.forEach(function (doc) {
+          var data = doc.data() || {};
+          if (!_belongsToAgent(data)) return;
+          if (!dedupe.has(doc.id)) {
+            dedupe.set(doc.id, Object.assign({ id: doc.id }, data));
+          }
+        });
 
         allOrders = Array.from(dedupe.values()).map(function (o) {
           o.timestamp = _orderTimeMs(o);
