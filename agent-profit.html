@@ -1596,13 +1596,11 @@
         }
 
         const cands = await _findAgentsByPhones([phone]);
-        let match = null;
+        const withPass = [];
         for (let ci = 0; ci < cands.length; ci++) {
-          if (String(cands[ci]._password || '') === password) {
-            match = cands[ci];
-            break;
-          }
+          if (String(cands[ci]._password || '') === password) withPass.push(cands[ci]);
         }
+        let match = await _pickBestAgent(withPass);
         
         if (!match) {
           Swal.fire('Ошибка', cands.length ? 'Неверный пароль' : 'Агент не найден', 'warning');
@@ -1613,12 +1611,25 @@
           Swal.fire('Ошибка', 'Ваш аккаунт заблокирован', 'warning');
           return;
         }
+
+        // Ещё раз читаем документ из Firebase — не оставляем кэш прошлого входа
+        try {
+          const fresh = await db.collection('agents').doc(match.id).get();
+          if (fresh.exists) match = _agentFromDoc(fresh);
+        } catch (e) {}
         
         currentAgent = _publicAgent(match);
-        
         localStorage.setItem('currentAgent', JSON.stringify(currentAgent));
+        try {
+          if (window.PersistProfile && window.PersistProfile._saveToIDB) {
+            window.PersistProfile._saveToIDB('currentAgent', JSON.stringify(currentAgent));
+          }
+        } catch (e) {}
+
+        allOrders = [];
+        filteredOrders = [];
+        _ordersAuthRetries = 0;
         
-        // Очищаем форму
         document.getElementById('loginPhone').value = '';
         document.getElementById('loginPassword').value = '';
         
@@ -1631,8 +1642,8 @@
         });
         
         showDashboard();
-        startOrdersListener();
-        loadAgentExpenses();
+        await startOrdersListener();
+        await loadAgentExpenses();
         
       } catch(e) {
         console.error('Ошибка входа:', e);

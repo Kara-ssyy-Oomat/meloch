@@ -1535,6 +1535,17 @@
         isAdmin = isAdminLogin;
         _saveProfileData();
 
+        // После входа — свежий агент из Firebase, не старый currentAgent
+        // с другого номера на этом телефоне.
+        try {
+          sessionStorage.removeItem('isAgent_' + normalizedPhone);
+          sessionStorage.removeItem('agentProfitCache');
+          sessionStorage.removeItem('dashboardCache_' + normalizedPhone);
+        } catch (e) {}
+        _agentProfitCache = null;
+        isAgent = false;
+        await checkAgentStatus(normalizedPhone);
+
         // Миграция legacy plaintext → hash + привязка firebaseUid
         if (_legacyToMigrate && !_isAdminPhoneAttempt
             && typeof _migrateCustomerPasswordToHash === 'function') {
@@ -1636,6 +1647,14 @@
         
         isAdmin = isAdminRegister;
         _saveProfileData();
+
+        try {
+          sessionStorage.removeItem('isAgent_' + normalizedPhone);
+          sessionStorage.removeItem('agentProfitCache');
+        } catch (e) {}
+        _agentProfitCache = null;
+        isAgent = false;
+        await checkAgentStatus(normalizedPhone);
 
         // FIREBASE AUTH: для админа дополнительно входим в Firebase Auth
         if (isAdminRegister) {
@@ -2128,6 +2147,12 @@
         }
         let agentData = null;
         try { agentData = JSON.parse(localStorage.getItem('currentAgent')); } catch(e) {}
+        if (!agentData || !agentData.id) {
+          if (currentCustomer && currentCustomer.phone) {
+            await checkAgentStatus(normalizePhone(currentCustomer.phone));
+            try { agentData = JSON.parse(localStorage.getItem('currentAgent')); } catch(e) {}
+          }
+        }
         if (!agentData || !agentData.id) return;
 
         const searchValues = [agentData.name];
