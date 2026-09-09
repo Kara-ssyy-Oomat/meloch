@@ -271,9 +271,14 @@ function renderProductsCore() {
   }
   
   // Фильтрация по категории (работает одинаково для всех)
+  // Для категорийных менеджеров: в режиме «все» показываем все их категории
+  const _isCategoryManager = (userRole === 'korean' || userRole === 'appliances');
   if (currentCategory === 'все') {
-    // В разделе "Все товары" показываем товары с категорией "все" или без категории
-    filtered = filtered.filter(p => !p.category || p.category.toLowerCase() === 'все');
+    if (!_isCategoryManager) {
+      // Обычный режим: в разделе "Все товары" показываем товары с категорией "все" или без категории
+      filtered = filtered.filter(p => !p.category || p.category.toLowerCase() === 'все');
+    }
+    // Для менеджеров — не фильтруем дополнительно, уже отфильтровано по роли
   } else {
     // В других разделах показываем товары только выбранной категории
     filtered = filtered.filter(p => p.category && p.category.toLowerCase() === currentCategory.toLowerCase());

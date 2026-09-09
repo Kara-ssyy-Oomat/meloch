@@ -1,6 +1,39 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script>
+    (function () {
+      function normPhone(phone) {
+        if (!phone) return '';
+        var n = String(phone).replace(/[^\d+]/g, '');
+        if (n.indexOf('0') === 0) n = '+996' + n.substring(1);
+        if (n.indexOf('+') !== 0) n = (n.indexOf('996') === 0 ? '+' : '+996') + n;
+        return n;
+      }
+      var ADMIN_PHONE = '+996559009860';
+      var role = 'guest';
+      try {
+        var saved = localStorage.getItem('userRole');
+        var cm = null;
+        try { cm = JSON.parse(localStorage.getItem('categoryManagerData') || 'null'); } catch (e1) {}
+        if (saved === 'korean' || saved === 'appliances') role = saved;
+        else if (cm && (cm.role === 'korean' || cm.role === 'appliances')) role = cm.role;
+        else {
+          var customer = null;
+          try { customer = JSON.parse(localStorage.getItem('customerData') || 'null'); } catch (e2) {}
+          if (customer && normPhone(customer.phone) === ADMIN_PHONE && (customer.isAdmin || saved === 'admin')) {
+            role = 'admin';
+          }
+        }
+      } catch (e) { role = 'guest'; }
+      window.__kerbenProfitRole = role;
+      var html = document.documentElement;
+      html.classList.add('profit-boot');
+      if (role === 'admin') html.classList.add('profit-admin');
+      else if (role === 'korean' || role === 'appliances') html.classList.add('profit-manager');
+      else html.classList.add('profit-denied');
+    })();
+  </script>
   <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}.main-container{height:100vh!important}</style>')</script>
   <meta charset="UTF-8" />
   <meta name="robots" content="noindex, nofollow, noarchive">
@@ -60,6 +93,43 @@
     .profit-header p {
       margin: 5px 0 0;
       opacity: 0.9;
+    }
+    html.profit-denied .main-container,
+    html:not(.profit-admin):not(.profit-manager) .main-container {
+      display: none !important;
+    }
+    html.profit-manager #tabAgents,
+    html.profit-manager #tabExpenses,
+    html.profit-manager #agentsPanel,
+    html.profit-manager #expensesPanel,
+    html.profit-manager #ownerProfitFilterWrap {
+      display: none !important;
+    }
+    #profitAccessDenied {
+      display: none;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: #f5f5f5;
+      padding: 24px;
+      text-align: center;
+    }
+    html.profit-denied #profitAccessDenied { display: flex !important; }
+    .owner-profit-filter {
+      margin-top: 12px;
+      display: none;
+    }
+    html.profit-admin .owner-profit-filter { display: block; }
+    .owner-profit-filter select {
+      width: 100%;
+      max-width: 420px;
+      padding: 10px 12px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.95);
+      color: #222;
+      font-weight: 600;
     }
     .back-btn {
       background: rgba(255,255,255,0.2);
@@ -327,12 +397,28 @@
 </head>
 <body>
 
+<div id="profitAccessDenied">
+  <div style="font-size:48px; margin-bottom:12px;">🔒</div>
+  <div style="font-size:20px; font-weight:700; color:#333; margin-bottom:8px;">Доступ запрещён</div>
+  <div style="color:#666; max-width:360px; line-height:1.5;">Отчёт по прибыли доступен только главному администратору и менеджеру своих категорий.</div>
+  <button onclick="history.back()" style="margin-top:20px; padding:12px 20px; border:none; border-radius:8px; background:#333; color:#fff; cursor:pointer;">Назад</button>
+</div>
+
 <div class="main-container">
   <!-- Шапка -->
   <div class="profit-header">
     <div>
       <h1>💰 Отчет по прибыли</h1>
       <p>Анализ прибыльности товаров</p>
+      <div class="owner-profit-filter" id="ownerProfitFilterWrap">
+        <select id="ownerProfitFilter" onchange="onOwnerProfitFilterChange()">
+          <option value="all">Добавить прибыль менеджеров (все товары)</option>
+          <option value="own">Не добавлять прибыль менеджеров (только свои)</option>
+          <option value="managers">Только прибыль менеджеров</option>
+          <option value="korean">Только корейский менеджер</option>
+          <option value="appliances">Только менеджер бытовых</option>
+        </select>
+      </div>
     </div>
     <button class="back-btn" onclick="window.location.href='profile.html'">←</button>
   </div>
@@ -629,9 +715,139 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 // Глобальные переменные
-let products = [];
+let allProducts = []; // полный каталог — только для определения категории позиции в заказе
+let products = [];    // то, что видит пользователь (у менеджера — только его товары)
 let currentTab = 'products';
-let userRole = localStorage.getItem('userRole') || 'admin';
+let userRole = (window.__kerbenProfitRole === 'admin' || window.__kerbenProfitRole === 'korean' || window.__kerbenProfitRole === 'appliances')
+  ? window.__kerbenProfitRole
+  : 'guest';
+if (userRole === 'admin') {
+  try { localStorage.removeItem('categoryManagerData'); } catch (e) {}
+}
+
+function isKoreanManager() { return userRole === 'korean'; }
+function isAppliancesManager() { return userRole === 'appliances'; }
+function isCategoryManager() { return isKoreanManager() || isAppliancesManager(); }
+
+function isKoreanCategory(cat) {
+  const c = (cat || '').toLowerCase();
+  return c === 'корейские' || c === 'часы' || c === 'электроника';
+}
+function isAppliancesCategory(cat) {
+  return (cat || '').toLowerCase() === 'бытовые';
+}
+function categoryMatchesManager(cat) {
+  if (isKoreanManager()) return isKoreanCategory(cat);
+  if (isAppliancesManager()) return isAppliancesCategory(cat);
+  return true;
+}
+function productMatchesManager(p) {
+  return categoryMatchesManager(p && p.category);
+}
+function applyManagerProductFilter(list) {
+  if (!isCategoryManager()) return list;
+  return list.filter(productMatchesManager);
+}
+function findProductAnywhere(itemId) {
+  if (!itemId) return null;
+  return (allProducts.length ? allProducts : products).find(p => p.id === itemId) || null;
+}
+function itemMatchesManager(item) {
+  if (!isCategoryManager()) return true;
+  const product = findProductAnywhere(item && item.id);
+  const cat = (item && item.category) || (product && product.category) || '';
+  return categoryMatchesManager(cat);
+}
+
+function isManagerOwnedCategory(cat) {
+  return isKoreanCategory(cat) || isAppliancesCategory(cat);
+}
+
+function getItemCategory(item) {
+  const product = findProductAnywhere(item && item.id);
+  return (item && item.category) || (product && product.category) || '';
+}
+
+function getOwnerProfitMode() {
+  if (isCategoryManager()) return 'scoped';
+  const el = document.getElementById('ownerProfitFilter');
+  if (el && el.value) return el.value;
+  try { return localStorage.getItem('ownerProfitFilter') || 'all'; } catch (e) { return 'all'; }
+}
+
+function categoryMatchesOwnerFilter(cat) {
+  const mode = getOwnerProfitMode();
+  if (mode === 'scoped') return categoryMatchesManager(cat);
+  if (mode === 'own') return !isManagerOwnedCategory(cat);
+  if (mode === 'managers') return isManagerOwnedCategory(cat);
+  if (mode === 'korean') return isKoreanCategory(cat);
+  if (mode === 'appliances') return isAppliancesCategory(cat);
+  return true;
+}
+
+function productMatchesOwnerFilter(p) {
+  return categoryMatchesOwnerFilter(p && p.category);
+}
+
+function applyOwnerProductFilter(list) {
+  return (list || []).filter(productMatchesOwnerFilter);
+}
+
+function itemMatchesOwnerFilter(item) {
+  return categoryMatchesOwnerFilter(getItemCategory(item));
+}
+
+function onOwnerProfitFilterChange() {
+  const el = document.getElementById('ownerProfitFilter');
+  try { if (el) localStorage.setItem('ownerProfitFilter', el.value); } catch (e) {}
+  const catSel = document.getElementById('profitCategoryFilter');
+  if (catSel) {
+    const keep = catSel.value;
+    catSel.innerHTML = '<option value="">Все категории</option>';
+    loadCategories();
+    if ([...catSel.options].some(o => o.value === keep)) catSel.value = keep;
+    else catSel.value = '';
+  }
+  if (currentTab === 'orders') loadOrderProfitReport();
+  else if (currentTab === 'agents') loadAgentsProfitReport();
+  else loadProfitReport();
+}
+
+function applyManagerUiLimits() {
+  const wrap = document.getElementById('ownerProfitFilterWrap');
+  const sel = document.getElementById('ownerProfitFilter');
+  if (!isCategoryManager()) {
+    if (wrap) wrap.style.display = 'block';
+    if (sel) {
+      try { sel.value = localStorage.getItem('ownerProfitFilter') || 'all'; } catch (e) {}
+    }
+    return;
+  }
+
+  if (wrap) wrap.style.display = 'none';
+
+  const roleTitle = isKoreanManager()
+    ? 'корейские, часы, электроника'
+    : 'бытовые';
+  const h1 = document.querySelector('.profit-header h1');
+  const sub = document.querySelector('.profit-header p');
+  if (h1) h1.textContent = isKoreanManager()
+    ? '💰 Прибыль: только ваши товары'
+    : '💰 Прибыль: только ваши товары';
+  if (sub) sub.textContent = 'Чужие категории, агенты и расходы скрыты. Категории: ' + roleTitle;
+
+  ['tabAgents', 'tabExpenses'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  ['agentsPanel', 'expensesPanel'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.display = 'none';
+      el.innerHTML = '';
+    }
+  });
+}
 
 // ОПТИМИЗАЦИЯ COSTS: общий кэш для admin-profit.html.
 // Раньше открытие страницы → переключение вкладок → нажатие «обновить»
@@ -649,6 +865,7 @@ const _PROFIT_LS_KEY = 'profitOrdersCache';
 const _PROFIT_LS_TS_KEY = 'profitOrdersCacheTs';
 
 async function _getOrdersCached() {
+  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return [];
   if (_profitPageCache.orders && (Date.now() - _profitPageCache.ordersTs) < _PROFIT_CACHE_MS) {
     return _profitPageCache.orders;
   }
@@ -701,6 +918,12 @@ function _invalidateProfitPageCache() {
 // При загрузке страницы
 document.addEventListener('DOMContentLoaded', async function() {
   console.log('📈 Загрузка страницы отчёта по прибыли...');
+  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') {
+    document.documentElement.classList.add('profit-denied');
+    document.documentElement.classList.remove('profit-admin', 'profit-manager');
+    return;
+  }
+  applyManagerUiLimits();
   
   // Показываем индикатор загрузки
   document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:#999;">⏳ Загрузка данных...</td></tr>';
@@ -708,6 +931,8 @@ document.addEventListener('DOMContentLoaded', async function() {
   try {
     // Загружаем товары
     await loadProducts();
+    allProducts = Array.isArray(products) ? products.slice() : [];
+    products = applyManagerProductFilter(allProducts);
     
     // Загружаем категории
     loadCategories();
@@ -727,6 +952,10 @@ document.addEventListener('DOMContentLoaded', async function() {
 // даже если на index.html их только что прочитали. Теперь все админ-страницы
 // делят один localStorage-кэш cachedProducts.
 async function loadProducts() {
+  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') {
+    products = [];
+    return;
+  }
   try {
     // 1) Сначала пробуем общий кэш товаров (тот же, что использует index.html)
     try {
@@ -759,7 +988,7 @@ async function loadProducts() {
 
 // Загрузка категорий в фильтр
 function loadCategories() {
-  const categories = [...new Set(products.map(p => p.category).filter(c => c))];
+  const categories = [...new Set(applyOwnerProductFilter(products).map(p => p.category).filter(c => c))];
   const select = document.getElementById('profitCategoryFilter');
   categories.forEach(cat => {
     const option = document.createElement('option');
@@ -771,6 +1000,10 @@ function loadCategories() {
 
 // Переключение вкладок
 function switchTab(tab) {
+  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
+  if (userRole !== 'admin' && tab !== 'products' && tab !== 'orders') {
+    tab = 'products';
+  }
   currentTab = tab;
   
   // Обновляем активную кнопку
@@ -790,7 +1023,8 @@ function switchTab(tab) {
 
 // ============ ОТЧЁТ ПО ТОВАРАМ ============
 function loadProfitReport() {
-  let filtered = [...products];
+  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
+  let filtered = applyOwnerProductFilter([...products]);
   
   // Вычисляем общую прибыль и среднюю наценку
   let totalProfit = 0;
@@ -822,7 +1056,7 @@ function filterProfitReport() {
   const category = document.getElementById('profitCategoryFilter').value;
   const sortBy = document.getElementById('profitSortFilter').value;
   
-  let filtered = [...products];
+  let filtered = applyOwnerProductFilter([...products]);
   
   if (category) {
     filtered = filtered.filter(p => p.category === category);
@@ -869,6 +1103,7 @@ function filterProfitReport() {
 
 // ============ ОТЧЁТ ПО ЗАКАЗАМ ============
 async function loadOrderProfitReport() {
+  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
   const dateFilter = document.getElementById('orderDateFilter').value;
   const sortBy = document.getElementById('orderSortFilter').value;
   
@@ -911,14 +1146,17 @@ async function loadOrderProfitReport() {
       let totalProfit = 0;
       let itemsWithoutCost = 0; // Количество товаров без закупочной цены
       const items = order.items || order.cart || [];
+      let managerItemCount = 0;
       
       items.forEach(item => {
+        if (!itemMatchesOwnerFilter(item)) return;
+        managerItemCount += 1;
         const qty = item.qty || item.quantity || 1;
         
         // Ищем costPrice: сначала в заказе, потом в базе товаров
         let costPrice = parseFloat(item.costPrice) || 0;
         if (costPrice === 0 && item.id) {
-          const product = products.find(p => p.id === item.id);
+          const product = findProductAnywhere(item.id);
           if (product && product.costPrice) {
             costPrice = parseFloat(product.costPrice) || 0;
           }
@@ -938,8 +1176,12 @@ async function loadOrderProfitReport() {
         }
       });
       
-      return { ...order, totalCost, totalSale, profit: totalProfit, itemCount: items.length, itemsWithoutCost };
+      return { ...order, totalCost, totalSale, profit: totalProfit, itemCount: getOwnerProfitMode() === 'all' ? items.length : managerItemCount, itemsWithoutCost, _hasCountedItems: managerItemCount > 0 };
     });
+
+    if (getOwnerProfitMode() !== 'all') {
+      orders = orders.filter(o => o._hasCountedItems);
+    }
     
     // Сортировка
     orders.sort((a, b) => {
@@ -987,6 +1229,7 @@ async function loadOrderProfitReport() {
 
 // ============ ОТЧЁТ ПО АГЕНТАМ ============
 async function loadAgentsProfitReport() {
+  if (isCategoryManager()) return;
   const dateFilter = document.getElementById('agentsDateFilter').value;
   const sortBy = document.getElementById('agentsSortFilter').value;
   
@@ -1082,24 +1325,28 @@ async function loadAgentsProfitReport() {
         let orderProfit = 0;
         let orderSale = 0;
         
-        // Используем total заказа если есть, иначе считаем по товарам
-        if (data.total && parseFloat(data.total) > 0) {
-          orderSale = parseFloat(data.total);
-        }
-        
+        const ownerMode = getOwnerProfitMode();
         items.forEach(item => {
+          if (!itemMatchesOwnerFilter(item)) return;
           const qty = item.qty || item.quantity || 1;
           const salePrice = parseFloat(item.price) || 0;
-          const costPrice = parseFloat(item.costPrice) || 0;
+          let costPrice = parseFloat(item.costPrice) || 0;
+          if (costPrice === 0 && item.id) {
+            const product = findProductAnywhere(item.id);
+            if (product && product.costPrice) costPrice = parseFloat(product.costPrice) || 0;
+          }
           
-          // Если total не было - считаем по товарам
-          if (!data.total) {
+          // Если total не было или фильтр режет товары менеджеров — считаем по позициям
+          if (!data.total || ownerMode !== 'all') {
             orderSale += salePrice * qty;
           }
           if (costPrice > 0) {
             orderProfit += (salePrice - costPrice) * qty;
           }
         });
+        if (data.total && ownerMode === 'all') {
+          orderSale = parseFloat(data.total);
+        }
         
         agent.profit += orderProfit;
         agent.totalSale += orderSale;
@@ -1229,6 +1476,7 @@ function updateCustomDaysCount() {
 }
 
 async function loadExpensesReport() {
+  if (isCategoryManager()) return;
   const dateFilter = document.getElementById('expenseDateFilter').value;
   
   const now = new Date();
@@ -1827,7 +2075,7 @@ async function deleteAllExpensesForPeriod() {
 
 // ============ ЭКСПОРТ В EXCEL ============
 function exportProfitToExcel() {
-  const data = products.map(p => ({
+  const data = applyOwnerProductFilter(products).map(p => ({
     'Товар': p.title,
     'Категория': p.category,
     'Закупка': parseFloat(p.costPrice) || 0,

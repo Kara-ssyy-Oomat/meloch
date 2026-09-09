@@ -133,12 +133,44 @@ async function _bindCustomerDocToFirebaseUid(customerId, customerData) {
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
   initCustomerAuth();
+  // Восстанавливаем сессию категорийного менеджера из localStorage
+  _restoreCategoryManagerSession();
   // Тихое восстановление админ-сессии Firebase Auth обрабатывает
   // модуль js/admin-reauth.js (он подключён на каждой странице и сам
   // запускается по DOMContentLoaded + visibilitychange + раз в 30 мин).
   // Здесь ничего дополнительно делать не нужно, чтобы не показывать
   // лишний Swal-диалог из-за временно «пустого» firebase.auth().
 });
+
+// Восстановление сессии категорийного менеджера из localStorage
+function _restoreCategoryManagerSession() {
+  try {
+    const savedRole = localStorage.getItem('userRole');
+    if (savedRole === 'korean' || savedRole === 'appliances') {
+      if (typeof userRole !== 'undefined') {
+        userRole = savedRole;
+      } else {
+        window.userRole = savedRole;
+      }
+      
+      const savedData = localStorage.getItem('categoryManagerData');
+      if (savedData) {
+        const data = JSON.parse(savedData);
+        window._categoryManagerRole = data.role;
+        window._categoryManagerName = data.name;
+        window._categoryManagerCategories = data.categories;
+      }
+      
+      // Показываем кнопку редактора
+      const editorBtnContainer = document.getElementById('editorBtnContainer');
+      if (editorBtnContainer) editorBtnContainer.style.display = 'flex';
+      
+      console.log('🏷️ Сессия категорийного менеджера восстановлена:', savedRole);
+    }
+  } catch(e) {
+    console.warn('[Auth] Ошибка восстановления сессии менеджера:', e);
+  }
+}
 
 // Вспомогательная функция: сохранить профиль во все хранилища
 function _saveCustomerData() {
@@ -337,6 +369,12 @@ function activateAdminMode() {
   } else {
     window.userRole = 'admin';
   }
+  
+  // Сохраняем роль в localStorage (admin-profit.html читает оттуда)
+  try { localStorage.setItem('userRole', 'admin'); } catch(_) {}
+  // Очищаем данные категорийного менеджера — это полный админ
+  try { localStorage.removeItem('categoryManagerData'); } catch(_) {}
+  window._categoryManagerRole = null;
   
   // Показываем админ-элементы в интерфейсе
   const managementHeader = document.getElementById('managementHeader');
@@ -1268,12 +1306,15 @@ function openAgentProfitFromProfile() {
 // Открыть окно входа для админа из профиля
 function openAdminLoginFromProfile() {
   Swal.fire({
-    title: '🔐 Вход для администратора',
+    title: '🔐 Вход для управления',
     html: `
       <div style="text-align:left;">
         <div style="margin-bottom:15px;">
-          <label style="display:block; margin-bottom:5px; font-weight:600; color:#333;">🔒 Пароль администратора:</label>
+          <label style="display:block; margin-bottom:5px; font-weight:600; color:#333;">🔒 Пароль:</label>
           <input type="password" id="adminPasswordInput" placeholder="Введите пароль" style="width:100%; padding:14px; border:2px solid #ddd; border-radius:10px; font-size:16px; box-sizing:border-box;">
+        </div>
+        <div style="padding:10px; background:#f0f8ff; border-radius:8px; font-size:13px; color:#555;">
+          💡 Введите пароль главного администратора или менеджера категории
         </div>
       </div>
     `,
@@ -1293,7 +1334,23 @@ function openAdminLoginFromProfile() {
     if (result.isConfirmed) {
       const password = result.value;
       
-      // Проверяем пароль через SHA-256 хеш (открытого пароля в коде нет)
+      // 1) Проверяем пароль категорийного менеджера (корейские / бытовые)
+      const koreanPwd = (typeof KOREAN_PASSWORD !== 'undefined') ? KOREAN_PASSWORD : '556655';
+      const appliancesPwd = (typeof APPLIANCES_PASSWORD !== 'undefined') ? APPLIANCES_PASSWORD : '777888';
+      
+      if (password === koreanPwd) {
+        // Вход как менеджер корейских товаров
+        _activateCategoryManager('korean', 'Менеджер корейских товаров', ['корейские', 'часы', 'электроника']);
+        return;
+      }
+      
+      if (password === appliancesPwd) {
+        // Вход как менеджер бытовых техник
+        _activateCategoryManager('appliances', 'Менеджер бытовых техник', ['бытовые']);
+        return;
+      }
+      
+      // 2) Проверяем пароль главного администратора через SHA-256 хеш
       const inputHash = await _sha256(password);
       if (inputHash === ADMIN_CUSTOMER_DATA.passwordHash) {
         // Проверяем, совпадает ли телефон текущего пользователя с телефоном админа
@@ -1311,7 +1368,6 @@ function openAdminLoginFromProfile() {
         const adminPhone = normalizePhone(ADMIN_CUSTOMER_DATA.phone);
         
         if (userPhone !== adminPhone) {
-          // Телефон не совпадает с админом - отклоняем
           Swal.fire({
             title: '❌ Доступ запрещён',
             text: 'Ваши данные не совпадают с данными администратора. Доступ запрещён.',
@@ -1321,16 +1377,16 @@ function openAdminLoginFromProfile() {
           return;
         }
         
-        // Телефон и пароль совпали - успешный вход админа
+        // Телефон и пароль совпали - успешный вход главного админа
+        // Сбрасываем категорийную роль — это полный админ
+        if (typeof userRole !== 'undefined') userRole = 'admin';
+        try { localStorage.setItem('userRole', 'admin'); } catch(_) {}
+        
         currentCustomer.isAdmin = true;
         _saveCustomerData();
         
         activateAdminMode();
 
-        // FIREBASE AUTH: если у админа в Firebase Auth есть email-аккаунт
-        // (admin@kerben.local) с ТЕМ ЖЕ паролем — войти под ним.
-        // Это даёт `request.auth.token.email` в правилах и закрывает доступ
-        // к чувствительным коллекциям только админу.
         try {
           if (typeof kerbenSignInAsAdmin === 'function') {
             await kerbenSignInAsAdmin(window.KERBEN_ADMIN_AUTH_EMAIL || 'admin@kerben.local', password);
@@ -1363,18 +1419,63 @@ function openAdminLoginFromProfile() {
           timer: 1500,
           showConfirmButton: false
         }).then(() => {
-          // Обновляем профиль
           showCustomerDashboard();
         });
       } else {
         Swal.fire({
           title: '❌ Ошибка',
-          text: 'Неверный пароль администратора',
+          text: 'Неверный пароль',
           icon: 'error',
           confirmButtonColor: '#dc3545'
         });
       }
     }
+  });
+}
+
+// Активация категорийного менеджера (корейские / бытовые)
+function _activateCategoryManager(role, roleName, categories) {
+  // Устанавливаем роль глобально и в localStorage
+  if (typeof userRole !== 'undefined') {
+    userRole = role;
+  } else {
+    window.userRole = role;
+  }
+  try { localStorage.setItem('userRole', role); } catch(_) {}
+  
+  // Помечаем как «ограниченного админа» — для показа ограниченной панели
+  window._categoryManagerRole = role;
+  window._categoryManagerName = roleName;
+  window._categoryManagerCategories = categories;
+  try {
+    localStorage.setItem('categoryManagerData', JSON.stringify({
+      role: role, name: roleName, categories: categories
+    }));
+  } catch(_) {}
+  
+  // Показываем админ-элементы (ограниченно)
+  const editorBtnContainer = document.getElementById('editorBtnContainer');
+  if (editorBtnContainer) editorBtnContainer.style.display = 'flex';
+  
+  // Перерисовываем товары с фильтрацией по категориям
+  if (typeof renderProducts === 'function') {
+    setTimeout(renderProducts, 100);
+  }
+  
+  console.log('🏷️ Вход категорийного менеджера:', roleName, '| Категории:', categories.join(', '));
+  
+  Swal.fire({
+    title: '✅ Успешный вход',
+    html: `<div style="text-align:center;">
+      <p>Вы вошли как <strong>${roleName}</strong></p>
+      <p style="color:#666; font-size:14px;">Доступные категории: ${categories.join(', ')}</p>
+    </div>`,
+    icon: 'success',
+    confirmButtonColor: '#28a745',
+    timer: 2500,
+    showConfirmButton: false
+  }).then(() => {
+    showCustomerDashboard();
   });
 }
 
@@ -1414,6 +1515,13 @@ function openAdminChatFromProfile() {
 }
 
 function openProfitReportFromProfile() {
+  const role = (typeof userRole !== 'undefined') ? userRole : '';
+  const isMainAdmin = !!(currentCustomer && currentCustomer.isAdmin && role === 'admin');
+  const isMgr = (role === 'korean' || role === 'appliances');
+  if (!isMainAdmin && !isMgr) {
+    Swal.fire({ icon: 'error', title: 'Доступ запрещён', text: 'Отчёт доступен только администратору' });
+    return;
+  }
   closeProfileAndRun(() => {
     window.location.href = 'admin-profit.html';
   });
@@ -1546,6 +1654,7 @@ function showAdminPanelInProfile() {
   // Проверяем несколько условий для показа админ-панели
   const isAdminGlobal = typeof isAdmin !== 'undefined' && isAdmin && typeof userRole !== 'undefined' && userRole === 'admin';
   const isAdminCustomer = currentCustomer && currentCustomer.isAdmin;
+  const isCategoryManager = typeof userRole !== 'undefined' && (userRole === 'korean' || userRole === 'appliances');
   
   if (isAdminGlobal || isAdminCustomer) {
     adminPanel.style.display = 'block';
@@ -1554,7 +1663,84 @@ function showAdminPanelInProfile() {
     if (isAdminCustomer && !isAdminGlobal) {
       activateAdminMode();
     }
+  } else if (isCategoryManager) {
+    // Показываем ограниченную панель для категорийного менеджера
+    _showCategoryManagerPanel(adminPanel);
   }
+}
+
+// Показать ограниченную панель для категорийного менеджера
+function _showCategoryManagerPanel(panelEl) {
+  if (!panelEl) return;
+  
+  const role = typeof userRole !== 'undefined' ? userRole : '';
+  const roleName = role === 'korean' ? 'Менеджер корейских товаров' : 'Менеджер бытовых техник';
+  const categories = role === 'korean' 
+    ? 'корейские, часы, электроника' 
+    : 'бытовые';
+  
+  panelEl.style.display = 'block';
+  panelEl.innerHTML = `
+    <div style="padding:16px 20px; border-bottom:1px solid #f0f0f0; background:#f0fff0;">
+      <div style="font-size:15px; font-weight:600; color:#28a745;">🏷️ ${roleName}</div>
+      <div style="font-size:12px; color:#888; margin-top:4px;">Категории: ${categories}</div>
+    </div>
+    
+    <div onclick="openAddProductFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-size:18px;">➕</span>
+        <span style="font-size:15px; color:#333;">Добавить товар</span>
+      </div>
+      <span style="color:#ccc;">›</span>
+    </div>
+    
+    <div onclick="openProfitReportFromProfile()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-size:18px;">💰</span>
+        <span style="font-size:15px; color:#333;">Отчет по прибыли</span>
+      </div>
+      <span style="color:#ccc;">›</span>
+    </div>
+    
+    <div onclick="_logoutCategoryManager()" style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f0f0f0; cursor:pointer;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-size:18px;">🚪</span>
+        <span style="font-size:15px; color:#dc3545;">Выйти из режима менеджера</span>
+      </div>
+      <span style="color:#ccc;">›</span>
+    </div>
+  `;
+}
+
+// Выход из режима категорийного менеджера
+function _logoutCategoryManager() {
+  if (typeof userRole !== 'undefined') userRole = 'guest';
+  window._categoryManagerRole = null;
+  window._categoryManagerName = null;
+  window._categoryManagerCategories = null;
+  try {
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('categoryManagerData');
+  } catch(_) {}
+  
+  // Скрываем редактор товаров
+  const editorBtnContainer = document.getElementById('editorBtnContainer');
+  if (editorBtnContainer) editorBtnContainer.style.display = 'none';
+  
+  // Перерисовываем товары без фильтрации
+  if (typeof renderProducts === 'function') {
+    setTimeout(renderProducts, 100);
+  }
+  
+  Swal.fire({
+    title: '🚪 Вы вышли',
+    text: 'Режим менеджера деактивирован',
+    icon: 'info',
+    timer: 1500,
+    showConfirmButton: false
+  }).then(() => {
+    showCustomerDashboard();
+  });
 }
 
 // ==================== КОНЕЦ ФУНКЦИЙ АДМИН-ПАНЕЛИ ====================
@@ -1841,6 +2027,14 @@ function logoutCustomer() {
       // Удаляем из всех хранилищ (localStorage + IndexedDB + cookie)
       if (window.PersistProfile) window.PersistProfile.remove();
       try { localStorage.removeItem('customerData'); } catch(e) {}
+      // Очищаем сессию категорийного менеджера
+      try {
+        localStorage.removeItem('userRole');
+        localStorage.removeItem('categoryManagerData');
+        window._categoryManagerRole = null;
+        window._categoryManagerName = null;
+        window._categoryManagerCategories = null;
+      } catch(e) {}
       // Стираем сохранённый локально пароль админа (если был) — важно для
       // безопасности: пользователь явно «вышел», устройство может быть общим.
       try {

@@ -130,18 +130,29 @@ let profitReportExpensesListener = null;
 let profitReportAutoRefresh = null;
 let currentProfitTab = 'products'; // Отслеживаем текущую вкладку
 
+function _canOpenProfitReport() {
+  const role = (typeof userRole !== 'undefined') ? userRole : '';
+  return role === 'admin' || role === 'korean' || role === 'appliances';
+}
+
 async function openProfitReport() {
   console.log('📈 Открываем отчёт по прибыли...');
-  
-  // Показываем окно
+  if (!_canOpenProfitReport()) {
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({ icon: 'error', title: 'Доступ запрещён', text: 'Отчёт доступен только администратору' });
+    }
+    return;
+  }
+
+  const isCatMgr = (userRole === 'korean' || userRole === 'appliances');
+  const expensesTab = document.getElementById('tabExpenses');
+  const agentsTab = document.getElementById('tabAgents');
+  if (expensesTab) expensesTab.style.display = isCatMgr ? 'none' : 'block';
+  if (agentsTab) agentsTab.style.display = isCatMgr ? 'none' : 'block';
+
+  // Показываем окно только после скрытия чужих вкладок
   document.getElementById('profitReportWindow').style.display = 'block';
   lockPageScroll();
-  
-  // Скрываем вкладку "Расходы" для корейского менеджера и менеджера бытовых техник
-  const expensesTab = document.getElementById('tabExpenses');
-  if (expensesTab) {
-    expensesTab.style.display = (userRole === 'korean' || userRole === 'appliances') ? 'none' : 'block';
-  }
   
   // ОПТИМИЗАЦИЯ COSTS: загружаем товары через общий кэш (60 сек).
   // При повторном открытии отчёта данные не читаются из Firestore заново.
@@ -370,6 +381,9 @@ async function exportProfitToExcel() {
 
 // Переключение вкладок в отчете
 function switchProfitTab(tab) {
+  if ((userRole === 'korean' || userRole === 'appliances') && tab !== 'products' && tab !== 'orders') {
+    tab = 'products';
+  }
   currentProfitTab = tab; // Сохраняем текущую вкладку
   console.log('🔄 Переключение на вкладку:', tab);
   
@@ -1155,6 +1169,7 @@ async function deleteSelectedOrders() {
 
 // Загрузка отчета по агентам
 async function loadAgentsProfitReport() {
+  if (userRole === 'korean' || userRole === 'appliances') return;
   console.log('🤝 Загрузка отчета по агентам...');
   
   const contentEl = document.getElementById('agentsProfitReportContent');

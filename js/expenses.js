@@ -112,6 +112,9 @@ async function saveExpense() {
 
 // Загрузить отчет по расходам
 async function loadExpensesReport() {
+  if (typeof userRole !== 'undefined' && (userRole === 'korean' || userRole === 'appliances')) {
+    return;
+  }
   try {
     console.log('📊 loadExpensesReport вызвана');
     const period = document.getElementById('expenseDateFilter').value;

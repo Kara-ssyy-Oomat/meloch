@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.37.0-profile-auth-fix'; // Профиль: увеличен таймаут kerbenWaitForAuth до 8с в login/register, добавлен wait в loadDashboard и _restoreProfileFromCloud
+const CACHE_VERSION = 'kerben-v4.38.0-category-manager-profit'; // Категорийные менеджеры + фильтр прибыли админа, без вспышки чужого отчёта
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
