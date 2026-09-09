@@ -34,12 +34,14 @@
     // SEO/маркетинговые сканеры (самые «жадные»)
     'AhrefsBot', 'SemrushBot', 'MJ12bot', 'DotBot', 'BLEXBot',
     'PetalBot', 'DataForSeoBot', 'SeznamBot', 'ZoominfoBot', 'serpstatbot',
-    'rogerbot', 'exabot', 'sogou', 'screaming frog', 'sitebulb',
+    'rogerbot', 'exabot', 'SogouSpider', 'screaming frog', 'sitebulb',
     'linkfluence', 'barkrowler', 'OnPageMainBot', 'Re-re Studio',
 
-    // Соцсети — превью карточек
+    // Соцсети — превью карточек.
+    // WhatsApp здесь НЕТ намеренно: его встроенный браузер на Android
+    // отдаёт UA с «WhatsApp», и живой агент оставался без базы.
     'facebookexternalhit', 'Facebot', 'Twitterbot', 'LinkedInBot',
-    'Pinterestbot', 'WhatsApp', 'TelegramBot', 'Slackbot', 'vkShare',
+    'Pinterestbot', 'TelegramBot', 'Slackbot', 'vkShare',
     'Embedly', 'Discordbot', 'redditbot',
 
     // AI-краулеры (OpenAI, Anthropic, Perplexity, ByteDance, Apple)
@@ -66,6 +68,19 @@
   if (!isBot) {
     try {
       if (navigator.webdriver === true) isBot = true;
+    } catch (e) {}
+  }
+
+  // У бота нет сохранённого профиля или агента: он никогда не входил.
+  // Живого человека со входом не блокируем, даже если его встроенный
+  // браузер отдаёт подозрительный user-agent.
+  if (isBot) {
+    try {
+      if (localStorage.getItem('customerData')
+          || localStorage.getItem('currentAgent')
+          || localStorage.getItem('currentSeller')) {
+        isBot = false;
+      }
     } catch (e) {}
   }
 

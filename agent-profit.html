@@ -905,6 +905,13 @@
     </div>
   </div>
 
+  <!-- Пока определяем агента (переход из его профиля) -->
+  <div id="agentResolveBox" style="display:none; padding:40px 20px; text-align:center; color:#555;">
+    <div style="font-size:34px; margin-bottom:10px;">⏳</div>
+    <div id="agentResolveText" style="font-size:15px; line-height:1.5; max-width:340px; margin:0 auto;">Открываем вашу прибыль…</div>
+    <button type="button" id="agentResolveRetry" onclick="retryAgentResolve()" style="display:none; margin-top:16px; padding:10px 18px; border:none; border-radius:8px; background:#9c27b0; color:#fff; font-size:14px; font-weight:600; cursor:pointer;">Повторить</button>
+  </div>
+
   <!-- Форма авторизации -->
   <div id="authSection" class="auth-container">
     <div class="auth-card">
@@ -1128,7 +1135,10 @@
   <script src="js/persist-profile.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/admin-reauth.js?v=2"></script>
-  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/bot-blocker.js?v=2"></script>
+  <!-- Загрузка заказов агента на 4G занимает время. С обычными 60 секундами
+       Firestore успевал отключиться и страница оставалась пустой. -->
+  <script>window.KERBEN_BACKGROUND = { graceMs: 300000 };</script>
   <script src="js/background-pause.js?v=1"></script>
   <script src="js/products-cache.js?v=3"></script>
   
@@ -1237,9 +1247,29 @@
       });
     }
 
+    // Успела ли база вообще ответить на последний поиск агента.
+    // Нужно, чтобы отличать «такого агента нет» от «нет связи».
+    var _lastReadOk = false;
+    var _allAgentsCache = null;
+
+    async function _loadAllAgents() {
+      if (_allAgentsCache) return _allAgentsCache;
+      try {
+        var snap = await db.collection('agents').limit(2000).get();
+        var list = [];
+        snap.forEach(function (doc) { list.push(doc); });
+        _allAgentsCache = list;
+        return list;
+      } catch (e) {
+        console.warn('[Profit] список агентов:', e && e.message);
+        return null;
+      }
+    }
+
     async function _findAgentsByPhones(phones) {
       var found = [];
       var seen = {};
+      var readOk = false;
       var variants = [];
       (phones || []).forEach(function (p) {
         _phoneVariants(p).forEach(function (v) {
@@ -1249,16 +1279,20 @@
       for (var i = 0; i < variants.length; i++) {
         try {
           var snap = await db.collection('agents').where('phone', '==', variants[i]).limit(10).get();
+          readOk = true;
           snap.forEach(function (doc) {
             if (seen[doc.id]) return;
             seen[doc.id] = true;
             found.push(_agentFromDoc(doc));
           });
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[Profit] поиск агента по номеру:', e && e.message);
+        }
       }
       if (found.length === 0 && phones && phones.length) {
-        try {
-          var all = await db.collection('agents').limit(2000).get();
+        var all = await _loadAllAgents();
+        if (all) {
+          readOk = true;
           all.forEach(function (doc) {
             if (seen[doc.id]) return;
             var data = doc.data() || {};
@@ -1270,10 +1304,9 @@
               found.push(_agentFromDoc(doc));
             }
           });
-        } catch (e) {
-          console.warn('[Profit] поиск агентов:', e && e.message);
         }
       }
+      _lastReadOk = readOk;
       return found;
     }
 
@@ -1317,6 +1350,10 @@
       opts = opts || {};
       var phones = (opts.phones || []).filter(Boolean);
       var ids = (opts.ids || []).filter(Boolean);
+      // Номер и id, которые пришли из профиля агента. У них приоритет:
+      // на одном телефоне мог входить другой человек (например админ).
+      var wantedPhones = phones.slice();
+      var wantedIds = ids.slice();
       if (opts.includeCustomer) {
         try {
           var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
@@ -1348,13 +1385,20 @@
         if (!ids[i] || seen[ids[i]]) continue;
         try {
           var doc = await db.collection('agents').doc(ids[i]).get();
+          _lastReadOk = true;
           if (doc.exists) {
             seen[doc.id] = true;
             candidates.push(_agentFromDoc(doc));
           }
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[Profit] агент по id:', e && e.message);
+        }
       }
-      var best = await _pickBestAgent(candidates);
+      var preferred = candidates.filter(function (c) {
+        if (wantedIds.indexOf(c.id) !== -1) return true;
+        return wantedPhones.some(function (p) { return _phonesMatch(p, c.phone); });
+      });
+      var best = await _pickBestAgent(preferred.length ? preferred : candidates);
       if (!best) return null;
       var pub = _publicAgent(best);
       try { localStorage.setItem('currentAgent', JSON.stringify(pub)); } catch (e) {}
@@ -1374,26 +1418,96 @@
       return n;
     }
 
+    // Вход в Firebase. Раньше здесь каждые 400 мс вызывался
+    // signInAnonymously — на новом устройстве Firebase отвечал
+    // too-many-requests, вход не проходил и заказы не грузились совсем.
+    // Теперь вход один, параллельные вызовы ждут один и тот же промис.
+    var _profitAuthPromise = null;
+    var _anonAttempts = 0;
+    var _anonBlocked = false;
+
+    function _authUser() {
+      try { return firebase.auth().currentUser; } catch (e) { return null; }
+    }
+
+    // Ждём не дольше заданного времени: иначе страница может застыть,
+    // если Firebase так и не ответит.
+    function _withTimeout(promise, ms) {
+      return Promise.race([
+        Promise.resolve(promise).catch(function () { return null; }),
+        new Promise(function (r) { setTimeout(function () { r(null); }, ms); })
+      ]);
+    }
+
     async function _ensureProfitAuth() {
-      if (typeof kerbenEnsureSignedIn === 'function') {
-        try { await kerbenEnsureSignedIn(); } catch (e) {}
+      if (_authUser()) return true;
+      if (!_profitAuthPromise) {
+        _profitAuthPromise = (async function () {
+          try {
+            if (typeof kerbenEnsureSignedIn === 'function') {
+              await _withTimeout(kerbenEnsureSignedIn(), 8000);
+            }
+          } catch (e) {}
+          if (_authUser()) return true;
+          try {
+            if (typeof kerbenWaitForAuth === 'function') {
+              await _withTimeout(kerbenWaitForAuth(8000), 9000);
+            }
+          } catch (e) {}
+          if (_authUser()) return true;
+          if (_anonBlocked || _anonAttempts >= 3) return false;
+          _anonAttempts++;
+          try {
+            var timedOut = {};
+            var res = await Promise.race([
+              firebase.auth().signInAnonymously(),
+              new Promise(function (r) { setTimeout(function () { r(timedOut); }, 10000); })
+            ]);
+            if (res === timedOut) console.warn('[Profit] Firebase не ответил на вход');
+          } catch (e) {
+            var code = (e && e.code) || '';
+            if (code === 'auth/too-many-requests'
+                || code === 'auth/admin-restricted-operation'
+                || code === 'auth/operation-not-allowed') {
+              _anonBlocked = true;
+            }
+            console.warn('[Profit] вход в Firebase:', e && e.message);
+          }
+          return !!_authUser();
+        })();
+        _profitAuthPromise.then(function () {
+          setTimeout(function () { _profitAuthPromise = null; }, 2000);
+        }, function () {
+          _profitAuthPromise = null;
+        });
       }
-      var deadline = Date.now() + 20000;
-      while (Date.now() < deadline) {
-        var user = null;
-        try { user = firebase.auth().currentUser; } catch (e) {}
-        if (user) {
-          try { await user.getIdToken(); } catch (e) {}
-          return true;
-        }
-        try { await firebase.auth().signInAnonymously(); } catch (e) {}
-        await new Promise(function (r) { setTimeout(r, 400); });
+      try { await _profitAuthPromise; } catch (e) {}
+      var user = _authUser();
+      if (user) {
+        try { await user.getIdToken(); } catch (e) {}
       }
-      return !!(firebase.auth() && firebase.auth().currentUser);
+      return !!user;
     }
 
     async function _waitProfitAuth() {
       return _ensureProfitAuth();
+    }
+
+    async function _agentById(id) {
+      if (!id) return null;
+      await _waitProfitAuth();
+      try {
+        var doc = await db.collection('agents').doc(id).get();
+        _lastReadOk = true;
+        if (doc.exists) {
+          var pub = _publicAgent(_agentFromDoc(doc));
+          try { localStorage.setItem('currentAgent', JSON.stringify(pub)); } catch (e) {}
+          return pub;
+        }
+      } catch (e) {
+        console.warn('[Profit] агент по id:', e && e.message);
+      }
+      return null;
     }
 
     async function _resolveAgentRecord(agent) {
@@ -1402,6 +1516,7 @@
       if (agent.id) {
         try {
           var byId = await db.collection('agents').doc(agent.id).get();
+          _lastReadOk = true;
           if (byId.exists) {
             var pub = _publicAgent(_agentFromDoc(byId));
             try { localStorage.setItem('currentAgent', JSON.stringify(pub)); } catch (e) {}
@@ -1417,6 +1532,31 @@
         return resolved;
       }
       return agent;
+    }
+
+    function _showResolveBox(text, showRetry) {
+      var box = document.getElementById('agentResolveBox');
+      if (!box) return;
+      box.style.display = 'block';
+      var t = document.getElementById('agentResolveText');
+      if (t) t.textContent = text;
+      var btn = document.getElementById('agentResolveRetry');
+      if (btn) btn.style.display = showRetry ? 'inline-block' : 'none';
+    }
+
+    function _hideResolveBox() {
+      var box = document.getElementById('agentResolveBox');
+      if (box) box.style.display = 'none';
+    }
+
+    // Кнопка «Повторить», когда агента не удалось определить.
+    function retryAgentResolve() {
+      _allAgentsCache = null;
+      _anonAttempts = 0;
+      _anonBlocked = false;
+      _profitAuthPromise = null;
+      _ordersAuthRetries = 0;
+      loadAgentFromStorage();
     }
 
     async function loadAgentFromStorage() {
@@ -1437,63 +1577,97 @@
 
         var saved = null;
         try { saved = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
+        // На новом устройстве localStorage может быть пуст, а в IndexedDB
+        // (PWA) данные агента ещё лежат — берём и оттуда.
+        if (!saved || (!saved.id && !saved.name)) {
+          var savedIdb = await _idbGet('currentAgent', 1200);
+          try { if (savedIdb) saved = JSON.parse(savedIdb); } catch (e) {}
+        }
 
         // С профиля агент уже найден — сразу открываем кабинет,
         // не просим логин/пароль. Админ на этой странице входит формой,
         // у него Firebase уже готов, поэтому форма у него работает.
-        if (fromProfile && saved && saved.name && (saved.id || saved.phone)) {
-          if (!params.phone || !saved.phone
-              || _phonesMatch(params.phone, saved.phone)
-              || _phonesMatch(params.phone, saved.id)) {
-            currentAgent = { id: saved.id || params.id, name: saved.name, phone: saved.phone || params.phone };
-          }
-        }
-        if (!currentAgent && fromProfile && (params.id || params.name)) {
+        if (fromProfile && (params.id || params.name)) {
           currentAgent = {
             id: params.id || '',
             name: params.name || '',
             phone: params.phone || ''
           };
         }
-
-        if (currentAgent && (currentAgent.id || currentAgent.name)) {
-          showDashboard();
+        if (!currentAgent && saved && saved.name && (saved.id || saved.phone)) {
+          if (!fromProfile || !params.phone || !saved.phone
+              || _phonesMatch(params.phone, saved.phone)
+              || _phonesMatch(params.phone, saved.id)) {
+            currentAgent = { id: saved.id || params.id, name: saved.name, phone: saved.phone || params.phone };
+          }
         }
 
-        await _waitProfitAuth();
+        if (currentAgent && (currentAgent.id || currentAgent.name)) {
+          _hideResolveBox();
+          showDashboard();
+        } else if (fromProfile) {
+          // Не показываем форму логина сразу: агент пришёл из своего
+          // профиля и не должен вводить пароль заново.
+          var authBox = document.getElementById('authSection');
+          if (authBox) authBox.style.display = 'none';
+          _showResolveBox('Открываем вашу прибыль…', false);
+        }
+
+        var authOk = await _ensureProfitAuth();
 
         var resolved = null;
-        for (var attempt = 0; attempt < 5; attempt++) {
-          resolved = await _resolveLoggedInAgent({
-            phones: params.phone ? [params.phone] : [],
-            ids: params.id ? [params.id] : [],
-            includeCustomer: true,
-            includeSavedAgent: true
-          });
+        for (var attempt = 0; attempt < 3; attempt++) {
+          if (params.id) resolved = await _agentById(params.id);
+          if (!resolved) {
+            resolved = await _resolveLoggedInAgent({
+              phones: [params.phone, saved && saved.phone].filter(Boolean),
+              ids: [params.id, saved && saved.id].filter(Boolean),
+              includeCustomer: true,
+              includeSavedAgent: true
+            });
+          }
           if (resolved) break;
-          if (!fromProfile && saved && attempt === 0) break;
-          await _waitProfitAuth();
-          await new Promise(function (r) { setTimeout(r, 1200); });
+          // База ответила и агента с таким номером нет — повторять нечего.
+          if (_lastReadOk) break;
+          if (!fromProfile && saved && saved.name) break;
+          authOk = await _ensureProfitAuth();
+          await new Promise(function (r) { setTimeout(r, 1500); });
         }
 
         if (resolved) currentAgent = resolved;
         else if (!currentAgent && saved && saved.name) currentAgent = saved;
 
-        if (!currentAgent || (!currentAgent.id && !currentAgent.name)) return;
+        if (!currentAgent || (!currentAgent.id && !currentAgent.name)) {
+          if (fromProfile) {
+            _showResolveBox(
+              _lastReadOk
+                ? 'Ваш номер не найден среди агентов. Войдите по телефону и паролю ниже.'
+                : 'Нет связи с базой. Проверьте интернет и нажмите «Повторить».',
+              true
+            );
+            showAuth();
+          }
+          return;
+        }
 
+        _hideResolveBox();
         showDashboard();
         await startOrdersListener();
         await loadAgentExpenses();
       } catch (e) {
         console.error('Ошибка загрузки агента:', e);
+        if (!currentAgent) {
+          _showResolveBox('Не удалось открыть прибыль. Нажмите «Повторить».', true);
+        }
       }
     }
     
     // Показать панель управления
     function showDashboard() {
+      _hideResolveBox();
       document.getElementById('authSection').style.display = 'none';
       document.getElementById('dashboard').classList.add('active');
-      document.getElementById('agentName').textContent = 'Агент: ' + currentAgent.name;
+      document.getElementById('agentName').textContent = 'Агент: ' + ((currentAgent && currentAgent.name) || '');
       document.getElementById('headerLogoutBtn').style.display = 'block';
       const rb = document.getElementById('headerRecoverBtn');
       if (rb) rb.style.display = 'inline-flex';
@@ -1628,7 +1802,8 @@
         }
 
         let cands = [];
-        for (let attempt = 0; attempt < 4; attempt++) {
+        let readOk = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
           await _waitProfitAuth();
           try {
             cands = await _findAgentsByPhones([phone]);
@@ -1636,11 +1811,13 @@
             console.error('[Profit] поиск агента:', findErr);
             cands = [];
           }
-          if (cands.length) break;
-          await new Promise(function (r) { setTimeout(r, 1200); });
+          if (_lastReadOk) readOk = true;
+          // База ответила: либо агент найден, либо такого номера нет.
+          if (cands.length || readOk) break;
+          await new Promise(function (r) { setTimeout(r, 1500); });
         }
-        if (!cands.length && !firebase.auth().currentUser) {
-          Swal.fire('Ошибка', 'Нет связи с базой. Подождите 3 секунды и нажмите Войти ещё раз.', 'error');
+        if (!cands.length && !readOk) {
+          Swal.fire('Ошибка', 'Нет связи с базой. Проверьте интернет и нажмите «Войти» ещё раз.', 'error');
           return;
         }
         const pass = String(password || '').trim();
@@ -1723,6 +1900,7 @@
         }
       } catch (e) {}
       
+      _hideResolveBox();
       showAuth();
       
       Swal.fire({
@@ -1741,6 +1919,9 @@
     let _ordersAuthRetries = 0;
     function retryAgentOrders() {
       _ordersAuthRetries = 0;
+      _anonAttempts = 0;
+      _anonBlocked = false;
+      _profitAuthPromise = null;
       startOrdersListener();
     }
     async function startOrdersListener() {
@@ -1754,7 +1935,14 @@
           console.warn('[Profit] auth ещё не готов — повтор через 2с');
           _ordersRefreshBusy = false;
           _ordersAuthRetries++;
-          if (_ordersAuthRetries < 8) setTimeout(function () { startOrdersListener(); }, 2000);
+          if (_ordersAuthRetries < 8) {
+            setTimeout(function () { startOrdersListener(); }, 2000);
+            return;
+          }
+          var listNoAuth = document.getElementById('ordersList');
+          if (listNoAuth) {
+            listNoAuth.innerHTML = '<div class="empty-state"><div class="empty-icon">📶</div><div>Нет связи с базой</div><div style="font-size:13px; color:#888; margin-top:8px;">Проверьте интернет и нажмите «Повторить»</div><div style="margin-top:10px;"><button onclick="retryAgentOrders()" style="padding:10px 16px; border:none; border-radius:8px; background:#9c27b0; color:#fff; cursor:pointer;">Повторить</button></div></div>';
+          }
           return;
         }
         currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;

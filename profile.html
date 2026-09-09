@@ -356,7 +356,7 @@
   <script src="js/admin-reauth.js?v=2"></script>
   <script src="js/wm-reauth.js?v=1"></script>
   <script src="js/pending-orders.js?v=2"></script>
-  <script src="js/bot-blocker.js?v=1"></script>
+  <script src="js/bot-blocker.js?v=2"></script>
   <script src="js/background-pause.js?v=1"></script>
   <script src="js/products-cache.js?v=3"></script>
   <script src="js/telegram-client.js?v=2"></script>
@@ -717,16 +717,24 @@
     // не взяла чужой currentAgent (вход другим номером на том же телефоне).
     function openAgentProfitPage() {
       var q = new URLSearchParams();
-      try {
-        var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
-        if (cd && cd.phone) q.set('phone', cd.phone);
-      } catch (e) {}
-      try {
-        var a = JSON.parse(localStorage.getItem('currentAgent') || 'null');
-        if (a && a.phone && !q.get('phone')) q.set('phone', a.phone);
-        if (a && a.id) q.set('id', a.id);
-        if (a && a.name) q.set('name', a.name);
-      } catch (e) {}
+      var agent = null;
+      try { agent = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
+      // Телефон самого агента важнее телефона входа: на одном устройстве
+      // мог входить другой человек, и страница брала бы чужого агента.
+      if (agent && agent.phone) q.set('phone', agent.phone);
+      if (agent && agent.id) q.set('id', agent.id);
+      if (agent && agent.name) q.set('name', agent.name);
+      if (!q.get('phone')) {
+        try {
+          var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+          if (cd && cd.phone) q.set('phone', cd.phone);
+        } catch (e) {}
+      }
+      if (!q.get('phone')) {
+        try {
+          if (currentCustomer && currentCustomer.phone) q.set('phone', currentCustomer.phone);
+        } catch (e) {}
+      }
       var url = 'agent-profit.html';
       if (q.toString()) url += '?' + q.toString();
       navigateTop(url);
