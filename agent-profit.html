@@ -1125,6 +1125,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
   <script src="js/app-check.js?v=2"></script>
+  <script src="js/persist-profile.js?v=2"></script>
   <script src="js/auth.js?v=2"></script>
   <script src="js/admin-reauth.js?v=2"></script>
   <script src="js/bot-blocker.js?v=1"></script>
@@ -1171,6 +1172,18 @@
       return n;
     }
 
+    function _phoneDigits(phone) {
+      var d = String(phone || '').replace(/\D/g, '');
+      if (d.indexOf('996') === 0 && d.length >= 12) d = d.substring(3);
+      if (d.charAt(0) === '0' && d.length >= 10) d = d.substring(1);
+      return d;
+    }
+
+    function _phonesMatch(a, b) {
+      var da = _phoneDigits(a), db = _phoneDigits(b);
+      return !!(da && db && da === db);
+    }
+
     function _phoneVariants(phone) {
       var n = _normAgentPhone(phone);
       var out = [];
@@ -1179,8 +1192,169 @@
         out.push('0' + n.substring(4));
         out.push(n.substring(1));
       }
-      if (phone && out.indexOf(phone) === -1) out.push(String(phone));
+      if (phone && out.indexOf(String(phone)) === -1) out.push(String(phone));
       return out;
+    }
+
+    function _agentFromDoc(doc) {
+      var data = doc.data() || {};
+      return {
+        id: doc.id,
+        name: String(data.name || '').trim(),
+        phone: data.phone || '',
+        _hasPassword: !!data.password,
+        _password: data.password,
+        _active: data.active
+      };
+    }
+
+    function _publicAgent(a) {
+      return { id: a.id, name: a.name, phone: a.phone };
+    }
+
+    function _idbGet(key, ms) {
+      return new Promise(function (resolve) {
+        if (!window.PersistProfile || !window.PersistProfile._loadFromIDB) {
+          resolve(null);
+          return;
+        }
+        var done = false;
+        var t = setTimeout(function () {
+          if (!done) { done = true; resolve(null); }
+        }, ms || 1500);
+        try {
+          window.PersistProfile._loadFromIDB(key, function (v) {
+            if (done) return;
+            done = true;
+            clearTimeout(t);
+            resolve(v || null);
+          });
+        } catch (e) {
+          if (!done) { done = true; clearTimeout(t); resolve(null); }
+        }
+      });
+    }
+
+    async function _findAgentsByPhones(phones) {
+      var found = [];
+      var seen = {};
+      var variants = [];
+      (phones || []).forEach(function (p) {
+        _phoneVariants(p).forEach(function (v) {
+          if (v && variants.indexOf(v) === -1) variants.push(v);
+        });
+      });
+      for (var i = 0; i < variants.length; i++) {
+        try {
+          var snap = await db.collection('agents').where('phone', '==', variants[i]).limit(10).get();
+          snap.forEach(function (doc) {
+            if (seen[doc.id]) return;
+            seen[doc.id] = true;
+            found.push(_agentFromDoc(doc));
+          });
+        } catch (e) {}
+      }
+      if (found.length === 0 && phones && phones.length) {
+        try {
+          var all = await db.collection('agents').limit(500).get();
+          all.forEach(function (doc) {
+            if (seen[doc.id]) return;
+            var data = doc.data() || {};
+            var match = phones.some(function (p) {
+              return _phonesMatch(p, data.phone) || _phonesMatch(p, doc.id);
+            });
+            if (match) {
+              seen[doc.id] = true;
+              found.push(_agentFromDoc(doc));
+            }
+          });
+        } catch (e) {}
+      }
+      return found;
+    }
+
+    async function _probeAgentOrders(agent) {
+      var probes = [];
+      if (agent.name) {
+        probes.push(db.collection('orders').where('partner', '==', agent.name).limit(1).get());
+        probes.push(db.collection('orders').where('referredBy', '==', agent.name).limit(1).get());
+      }
+      if (agent.id) {
+        probes.push(db.collection('orders').where('agentId', '==', agent.id).limit(1).get());
+        probes.push(db.collection('orders').where('partner', '==', agent.id).limit(1).get());
+        probes.push(db.collection('orders').where('placedByAgentId', '==', agent.id).limit(1).get());
+        probes.push(db.collection('orders').where('partnerId', '==', agent.id).limit(1).get());
+      }
+      var hits = 0;
+      var snaps = await Promise.all(probes.map(function (p) {
+        return p.catch(function () { return null; });
+      }));
+      snaps.forEach(function (s) { if (s && !s.empty) hits += s.size; });
+      return hits;
+    }
+
+    async function _pickBestAgent(candidates) {
+      if (!candidates || !candidates.length) return null;
+      if (candidates.length === 1) return candidates[0];
+      var best = candidates[0];
+      var bestScore = -1;
+      for (var i = 0; i < candidates.length; i++) {
+        var hits = await _probeAgentOrders(candidates[i]);
+        var score = hits + (candidates[i]._hasPassword ? 0.1 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          best = candidates[i];
+        }
+      }
+      return best;
+    }
+
+    async function _resolveLoggedInAgent(opts) {
+      opts = opts || {};
+      var phones = (opts.phones || []).filter(Boolean);
+      var ids = (opts.ids || []).filter(Boolean);
+      if (opts.includeCustomer) {
+        try {
+          var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+          if (cd && cd.phone) phones.push(cd.phone);
+        } catch (e) {}
+        var idbCd = await _idbGet('customerData', 1200);
+        try {
+          var cd2 = idbCd ? JSON.parse(idbCd) : null;
+          if (cd2 && cd2.phone) phones.push(cd2.phone);
+        } catch (e) {}
+      }
+      if (opts.includeSavedAgent) {
+        try {
+          var saved = JSON.parse(localStorage.getItem('currentAgent') || 'null');
+          if (saved && saved.phone) phones.push(saved.phone);
+          if (saved && saved.id) ids.push(saved.id);
+        } catch (e) {}
+        var idbAg = await _idbGet('currentAgent', 800);
+        try {
+          var ag2 = idbAg ? JSON.parse(idbAg) : null;
+          if (ag2 && ag2.phone) phones.push(ag2.phone);
+          if (ag2 && ag2.id) ids.push(ag2.id);
+        } catch (e) {}
+      }
+      var candidates = await _findAgentsByPhones(phones);
+      var seen = {};
+      candidates.forEach(function (c) { seen[c.id] = true; });
+      for (var i = 0; i < ids.length; i++) {
+        if (!ids[i] || seen[ids[i]]) continue;
+        try {
+          var doc = await db.collection('agents').doc(ids[i]).get();
+          if (doc.exists) {
+            seen[doc.id] = true;
+            candidates.push(_agentFromDoc(doc));
+          }
+        } catch (e) {}
+      }
+      var best = await _pickBestAgent(candidates);
+      if (!best) return null;
+      var pub = _publicAgent(best);
+      try { localStorage.setItem('currentAgent', JSON.stringify(pub)); } catch (e) {}
+      return pub;
     }
 
     function _orderTimeMs(order) {
@@ -1211,100 +1385,75 @@
 
     async function _resolveAgentRecord(agent) {
       if (!agent) return null;
-      if (agent.id && agent.name) return agent;
       await _waitProfitAuth();
-      var variants = _phoneVariants(agent.phone || '');
-      var doc = null;
-      for (var i = 0; i < variants.length; i++) {
+      if (agent.id) {
         try {
-          var snap = await db.collection('agents').where('phone', '==', variants[i]).limit(1).get();
-          if (!snap.empty) { doc = snap.docs[0]; break; }
+          var byId = await db.collection('agents').doc(agent.id).get();
+          if (byId.exists) {
+            var pub = _publicAgent(_agentFromDoc(byId));
+            try { localStorage.setItem('currentAgent', JSON.stringify(pub)); } catch (e) {}
+            return pub;
+          }
         } catch (e) {}
       }
-      if (!doc && agent.name) {
-        try {
-          var byName = await db.collection('agents').where('name', '==', agent.name).limit(1).get();
-          if (!byName.empty) doc = byName.docs[0];
-        } catch (e) {}
+      var found = await _findAgentsByPhones(agent.phone ? [agent.phone] : []);
+      if (found.length) {
+        var best = await _pickBestAgent(found);
+        var resolved = _publicAgent(best);
+        try { localStorage.setItem('currentAgent', JSON.stringify(resolved)); } catch (e) {}
+        return resolved;
       }
-      if (!doc) return agent;
-      var data = doc.data() || {};
-      var resolved = {
-        id: doc.id,
-        name: data.name || agent.name || '',
-        phone: data.phone || agent.phone || ''
-      };
-      try { localStorage.setItem('currentAgent', JSON.stringify(resolved)); } catch (e) {}
-      return resolved;
+      return agent;
     }
 
     async function loadAgentFromStorage() {
       try {
-        const saved = localStorage.getItem('currentAgent');
-        if (saved) {
-          currentAgent = JSON.parse(saved);
-          showDashboard();
-          currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;
-          if (currentAgent && currentAgent.name) {
-            const nameEl = document.getElementById('agentName');
-            if (nameEl) nameEl.textContent = 'Агент: ' + currentAgent.name;
+        var params = { id: '', phone: '' };
+        try {
+          var sp = new URLSearchParams(location.search || '');
+          params.id = sp.get('id') || '';
+          params.phone = sp.get('phone') || '';
+        } catch (e) {}
+        var fromProfile = !!(params.id || params.phone);
+
+        await _waitProfitAuth();
+
+        if (fromProfile) {
+          // С профиля: ищем агента по телефону клиента, а не по чужому
+          // currentAgent (после входа другим номером на этой же странице).
+          currentAgent = await _resolveLoggedInAgent({
+            phones: params.phone ? [params.phone] : [],
+            ids: params.id ? [params.id] : [],
+            includeCustomer: true,
+            includeSavedAgent: false
+          });
+        } else {
+          var saved = null;
+          try { saved = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
+          if (saved && (saved.id || saved.phone)) {
+            currentAgent = await _resolveLoggedInAgent({
+              phones: saved.phone ? [saved.phone] : [],
+              ids: saved.id ? [saved.id] : [],
+              includeCustomer: !saved.id,
+              includeSavedAgent: true
+            }) || saved;
+          } else {
+            currentAgent = await _resolveLoggedInAgent({
+              phones: [],
+              ids: [],
+              includeCustomer: true,
+              includeSavedAgent: true
+            });
           }
-          await startOrdersListener();
-          await loadAgentExpenses();
-          return;
-        }
-      } catch(e) {
-        console.error('Ошибка загрузки агента:', e);
-      }
-
-      // Автовосстановление сессии агента по customerData
-      try {
-        const cdRaw = localStorage.getItem('customerData');
-        if (!cdRaw) return;
-        const cd = JSON.parse(cdRaw);
-        const cdPhone = (cd && cd.phone) ? String(cd.phone) : '';
-        if (!cdPhone) return;
-
-        // Ждём Firebase Auth (правила требуют isRegularAuthed).
-        // 8с — запас для медленных Android на 4G
-        if (typeof kerbenWaitForAuth === 'function') {
-          await kerbenWaitForAuth(8000).catch(() => {});
-        }
-        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
-          try { await kerbenEnsureSignedIn(); } catch (e) {}
         }
 
-        // Нормализация телефона под все возможные форматы в БД
-        let n = cdPhone.replace(/[^\d+]/g, '');
-        if (n.startsWith('0')) n = '+996' + n.substring(1);
-        else if (!n.startsWith('+')) n = (n.startsWith('996') ? '+' : '+996') + n;
-        const variants = [n];
-        if (n.startsWith('+996')) {
-          variants.push('0' + n.substring(4));
-          variants.push(n.substring(1));
-        }
+        if (!currentAgent || (!currentAgent.id && !currentAgent.name)) return;
 
-        let doc = null;
-        for (const v of variants) {
-          try {
-            const snap = await db.collection('agents').where('phone', '==', v).limit(1).get();
-            if (!snap.empty) { doc = snap.docs[0]; break; }
-          } catch(e) {}
-        }
-        if (!doc) return;
-
-        const agentData = doc.data() || {};
-        currentAgent = {
-          id: doc.id,
-          name: agentData.name || cd.name || '',
-          phone: agentData.phone || cdPhone
-        };
-        localStorage.setItem('currentAgent', JSON.stringify(currentAgent));
         showDashboard();
-        startOrdersListener();
-        loadAgentExpenses();
-      } catch(e) {
-        console.log('Автовосстановление сессии агента не удалось:', e && e.message);
+        await startOrdersListener();
+        await loadAgentExpenses();
+      } catch (e) {
+        console.error('Ошибка загрузки агента:', e);
       }
     }
     
@@ -1446,36 +1595,26 @@
           try { await kerbenEnsureSignedIn(); } catch (e) {}
         }
 
-        let snapshot = null;
-        const phoneVars = _phoneVariants(phone);
-        for (let pi = 0; pi < phoneVars.length; pi++) {
-          snapshot = await db.collection('agents').where('phone', '==', phoneVars[pi]).limit(1).get();
-          if (!snapshot.empty) break;
+        const cands = await _findAgentsByPhones([phone]);
+        let match = null;
+        for (let ci = 0; ci < cands.length; ci++) {
+          if (String(cands[ci]._password || '') === password) {
+            match = cands[ci];
+            break;
+          }
         }
         
-        if (!snapshot || snapshot.empty) {
-          Swal.fire('Ошибка', 'Агент не найден', 'warning');
+        if (!match) {
+          Swal.fire('Ошибка', cands.length ? 'Неверный пароль' : 'Агент не найден', 'warning');
           return;
         }
         
-        const agentDoc = snapshot.docs[0];
-        const agentData = agentDoc.data();
-        
-        if (agentData.password !== password) {
-          Swal.fire('Ошибка', 'Неверный пароль', 'warning');
-          return;
-        }
-        
-        if (agentData.active === false) {
+        if (match._active === false) {
           Swal.fire('Ошибка', 'Ваш аккаунт заблокирован', 'warning');
           return;
         }
         
-        currentAgent = {
-          id: agentDoc.id,
-          name: agentData.name,
-          phone: agentData.phone
-        };
+        currentAgent = _publicAgent(match);
         
         localStorage.setItem('currentAgent', JSON.stringify(currentAgent));
         
@@ -1486,7 +1625,7 @@
         Swal.fire({
           icon: 'success',
           title: 'Добро пожаловать!',
-          text: 'Вы вошли как агент: ' + agentData.name,
+          text: 'Вы вошли как агент: ' + (match.name || ''),
           timer: 2000,
           showConfirmButton: false
         });
@@ -1528,6 +1667,11 @@
     // при открытии страницы и при возврате вкладки. Раньше слушатель держал
     // постоянное соединение и читал до 500 заказов при каждом изменении.
     let _ordersRefreshBusy = false;
+    let _ordersAuthRetries = 0;
+    function retryAgentOrders() {
+      _ordersAuthRetries = 0;
+      startOrdersListener();
+    }
     async function startOrdersListener() {
       if (!currentAgent) return;
       if (_ordersRefreshBusy) return;
@@ -1538,7 +1682,8 @@
         if (!authOk) {
           console.warn('[Profit] auth ещё не готов — повтор через 2с');
           _ordersRefreshBusy = false;
-          setTimeout(function () { startOrdersListener(); }, 2000);
+          _ordersAuthRetries++;
+          if (_ordersAuthRetries < 6) setTimeout(function () { startOrdersListener(); }, 2000);
           return;
         }
         currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;
@@ -1552,9 +1697,15 @@
         if (currentAgent.name) searchValues.push(currentAgent.name);
         if (currentAgent.id && currentAgent.id !== currentAgent.name) searchValues.push(currentAgent.id);
 
+        let anySnap = false;
+        let anyError = false;
         function _safeGet(q, label) {
-          return q.limit(500).get().catch(function (err) {
+          return q.limit(500).get().then(function (s) {
+            anySnap = true;
+            return s;
+          }).catch(function (err) {
             console.warn('[Profit]', label, err && err.message);
+            anyError = true;
             return null;
           });
         }
@@ -1562,10 +1713,12 @@
         const queries = [];
         if (searchValues.length > 0) {
           queries.push(_safeGet(db.collection('orders').where('partner', 'in', searchValues), 'partner'));
+          queries.push(_safeGet(db.collection('orders').where('referredBy', 'in', searchValues), 'referredBy'));
         }
         if (currentAgent.id) {
           queries.push(_safeGet(db.collection('orders').where('agentId', '==', currentAgent.id), 'agentId'));
           queries.push(_safeGet(db.collection('orders').where('placedByAgentId', '==', currentAgent.id), 'placedByAgentId'));
+          queries.push(_safeGet(db.collection('orders').where('partnerId', '==', currentAgent.id), 'partnerId'));
         }
 
         // 4-й источник: привязка клиента к агенту через clientAgents.
@@ -1602,6 +1755,21 @@
         }
 
         const snapshots = await Promise.all(queries);
+
+        if (!anySnap && anyError) {
+          _ordersAuthRetries++;
+          _ordersRefreshBusy = false;
+          if (_ordersAuthRetries < 6) {
+            setTimeout(function () { startOrdersListener(); }, 2000);
+            return;
+          }
+          var listAuth = document.getElementById('ordersList');
+          if (listAuth) {
+            listAuth.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>Не удалось загрузить заказы</div><div style="margin-top:10px;"><button onclick="retryAgentOrders()" style="padding:10px 16px; border:none; border-radius:8px; background:#9c27b0; color:#fff; cursor:pointer;">Повторить</button></div></div>';
+          }
+          return;
+        }
+        _ordersAuthRetries = 0;
 
         const dedupe = new Map();
         for (const snap of snapshots) {
@@ -1725,6 +1893,7 @@
           <div class="empty-state">
             <div class="empty-icon">📭</div>
             <div>Пока нет заказов от ваших клиентов</div>
+            <div style="font-size:13px; color:#888; margin-top:10px;">Агент: ${currentAgent && currentAgent.name ? currentAgent.name : '—'} · ${currentAgent && currentAgent.phone ? currentAgent.phone : ''}</div>
             <div style="font-size:14px; color:#999; margin-top:10px;">Поделитесь своей ссылкой, чтобы привлечь клиентов!</div>
           </div>
         `;

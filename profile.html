@@ -712,6 +712,32 @@
         window.location.href = url;
       }
     }
+
+    // Прибыль агента: передаём телефон/id из профиля, чтобы страница
+    // не взяла чужой currentAgent (вход другим номером на том же телефоне).
+    function openAgentProfitPage() {
+      var q = new URLSearchParams();
+      var customerPhone = '';
+      try {
+        var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+        if (cd && cd.phone) {
+          customerPhone = String(cd.phone);
+          q.set('phone', customerPhone);
+        }
+      } catch (e) {}
+      try {
+        var a = JSON.parse(localStorage.getItem('currentAgent') || 'null');
+        if (a && a.phone && !q.get('phone')) q.set('phone', a.phone);
+        var cdDigits = customerPhone.replace(/\D/g, '').replace(/^996/, '').replace(/^0/, '');
+        var agDigits = String(a && a.phone || '').replace(/\D/g, '').replace(/^996/, '').replace(/^0/, '');
+        if (a && a.id && (!cdDigits || !agDigits || cdDigits.slice(-9) === agDigits.slice(-9))) {
+          q.set('id', a.id);
+        }
+      } catch (e) {}
+      var url = 'agent-profit.html';
+      if (q.toString()) url += '?' + q.toString();
+      navigateTop(url);
+    }
   </script>
   <script>
     // ==================== КОНФИГУРАЦИЯ ====================
@@ -1162,44 +1188,76 @@
           variants.add(normalizedPhone.substring(1)); // 996XXX без плюса
         }
 
-        let foundAgentDoc = null;
+        let foundAgentDocs = [];
         let firestoreQueried = false; // успешно ли сходили в Firestore
+        const seenAgentIds = {};
+        function _pushAgentDoc(doc) {
+          if (!doc || seenAgentIds[doc.id]) return;
+          seenAgentIds[doc.id] = true;
+          foundAgentDocs.push(doc);
+        }
         for (const variant of variants) {
           try {
             const snap = await db.collection('agents')
               .where('phone', '==', variant)
-              .limit(1)
+              .limit(10)
               .get();
-            firestoreQueried = true; // запрос прошёл без ошибки
-            if (!snap.empty) {
-              foundAgentDoc = snap.docs[0];
-              break;
-            }
+            firestoreQueried = true;
+            snap.forEach(_pushAgentDoc);
           } catch (e) { /* пробуем следующий вариант */ }
         }
 
         // Фолбэк: если по индексу не нашли (например phone сохранён с
         // другим форматом, с пробелами, или через doc.id вместо поля phone),
         // читаем всю коллекцию и нормализуем каждый телефон.
-        if (!foundAgentDoc) {
+        if (foundAgentDocs.length === 0) {
           try {
-            const agentsSnap = await db.collection('agents').get();
+            const agentsSnap = await db.collection('agents').limit(500).get();
             firestoreQueried = true;
             agentsSnap.forEach(doc => {
-              if (foundAgentDoc) return;
-              const agentData = doc.data();
-              // Проверяем поле phone И doc.id (некоторые агенты записаны через id)
+              const agentData = doc.data() || {};
               const phoneFromField = normalizePhone(agentData.phone || '');
               const phoneFromId = normalizePhone(doc.id || '');
-              const nameFromData = (agentData.name || '').trim().toLowerCase();
               if (phoneFromField === normalizedPhone
                   || phoneFromId === normalizedPhone) {
-                foundAgentDoc = doc;
+                _pushAgentDoc(doc);
               }
             });
           } catch (e) {
             console.log('[Agent] Фолбэк чтения agents не удался:', e && e.message);
           }
+        }
+
+        // Если на один телефон несколько документов — берём того, у кого
+        // есть заказы. Иначе вход с профиля открывает пустого «двойника»,
+        // а логин/пароль другого номера показывает живые данные.
+        let foundAgentDoc = foundAgentDocs[0] || null;
+        if (foundAgentDocs.length > 1) {
+          let bestDoc = foundAgentDocs[0];
+          let bestHits = -1;
+          for (let ai = 0; ai < foundAgentDocs.length; ai++) {
+            const doc = foundAgentDocs[ai];
+            const data = doc.data() || {};
+            const name = (data.name || '').trim();
+            let hits = 0;
+            const probes = [];
+            if (name) {
+              probes.push(db.collection('orders').where('partner', '==', name).limit(1).get());
+              probes.push(db.collection('orders').where('referredBy', '==', name).limit(1).get());
+            }
+            probes.push(db.collection('orders').where('agentId', '==', doc.id).limit(1).get());
+            probes.push(db.collection('orders').where('partner', '==', doc.id).limit(1).get());
+            try {
+              const snaps = await Promise.all(probes.map(p => p.catch(() => null)));
+              snaps.forEach(s => { if (s && !s.empty) hits += s.size; });
+            } catch (e) {}
+            if (data.password) hits += 0.1;
+            if (hits > bestHits) {
+              bestHits = hits;
+              bestDoc = doc;
+            }
+          }
+          foundAgentDoc = bestDoc;
         }
 
         const foundAgent = !!foundAgentDoc;
@@ -1874,7 +1932,7 @@
             <div class="stat-label">Потрачено</div>
           </div>
           ${isAgent ? `
-          <div class="stat-item" style="cursor:pointer;" onclick="navigateTop('agent-profit.html')">
+          <div class="stat-item" style="cursor:pointer;" onclick="openAgentProfitPage()">
             <div class="stat-value" id="agentProfitStat" style="color:#4CAF50;">⏳</div>
             <div class="stat-label">💰 Прибыль</div>
           </div>
@@ -1969,7 +2027,7 @@
           </div>
           
           ${(isAdmin || isAgent) ? `
-          <div class="menu-item" onclick="navigateTop('agent-profit.html')">
+          <div class="menu-item" onclick="openAgentProfitPage()">
             <div class="menu-item-left">
               <span class="menu-icon">💰</span>
               <span class="menu-text">Моя прибыль (агент)</span>
@@ -2086,6 +2144,16 @@
           );
           queries.push(
             db.collection('orders').where('placedByAgentId', '==', agentData.id).limit(500).get()
+              .catch(function() { return null; })
+          );
+          queries.push(
+            db.collection('orders').where('partnerId', '==', agentData.id).limit(500).get()
+              .catch(function() { return null; })
+          );
+        }
+        if (agentData.name) {
+          queries.push(
+            db.collection('orders').where('referredBy', '==', agentData.name).limit(500).get()
               .catch(function() { return null; })
           );
         }

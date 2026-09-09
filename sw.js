@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.38.4-agent-profit-firebase9'; // Агент прибыль: Firebase 9 + безопасные запросы заказов
+const CACHE_VERSION = 'kerben-v4.38.5-agent-profit-by-profile-phone'; // Прибыль агента: искать по телефону профиля, не по чужому currentAgent
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
