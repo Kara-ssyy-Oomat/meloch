@@ -1441,6 +1441,8 @@
 
     async function _ensureProfitAuth() {
       if (_authUser()) return true;
+      // Firebase уже отказал во входе — не дёргаем его повторно.
+      if (_anonBlocked) return false;
       if (!_profitAuthPromise) {
         _profitAuthPromise = (async function () {
           try {
