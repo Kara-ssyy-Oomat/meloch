@@ -785,7 +785,7 @@
 
     function _managerFromPassword(password) {
       if (password === KOREAN_MANAGER_PASSWORD) {
-        return { role: 'korean', name: 'Менеджер корейских товаров', categories: ['корейские', 'часы', 'электроника'] };
+        return { role: 'korean', name: 'Менеджер корейских товаров', categories: ['корейские', 'часы'] };
       }
       if (password === APPLIANCES_MANAGER_PASSWORD) {
         return { role: 'appliances', name: 'Менеджер бытовых техник', categories: ['бытовые'] };
@@ -820,7 +820,7 @@
     function _managerPanelHtml() {
       const role = _isCategoryManager();
       const roleName = role === 'korean' ? 'Менеджер корейских товаров' : 'Менеджер бытовых техник';
-      const cats = role === 'korean' ? 'корейские, часы, электроника' : 'бытовые';
+      const cats = role === 'korean' ? 'корейские, часы' : 'бытовые';
       return `
           <div class="menu-section">
             <div class="menu-section-title">🏷️ ${roleName}</div>

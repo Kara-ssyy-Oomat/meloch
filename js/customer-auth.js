@@ -1340,7 +1340,7 @@ function openAdminLoginFromProfile() {
       
       if (password === koreanPwd) {
         // Вход как менеджер корейских товаров
-        _activateCategoryManager('korean', 'Менеджер корейских товаров', ['корейские', 'часы', 'электроника']);
+        _activateCategoryManager('korean', 'Менеджер корейских товаров', ['корейские', 'часы']);
         return;
       }
       
@@ -1676,7 +1676,7 @@ function _showCategoryManagerPanel(panelEl) {
   const role = typeof userRole !== 'undefined' ? userRole : '';
   const roleName = role === 'korean' ? 'Менеджер корейских товаров' : 'Менеджер бытовых техник';
   const categories = role === 'korean' 
-    ? 'корейские, часы, электроника' 
+    ? 'корейские, часы' 
     : 'бытовые';
   
   panelEl.style.display = 'block';

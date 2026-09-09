@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.38.2-agent-profit-auth'; // Агент: ждать Firebase Auth до загрузки заказов
+const CACHE_VERSION = 'kerben-v4.38.3-korean-no-electronics'; // Корейский менеджер: без категории электроника
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

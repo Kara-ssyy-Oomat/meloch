@@ -206,9 +206,9 @@ function loadProfitReport() {
   // Показываем все товары
   let productsWithCost = [...products];
   
-  // Корейский менеджер видит только корейские товары, часы и электронику
+  // Корейский менеджер видит только корейские товары, часы
   if (userRole === 'korean') {
-    productsWithCost = productsWithCost.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы' || p.category.toLowerCase() === 'электроника'));
+    productsWithCost = productsWithCost.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы'));
   }
   
   // Менеджер бытовых техник видит только бытовые техники
@@ -255,9 +255,9 @@ function filterProfitReport() {
   let filtered = [...products];
   console.log('🔍 filterProfitReport: всего товаров:', filtered.length);
   
-  // Корейский менеджер видит только корейские товары, часы и электронику
+  // Корейский менеджер видит только корейские товары, часы
   if (userRole === 'korean') {
-    filtered = filtered.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы' || p.category.toLowerCase() === 'электроника'));
+    filtered = filtered.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы'));
   }
   
   // Менеджер бытовых техник видит только бытовые техники
@@ -328,9 +328,9 @@ async function exportProfitToExcel() {
 
   let filtered = [...products];
   
-  // Корейский менеджер видит только корейские товары, часы и электронику
+  // Корейский менеджер видит только корейские товары, часы
   if (userRole === 'korean') {
-    filtered = filtered.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы' || p.category.toLowerCase() === 'электроника'));
+    filtered = filtered.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы'));
   }
   
   // Менеджер бытовых техник видит только бытовые техники
@@ -541,7 +541,7 @@ async function filterOrderProfitReport(ordersData = null) {
       const productData = productsMap.get(item.id);
       
       // Проверяем категорию товара
-      const isKoreanProduct = productData && productData.category && (productData.category.toLowerCase() === 'корейские' || productData.category.toLowerCase() === 'часы' || productData.category.toLowerCase() === 'электроника');
+      const isKoreanProduct = productData && productData.category && (productData.category.toLowerCase() === 'корейские' || productData.category.toLowerCase() === 'часы');
       const isAppliancesProduct = productData && productData.category && productData.category.toLowerCase() === 'бытовые';
       
       if (isKoreanProduct) {
@@ -552,7 +552,7 @@ async function filterOrderProfitReport(ordersData = null) {
         hasAppliancesProducts = true;
       }
       
-      // Для корейского менеджера считаем ТОЛЬКО корейские товары, часы и электронику
+      // Для корейского менеджера считаем ТОЛЬКО корейские товары, часы
       if (userRole === 'korean' && !isKoreanProduct) {
         return;
       }
@@ -762,7 +762,7 @@ function openClientOrdersDetail(clientData) {
       // Проверяем категорию товара для корейского менеджера
       if (userRole === 'korean') {
         const product = products.find(p => p.id === item.id);
-        const isKoreanProduct = product && product.category && (product.category.toLowerCase() === 'корейские' || product.category.toLowerCase() === 'часы' || product.category.toLowerCase() === 'электроника');
+        const isKoreanProduct = product && product.category && (product.category.toLowerCase() === 'корейские' || product.category.toLowerCase() === 'часы');
         if (!isKoreanProduct) {
           return;
         }

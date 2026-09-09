@@ -260,9 +260,9 @@ function renderProductsCore() {
     filtered = products.filter(p => p.sellerId === currentSeller.id);
   }
   
-  // Корейский менеджер видит только корейские товары, часы и электронику
+  // Корейский менеджер видит только корейские товары и часы
   if (userRole === 'korean') {
-    filtered = filtered.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы' || p.category.toLowerCase() === 'электроника'));
+    filtered = filtered.filter(p => p.category && (p.category.toLowerCase() === 'корейские' || p.category.toLowerCase() === 'часы'));
   }
   
   // Менеджер бытовых техник видит только бытовые техники

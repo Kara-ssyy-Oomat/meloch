@@ -385,13 +385,13 @@ async function loadExpensesReport() {
         const productData = productsMap.get(item.id);
         
         // Проверяем категорию товара
-        if (productData && productData.category && (productData.category.toLowerCase() === 'корейские' || productData.category.toLowerCase() === 'часы' || productData.category.toLowerCase() === 'электроника')) {
+        if (productData && productData.category && (productData.category.toLowerCase() === 'корейские' || productData.category.toLowerCase() === 'часы')) {
           hasKoreanProducts = true;
         }
         
-        // Для корейского менеджера считаем только корейские товары, часы и электронику
-        if (userRole === 'korean' && (!productData || !productData.category || (productData.category.toLowerCase() !== 'корейские' && productData.category.toLowerCase() !== 'часы' && productData.category.toLowerCase() !== 'электроника'))) {
-          return; // Пропускаем не корейские товары, часы и электронику
+        // Для корейского менеджера считаем только корейские товары и часы
+        if (userRole === 'korean' && (!productData || !productData.category || (productData.category.toLowerCase() !== 'корейские' && productData.category.toLowerCase() !== 'часы'))) {
+          return; // Пропускаем не корейские товары и часы
         }
         
         // Используем себестоимость из заказа, если она есть, иначе из базы товаров

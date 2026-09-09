@@ -731,7 +731,7 @@ function isCategoryManager() { return isKoreanManager() || isAppliancesManager()
 
 function isKoreanCategory(cat) {
   const c = (cat || '').toLowerCase();
-  return c === 'корейские' || c === 'часы' || c === 'электроника';
+  return c === 'корейские' || c === 'часы';
 }
 function isAppliancesCategory(cat) {
   return (cat || '').toLowerCase() === 'бытовые';
@@ -827,7 +827,7 @@ function applyManagerUiLimits() {
   if (wrap) wrap.style.display = 'none';
 
   const roleTitle = isKoreanManager()
-    ? 'корейские, часы, электроника'
+    ? 'корейские, часы'
     : 'бытовые';
   const h1 = document.querySelector('.profit-header h1');
   const sub = document.querySelector('.profit-header p');
