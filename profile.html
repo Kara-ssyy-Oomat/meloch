@@ -951,7 +951,11 @@
                         isAgent = true;
                         sessionStorage.setItem('isAgent_' + normalizedPhone, 'true');
                         console.log('[Agent] ✅ Восстановлен из IndexedDB:', a.name);
-                        if (_dashboardCache) renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
+                        function _idbRerender() {
+                          if (_dashboardCache) { renderDashboard(_dashboardCache.stats, _dashboardCache.orders); }
+                          else { setTimeout(_idbRerender, 400); }
+                        }
+                        _idbRerender();
                       }
                     } catch (e) {}
                   }
@@ -1086,18 +1090,27 @@
         }
 
         // Фолбэк: если по индексу не нашли (например phone сохранён с
-        // другим форматом или отсутствует поле), читаем всю коллекцию.
-        if (!foundAgentDoc && !firestoreQueried) {
+        // другим форматом, с пробелами, или через doc.id вместо поля phone),
+        // читаем всю коллекцию и нормализуем каждый телефон.
+        if (!foundAgentDoc) {
           try {
             const agentsSnap = await db.collection('agents').get();
             firestoreQueried = true;
             agentsSnap.forEach(doc => {
               if (foundAgentDoc) return;
               const agentData = doc.data();
-              const agentPhone = normalizePhone(agentData.phone || doc.id);
-              if (agentPhone === normalizedPhone) foundAgentDoc = doc;
+              // Проверяем поле phone И doc.id (некоторые агенты записаны через id)
+              const phoneFromField = normalizePhone(agentData.phone || '');
+              const phoneFromId = normalizePhone(doc.id || '');
+              const nameFromData = (agentData.name || '').trim().toLowerCase();
+              if (phoneFromField === normalizedPhone
+                  || phoneFromId === normalizedPhone) {
+                foundAgentDoc = doc;
+              }
             });
-          } catch (e) { /* нет доступа — оставим foundAgentDoc=null */ }
+          } catch (e) {
+            console.log('[Agent] Фолбэк чтения agents не удался:', e && e.message);
+          }
         }
 
         const foundAgent = !!foundAgentDoc;
@@ -1127,19 +1140,38 @@
         if (firestoreQueried) {
           if (foundAgent !== isAgent) {
             isAgent = foundAgent;
-            if (_dashboardCache) {
-              renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
+            // Перерисовываем dashboard — ждём _dashboardCache если его ещё нет
+            function _agentRerender() {
+              if (_dashboardCache) {
+                renderDashboard(_dashboardCache.stats, _dashboardCache.orders);
+              } else {
+                setTimeout(_agentRerender, 400);
+              }
             }
+            _agentRerender();
           }
           sessionStorage.setItem('isAgent_' + normalizedPhone, foundAgent ? 'true' : 'false');
         } else {
           // Firestore не отвечает — доверяем кэшу localStorage.currentAgent.
           // Если isAgent уже true из кэша — оставляем.
           console.log('[Agent] Firestore недоступен — сохраняем кэшированный isAgent=' + isAgent);
+          // Фолбэк: если isAgent всё ещё false, пробуем ещё раз через 3 сек
+          // (auth мог стать доступен позже)
+          if (!isAgent) {
+            setTimeout(function() {
+              if (!isAgent) checkAgentStatus(normalizedPhone);
+            }, 3000);
+          }
         }
       } catch (e) {
         // Глобальная ошибка — НЕ трогаем isAgent, доверяем кэшу.
         console.log('Ошибка проверки агента (кэш сохранён):', e);
+        // Повторная попытка через 3 сек
+        if (!isAgent) {
+          setTimeout(function() {
+            if (!isAgent) checkAgentStatus(normalizedPhone);
+          }, 3000);
+        }
       }
     }
     
@@ -1722,6 +1754,12 @@
             <div class="stat-value">${stats.totalSpent.toLocaleString()}</div>
             <div class="stat-label">Потрачено</div>
           </div>
+          ${isAgent ? `
+          <div class="stat-item" style="cursor:pointer;" onclick="navigateTop('agent-profit.html')">
+            <div class="stat-value" id="agentProfitStat" style="color:#4CAF50;">⏳</div>
+            <div class="stat-label">💰 Прибыль</div>
+          </div>
+          ` : ''}
         </div>
 
         <!-- Большая WhatsApp-кнопка. Быстрая связь с магазином на номер +996705009860 -->
@@ -1866,6 +1904,9 @@
         <div style="height:20px;"></div>
       `;
       
+      // Загрузка прибыли агента в карточку статистики
+      if (isAgent) loadAgentProfitForProfile();
+
       // Восстанавливаем бейджи после пересоздания DOM
       if (isAdmin) applyBadgeCounts();
 
@@ -1885,6 +1926,97 @@
       } catch(e) {}
     }
     
+    // ==================== ПРИБЫЛЬ АГЕНТА В ПРОФИЛЕ ====================
+    let _agentProfitCache = null;
+    try {
+      const cached = sessionStorage.getItem('agentProfitCache');
+      if (cached) _agentProfitCache = JSON.parse(cached);
+    } catch(e) {}
+
+    async function loadAgentProfitForProfile() {
+      const el = document.getElementById('agentProfitStat');
+      if (!el) return;
+
+      // Показываем кэш сразу
+      if (_agentProfitCache && _agentProfitCache.profit !== undefined) {
+        el.textContent = _agentProfitCache.profit.toLocaleString();
+      }
+
+      try {
+        let agentData = null;
+        try { agentData = JSON.parse(localStorage.getItem('currentAgent')); } catch(e) {}
+        if (!agentData || !agentData.id) return;
+
+        const searchValues = [agentData.name];
+        if (agentData.id && agentData.id !== agentData.name) searchValues.push(agentData.id);
+
+        // Запрос заказов по partner (основной способ привязки агента)
+        const queries = [
+          db.collection('orders').where('partner', 'in', searchValues).limit(500).get()
+        ];
+        if (agentData.id) {
+          queries.push(
+            db.collection('orders').where('agentId', '==', agentData.id).limit(500).get()
+              .catch(function() { return null; })
+          );
+          queries.push(
+            db.collection('orders').where('placedByAgentId', '==', agentData.id).limit(500).get()
+              .catch(function() { return null; })
+          );
+        }
+
+        // Клиенты привязанные через clientAgents
+        let clientPhones = [];
+        if (agentData.id) {
+          try {
+            const caSnap = await db.collection('clientAgents')
+              .where('agentId', '==', agentData.id).limit(200).get();
+            caSnap.forEach(function(doc) {
+              const phone = (doc.data() && doc.data().phone) || doc.id;
+              if (phone) clientPhones.push(phone);
+            });
+          } catch(e) {}
+        }
+        if (clientPhones.length > 0) {
+          for (let ci = 0; ci < clientPhones.length; ci += 30) {
+            const chunk = clientPhones.slice(ci, ci + 30);
+            queries.push(
+              db.collection('orders').where('phone', 'in', chunk).limit(500).get()
+                .catch(function() { return null; })
+            );
+          }
+        }
+
+        const snapshots = await Promise.all(queries);
+        const dedupe = new Map();
+        for (const snap of snapshots) {
+          if (!snap) continue;
+          snap.forEach(function(doc) {
+            const data = doc.data() || {};
+            if (data.excludedFromAgent === true) return;
+            const st = data.status;
+            if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
+            if (!dedupe.has(doc.id)) dedupe.set(doc.id, data);
+          });
+        }
+
+        let totalSum = 0;
+        dedupe.forEach(function(data) { totalSum += data.total || 0; });
+        const profit = Math.round(totalSum * 0.02);
+
+        // Обновляем UI
+        if (el) el.textContent = profit.toLocaleString();
+
+        // Кэшируем
+        _agentProfitCache = { profit: profit, ts: Date.now() };
+        try { sessionStorage.setItem('agentProfitCache', JSON.stringify(_agentProfitCache)); } catch(e) {}
+
+      } catch(e) {
+        console.log('[Profile] Ошибка загрузки прибыли агента:', e);
+        if (el && el.textContent === '⏳') el.textContent = '—';
+      }
+    }
+
     // ==================== ПАНЕЛЬ УПРАВЛЯЮЩЕГО СКЛАДОМ ====================
     let _wmApproved = false;
     let _wmCheckDone = false;
