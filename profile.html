@@ -74,54 +74,6 @@
       font-size: 13px;
       cursor: pointer;
     }
-
-    #agentProfitOverlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 20000;
-      background: #f5f5f5;
-      flex-direction: column;
-    }
-    #agentProfitOverlay.open { display: flex; }
-    #agentProfitOverlay .ap-head {
-      background: linear-gradient(135deg, #9c27b0, #7b1fa2);
-      color: #fff;
-      padding: 14px 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    #agentProfitOverlay .ap-back {
-      background: rgba(255,255,255,0.2);
-      border: none;
-      color: #fff;
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 14px;
-      cursor: pointer;
-    }
-    #agentProfitOverlay .ap-stats {
-      display: flex;
-      background: #fff;
-      margin: 12px;
-      border-radius: 12px;
-      overflow: hidden;
-    }
-    #agentProfitOverlay .ap-stat {
-      flex: 1;
-      text-align: center;
-      padding: 12px 6px;
-    }
-    #agentProfitOverlay .ap-stat b { display: block; font-size: 16px; }
-    #agentProfitOverlay .ap-stat span { font-size: 11px; color: #888; }
-    #agentProfitOverlay .ap-list { flex: 1; overflow-y: auto; padding: 0 12px 20px; }
-    #agentProfitOverlay .ap-card {
-      background: #fff;
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 8px;
-    }
     
     .stats-row {
       display: flex;
@@ -460,22 +412,6 @@
   </script>
 
   <div id="profileContent"><script>try{var c=sessionStorage.getItem('profileHtmlCache');if(c)document.write(c);}catch(e){}</script></div>
-
-  <div id="agentProfitOverlay">
-    <div class="ap-head">
-      <button type="button" class="ap-back" onclick="closeAgentProfitOverlay()">‹ Назад</button>
-      <div>
-        <div style="font-weight:700;font-size:17px;">Моя прибыль</div>
-        <div id="apAgentName" style="font-size:12px;opacity:.9;">Агент</div>
-      </div>
-    </div>
-    <div class="ap-stats">
-      <div class="ap-stat"><b id="apStatOrders">—</b><span>Заказов</span></div>
-      <div class="ap-stat"><b id="apStatSum">—</b><span>Сумма</span></div>
-      <div class="ap-stat"><b id="apStatProfit" style="color:#2e7d32;">—</b><span>Прибыль 2%</span></div>
-    </div>
-    <div class="ap-list" id="apOrdersList">Загрузка...</div>
-  </div>
   
   <!-- Окно жалобы -->
   <div id="complaintWindow" class="modal-window">
@@ -780,12 +716,20 @@
     // Прибыль агента: передаём телефон/id из профиля, чтобы страница
     // не взяла чужой currentAgent (вход другим номером на том же телефоне).
     function openAgentProfitPage() {
-      if (typeof openAgentProfitOverlay === 'function') openAgentProfitOverlay();
-    }
-
-    function closeAgentProfitOverlay() {
-      var el = document.getElementById('agentProfitOverlay');
-      if (el) el.classList.remove('open');
+      var q = new URLSearchParams();
+      try {
+        var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+        if (cd && cd.phone) q.set('phone', cd.phone);
+      } catch (e) {}
+      try {
+        var a = JSON.parse(localStorage.getItem('currentAgent') || 'null');
+        if (a && a.phone && !q.get('phone')) q.set('phone', a.phone);
+        if (a && a.id) q.set('id', a.id);
+        if (a && a.name) q.set('name', a.name);
+      } catch (e) {}
+      var url = 'agent-profit.html';
+      if (q.toString()) url += '?' + q.toString();
+      navigateTop(url);
     }
   </script>
   <script>
@@ -2298,92 +2242,6 @@
       } catch(e) {
         console.log('[Profile] Ошибка загрузки прибыли агента:', e);
         if (el && el.textContent === '⏳') el.textContent = '—';
-      }
-    }
-
-    async function openAgentProfitOverlay() {
-      var overlay = document.getElementById('agentProfitOverlay');
-      var list = document.getElementById('apOrdersList');
-      if (!overlay || !list) return;
-      overlay.classList.add('open');
-      list.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">Загрузка заказов...</div>';
-      document.getElementById('apStatOrders').textContent = '…';
-      document.getElementById('apStatSum').textContent = '…';
-      document.getElementById('apStatProfit').textContent = '…';
-
-      try {
-        if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(8000); } catch (e) {}
-        }
-        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
-          try { await kerbenEnsureSignedIn(); } catch (e) {}
-        }
-        var agent = null;
-        try { agent = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
-        if ((!agent || !agent.id) && currentCustomer && currentCustomer.phone) {
-          await checkAgentStatus(normalizePhone(currentCustomer.phone));
-          try { agent = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
-        }
-        if (!agent || (!agent.id && !agent.name)) {
-          list.innerHTML = '<div style="text-align:center;padding:40px;">Агент не найден. Обновите профиль и откройте снова.</div>';
-          return;
-        }
-        var nameEl = document.getElementById('apAgentName');
-        if (nameEl) nameEl.textContent = 'Агент: ' + (agent.name || '');
-
-        var queries = [];
-        if (agent.name) {
-          queries.push(db.collection('orders').where('partner', '==', agent.name).limit(500).get());
-          queries.push(db.collection('orders').where('referredBy', '==', agent.name).limit(500).get());
-        }
-        if (agent.id) {
-          queries.push(db.collection('orders').where('agentId', '==', agent.id).limit(500).get());
-          queries.push(db.collection('orders').where('placedByAgentId', '==', agent.id).limit(500).get());
-          queries.push(db.collection('orders').where('partner', '==', agent.id).limit(500).get());
-        }
-        var snaps = await Promise.all(queries.map(function (p) {
-          return p.catch(function () { return null; });
-        }));
-        var map = new Map();
-        snaps.forEach(function (snap) {
-          if (!snap) return;
-          snap.forEach(function (doc) {
-            var d = doc.data() || {};
-            if (d.excludedFromAgent === true) return;
-            var st = d.status;
-            if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
-            if (!map.has(doc.id)) map.set(doc.id, Object.assign({ id: doc.id }, d));
-          });
-        });
-        var orders = Array.from(map.values());
-        var total = 0;
-        orders.forEach(function (o) { total += o.total || 0; });
-        var profit = Math.round(total * 0.02);
-        document.getElementById('apStatOrders').textContent = String(orders.length);
-        document.getElementById('apStatSum').textContent = total.toLocaleString();
-        document.getElementById('apStatProfit').textContent = profit.toLocaleString();
-        var stat = document.getElementById('agentProfitStat');
-        if (stat) stat.textContent = profit.toLocaleString();
-        _agentProfitCache = { profit: profit, ts: Date.now() };
-        try { sessionStorage.setItem('agentProfitCache', JSON.stringify(_agentProfitCache)); } catch (e) {}
-
-        if (!orders.length) {
-          list.innerHTML = '<div style="text-align:center;padding:40px;color:#888;">Пока нет заказов ваших клиентов</div>';
-          return;
-        }
-        orders.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
-        list.innerHTML = orders.map(function (o) {
-          var when = o.timestamp ? new Date(o.timestamp).toLocaleDateString('ru-RU') : '';
-          var comm = Math.round((o.total || 0) * 0.02);
-          return '<div class="ap-card"><div style="font-weight:700;">' +
-            (o.name || 'Клиент') + '</div><div style="font-size:13px;color:#666;margin-top:4px;">' +
-            (o.phone || '') + (when ? ' · ' + when : '') +
-            '</div><div style="margin-top:6px;">' + (o.total || 0).toLocaleString() +
-            ' сом · прибыль ' + comm.toLocaleString() + ' сом</div></div>';
-        }).join('');
-      } catch (e) {
-        console.warn('[Profile] прибыль агента:', e && e.message);
-        list.innerHTML = '<div style="text-align:center;padding:40px;">Не удалось загрузить. <button type="button" onclick="openAgentProfitOverlay()" style="margin-top:10px;padding:8px 14px;border:none;border-radius:8px;background:#9c27b0;color:#fff;">Повторить</button></div>';
       }
     }
 
