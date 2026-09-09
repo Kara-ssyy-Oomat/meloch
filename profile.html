@@ -728,11 +728,8 @@
       try {
         var a = JSON.parse(localStorage.getItem('currentAgent') || 'null');
         if (a && a.phone && !q.get('phone')) q.set('phone', a.phone);
-        var cdDigits = customerPhone.replace(/\D/g, '').replace(/^996/, '').replace(/^0/, '');
-        var agDigits = String(a && a.phone || '').replace(/\D/g, '').replace(/^996/, '').replace(/^0/, '');
-        if (a && a.id && (!cdDigits || !agDigits || cdDigits.slice(-9) === agDigits.slice(-9))) {
-          q.set('id', a.id);
-        }
+        if (a && a.id) q.set('id', a.id);
+        if (a && a.name) q.set('name', a.name);
       } catch (e) {}
       var url = 'agent-profit.html';
       if (q.toString()) url += '?' + q.toString();
@@ -1214,7 +1211,7 @@
         // читаем всю коллекцию и нормализуем каждый телефон.
         if (foundAgentDocs.length === 0) {
           try {
-            const agentsSnap = await db.collection('agents').limit(500).get();
+            const agentsSnap = await db.collection('agents').limit(2000).get();
             firestoreQueried = true;
             function _phoneTail(p) {
               var d = String(p || '').replace(/\D/g, '');

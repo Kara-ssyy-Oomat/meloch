@@ -1412,44 +1412,63 @@
 
     async function loadAgentFromStorage() {
       try {
-        var params = { id: '', phone: '' };
+        var params = { id: '', phone: '', name: '' };
         try {
           var sp = new URLSearchParams(location.search || '');
           params.id = sp.get('id') || '';
           params.phone = sp.get('phone') || '';
+          params.name = sp.get('name') || '';
         } catch (e) {}
         var fromProfile = !!(params.id || params.phone);
 
+        if (params.phone) {
+          var phoneInput = document.getElementById('loginPhone');
+          if (phoneInput && !phoneInput.value) phoneInput.value = params.phone;
+        }
+
+        var saved = null;
+        try { saved = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
+
+        // С профиля агент уже найден — сразу открываем кабинет,
+        // не просим логин/пароль. Админ на этой странице входит формой,
+        // у него Firebase уже готов, поэтому форма у него работает.
+        if (fromProfile && saved && saved.name && (saved.id || saved.phone)) {
+          if (!params.phone || !saved.phone
+              || _phonesMatch(params.phone, saved.phone)
+              || _phonesMatch(params.phone, saved.id)) {
+            currentAgent = { id: saved.id || params.id, name: saved.name, phone: saved.phone || params.phone };
+          }
+        }
+        if (!currentAgent && fromProfile && (params.id || params.name)) {
+          currentAgent = {
+            id: params.id || '',
+            name: params.name || '',
+            phone: params.phone || ''
+          };
+        }
+
+        if (currentAgent && (currentAgent.id || currentAgent.name)) {
+          showDashboard();
+        }
+
         await _waitProfitAuth();
 
-        if (fromProfile) {
-          // С профиля: ищем агента по телефону клиента, а не по чужому
-          // currentAgent (после входа другим номером на этой же странице).
-          currentAgent = await _resolveLoggedInAgent({
+        var resolved = null;
+        for (var attempt = 0; attempt < 5; attempt++) {
+          resolved = await _resolveLoggedInAgent({
             phones: params.phone ? [params.phone] : [],
             ids: params.id ? [params.id] : [],
             includeCustomer: true,
-            includeSavedAgent: false
+            includeSavedAgent: true
           });
-        } else {
-          var saved = null;
-          try { saved = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
-          if (saved && (saved.id || saved.phone)) {
-            currentAgent = await _resolveLoggedInAgent({
-              phones: saved.phone ? [saved.phone] : [],
-              ids: saved.id ? [saved.id] : [],
-              includeCustomer: !saved.id,
-              includeSavedAgent: true
-            }) || saved;
-          } else {
-            currentAgent = await _resolveLoggedInAgent({
-              phones: [],
-              ids: [],
-              includeCustomer: true,
-              includeSavedAgent: true
-            });
-          }
+          if (resolved) break;
+          if (!fromProfile && saved && attempt === 0) break;
+          await _waitProfitAuth();
+          await new Promise(function (r) { setTimeout(r, 1200); });
         }
+
+        if (resolved) currentAgent = resolved;
+        else if (!currentAgent && saved && saved.name) currentAgent = saved;
 
         if (!currentAgent || (!currentAgent.id && !currentAgent.name)) return;
 
@@ -1600,11 +1619,19 @@
         }
 
         let cands = [];
-        try {
-          cands = await _findAgentsByPhones([phone]);
-        } catch (findErr) {
-          console.error('[Profit] поиск агента:', findErr);
-          Swal.fire('Ошибка', 'Не удалось проверить агента. Проверьте интернет и попробуйте ещё раз.', 'error');
+        for (let attempt = 0; attempt < 4; attempt++) {
+          await _waitProfitAuth();
+          try {
+            cands = await _findAgentsByPhones([phone]);
+          } catch (findErr) {
+            console.error('[Profit] поиск агента:', findErr);
+            cands = [];
+          }
+          if (cands.length) break;
+          await new Promise(function (r) { setTimeout(r, 1200); });
+        }
+        if (!cands.length && !firebase.auth().currentUser) {
+          Swal.fire('Ошибка', 'Нет связи с базой. Подождите 3 секунды и нажмите Войти ещё раз.', 'error');
           return;
         }
         const pass = String(password || '').trim();
