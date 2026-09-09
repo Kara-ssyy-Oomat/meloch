@@ -1130,17 +1130,16 @@
   <script src="js/products-cache.js?v=3"></script>
   
   <script>
-    // Firebase конфигурация
-    const firebaseConfig = {
-      apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
-      authDomain: "svoysayet.firebaseapp.com",
-      projectId: "svoysayet",
-      storageBucket: "svoysayet.appspot.com",
-      messagingSenderId: "989465106314",
-      appId: "1:989465106314:web:abc123"
-    };
-    
-    firebase.initializeApp(firebaseConfig);
+    if (!firebase.apps.length) {
+      firebase.initializeApp({
+        apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+        authDomain: "svoysayet.firebaseapp.com",
+        projectId: "svoysayet",
+        storageBucket: "svoysayet.firebasestorage.app",
+        messagingSenderId: "450143000217",
+        appId: "1:450143000217:web:7495cefaea0b94966e8a08"
+      });
+    }
     const db = firebase.firestore();
     
     // Данные
@@ -1160,14 +1159,81 @@
     // коллекции agents — автоматически "восстанавливаем" сессию агента.
     // Это чинит кейс: клиент открыл профиль, увидел кнопку «Прибыль агента»,
     // кликнул — а тут пустая форма логина. Теперь входит автоматом.
+    function _normAgentPhone(phone) {
+      if (!phone) return '';
+      var n = String(phone).replace(/[^\d+]/g, '');
+      if (n.indexOf('0') === 0) n = '+996' + n.substring(1);
+      if (n.indexOf('+') !== 0) n = (n.indexOf('996') === 0 ? '+' : '+996') + n;
+      return n;
+    }
+
+    function _phoneVariants(phone) {
+      var n = _normAgentPhone(phone);
+      var out = [];
+      if (n) out.push(n);
+      if (n.indexOf('+996') === 0) {
+        out.push('0' + n.substring(4));
+        out.push(n.substring(1));
+      }
+      if (phone && out.indexOf(phone) === -1) out.push(String(phone));
+      return out;
+    }
+
+    async function _waitProfitAuth() {
+      if (typeof kerbenWaitForAuth === 'function') {
+        try { await kerbenWaitForAuth(10000); } catch (e) {}
+      }
+      if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
+        try { await kerbenEnsureSignedIn(); } catch (e) {}
+      }
+      if (!firebase.auth().currentUser) {
+        await new Promise(function (r) { setTimeout(r, 1500); });
+      }
+      return !!firebase.auth().currentUser;
+    }
+
+    async function _resolveAgentRecord(agent) {
+      if (!agent) return null;
+      if (agent.id && agent.name) return agent;
+      await _waitProfitAuth();
+      var variants = _phoneVariants(agent.phone || '');
+      var doc = null;
+      for (var i = 0; i < variants.length; i++) {
+        try {
+          var snap = await db.collection('agents').where('phone', '==', variants[i]).limit(1).get();
+          if (!snap.empty) { doc = snap.docs[0]; break; }
+        } catch (e) {}
+      }
+      if (!doc && agent.name) {
+        try {
+          var byName = await db.collection('agents').where('name', '==', agent.name).limit(1).get();
+          if (!byName.empty) doc = byName.docs[0];
+        } catch (e) {}
+      }
+      if (!doc) return agent;
+      var data = doc.data() || {};
+      var resolved = {
+        id: doc.id,
+        name: data.name || agent.name || '',
+        phone: data.phone || agent.phone || ''
+      };
+      try { localStorage.setItem('currentAgent', JSON.stringify(resolved)); } catch (e) {}
+      return resolved;
+    }
+
     async function loadAgentFromStorage() {
       try {
         const saved = localStorage.getItem('currentAgent');
         if (saved) {
           currentAgent = JSON.parse(saved);
           showDashboard();
-          startOrdersListener();
-          loadAgentExpenses();
+          currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;
+          if (currentAgent && currentAgent.name) {
+            const nameEl = document.getElementById('agentName');
+            if (nameEl) nameEl.textContent = 'Агент: ' + currentAgent.name;
+          }
+          await startOrdersListener();
+          await loadAgentExpenses();
           return;
         }
       } catch(e) {
@@ -1363,9 +1429,14 @@
           try { await kerbenEnsureSignedIn(); } catch (e) {}
         }
 
-        const snapshot = await db.collection('agents').where('phone', '==', phone).get();
+        let snapshot = null;
+        const phoneVars = _phoneVariants(phone);
+        for (let pi = 0; pi < phoneVars.length; pi++) {
+          snapshot = await db.collection('agents').where('phone', '==', phoneVars[pi]).limit(1).get();
+          if (!snapshot.empty) break;
+        }
         
-        if (snapshot.empty) {
+        if (!snapshot || snapshot.empty) {
           Swal.fire('Ошибка', 'Агент не найден', 'warning');
           return;
         }
@@ -1446,6 +1517,20 @@
       _ordersRefreshBusy = true;
 
       try {
+        const authOk = await _waitProfitAuth();
+        if (!authOk) {
+          console.warn('[Profit] auth ещё не готов — повтор через 2с');
+          _ordersRefreshBusy = false;
+          setTimeout(function () { startOrdersListener(); }, 2000);
+          return;
+        }
+        currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;
+
+        const listEl = document.getElementById('ordersList');
+        if (listEl && (!allOrders || allOrders.length === 0)) {
+          listEl.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>Загрузка заказов...</div></div>';
+        }
+
         const searchValues = [currentAgent.name];
         if (currentAgent.id && currentAgent.id !== currentAgent.name) {
           searchValues.push(currentAgent.id);
@@ -1529,6 +1614,17 @@
         filterOrders();
       } catch (e) {
         console.error('Ошибка загрузки заказов:', e);
+        var msg = (e && e.message) ? String(e.message) : '';
+        var perm = msg.indexOf('permission') !== -1 || (e && e.code === 'permission-denied');
+        if (perm) {
+          _ordersRefreshBusy = false;
+          setTimeout(function () { startOrdersListener(); }, 2500);
+          return;
+        }
+        var listFail = document.getElementById('ordersList');
+        if (listFail) {
+          listFail.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>Не удалось загрузить заказы</div><div style="margin-top:10px;"><button onclick="startOrdersListener()" style="padding:10px 16px; border:none; border-radius:8px; background:#9c27b0; color:#fff; cursor:pointer;">Повторить</button></div></div>';
+        }
       } finally {
         _ordersRefreshBusy = false;
       }
@@ -2246,6 +2342,11 @@
     // Загрузить расходы агента
     async function loadAgentExpenses() {
       if (!currentAgent) return;
+      await _waitProfitAuth();
+      if (!currentAgent.id) {
+        currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;
+      }
+      if (!currentAgent.id) return;
       
       try {
         const snapshot = await db.collection('agentExpenses')

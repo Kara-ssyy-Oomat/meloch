@@ -2062,6 +2062,12 @@
       }
 
       try {
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(8000); } catch (e) {}
+        }
+        if (!firebase.auth().currentUser && typeof kerbenEnsureSignedIn === 'function') {
+          try { await kerbenEnsureSignedIn(); } catch (e) {}
+        }
         let agentData = null;
         try { agentData = JSON.parse(localStorage.getItem('currentAgent')); } catch(e) {}
         if (!agentData || !agentData.id) return;
