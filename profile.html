@@ -1707,6 +1707,7 @@
     }
     
     // ==================== ЗАГРУЗКА ДАШБОРДА ====================
+    let _dashboardRetries = 0;
     async function loadDashboard() {
       let orders = [];
       let stats = { ordersCount: 0, totalSpent: 0 };
@@ -1725,16 +1726,16 @@
         }
       }
       
-      try {
-        // Ждём Firebase Auth перед Firestore-запросами
-        if (typeof kerbenWaitForAuth === 'function') {
-          try { await kerbenWaitForAuth(6000); } catch (e) {}
-        }
+      // Нормализуем телефон для поиска
+      const userPhone = currentCustomer.phone || '';
+      const normalizedPhone = normalizePhone(userPhone);
+      let ordersLoaded = false;
 
-        // Нормализуем телефон для поиска
-        const userPhone = currentCustomer.phone || '';
-        const normalizedPhone = normalizePhone(userPhone);
-        
+      try {
+        // Тот же надёжный вход, что и при логине. Прежних 6 секунд на
+        // медленном интернете не хватало, и профиль показывал нули.
+        await _ensureAuthReady();
+
         // Ищем заказы по разным форматам телефона
         const phoneVariants = [userPhone, normalizedPhone];
         if (userPhone.startsWith('0')) {
@@ -1747,9 +1748,14 @@
         // Убираем дубликаты
         const uniquePhones = [...new Set(phoneVariants.filter(p => p))];
         
-        // Запрашиваем заказы по всем вариантам телефона
+        // Запрашиваем заказы по всем вариантам телефона.
+        // Лимит 500: у агентов бывает больше 50 заказов, и часть просто
+        // не попадала в статистику.
         for (const phone of uniquePhones) {
-          const snapshot = await db.collection('orders').where('phone', '==', phone).limit(50).get();
+          const snapshot = await _firestoreQueryWithRetry(() =>
+            db.collection('orders').where('phone', '==', phone).limit(500).get()
+          );
+          ordersLoaded = true;
           snapshot.forEach(doc => {
             // Проверяем, не добавлен ли уже этот заказ
             if (!orders.find(o => o.id === doc.id)) {
@@ -1765,10 +1771,30 @@
         
         // Кэшируем данные
         _dashboardCache = { stats, orders };
-        sessionStorage.setItem('dashboardCache_' + normalizedPhone, JSON.stringify(_dashboardCache));
+        try {
+          sessionStorage.setItem('dashboardCache_' + normalizedPhone, JSON.stringify(_dashboardCache));
+        } catch (e) {}
+        _dashboardRetries = 0;
         
       } catch(e) { 
         console.error('Ошибка загрузки заказов:', e); 
+      }
+
+      // База не ответила. Показываем прошлые цифры вместо нулей и
+      // пробуем снова — раньше профиль так и оставался пустым.
+      if (!ordersLoaded) {
+        let cached = _dashboardCache;
+        if (!cached) {
+          try { cached = JSON.parse(sessionStorage.getItem('dashboardCache_' + normalizedPhone) || 'null'); } catch (e) {}
+        }
+        if (cached && cached.stats) {
+          stats = cached.stats;
+          orders = cached.orders || [];
+        }
+        if (_dashboardRetries < 4) {
+          _dashboardRetries++;
+          setTimeout(function () { loadDashboard(); }, 4000);
+        }
       }
       
       _customerOrders = orders;
@@ -2147,6 +2173,7 @@
       if (cached) _agentProfitCache = JSON.parse(cached);
     } catch(e) {}
 
+    let _agentProfitRetries = 0;
     async function loadAgentProfitForProfile() {
       const el = document.getElementById('agentProfitStat');
       if (!el) return;
@@ -2173,12 +2200,17 @@
         }
         if (!agentData || !agentData.id) return;
 
-        const searchValues = [agentData.name];
+        const searchValues = [];
+        if (agentData.name) searchValues.push(agentData.name);
         if (agentData.id && agentData.id !== agentData.name) searchValues.push(agentData.id);
+        if (!searchValues.length) return;
 
-        // Запрос заказов по partner (основной способ привязки агента)
+        // Запрос заказов по partner (основной способ привязки агента).
+        // catch обязателен: без него отказ этого запроса ронял весь
+        // подсчёт и вместо прибыли оставалось «—».
         const queries = [
           db.collection('orders').where('partner', 'in', searchValues).limit(500).get()
+            .catch(function() { return null; })
         ];
         if (agentData.id) {
           queries.push(
@@ -2225,8 +2257,10 @@
 
         const snapshots = await Promise.all(queries);
         const dedupe = new Map();
+        let gotAny = false;
         for (const snap of snapshots) {
           if (!snap) continue;
+          gotAny = true;
           snap.forEach(function(doc) {
             const data = doc.data() || {};
             if (data.excludedFromAgent === true) return;
@@ -2235,6 +2269,18 @@
             if (!dedupe.has(doc.id)) dedupe.set(doc.id, data);
           });
         }
+
+        // Ни один запрос не прошёл — не показываем ноль, пробуем снова.
+        if (!gotAny) {
+          if (_agentProfitRetries < 4) {
+            _agentProfitRetries++;
+            setTimeout(loadAgentProfitForProfile, 4000);
+          } else if (el && el.textContent === '⏳') {
+            el.textContent = '—';
+          }
+          return;
+        }
+        _agentProfitRetries = 0;
 
         let totalSum = 0;
         dedupe.forEach(function(data) { totalSum += data.total || 0; });
@@ -2249,7 +2295,12 @@
 
       } catch(e) {
         console.log('[Profile] Ошибка загрузки прибыли агента:', e);
-        if (el && el.textContent === '⏳') el.textContent = '—';
+        if (_agentProfitRetries < 4) {
+          _agentProfitRetries++;
+          setTimeout(loadAgentProfitForProfile, 4000);
+        } else if (el && el.textContent === '⏳') {
+          el.textContent = '—';
+        }
       }
     }
 
