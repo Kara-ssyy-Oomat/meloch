@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.42.0-agent-profit-any-device'; // Прибыль агента открывается с любого устройства
+const CACHE_VERSION = 'kerben-v4.43.0-update-check-everywhere'; // Проверка обновлений на всех страницах
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

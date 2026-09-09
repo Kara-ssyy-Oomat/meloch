@@ -897,6 +897,8 @@
       <div>
         <h1>💰 Моя прибыль</h1>
         <div class="header-subtitle" id="agentName">Агент: ---</div>
+        <!-- Метка версии: если её не видно, устройство держит старую копию -->
+        <div class="header-subtitle" style="font-size:11px; opacity:0.75;">версия 4.43</div>
       </div>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
@@ -1756,7 +1758,7 @@
           phone: phone
         };
         
-        localStorage.setItem('currentAgent', JSON.stringify(currentAgent));
+        try { localStorage.setItem('currentAgent', JSON.stringify(currentAgent)); } catch (e) {}
         
         // Очищаем форму
         document.getElementById('regName').value = '';
@@ -1851,7 +1853,9 @@
         } catch (e) {}
         
         currentAgent = _publicAgent(match);
-        localStorage.setItem('currentAgent', JSON.stringify(currentAgent));
+        // На iPhone в приватном режиме запись падает — вход не должен
+        // из-за этого срываться.
+        try { localStorage.setItem('currentAgent', JSON.stringify(currentAgent)); } catch (e) {}
         try {
           if (window.PersistProfile && window.PersistProfile._saveToIDB) {
             window.PersistProfile._saveToIDB('currentAgent', JSON.stringify(currentAgent));
@@ -1879,7 +1883,9 @@
         
       } catch(e) {
         console.error('Ошибка входа:', e);
-        Swal.fire('Ошибка', 'Не удалось войти', 'error');
+        // Причину показываем текстом: по ней видно, что именно мешает
+        // войти именно на этом устройстве.
+        Swal.fire('Ошибка', 'Не удалось войти. ' + ((e && e.message) ? e.message : ''), 'error');
       }
     }
     
@@ -1893,7 +1899,7 @@
       currentAgent = null;
       allOrders = [];
       filteredOrders = [];
-      localStorage.removeItem('currentAgent');
+      try { localStorage.removeItem('currentAgent'); } catch (e) {}
       try {
         if (window.PersistProfile && window.PersistProfile.clearAgent) {
           window.PersistProfile.clearAgent();
@@ -2958,5 +2964,6 @@
     document.addEventListener('DOMContentLoaded', init);
   </script>
 <script src="js/bottom-nav.js?v=30"></script>
+<script defer src="js/sw-register.js"></script>
 </body>
 </html>
