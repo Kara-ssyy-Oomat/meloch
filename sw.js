@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.46.0-categories-fix'; // Категории больше не пропадают при быстром открытии сайта
+const CACHE_VERSION = 'kerben-v4.47.0-categories-public-read'; // Категории читаются без авторизации и грузятся с первой попытки
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

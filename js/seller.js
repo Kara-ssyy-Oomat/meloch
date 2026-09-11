@@ -605,12 +605,14 @@ async function loadSellerCategories(attempt, runId) {
     renderCategoryButtons(cached ? cached.std : {}, cached ? cached.seller : []);
   }
 
-  // Без ожидания анонимного входа запрос улетает раньше, чем появится
-  // request.auth, и правила разворачивают его permission-denied.
-  if (typeof kerbenWaitForAuth === 'function') {
+  // Первую попытку делаем сразу: чтение категорий открыто правилами, ждать
+  // анонимный вход незачем (а kerbenWaitForAuth умеет висеть до 6 секунд).
+  // На повторах вход всё-таки дожидаемся — вдруг правила ужесточат обратно
+  // или у конкретного пользователя запрос упёрся именно в авторизацию.
+  if (attempt > 1 && typeof kerbenWaitForAuth === 'function') {
     try { await kerbenWaitForAuth(); } catch (e) {}
+    if (runId !== sellerCategoriesRun || sellerCategoriesFetched) return;
   }
-  if (runId !== sellerCategoriesRun || sellerCategoriesFetched) return;
 
   try {
     const [settingsDoc, snapshot] = await Promise.all([

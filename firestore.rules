@@ -286,7 +286,11 @@ service cloud.firestore {
     }
 
     match /seller_categories/{id} {
-      allow read: if isRegularAuthed();
+      // READ — открыто, как и у settings. Это просто список названий категорий
+      // с иконками: ничего чувствительного. Раньше требовалась авторизация, и
+      // на первом заходе (пока не поднялся анонимный вход или если браузер его
+      // режет) категории на главной не появлялись вообще.
+      allow read: if true;
       allow create, update: if isRegularAuthed()
         && reasonableDocSize()
         && strOk('name', 200)
