@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     loadProducts().then(() => {
       // renderProducts() уже вызван внутри loadProducts() — не вызываем повторно!
-      loadSellerCategories(); // Загружаем категории продавцов
+      if (typeof loadSellerCategories === 'function') loadSellerCategories(); // Загружаем категории продавцов
       updateCart(); // Обновляем корзину ПОСЛЕ загрузки товаров
       updateFavoritesCount(); // Обновляем счётчик избранного
       
@@ -264,6 +264,11 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Загружаем админ-библиотеки если пользователь — администратор
       if (isAdmin && typeof loadAdminLibraries === 'function') loadAdminLibraries();
+    }).catch((err) => {
+      // Раньше отказ loadProducts() уносил с собой весь колбэк выше — включая
+      // категории. Логируем и всё равно поднимаем категории.
+      console.error('Ошибка инициализации после загрузки товаров:', err);
+      if (typeof loadSellerCategories === 'function') loadSellerCategories();
     });
     
     // Если уже был вход как админ (например, после обновления), показать панель

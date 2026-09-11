@@ -465,64 +465,87 @@ function checkSavedSeller() {
   }
 }
 
-// Загрузка категорий продавцов из Firebase
-async function loadSellerCategories() {
+// ==================== КАТЕГОРИИ НА ГЛАВНОЙ ====================
+// Кнопки категорий собираются из двух источников в Firestore:
+//   settings/categories — иконки, порядок и блокировка стандартных
+//   seller_categories   — категории, добавленные вручную через админку
+// Правила Firestore требуют request.auth != null, поэтому запрос обязан
+// уходить только после анонимного входа, иначе прилетит permission-denied
+// и список категорий останется пустым до следующей перезагрузки.
+
+const SELLER_CATS_CACHE_KEY = 'kerben_categories_cache_v1';
+const SELLER_CATS_STANDARD = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
+let sellerCategoriesFetched = false;
+let sellerCategoriesRun = 0;
+
+function readCategoriesCache() {
   try {
-    const container = document.getElementById('sellerCategoriesContainer');
-    if (!container) return;
-    
-    // Очищаем контейнер
-    container.innerHTML = '';
-    
-    // Загружаем настройки стандартных категорий (иконки, порядок, блокировка)
-    let stdSettings = {};
-    try {
-      const settingsDoc = await db.collection('settings').doc('categories').get();
-      stdSettings = settingsDoc.exists ? (settingsDoc.data().standard || {}) : {};
-    } catch(e) {}
-    
-    // Обновляем стандартные кнопки: иконки и скрытие заблокированных
-    const existingCategories = ['все', 'ножницы', 'скотч', 'нож', 'корейские', 'часы', 'электроника', 'бытовые'];
-    const stdIconMap = {
-      'все': '🛍️', 'ножницы': '✂️', 'скотч': '📦', 'нож': '🔪',
-      'корейские': '🇰🇷', 'часы': '⌚', 'электроника': '🔌', 'бытовые': '🏠'
-    };
-    
-    // Собираем стандартные с порядком
-    const stdEntries = existingCategories.map(name => ({
-      name,
-      icon: (stdSettings[name] && stdSettings[name].icon) || stdIconMap[name] || '📂',
-      order: (stdSettings[name] && typeof stdSettings[name].order === 'number') ? stdSettings[name].order : existingCategories.indexOf(name),
-      blocked: stdSettings[name] && stdSettings[name].blocked === true
+    const data = JSON.parse(localStorage.getItem(SELLER_CATS_CACHE_KEY) || 'null');
+    if (!data || !Array.isArray(data.seller)) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeCategoriesCache(stdSettings, sellerCats) {
+  try {
+    localStorage.setItem(SELLER_CATS_CACHE_KEY, JSON.stringify({
+      std: stdSettings || {},
+      seller: sellerCats || []
     }));
-    stdEntries.sort((a, b) => a.order - b.order);
-    
-    // Перестраиваем стандартные кнопки с иконками и порядком
-    const otherContainer = document.getElementById('otherCategoriesContainer');
-    if (otherContainer) {
-      // Удаляем все стандартные кнопки категорий (кроме sellerCategoriesContainer)
-      const existingBtns = otherContainer.querySelectorAll('button.category-btn[data-category]');
-      existingBtns.forEach(btn => btn.remove());
-      
-      // Добавляем в правильном порядке, перед sellerCategoriesContainer
-      const sellerContainer = document.getElementById('sellerCategoriesContainer');
-      stdEntries.forEach(cat => {
-        if (cat.name === 'все') return; // "Все товары" остаётся сверху
-        if (cat.blocked) return; // Скрываем заблокированные
-        
-        const btn = document.createElement('button');
-        btn.className = 'category-btn';
-        btn.setAttribute('data-category', cat.name);
-        btn.onclick = () => filterByCategory(cat.name);
-        const labelMap = { 'ножницы': 'Ножницы', 'скотч': 'Скотч', 'нож': 'Нож', 'корейские': 'Корейские товары', 'часы': 'Часы', 'электроника': 'Электроника', 'бытовые': 'Бытовые техники' };
-        btn.innerHTML = `${cat.icon} ${labelMap[cat.name] || cat.name}`;
-        otherContainer.insertBefore(btn, sellerContainer);
-      });
-    }
-    
-    const sellerCategories = new Map(); // name -> {icon, order, blocked}
-    
-    // Собираем категории из товаров продавцов
+  } catch (e) {}
+}
+
+// Отрисовка кнопок категорий. Вызывается дважды: сразу из кэша и повторно
+// когда пришли свежие данные с сервера.
+function renderCategoryButtons(stdSettings, sellerCats) {
+  const container = document.getElementById('sellerCategoriesContainer');
+  if (!container) return;
+
+  stdSettings = stdSettings || {};
+  const existingCategories = SELLER_CATS_STANDARD;
+  const stdIconMap = {
+    'все': '🛍️', 'ножницы': '✂️', 'скотч': '📦', 'нож': '🔪',
+    'корейские': '🇰🇷', 'часы': '⌚', 'электроника': '🔌', 'бытовые': '🏠'
+  };
+
+  // Собираем стандартные с порядком
+  const stdEntries = existingCategories.map(name => ({
+    name,
+    icon: (stdSettings[name] && stdSettings[name].icon) || stdIconMap[name] || '📂',
+    order: (stdSettings[name] && typeof stdSettings[name].order === 'number') ? stdSettings[name].order : existingCategories.indexOf(name),
+    blocked: stdSettings[name] && stdSettings[name].blocked === true
+  }));
+  stdEntries.sort((a, b) => a.order - b.order);
+
+  // Перестраиваем стандартные кнопки с иконками и порядком
+  const otherContainer = document.getElementById('otherCategoriesContainer');
+  if (otherContainer) {
+    // Удаляем все стандартные кнопки категорий (кроме sellerCategoriesContainer)
+    const existingBtns = otherContainer.querySelectorAll('button.category-btn[data-category]');
+    existingBtns.forEach(btn => btn.remove());
+
+    // Добавляем в правильном порядке, перед sellerCategoriesContainer
+    const sellerContainer = document.getElementById('sellerCategoriesContainer');
+    stdEntries.forEach(cat => {
+      if (cat.name === 'все') return; // "Все товары" остаётся сверху
+      if (cat.blocked) return; // Скрываем заблокированные
+
+      const btn = document.createElement('button');
+      btn.className = 'category-btn';
+      btn.setAttribute('data-category', cat.name);
+      btn.onclick = () => filterByCategory(cat.name);
+      const labelMap = { 'ножницы': 'Ножницы', 'скотч': 'Скотч', 'нож': 'Нож', 'корейские': 'Корейские товары', 'часы': 'Часы', 'электроника': 'Электроника', 'бытовые': 'Бытовые техники' };
+      btn.innerHTML = `${cat.icon} ${labelMap[cat.name] || cat.name}`;
+      otherContainer.insertBefore(btn, sellerContainer);
+    });
+  }
+
+  const sellerCategories = new Map(); // name -> {icon, order, blocked}
+
+  // Собираем категории из товаров продавцов
+  if (typeof products !== 'undefined' && Array.isArray(products)) {
     products.forEach(p => {
       if (p.category && p.sellerId && !existingCategories.includes(p.category.toLowerCase())) {
         if (!sellerCategories.has(p.category.toLowerCase())) {
@@ -530,43 +553,116 @@ async function loadSellerCategories() {
         }
       }
     });
-    
-    // Загружаем из коллекции seller_categories (иконки, порядок, блокировка)
-    try {
-      const snapshot = await db.collection('seller_categories').get();
-      snapshot.forEach(doc => {
-        const cat = doc.data();
-        if (cat.name && !existingCategories.includes(cat.name.toLowerCase())) {
-          sellerCategories.set(cat.name.toLowerCase(), {
-            icon: cat.icon || '🏪',
-            order: typeof cat.order === 'number' ? cat.order : 9999,
-            blocked: cat.blocked === true
-          });
-        }
-      });
-    } catch (e) {
-      console.log('Коллекция seller_categories не найдена или пуста');
-    }
-    
-    // Сортируем по порядку и создаём кнопки
-    const sortedCategories = [...sellerCategories.entries()]
-      .sort((a, b) => a[1].order - b[1].order);
-    
-    sortedCategories.forEach(([catName, catData]) => {
-      if (catData.blocked) return; // Скрываем заблокированные
-      
-      const btn = document.createElement('button');
-      btn.className = 'category-btn';
-      btn.setAttribute('data-category', catName);
-      btn.onclick = () => filterByCategory(catName);
-      btn.innerHTML = `${catData.icon} ${catName.charAt(0).toUpperCase() + catName.slice(1)}`;
-      container.appendChild(btn);
+  }
+
+  // Категории из seller_categories (иконки, порядок, блокировка)
+  (sellerCats || []).forEach(cat => {
+    if (!cat || !cat.name || existingCategories.includes(cat.name.toLowerCase())) return;
+    sellerCategories.set(cat.name.toLowerCase(), {
+      icon: cat.icon || '🏪',
+      order: typeof cat.order === 'number' ? cat.order : 9999,
+      blocked: cat.blocked === true
     });
-    
+  });
+
+  // Сортируем по порядку и создаём кнопки
+  const sortedCategories = [...sellerCategories.entries()]
+    .sort((a, b) => a[1].order - b[1].order);
+
+  container.innerHTML = '';
+  sortedCategories.forEach(([catName, catData]) => {
+    if (catData.blocked) return; // Скрываем заблокированные
+
+    const btn = document.createElement('button');
+    btn.className = 'category-btn';
+    btn.setAttribute('data-category', catName);
+    btn.onclick = () => filterByCategory(catName);
+    btn.innerHTML = `${catData.icon} ${catName.charAt(0).toUpperCase() + catName.slice(1)}`;
+    container.appendChild(btn);
+  });
+
+  // Кнопки пересозданы — возвращаем подсветку выбранной категории
+  const active = (typeof currentCategory !== 'undefined' && currentCategory) ? currentCategory : 'все';
+  const activeBtn = document.querySelector(`.category-btn[data-category="${active}"]`);
+  if (activeBtn) activeBtn.classList.add('active');
+}
+
+// Загрузка категорий продавцов из Firebase.
+// attempt — номер попытки внутри цепочки, runId — номер самой цепочки.
+// Новый внешний вызов начинает новую цепочку и отменяет предыдущую, чтобы
+// параллельные триггеры (auth, online, возврат на вкладку) не наслаивались.
+async function loadSellerCategories(attempt, runId) {
+  attempt = attempt || 1;
+  if (!document.getElementById('sellerCategoriesContainer')) return;
+  if (attempt === 1) runId = ++sellerCategoriesRun;
+  if (runId !== sellerCategoriesRun || sellerCategoriesFetched) return;
+
+  // Рисуем из кэша сразу, чтобы категории были на экране даже пока идёт
+  // (или падает) запрос к серверу. На повторных попытках DOM не трогаем —
+  // иначе кнопки пересоздавались бы прямо под рукой у пользователя.
+  if (attempt === 1) {
+    const cached = readCategoriesCache();
+    renderCategoryButtons(cached ? cached.std : {}, cached ? cached.seller : []);
+  }
+
+  // Без ожидания анонимного входа запрос улетает раньше, чем появится
+  // request.auth, и правила разворачивают его permission-denied.
+  if (typeof kerbenWaitForAuth === 'function') {
+    try { await kerbenWaitForAuth(); } catch (e) {}
+  }
+  if (runId !== sellerCategoriesRun || sellerCategoriesFetched) return;
+
+  try {
+    const [settingsDoc, snapshot] = await Promise.all([
+      db.collection('settings').doc('categories').get(),
+      db.collection('seller_categories').limit(500).get()
+    ]);
+    if (runId !== sellerCategoriesRun || sellerCategoriesFetched) return;
+
+    const stdSettings = settingsDoc.exists ? (settingsDoc.data().standard || {}) : {};
+    const sellerCats = [];
+    snapshot.forEach(doc => {
+      const cat = doc.data();
+      if (!cat || !cat.name) return;
+      sellerCats.push({
+        name: cat.name,
+        icon: cat.icon || '🏪',
+        order: typeof cat.order === 'number' ? cat.order : 9999,
+        blocked: cat.blocked === true
+      });
+    });
+
+    sellerCategoriesFetched = true;
+    writeCategoriesCache(stdSettings, sellerCats);
+    renderCategoryButtons(stdSettings, sellerCats);
+    console.log('📂 Категории загружены:', sellerCats.length);
   } catch (error) {
-    console.error('Ошибка загрузки категорий продавцов:', error);
+    console.error('Ошибка загрузки категорий (попытка ' + attempt + '):', error && error.message ? error.message : error);
+    if (attempt < 5) {
+      const delay = Math.min(16000, 1500 * Math.pow(2, attempt - 1));
+      setTimeout(() => loadSellerCategories(attempt + 1, runId), delay);
+    }
   }
 }
+
+// Страховки на случай, если первая попытка не прошла.
+// 1) Появился Firebase-пользователь — значит правила уже пропустят чтение.
+//    Это закрывает гонку с анонимным входом точно, а не по таймеру.
+try {
+  if (typeof firebase !== 'undefined' && typeof firebase.auth === 'function') {
+    firebase.auth().onAuthStateChanged((user) => {
+      if (user && !sellerCategoriesFetched) loadSellerCategories();
+    });
+  }
+} catch (e) {}
+
+// 2) Вернулась сеть или пользователь вернулся на вкладку.
+window.addEventListener('online', () => {
+  if (!sellerCategoriesFetched) loadSellerCategories();
+});
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !sellerCategoriesFetched) loadSellerCategories();
+});
 
 // ==================== УПРАВЛЕНИЕ ПРОДАВЦАМИ ====================
 // Функции управления продавцами перенесены в admin-sellers.html
