@@ -348,12 +348,86 @@ function loadProducts(opts) {
   return chain;
 }
 
+// Единственное место, где товары пишутся в localStorage. Раньше свой,
+// более короткий список полей был ещё и в product-editor.js: после
+// сохранения товара из кэша исчезали roundQty, costPrice, variants и др.,
+// и следующее открытие редактора показывало эти поля пустыми — а сохранение
+// записывало пустые значения на сервер уже по-настоящему.
+function persistProductsToLocalCache(list) {
+  const src = Array.isArray(list) ? list : products;
+  if (!Array.isArray(src) || src.length === 0) return;
+  try {
+    const lightProducts = src.map(p => ({
+      id: p.id, title: p.title, price: p.price, image: p.image,
+      category: p.category, stock: p.stock, order: p.order,
+      optPrice: p.optPrice, optQty: p.optQty, oldPrice: p.oldPrice,
+      isPack: p.isPack, packQty: p.packQty, showPackInfo: p.showPackInfo,
+      blocked: p.blocked, minQty: p.minQty, sellerId: p.sellerId,
+      createdAt: p.createdAt, description: p.description,
+      extraImages: p.extraImages, useQtyButtons: p.useQtyButtons,
+      unitsPerBox: p.unitsPerBox, showPricePerUnit: p.showPricePerUnit,
+      warehouseStock: p.warehouseStock || null,
+      // Админ-поля: без них при рендере из localStorage-кэша админ видел
+      // карточки без цены закупки, веса и пр. Раньше эта проблема пряталась
+      // тем, что кэш быстро протухал и каждый визит лез в Firestore — но
+      // это сжигало миллионы reads. Теперь кэш живёт 15 минут «свежим»,
+      // поэтому админ-поля обязаны переживать localStorage-сериализацию.
+      costPrice: p.costPrice,
+      packsPerBox: p.packsPerBox,
+      roundQty: p.roundQty,
+      sellerName: p.sellerName,
+      weight: p.weight,
+      variants: p.variants,
+      subcategory: p.subcategory,
+      priceWholesale: p.priceWholesale
+    }));
+    localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
+    localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
+  } catch (e) { /* если превышен лимит localStorage — не критично */ }
+}
+
+// Свежие правки админа храним отдельно. Запрос к Firestore, вылетевший ДО
+// сохранения, возвращается уже со старыми данными и целиком заменяет массив
+// products — только что введённое название/цена пропадали с экрана (на
+// сервере правка есть) и попадали в кэш в старом виде. Поэтому поверх любых
+// данных с сервера в течение двух минут возвращаем свои изменения.
+const LOCAL_EDIT_TTL_MS = 120000;
+const _recentLocalEdits = Object.create(null);
+
+function registerLocalProductEdit(productId, fields) {
+  if (!productId || !fields) return;
+  _recentLocalEdits[productId] = { at: Date.now(), fields: Object.assign({}, fields) };
+}
+
+function applyRecentLocalEdits(list) {
+  if (!Array.isArray(list)) return list;
+  const now = Date.now();
+  const ids = Object.keys(_recentLocalEdits);
+  if (ids.length === 0) return list;
+
+  ids.forEach(function (id) {
+    if (now - _recentLocalEdits[id].at > LOCAL_EDIT_TTL_MS) delete _recentLocalEdits[id];
+  });
+
+  list.forEach(function (p) {
+    const entry = p && _recentLocalEdits[p.id];
+    if (!entry) return;
+    Object.keys(entry.fields).forEach(function (key) {
+      const value = entry.fields[key];
+      // undefined — поле было удалено (например, остаток «без лимита»).
+      if (value === undefined) delete p[key];
+      else p[key] = value;
+    });
+  });
+  return list;
+}
+
 // `cacheTime` — «возраст» данных, а не момент отрисовки. Иначе перерисовка
 // из старого localStorage помечала бы кэш свежим и следующие 30 минут
 // Firestore вообще не опрашивался.
 function _paintProducts(list, fromLabel, cacheTime) {
   if (!Array.isArray(list) || list.length === 0) return false;
-  const painted = list.slice().sort(_stableProductOrderCompare);
+  const painted = applyRecentLocalEdits(list.slice().sort(_stableProductOrderCompare));
   products = painted;
   productsCache = painted;
   productsCacheTime = (typeof cacheTime === 'number' && cacheTime > 0)
@@ -483,7 +557,7 @@ async function _loadProductsCore() {
       const lsProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
       if (Array.isArray(lsProducts) && lsProducts.length > 0) {
         lsProducts.sort(_stableProductOrderCompare);
-        products = lsProducts;
+        products = applyRecentLocalEdits(lsProducts);
         productsReady = true;
         renderProducts();
         showedFromCache = true;
@@ -621,6 +695,8 @@ async function _loadProductsCore() {
       const data = doc.data();
       products.push({ id: doc.id, ...data });
     });
+    // Ответ мог быть отправлен сервером до того, как админ сохранил товар.
+    applyRecentLocalEdits(products);
     
     const withPhoto = products.filter(p => p.image).length;
     console.log(`📦 Загружено ${products.length} товаров, с фото: ${withPhoto}`);
@@ -637,37 +713,9 @@ async function _loadProductsCore() {
     // Сохраняем в оба кэша
     productsCache = [...products];
     productsCacheTime = Date.now();
-    
-    // Сохраняем в localStorage (без тяжёлых полей для экономии места)
-    try {
-      const lightProducts = products.map(p => ({
-        id: p.id, title: p.title, price: p.price, image: p.image,
-        category: p.category, stock: p.stock, order: p.order,
-        optPrice: p.optPrice, optQty: p.optQty, oldPrice: p.oldPrice,
-        isPack: p.isPack, packQty: p.packQty, showPackInfo: p.showPackInfo,
-        blocked: p.blocked, minQty: p.minQty, sellerId: p.sellerId,
-        createdAt: p.createdAt, description: p.description,
-        extraImages: p.extraImages, useQtyButtons: p.useQtyButtons,
-        unitsPerBox: p.unitsPerBox, showPricePerUnit: p.showPricePerUnit,
-        warehouseStock: p.warehouseStock || null,
-        // Админ-поля: без них при рендере из localStorage-кэша админ видел
-        // карточки без цены закупки, веса и пр. Раньше эта проблема пряталась
-        // тем, что кэш быстро протухал и каждый визит лез в Firestore — но
-        // это сжигало миллионы reads. Теперь кэш живёт 15 минут «свежим»,
-        // поэтому админ-поля обязаны переживать localStorage-сериализацию.
-        costPrice: p.costPrice,
-        packsPerBox: p.packsPerBox,
-        roundQty: p.roundQty,
-        sellerName: p.sellerName,
-        weight: p.weight,
-        variants: p.variants,
-        subcategory: p.subcategory,
-        priceWholesale: p.priceWholesale
-      }));
-      localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
-      localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
-    } catch(e) { /* если превышен лимит localStorage — не критично */ }
-    
+
+    persistProductsToLocalCache(products);
+
     productsReady = true;
     
     // Запоминаем старое значение флага (из localStorage) перед обновлением с Firebase
@@ -721,7 +769,7 @@ async function _loadProductsCore() {
       const lsProducts = JSON.parse(lsRaw);
       if (Array.isArray(lsProducts) && lsProducts.length > 0) {
         lsProducts.sort(_stableProductOrderCompare);
-        products = lsProducts;
+        products = applyRecentLocalEdits(lsProducts);
         productsCache = lsProducts;
         productsCacheTime = Date.now() - CACHE_DURATION;
         productsReady = true;

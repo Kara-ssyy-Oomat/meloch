@@ -21,6 +21,17 @@ const _EDIT_TIMED_OUT = Symbol('timeout');
 let _editModalToken = 0;
 let _editModalOpenedAt = 0;
 
+// Название вставляется в value="…" — с кавычкой внутри (например «Кабель 3"»)
+// атрибут обрывался, поле показывало обрезанный текст, и сохранение записывало
+// этот обрезок на сервер: выглядело как «название сохраняется неправильно».
+function _editEsc(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function _editAwaitWithTimeout(promise, ms) {
   return Promise.race([
     Promise.resolve(promise).catch(function () { return _EDIT_TIMED_OUT; }),
@@ -102,7 +113,7 @@ async function openEditProductModal(productId) {
   content.innerHTML = `
     <!-- Фото товара -->
     <div style="text-align:center; margin-bottom:15px;">
-      <img referrerpolicy="no-referrer" src="${p.image || ''}" style="width:120px; height:120px; object-fit:cover; border-radius:10px; border:2px solid #ddd;">
+      <img referrerpolicy="no-referrer" src="${_editEsc(p.image || '')}" style="width:120px; height:120px; object-fit:cover; border-radius:10px; border:2px solid #ddd;">
       <div style="margin-top:8px;">
         <button onclick="changeProductImage('${p.id}')" style="background:#007bff; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px;">📷 Изменить фото</button>
       </div>
@@ -111,7 +122,7 @@ async function openEditProductModal(productId) {
     <!-- Название -->
     <div style="margin-bottom:12px;">
       <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📝 Название</label>
-      <input type="text" id="editTitle" value="${p.title||''}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
+      <input type="text" id="editTitle" value="${_editEsc(p.title || '')}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box;">
     </div>
     
     <!-- Категория -->
@@ -125,7 +136,7 @@ async function openEditProductModal(productId) {
     <!-- Описание (для корейских/часов/электроники) -->
     <div style="margin-bottom:12px;">
       <label style="font-size:12px; color:#666; display:block; margin-bottom:4px;">📄 Описание</label>
-      <textarea id="editDescription" rows="3" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box; resize:vertical;">${p.description||''}</textarea>
+      <textarea id="editDescription" rows="3" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; box-sizing:border-box; resize:vertical;">${_editEsc(p.description || '')}</textarea>
     </div>
     
     <!-- Цены -->
@@ -260,9 +271,9 @@ async function openEditProductModal(productId) {
       <div id="editVariantListContainer" style="max-height:200px; overflow-y:auto; margin-bottom:10px;">
         ${p.variants && p.variants.length > 0 ? p.variants.map((v, i) => `
           <div style="display:flex; align-items:center; gap:8px; padding:8px; background:#fff; border-radius:6px; margin-bottom:6px; border:1px solid #e0e0e0;">
-            <img referrerpolicy="no-referrer" src="${v.image || p.image || ''}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
+            <img referrerpolicy="no-referrer" src="${_editEsc(v.image || p.image || '')}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;">
             <div style="flex:1; min-width:0;">
-              <div style="font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${v.name || 'Вариант'}</div>
+              <div style="font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${_editEsc(v.name || 'Вариант')}</div>
               <div style="font-size:11px; color:#666;">${v.price ? v.price + ' сом' : 'Цена товара'}</div>
             </div>
             <button onclick="removeVariantFromEdit(${i})" style="width:24px; height:24px; border:none; background:#ffebee; color:#c62828; border-radius:50%; cursor:pointer; font-size:12px;">✕</button>
@@ -346,7 +357,30 @@ async function saveEditProductModal() {
     Swal.fire('Ошибка', 'Название не может быть пустым', 'error');
     return;
   }
-  
+
+  // Остаток товара со складами складывается из складов, и функция списания
+  // при каждом заказе пересчитывает stock = сумма по складам. Если записать
+  // «просто число» без склада, оно молча вернётся к этой сумме — админ видел
+  // это как «ввёл 25, показывает 20». Поэтому такое сохранение не пропускаем.
+  const whSelectEl = document.getElementById('editStockWarehouse');
+  const selectedWhId = whSelectEl ? whSelectEl.value : '';
+  const hasWarehouseStock = !!(p.warehouseStock && typeof p.warehouseStock === 'object'
+    && Object.keys(p.warehouseStock).length > 0);
+  const stockChanged = (stock === null)
+    ? (typeof p.stock === 'number')
+    : (stock !== p.stock);
+
+  if (stockChanged && hasWarehouseStock && !selectedWhId && stock !== null) {
+    Swal.fire({
+      icon: 'warning',
+      title: 'Остаток не сохранён',
+      html: whSelectEl
+        ? 'У этого товара остаток ведётся по складам.<br>Выберите склад в поле <b>«На какой склад записать остаток»</b> — иначе введённое число сбросится при следующем заказе.'
+        : 'Список складов не загрузился, поэтому менять остаток нельзя: число потерялось бы при следующем заказе.<br>Обновите страницу и попробуйте снова.'
+    });
+    return;
+  }
+
   try {
     Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
@@ -395,9 +429,6 @@ async function saveEditProductModal() {
       p.warehouseStock = null;
       await db.collection('products').doc(currentEditProductId).update(updateData);
     } else {
-      const whSelectEl = document.getElementById('editStockWarehouse');
-      const selectedWhId = whSelectEl ? whSelectEl.value : '';
-
       if (selectedWhId) {
         // Транзакция — читаем актуальный warehouseStock, обновляем один склад.
         // Защита от гонки: CF может одновременно списывать другой склад.
@@ -420,24 +451,23 @@ async function saveEditProductModal() {
       }
     }
     
-    // Обновляем localStorage-кэш чтобы при перезагрузке данные были актуальны
-    try {
-      if (typeof LS_PRODUCTS_KEY !== 'undefined') {
-        const lightProducts = products.map(pr => ({
-          id: pr.id, title: pr.title, price: pr.price, image: pr.image,
-          category: pr.category, stock: pr.stock, order: pr.order,
-          optPrice: pr.optPrice, optQty: pr.optQty, oldPrice: pr.oldPrice,
-          isPack: pr.isPack, packQty: pr.packQty, showPackInfo: pr.showPackInfo,
-          blocked: pr.blocked, minQty: pr.minQty, sellerId: pr.sellerId,
-          createdAt: pr.createdAt, description: pr.description,
-          extraImages: pr.extraImages, useQtyButtons: pr.useQtyButtons,
-          unitsPerBox: pr.unitsPerBox, showPricePerUnit: pr.showPricePerUnit,
-          warehouseStock: pr.warehouseStock || null
-        }));
-        localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
-        localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
-      }
-    } catch(e) { /* не критично */ }
+    // Запоминаем правку: ответ Firestore, отправленный до этого сохранения,
+    // иначе вернёт старые значения и затрёт их на экране и в кэше.
+    if (typeof registerLocalProductEdit === 'function') {
+      registerLocalProductEdit(currentEditProductId, {
+        title: p.title, category: p.category, description: p.description,
+        costPrice: p.costPrice, price: p.price, minQty: p.minQty,
+        useQtyButtons: p.useQtyButtons, roundQty: p.roundQty, isPack: p.isPack,
+        packQty: p.packQty, packsPerBox: p.packsPerBox, unitsPerBox: p.unitsPerBox,
+        showPricePerUnit: p.showPricePerUnit, showPackInfo: p.showPackInfo,
+        variants: p.variants, stock: p.stock, warehouseStock: p.warehouseStock
+      });
+    }
+
+    // Кэш пишем общей функцией из product-loader.js: свой список полей здесь
+    // терял roundQty, costPrice, variants и прочее, а следующее открытие
+    // редактора показывало их пустыми.
+    if (typeof persistProductsToLocalCache === 'function') persistProductsToLocalCache(products);
     
     Swal.close();
     _restoreScrollAfterRender = _scrollBeforeEditModal;
