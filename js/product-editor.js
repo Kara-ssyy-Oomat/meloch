@@ -8,31 +8,97 @@ let _scrollBeforeEditModal = 0;
 let _editWarehouses = [];
 let _editPrimaryWhId = '';
 
-async function openEditProductModal(productId) {
-  const p = products.find(pr => pr.id === productId);
-  if (!p) return;
-  
-  _scrollBeforeEditModal = window.scrollY || window.pageYOffset;
-  
-  // Гарантируем загрузку категорий перед открытием формы
-  if (typeof ensureSellerCategoriesLoaded === 'function') {
-    await ensureSellerCategoriesLoaded();
-  }
+// Сколько ждём справочники перед открытием формы. Раньше ожидание было
+// без ограничения: если Firestore не отвечал (сеть отвалилась, вкладка
+// вернулась из фона с мёртвым соединением), `await` не завершался никогда
+// и окно редактора просто не открывалось — молча, без всякой реакции.
+const EDIT_CATEGORIES_TIMEOUT_MS = 2500;
+const EDIT_WAREHOUSES_TIMEOUT_MS = 3500;
+const _EDIT_TIMED_OUT = Symbol('timeout');
 
-  // Загружаем склады для выбора
-  try {
-    const [whSnap, whSettings] = await Promise.all([
-      db.collection('warehouses').orderBy('order', 'asc').get(),
-      db.collection('settings').doc('warehouse').get()
-    ]);
-    _editWarehouses = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    _editPrimaryWhId = (whSettings.exists && whSettings.data().primaryWarehouseId) || '';
-  } catch(e) { _editWarehouses = []; _editPrimaryWhId = ''; }
-  
-  currentEditProductId = productId;
+// Токен нужен, чтобы ответ по уже закрытому (или переоткрытому на другом
+// товаре) окну не перезаписывал содержимое.
+let _editModalToken = 0;
+let _editModalOpenedAt = 0;
+
+function _editAwaitWithTimeout(promise, ms) {
+  return Promise.race([
+    Promise.resolve(promise).catch(function () { return _EDIT_TIMED_OUT; }),
+    new Promise(function (resolve) { setTimeout(function () { resolve(_EDIT_TIMED_OUT); }, ms); })
+  ]);
+}
+
+async function openEditProductModal(productId) {
   const modal = document.getElementById('editProductModal');
   const content = document.getElementById('editProductContent');
-  
+  if (!modal || !content) return;
+
+  const p = products.find(pr => pr.id === productId);
+  if (!p) {
+    Swal.fire('Товар не найден', 'Обновите страницу и попробуйте ещё раз.', 'warning');
+    return;
+  }
+
+  _scrollBeforeEditModal = window.scrollY || window.pageYOffset;
+
+  // Окно показываем СРАЗУ — нажатие кнопки всегда даёт видимую реакцию,
+  // а справочники подтягиваем уже поверх открытого окна.
+  const token = ++_editModalToken;
+  const wasOpen = modal.style.display === 'block';
+  currentEditProductId = productId;
+  content.innerHTML =
+    '<div style="padding:50px 20px; text-align:center; color:#666; font-size:14px;">Загрузка формы…</div>';
+  modal.style.display = 'block';
+  _editModalOpenedAt = Date.now();
+  if (!wasOpen) lockPageScroll();
+
+  // Сеть Firestore могла быть выключена (вкладка была в фоне) — поднимаем.
+  try {
+    if (window.KerbenBackgroundPause && typeof KerbenBackgroundPause.resumeNow === 'function') {
+      KerbenBackgroundPause.resumeNow();
+    }
+  } catch (e) {}
+  try {
+    if (typeof db !== 'undefined' && db && typeof db.enableNetwork === 'function') {
+      db.enableNetwork().catch(function () {});
+    }
+  } catch (e) {}
+
+  // Окно уже закрыли или открыли другой товар — дальше не рисуем.
+  const stillMine = function () {
+    return token === _editModalToken && currentEditProductId === productId;
+  };
+
+  // Оба справочника запрашиваем разом, а не по очереди: при плохой сети
+  // ожидание тогда равно самому долгому запросу, а не их сумме.
+  const catsPromise = (typeof ensureSellerCategoriesLoaded === 'function')
+    ? _editAwaitWithTimeout(ensureSellerCategoriesLoaded(), EDIT_CATEGORIES_TIMEOUT_MS)
+    : Promise.resolve(null);
+  const whPromise = _editAwaitWithTimeout(Promise.all([
+    db.collection('warehouses').orderBy('order', 'asc').get(),
+    db.collection('settings').doc('warehouse').get()
+  ]), EDIT_WAREHOUSES_TIMEOUT_MS);
+
+  // Категории: при неудаче остаётся стандартный список из generateCategoryOptions.
+  const cats = await catsPromise;
+  if (cats === _EDIT_TIMED_OUT) console.warn('[Editor] категории не загрузились — беру стандартные');
+  if (!stillMine()) return;
+
+  // Склады: блок с остатками необязателен, без него форма работает и сохраняется.
+  const wh = await whPromise;
+  if (!stillMine()) return;
+
+  if (wh === _EDIT_TIMED_OUT) {
+    _editWarehouses = [];
+    _editPrimaryWhId = '';
+    console.warn('[Editor] склады не загрузились — открываю форму без остатков по складам');
+  } else {
+    const whSnap = wh[0];
+    const whSettings = wh[1];
+    _editWarehouses = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    _editPrimaryWhId = (whSettings.exists && whSettings.data().primaryWarehouseId) || '';
+  }
+
   content.innerHTML = `
     <!-- Фото товара -->
     <div style="text-align:center; margin-bottom:15px;">
@@ -241,11 +307,12 @@ async function openEditProductModal(productId) {
   }, 100);
   
   modal.style.display = 'block';
-  lockPageScroll();
 }
 
 function closeEditProductModal() {
-  document.getElementById('editProductModal').style.display = 'none';
+  const modal = document.getElementById('editProductModal');
+  if (modal) modal.style.display = 'none';
+  _editModalToken++; // отменяем незавершённую загрузку формы
   editModalVariants = []; // Очищаем варианты
   unlockPageScroll();
   currentEditProductId = null;
@@ -394,7 +461,12 @@ async function saveEditProductModal() {
 
 // Закрытие модального окна по клику на фон
 document.getElementById('editProductModal')?.addEventListener('click', function(e) {
-  if (e.target === this) closeEditProductModal();
+  if (e.target !== this) return;
+  // На телефонах тап по кнопке «Редактировать» иногда доходит вторым
+  // «призрачным» кликом уже по открытому окну и сразу его закрывал —
+  // выглядело так, будто кнопка не работает.
+  if (Date.now() - _editModalOpenedAt < 600) return;
+  closeEditProductModal();
 });
 
 // === Функции для работы с вариантами в модальном окне ===
