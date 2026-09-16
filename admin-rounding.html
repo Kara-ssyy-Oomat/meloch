@@ -612,6 +612,38 @@ async function applyRounding(enable) {
       p.roundQty = enable;
       if (hasMinQty) p.minQty = newMinQty;
     });
+
+    // Общий кэш товаров правим на месте: иначе главная до 15 минут показывает
+    // старое округление, а сохранение товара оттуда вернёт его на сервер.
+    try {
+      var changedMap = {};
+      toUpdate.forEach(function(item) { changedMap[item.id] = true; });
+      var cachedList = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+      if (Array.isArray(cachedList) && cachedList.length > 0) {
+        cachedList.forEach(function(c) {
+          if (!changedMap[c.id]) return;
+          c.roundQty = enable;
+          if (hasMinQty) c.minQty = newMinQty;
+        });
+        localStorage.setItem('cachedProducts', JSON.stringify(cachedList));
+      }
+    } catch(e) {}
+
+    // Сайт слушает settings/productsRevision — так остальные устройства
+    // сбросят свой кэш сразу, а не через 15 минут.
+    try {
+      await db.collection('settings').doc('productsRevision').set({
+        updatedAt: Date.now(),
+        by: 'округление количества',
+        source: 'admin-rounding',
+        changedCount: toUpdate.length,
+        // Немного товаров — остальные клиенты дочитают только их, а не всё.
+        changedIds: toUpdate.length <= 20 ? toUpdate.map(function(i) { return i.id; }) : []
+      }, { merge: true });
+    } catch(e) {
+      console.warn('[rounding] не удалось обновить productsRevision:', e);
+    }
+
     roundExcluded = {};
     updatePreview();
 

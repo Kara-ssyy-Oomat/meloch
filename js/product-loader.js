@@ -220,6 +220,100 @@ let _productsRevisionUnsub = null;
 let _productsRevisionInitial = true;
 const LS_REVISION_SEEN_KEY = 'productsRevisionSeen';
 
+// Ревизия, которую объявила эта же вкладка: здесь данные уже свежие, второй
+// раз всю коллекцию перечитывать не нужно. Метка живёт только в памяти,
+// поэтому остальные вкладки и устройства обновятся как обычно.
+let _ownRevisionTs = 0;
+
+// Раньше ревизию объявлял только управляющий складом. Из-за этого правка
+// товара в редакторе доходила лишь до того устройства, где её сделали:
+// на других «свежий» кэш жил до 15 минут и показывал старую цену. Хуже
+// того, редактор на таком устройстве открывался со старыми значениями и
+// сохранение возвращало их на сервер.
+function bumpProductsRevision(info) {
+  if (typeof db === 'undefined' || !db) return Promise.resolve(false);
+  const ts = Date.now();
+  _ownRevisionTs = ts;
+  const ids = (info && Array.isArray(info.ids)) ? info.ids.filter(Boolean).slice(0, 20) : [];
+  try {
+    return db.collection('settings').doc('productsRevision').set({
+      updatedAt: ts,
+      by: (info && info.by) || 'редактор товаров',
+      changedCount: (info && info.changedCount) || ids.length || 1,
+      // Перечисляем изменённые товары: остальные клиенты дочитают только их
+      // (1-2 read), вместо перечитывания всей коллекции у каждого.
+      changedIds: ids
+    }, { merge: true }).then(function () { return true; }, function (e) {
+      console.warn('[Products] не удалось объявить обновление товаров ' +
+        '(другие устройства обновятся через 15 мин):', e && (e.code || e.message));
+      return false;
+    });
+  } catch (e) {
+    return Promise.resolve(false);
+  }
+}
+
+// Дочитываем только изменённые товары. Полная перезагрузка коллекции у всех
+// клиентов на каждую правку одного товара стоила бы тысячи Read Ops.
+async function _refreshProductsByIds(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return false;
+  if (!Array.isArray(products) || products.length === 0) return false;
+  try {
+    const snaps = await Promise.all(ids.map(function (id) {
+      return db.collection('products').doc(id).get();
+    }));
+    let changed = 0;
+    snaps.forEach(function (snap) {
+      if (!snap) return;
+      const idx = products.findIndex(function (p) { return p.id === snap.id; });
+      if (!snap.exists) {
+        if (idx !== -1) { products.splice(idx, 1); changed++; }
+        return;
+      }
+      const fresh = Object.assign({ id: snap.id }, snap.data());
+      if (idx === -1) products.push(fresh);
+      else products[idx] = fresh;
+      changed++;
+    });
+    if (changed === 0) return false;
+
+    applyRecentLocalEdits(products);
+    products.sort(_stableProductOrderCompare);
+    productsCache = [...products];
+    // Возраст кэша НЕ обновляем: остальные товары мы не перечитывали, и
+    // обычная 15-минутная проверка свежести должна сработать вовремя.
+    persistProductsToLocalCache(products, { keepAge: true });
+    if (typeof renderProducts === 'function') renderProducts();
+    console.log('[Products] точечно обновлено товаров: ' + changed);
+    return true;
+  } catch (e) {
+    console.warn('[Products] точечное обновление не удалось:', e && (e.code || e.message));
+    return false;
+  }
+}
+
+function _invalidateProductsCacheAndReload() {
+  productsCache = [];
+  productsCacheTime = 0;
+  try {
+    localStorage.removeItem(LS_PRODUCTS_KEY);
+    localStorage.removeItem(LS_PRODUCTS_TIME_KEY);
+  } catch (_) {}
+  loadProducts({ force: true });
+}
+
+// Точечно, если известны id; иначе — полная перезагрузка.
+function _applyProductsRevision(data) {
+  const ids = (data && Array.isArray(data.changedIds)) ? data.changedIds.filter(Boolean) : [];
+  if (ids.length > 0 && ids.length <= 20) {
+    _refreshProductsByIds(ids).then(function (ok) {
+      if (!ok) _invalidateProductsCacheAndReload();
+    });
+    return;
+  }
+  _invalidateProductsCacheAndReload();
+}
+
 function startProductsRevisionListener() {
   if (_productsRevisionUnsub) return; // уже подписаны
   if (typeof db === 'undefined' || !db) return;
@@ -230,6 +324,9 @@ function startProductsRevisionListener() {
         const data = doc.data() || {};
         const newTs = Number(data.updatedAt) || 0;
         if (!newTs) { _productsRevisionInitial = false; return; }
+
+        // Правку сделали в этой вкладке — витрина и кэш уже обновлены.
+        if (newTs === _ownRevisionTs) { _productsRevisionInitial = false; return; }
 
         let lastSeen = 0;
         try { lastSeen = parseInt(localStorage.getItem(LS_REVISION_SEEN_KEY) || '0'); } catch (_) {}
@@ -245,14 +342,8 @@ function startProductsRevisionListener() {
             let lsTime = 0;
             try { lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0'); } catch (_) {}
             if (lsTime > 0 && lsTime < newTs) {
-              productsCache = [];
-              productsCacheTime = 0;
-              try {
-                localStorage.removeItem(LS_PRODUCTS_KEY);
-                localStorage.removeItem(LS_PRODUCTS_TIME_KEY);
-              } catch (_) {}
-              console.log('[Products] инвалидация кэша: склад был обновлён после кэша');
-              loadProducts({ force: true });
+              console.log('[Products] кэш старее последнего изменения товаров — обновляю');
+              _applyProductsRevision(data);
             }
           }
           return;
@@ -263,17 +354,10 @@ function startProductsRevisionListener() {
         if (newTs <= lastSeen) return;
         try { localStorage.setItem(LS_REVISION_SEEN_KEY, String(newTs)); } catch (_) {}
 
-        console.log('[Products] склад обновлён (' + (data.by || 'кем-то') +
-          ', товаров: ' + (data.changedCount || '?') + ') — обновляю кэш');
+        console.log('[Products] товары изменены (' + (data.by || 'кем-то') +
+          ', товаров: ' + (data.changedCount || '?') + ') — обновляю');
 
-        // Сбрасываем кэш и грузим свежие товары
-        productsCache = [];
-        productsCacheTime = 0;
-        try {
-          localStorage.removeItem(LS_PRODUCTS_KEY);
-          localStorage.removeItem(LS_PRODUCTS_TIME_KEY);
-        } catch (_) {}
-        loadProducts({ force: true });
+        _applyProductsRevision(data);
       }, function (err) {
         // Не падаем, просто логируем — кэш сработает по обычному 15-мин таймеру
         console.warn('[Products] revision listener error:', err && (err.code || err.message));
@@ -353,7 +437,10 @@ function loadProducts(opts) {
 // сохранения товара из кэша исчезали roundQty, costPrice, variants и др.,
 // и следующее открытие редактора показывало эти поля пустыми — а сохранение
 // записывало пустые значения на сервер уже по-настоящему.
-function persistProductsToLocalCache(list) {
+// `options.keepAge` — не двигать отметку времени кэша. Нужно при точечном
+// обновлении одного товара: остальные не перечитывались, и продлевать им
+// «свежесть» нельзя, иначе списания остатков заказами всплывут позже.
+function persistProductsToLocalCache(list, options) {
   const src = Array.isArray(list) ? list : products;
   if (!Array.isArray(src) || src.length === 0) return;
   try {
@@ -382,7 +469,9 @@ function persistProductsToLocalCache(list) {
       priceWholesale: p.priceWholesale
     }));
     localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(lightProducts));
-    localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
+    if (!(options && options.keepAge)) {
+      localStorage.setItem(LS_PRODUCTS_TIME_KEY, String(Date.now()));
+    }
   } catch (e) { /* если превышен лимит localStorage — не критично */ }
 }
 

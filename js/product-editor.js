@@ -468,6 +468,12 @@ async function saveEditProductModal() {
     // терял roundQty, costPrice, variants и прочее, а следующее открытие
     // редактора показывало их пустыми.
     if (typeof persistProductsToLocalCache === 'function') persistProductsToLocalCache(products);
+
+    // Сообщаем остальным устройствам и вкладкам, что товары изменились —
+    // иначе они до 15 минут показывают старую цену из своего кэша.
+    if (typeof bumpProductsRevision === 'function') {
+      bumpProductsRevision({ by: 'редактор товара', ids: [currentEditProductId] });
+    }
     
     Swal.close();
     _restoreScrollAfterRender = _scrollBeforeEditModal;
@@ -1063,10 +1069,24 @@ async function saveWholesaleChanges() {
       optQty: optQty ? Number(optQty) : null
     });
     
+    const product = products.find(pr => pr.id === currentWholesaleProductId);
+    if (product) {
+      product.optPrice = optPrice ? Number(optPrice) : null;
+      product.optQty = optQty ? Number(optQty) : null;
+      if (typeof registerLocalProductEdit === 'function') {
+        registerLocalProductEdit(currentWholesaleProductId, {
+          optPrice: product.optPrice, optQty: product.optQty
+        });
+      }
+      if (typeof persistProductsToLocalCache === 'function') persistProductsToLocalCache(products);
+    }
+    if (typeof bumpProductsRevision === 'function') {
+      bumpProductsRevision({ by: 'оптовые цены', ids: [currentWholesaleProductId] });
+    }
+
     Swal.fire('Успех!', 'Оптовые цены обновлены', 'success');
     closeEditWholesaleModal();
-    productsCacheTime = 0;
-    loadProducts({ force: true });
+    if (typeof renderProducts === 'function') renderProducts();
   } catch (error) {
     console.error('Error updating wholesale prices:', error);
     Swal.fire('Ошибка', 'Не удалось обновить оптовые цены', 'error');

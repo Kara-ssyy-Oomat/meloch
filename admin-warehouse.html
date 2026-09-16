@@ -2540,6 +2540,21 @@ async function saveStockChanges() {
       if (p) p.blocked = false;
     });
 
+    // Главная и другие устройства держат свой кэш до 15 минут — сообщаем им,
+    // что остатки изменились, иначе там ещё долго видно старое число.
+    try {
+      await db.collection('settings').doc('productsRevision').set({
+        updatedAt: Date.now(),
+        by: 'склад: остатки',
+        source: 'admin-warehouse',
+        changedCount: changedIds.length,
+        // Немного товаров — остальные клиенты дочитают только их, а не всё.
+        changedIds: changedIds.length <= 20 ? changedIds : []
+      }, { merge: true });
+    } catch (e) {
+      console.warn('[warehouse] не удалось обновить productsRevision:', e);
+    }
+
     const unblockedMsg = autoUnblockedIds.length > 0
       ? `<br><span style="color:#2e7d32; font-weight:600;">🔓 Разблокировано: ${autoUnblockedIds.length} товар(ов)</span>`
       : '';
