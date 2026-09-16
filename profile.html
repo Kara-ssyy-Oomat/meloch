@@ -357,7 +357,7 @@
   <script src="js/wm-reauth.js?v=1"></script>
   <script src="js/pending-orders.js?v=2"></script>
   <script src="js/bot-blocker.js?v=2"></script>
-  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/background-pause.js?v=3"></script>
   <script src="js/products-cache.js?v=3"></script>
   <script src="js/telegram-client.js?v=2"></script>
   <script src="js/persist-profile.js?v=1"></script>
@@ -797,8 +797,14 @@
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-    // ОПТИМИЗАЦИЯ COSTS: оффлайн-кэш Firestore (бесплатные чтения из IndexedDB)
-    try { db.enablePersistence({ synchronizeTabs: true }).catch(()=>{}); } catch(e) {}
+    // ОПТИМИЗАЦИЯ COSTS: оффлайн-кэш Firestore (бесплатные чтения из IndexedDB).
+    // Только когда страница открыта сама по себе. В iframe поверх index.html
+    // persistence поднимать НЕЛЬЗЯ: клиенты делят один IndexedDB, и запуск
+    // persistence здесь завешивал .get(), уже стартовавший на главной, —
+    // из-за этого товары не появлялись. Кэш уже поднят родительской страницей.
+    if (window.parent === window) {
+      try { db.enablePersistence({ synchronizeTabs: true }).catch(()=>{}); } catch(e) {}
+    }
 
     if (typeof kerbenStartAppCheckSetup === 'function') {
       kerbenStartAppCheckSetup(db);
@@ -3748,7 +3754,7 @@
     // Обновляем бейдж при загрузке
     setTimeout(updatePushBadge, 500);
   </script>
-<script src="js/bottom-nav.js?v=30"></script>
+<script src="js/bottom-nav.js?v=32"></script>
 <script defer src="js/push-notifications.js"></script>
 <script defer src="js/sw-register.js"></script>
 </body>

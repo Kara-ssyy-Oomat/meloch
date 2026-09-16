@@ -252,7 +252,7 @@ function startProductsRevisionListener() {
                 localStorage.removeItem(LS_PRODUCTS_TIME_KEY);
               } catch (_) {}
               console.log('[Products] инвалидация кэша: склад был обновлён после кэша');
-              loadProducts();
+              loadProducts({ force: true });
             }
           }
           return;
@@ -273,7 +273,7 @@ function startProductsRevisionListener() {
           localStorage.removeItem(LS_PRODUCTS_KEY);
           localStorage.removeItem(LS_PRODUCTS_TIME_KEY);
         } catch (_) {}
-        loadProducts();
+        loadProducts({ force: true });
       }, function (err) {
         // Не падаем, просто логируем — кэш сработает по обычному 15-мин таймеру
         console.warn('[Products] revision listener error:', err && (err.code || err.message));
@@ -283,8 +283,148 @@ function startProductsRevisionListener() {
   }
 }
 
-// Загрузка товаров с мгновенным отображением из localStorage
-async function loadProducts() {
+// Параллельные вызовы loadProducts() дедуплицируются. Раньше app-init,
+// revision-listener и product-editor могли запустить по своему запросу на
+// 5000 документов одновременно: лишние Read Ops плюс гонка, из-за которой
+// более медленный ответ перетирал `products` уже отрисованной витрины.
+let _loadProductsInFlight = null;
+
+// `force`-загрузка стартует, не дожидаясь предыдущей (та может висеть до
+// таймаута). Значит два запроса могут вернуться в любом порядке, поэтому
+// каждый помечаем номером и применяем только если он не старше уже
+// применённого — иначе медленный старый ответ перетёр бы свежие данные.
+let _loadSeq = 0;
+let _loadAppliedSeq = 0;
+
+// Жёсткий таймаут на запрос товаров. Без него зависший .get() (Firestore
+// ушёл в offline, гонка с enablePersistence, мёртвый сокет после возврата
+// из фона) оставлял витрину пустой навсегда: splash скрывался по
+// 4-секундному таймеру, а сетка так и не заполнялась.
+const PRODUCTS_GET_TIMEOUT_MS = 15000;
+
+// Сколько раз пользователю разрешено перезапустить загрузку кнопкой
+// «Повторить», прежде чем мы просто попросим обновить страницу.
+const _STALLED_MANUAL_RETRY_LIMIT = 3;
+let _stalledManualRetries = 0;
+
+function _getProductsSnapshotWithTimeout() {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const err = new Error('Firestore не ответил за ' + PRODUCTS_GET_TIMEOUT_MS + ' мс');
+      err.code = 'deadline-exceeded';
+      reject(err);
+    }, PRODUCTS_GET_TIMEOUT_MS);
+    db.collection('products').limit(5000).get().then(
+      (snap) => { if (settled) return; settled = true; clearTimeout(timer); resolve(snap); },
+      (err) => { if (settled) return; settled = true; clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+// Загрузка товаров с мгновенным отображением из localStorage.
+// `{ force: true }` — для вызовов, которые только что инвалидировали кэш
+// (revision listener, редактор товаров). Им нельзя отдать промис уже идущей
+// загрузки: она могла успеть прочитать ещё старый кэш и выйти по нему.
+// Такая загрузка встаёт в очередь за текущей.
+function loadProducts(opts) {
+  const force = !!(opts && opts.force);
+  const previous = _loadProductsInFlight;
+  if (previous && !force) return previous;
+
+  // force: не ждём зависший предыдущий .get() — иначе восстановление
+  // витрины после профиля стояло бы до 15 секунд таймаута.
+  const start = (previous && !force)
+    ? previous.catch(() => {})
+    : Promise.resolve();
+  const chain = start.then(() => _loadProductsCore());
+
+  _loadProductsInFlight = chain;
+  chain.catch(() => {}).then(() => {
+    if (_loadProductsInFlight === chain) _loadProductsInFlight = null;
+  });
+  return chain;
+}
+
+// `cacheTime` — «возраст» данных, а не момент отрисовки. Иначе перерисовка
+// из старого localStorage помечала бы кэш свежим и следующие 30 минут
+// Firestore вообще не опрашивался.
+function _paintProducts(list, fromLabel, cacheTime) {
+  if (!Array.isArray(list) || list.length === 0) return false;
+  const painted = list.slice().sort(_stableProductOrderCompare);
+  products = painted;
+  productsCache = painted;
+  productsCacheTime = (typeof cacheTime === 'number' && cacheTime > 0)
+    ? cacheTime : Date.now();
+  productsReady = true;
+  if (typeof renderProductsNow === 'function') renderProductsNow();
+  else if (typeof renderProducts === 'function') renderProducts();
+  hideSplashScreen();
+  console.log('[Products] витрина восстановлена из ' + fromLabel + ':', painted.length);
+  return true;
+}
+
+// Сетевую догрузку при восстановлении дедуплицируем: ensureProductsVisible
+// в bottom-nav дёргает restoreStorefront несколько раз подряд, и без этого
+// один возврат с профиля мог стоить трёх чтений всей коллекции.
+let _restoreFetch = null;
+
+function _restoreFetchProducts() {
+  if (_restoreFetch) return _restoreFetch;
+  const fetch = loadProducts({ force: true });
+  _restoreFetch = fetch;
+  const clear = function () { if (_restoreFetch === fetch) _restoreFetch = null; };
+  fetch.then(clear, clear);
+  return fetch;
+}
+
+// Возврат на главную из профиля/корзины: сразу рисуем то, что уже есть
+// (RAM / localStorage), и только если кэша нет — идём в сеть заново.
+function restoreStorefront() {
+  try {
+    if (window.KerbenBackgroundPause && typeof KerbenBackgroundPause.resumeNow === 'function') {
+      KerbenBackgroundPause.resumeNow();
+    }
+  } catch (e) {}
+  try {
+    if (typeof db !== 'undefined' && db && typeof db.enableNetwork === 'function') {
+      db.enableNetwork().catch(function () {});
+    }
+  } catch (e) {}
+
+  if (Array.isArray(products) && products.length > 0) {
+    productsReady = true;
+    if (typeof renderProductsNow === 'function') renderProductsNow();
+    else if (typeof renderProducts === 'function') renderProducts();
+    hideSplashScreen();
+    return Promise.resolve(true);
+  }
+  if (Array.isArray(productsCache) && productsCache.length > 0) {
+    if (_paintProducts(productsCache, 'RAM', productsCacheTime)) return Promise.resolve(true);
+  }
+  try {
+    const lsProducts = JSON.parse(localStorage.getItem(LS_PRODUCTS_KEY) || '[]');
+    let lsTime = 0;
+    try { lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0'); } catch (_) {}
+    if (_paintProducts(lsProducts, 'localStorage', lsTime)) {
+      // Кэш мог протухнуть, пока пользователь сидел в профиле — освежаем в фоне.
+      if (Date.now() - lsTime > FRESH_DURATION) _restoreFetchProducts();
+      return Promise.resolve(true);
+    }
+  } catch (e) {}
+
+  if (typeof loadProducts === 'function') {
+    return _restoreFetchProducts().then(function () {
+      return Array.isArray(products) && products.length > 0;
+    }, function () { return false; });
+  }
+  return Promise.resolve(false);
+}
+
+async function _loadProductsCore() {
+  const mySeq = ++_loadSeq;
   try {
     // Сразу читаем флаг паузы из localStorage (мгновенно)
     loadWarehousePausedFromLS();
@@ -372,6 +512,17 @@ async function loadProducts() {
     // 3) Загружаем свежие данные с Firebase (в фоне если кэш показан)
     console.log('Loading products from Firebase... (возраст кэша: ' + Math.round(lsAgeMs/60000) + ' мин)');
     if (!showedFromCache) productsReady = false;
+
+    // enablePersistence() асинхронный: .get(), стартовавший параллельно,
+    // у Firebase зависает навсегда. Ждём готовности кэша (с потолком 2с).
+    if (typeof window !== 'undefined' && window._kerbenPersistenceReady) {
+      try {
+        await Promise.race([
+          window._kerbenPersistenceReady,
+          new Promise(function (r) { setTimeout(r, 2000); })
+        ]);
+      } catch (_) {}
+    }
     
     // Грузим флаг паузы складов параллельно с товарами
     const pausePromise = loadWarehousePausedFlag();
@@ -424,7 +575,7 @@ async function loadProducts() {
             await _waitForFirebaseUser(6000);
           }
         } catch (_) {}
-        snapshot = await db.collection('products').limit(5000).get();
+        snapshot = await _getProductsSnapshotWithTimeout();
         break; // успех
       } catch (e) {
         _attempt++;
@@ -432,6 +583,16 @@ async function loadProducts() {
         const msg = e && e.message ? e.message : '';
         const isPerm = code === 'permission-denied'
                     || /permission|insufficient/i.test(msg);
+        // Зависший или оборванный запрос: чаще всего Firestore остался в
+        // offline после ухода вкладки в фон. Поднимаем сеть и пробуем снова.
+        const isStalled = code === 'deadline-exceeded' || code === 'unavailable';
+        if (isStalled && _attempt < MAX_ATTEMPTS) {
+          console.warn('[Products] запрос не дошёл (' + (code || msg) + '), попытка',
+            _attempt, '— включаю сеть и пробую ещё раз');
+          try { await db.enableNetwork(); } catch (_) {}
+          await new Promise(r => setTimeout(r, 400 * _attempt));
+          continue;
+        }
         if (isPerm && _attempt < MAX_ATTEMPTS) {
           var fbUser = null;
           try { fbUser = firebase.auth().currentUser; } catch (_) {}
@@ -448,6 +609,13 @@ async function loadProducts() {
         throw e;
       }
     }
+    // Более новая загрузка уже показала свои данные — не откатываем витрину.
+    if (_loadAppliedSeq > mySeq) {
+      console.log('[Products] ответ устарел (есть более свежая загрузка) — пропускаю');
+      return;
+    }
+    _loadAppliedSeq = mySeq;
+
     products = [];
     snapshot.forEach(doc => {
       const data = doc.data();
@@ -535,35 +703,34 @@ async function loadProducts() {
     // ВСЕГДА скрываем splash, чтобы пользователь видел хоть что-то.
     hideSplashScreen();
 
-    // ГРАЦИОЗНАЯ ДЕГРАДАЦИЯ при permission-denied:
-    // Если у нас УЖЕ есть какие-то товары на экране (из RAM/localStorage-
-    // кэша), не показываем модальную ошибку — пользователь продолжает
-    // видеть товары, а в консоль пишем подробности.
-    if (isPerm && Array.isArray(products) && products.length > 0) {
-      console.warn('[Products] permission-denied при фоновом обновлении — оставляем кэш на экране');
+    // ГРАЦИОЗНАЯ ДЕГРАДАЦИЯ при ЛЮБОЙ ошибке (permission-denied, таймаут,
+    // обрыв сети): если у нас УЖЕ есть товары на экране (из RAM/localStorage-
+    // кэша), не показываем модальную ошибку — пользователь продолжает видеть
+    // товары, а в консоль пишем подробности.
+    if (Array.isArray(products) && products.length > 0) {
+      console.warn('[Products] ошибка фонового обновления (' + (code || msg) +
+                   ') — оставляем кэш на экране');
       productsReady = true;
       return;
     }
 
     // Если кэш в памяти пуст, но в localStorage что-то лежит (даже
     // устаревшее) — лучше показать старые товары, чем пустой экран.
-    if (isPerm && (!Array.isArray(products) || products.length === 0)) {
-      try {
-        const lsRaw = localStorage.getItem(LS_PRODUCTS_KEY) || '[]';
-        const lsProducts = JSON.parse(lsRaw);
-        if (Array.isArray(lsProducts) && lsProducts.length > 0) {
-          lsProducts.sort(_stableProductOrderCompare);
-          products = lsProducts;
-          productsCache = lsProducts;
-          productsCacheTime = Date.now() - CACHE_DURATION;
-          productsReady = true;
-          if (typeof renderProducts === 'function') renderProducts();
-          console.warn('[Products] permission-denied + пустой RAM — показал устаревший localStorage кэш (',
-                       lsProducts.length, 'тов.)');
-          return;
-        }
-      } catch (_) {}
-    }
+    try {
+      const lsRaw = localStorage.getItem(LS_PRODUCTS_KEY) || '[]';
+      const lsProducts = JSON.parse(lsRaw);
+      if (Array.isArray(lsProducts) && lsProducts.length > 0) {
+        lsProducts.sort(_stableProductOrderCompare);
+        products = lsProducts;
+        productsCache = lsProducts;
+        productsCacheTime = Date.now() - CACHE_DURATION;
+        productsReady = true;
+        if (typeof renderProducts === 'function') renderProducts();
+        console.warn('[Products] ' + (code || msg) + ' + пустой RAM — показал устаревший localStorage кэш (',
+                     lsProducts.length, 'тов.)');
+        return;
+      }
+    } catch (_) {}
 
     productsReady = false;
     let fbUserInfo = 'неизвестно';
@@ -588,6 +755,27 @@ async function loadProducts() {
           '<small>Auth user: ' + fbUserInfo + '</small>' +
           '</div>',
         confirmButtonColor: '#dc3545'
+      });
+    } else if (code === 'deadline-exceeded' || code === 'unavailable') {
+      // Ручной повтор. Перезапускаем ТОЛЬКО по явному нажатию кнопки и не
+      // больше _stalledRetryLimit раз — иначе при закрытии диалога по Esc
+      // или при отсутствии сети получался бесконечный цикл перезапусков.
+      const canRetry = _stalledManualRetries < _STALLED_MANUAL_RETRY_LIMIT;
+      Swal.fire({
+        icon: 'warning',
+        title: 'Товары не загрузились',
+        text: canRetry
+          ? 'Сервер не ответил. Проверьте интернет и попробуйте ещё раз.'
+          : 'Сервер не отвечает. Проверьте интернет и обновите страницу.',
+        showCancelButton: canRetry,
+        confirmButtonText: canRetry ? 'Повторить' : 'Понятно',
+        cancelButtonText: 'Закрыть',
+        confirmButtonColor: '#87CEEB'
+      }).then((res) => {
+        if (canRetry && res && res.isConfirmed) {
+          _stalledManualRetries++;
+          loadProducts({ force: true });
+        }
       });
     } else {
       Swal.fire('Ошибка', 'Не удалось загрузить товары: ' + msg, 'error');

@@ -101,7 +101,7 @@
     // КРИТИЧНО: Принудительно разблокируем прокрутку при загрузке
     // Принудительная очистка кэшей при обновлении версии
     (function() {
-      var APP_VERSION = 'v4.0.0';
+      var APP_VERSION = 'v4.1.1';
       var lastVersion = localStorage.getItem('app_version');
       if (lastVersion !== APP_VERSION) {
         console.log('[Update] Обнаружена новая версия: ' + lastVersion + ' → ' + APP_VERSION);
@@ -937,23 +937,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
   <!-- КРИТИЧНЫЕ модули: загружаем сразу (нужны для отображения товаров) -->
   <script src="js/app-check.js?v=2"></script>
-  <script src="js/firebase-config.js"></script>
+  <script src="js/firebase-config.js?v=5"></script>
   <script src="js/bot-blocker.js?v=2"></script>
-  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/background-pause.js?v=3"></script>
   <script src="js/products-cache.js?v=3"></script>
   <script src="js/image-proxy.js?v=3"></script>
   <script src="js/client-identity.js"></script>
   <script src="js/block-protection.js?v=1"></script>
   <script src="js/helpers.js?v=2"></script>
-  <script src="js/product-loader.js?v=6"></script>
-  <script src="js/product-renderer.js?v=11"></script>
+  <script src="js/product-loader.js?v=8"></script>
+  <script src="js/product-renderer.js?v=12"></script>
   <script src="js/cart.js?v=4"></script>
   <script src="js/favorites.js"></script>
   <script src="js/quantity.js?v=2"></script>
 
   <script src="js/app-init.js?v=6"></script>
   <script src="js/filters.js?v=2"></script>
-  <script src="js/bottom-nav.js?v=30"></script>
+  <script src="js/bottom-nav.js?v=32"></script>
   <script src="js/scroll-buttons.js"></script>
 
   <!-- ОТЛОЖЕННЫЕ модули: defer — загружаются параллельно, выполняются после DOM -->

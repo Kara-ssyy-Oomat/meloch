@@ -693,7 +693,7 @@ async function showMoveProductModal(productId) {
     productsCacheTime = 0;
     
     // Перезагружаем товары
-    await loadProducts();
+    await loadProducts({ force: true });
     
     // Новая позиция товара
     const newPosition = insertIndex + 1;
@@ -727,7 +727,7 @@ async function deleteProduct(productId) {
       await db.collection('products').doc(productId).delete();
       Swal.fire('Удалено!', 'Товар был успешно удален.', 'success');
       productsCacheTime = 0;
-      loadProducts();
+      loadProducts({ force: true });
     }
   } catch (error) {
     console.error('Error deleting product:', error);
@@ -964,7 +964,7 @@ async function saveWholesaleChanges() {
     Swal.fire('Успех!', 'Оптовые цены обновлены', 'success');
     closeEditWholesaleModal();
     productsCacheTime = 0;
-    loadProducts();
+    loadProducts({ force: true });
   } catch (error) {
     console.error('Error updating wholesale prices:', error);
     Swal.fire('Ошибка', 'Не удалось обновить оптовые цены', 'error');

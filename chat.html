@@ -167,7 +167,7 @@
   <!-- Чат — даём больше времени до отключения (10 мин) чтобы не рвать live-обновления при кратком переключении -->
   <script>window.KERBEN_BACKGROUND = { graceMs: 600000 };</script>
   <script src="js/bot-blocker.js?v=2"></script>
-  <script src="js/background-pause.js?v=1"></script>
+  <script src="js/background-pause.js?v=3"></script>
   <script src="js/products-cache.js?v=3"></script>
 </head>
 
@@ -221,8 +221,14 @@
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
-    // ОПТИМИЗАЦИЯ COSTS: оффлайн-кэш Firestore (бесплатные чтения из IndexedDB)
-    try { db.enablePersistence({ synchronizeTabs: true }).catch(()=>{}); } catch(e) {}
+    // ОПТИМИЗАЦИЯ COSTS: оффлайн-кэш Firestore (бесплатные чтения из IndexedDB).
+    // Только когда страница открыта сама по себе. В iframe поверх index.html
+    // persistence поднимать НЕЛЬЗЯ: клиенты делят один IndexedDB, и запуск
+    // persistence здесь завешивал .get(), уже стартовавший на главной, —
+    // из-за этого товары не появлялись. Кэш уже поднят родительской страницей.
+    if (window.parent === window) {
+      try { db.enablePersistence({ synchronizeTabs: true }).catch(()=>{}); } catch(e) {}
+    }
     
     let clientId = localStorage.getItem('chatClientId');
     let clientName = localStorage.getItem('chatClientName');
@@ -562,7 +568,7 @@
     
     document.addEventListener('DOMContentLoaded', init);
   </script>
-<script src="js/bottom-nav.js?v=30"></script>
+<script src="js/bottom-nav.js?v=32"></script>
 <script defer src="js/push-notifications.js"></script>
 <script defer src="js/sw-register.js"></script>
 </body>

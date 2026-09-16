@@ -28,6 +28,25 @@
   var cfg = window.KERBEN_BACKGROUND || {};
   if (cfg.disabled === true) return;
 
+  // Внутри iframe этот модуль не работает. profile.html / cart.html /
+  // chat.html открываются как iframe поверх index.html, и каждый из них
+  // поднимает свой клиент Firestore на общем IndexedDB. Если такой клиент
+  // получал pagehide (навигация внутри iframe) — он звал disableNetwork(),
+  // а при multi-tab persistence это роняло сеть и для главной страницы:
+  // запрос товаров вставал и витрина оставалась пустой. Сетью управляет
+  // только top-level документ.
+  try {
+    if (window.parent !== window && cfg.allowInIframe !== true) {
+      window.KerbenBackgroundPause = {
+        isPaused: function () { return false; },
+        pauseNow: function () {},
+        resumeNow: function () {},
+        getGraceMs: function () { return 0; }
+      };
+      return;
+    }
+  } catch (e) {}
+
   var GRACE_MS = (typeof cfg.graceMs === 'number') ? cfg.graceMs : 60000;
 
   var disconnectTimer = null;

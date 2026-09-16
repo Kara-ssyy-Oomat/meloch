@@ -35,9 +35,16 @@ function initFirebase() {
     // запросы, стартовавшие пока persistence ещё поднимается, у Firebase
     // зависают навсегда (крутилка на warehouse-manager / admin-warehouse-managers).
     // На этих страницах ставим window.KERBEN_SKIP_PERSISTENCE = true ДО этого файла.
-    if (!window.KERBEN_SKIP_PERSISTENCE) {
+    //
+    // Внутри iframe persistence тоже не поднимаем: вложенная страница делит
+    // IndexedDB с родительской, и её инициализация завешивает запросы,
+    // стартовавшие в родителе.
+    var _framed = false;
+    try { _framed = window.parent !== window; } catch (e) {}
+    window._kerbenPersistenceReady = Promise.resolve();
+    if (!window.KERBEN_SKIP_PERSISTENCE && !_framed) {
       try {
-        db.enablePersistence({ synchronizeTabs: true })
+        window._kerbenPersistenceReady = db.enablePersistence({ synchronizeTabs: true })
           .then(() => console.log('🗃️ Firestore offline-cache включён (IndexedDB)'))
           .catch((err) => {
             if (err && err.code === 'failed-precondition') {

@@ -218,6 +218,7 @@
     if (_navBusy) return;
     _navBusy = true; clearTimeout(_navBusyTimer); _navBusyTimer = setTimeout(function() { _navBusy = false; }, 300);
     setActiveNavItem('home');
+    navSavedScrollPos = 0;
     closePageFrame();
     closeCategoriesPanel();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -331,25 +332,74 @@
     setTimeout(function() {
       window.scrollTo(0, navSavedScrollPos);
     }, 0);
+
+    ensureProductsVisible();
+
+    // Скрытый iframe профиля/корзины держит второй клиент Firestore
+    // на том же IndexedDB и зависает загрузка товаров на главной.
+    // Через короткий тик выгружаем кадры, если пользователь остался дома.
+    setTimeout(function() {
+      if (_currentFrameUrl) return;
+      destroyHiddenFrames();
+      ensureProductsVisible();
+    }, 150);
+  }
+
+  function destroyHiddenFrames() {
+    Object.keys(_frameCache).forEach(function(key) {
+      var f = _frameCache[key];
+      if (!f) return;
+      try { f.src = 'about:blank'; } catch (e) {}
+      try { f.remove(); } catch (e) {}
+      delete _frameCache[key];
+    });
+  }
+
+  // Возврат на главную. Если сетка товаров пустая — значит загрузка зависла
+  // или упала, пока пользователь был в профиле/корзине/чате. Раньше в этом
+  // случае никто ничего не перезапускал и пользователь видел пустой экран,
+  // пока не перезагрузит страницу вручную.
+  function productCardsVisible() {
+    var grid = document.getElementById('productTable');
+    return !!(grid && grid.querySelector('.product-card'));
+  }
+
+  function ensureProductsVisible() {
+    if (!isIndexPage()) return;
+
+    // Пустая сетка бывает и законно — когда под активный поиск или фильтр
+    // ничего не подошло. Такие состояния не трогаем.
+    var searchEl = document.getElementById('search');
+    if (searchEl && String(searchEl.value || '').trim() !== '') return;
+    try {
+      if (typeof searchFiltersActive !== 'undefined' && searchFiltersActive) return;
+    } catch (e) {}
+
+    if (productCardsVisible()) return;
+
+    function restore() {
+      if (productCardsVisible()) return;
+      try {
+        if (typeof restoreStorefront === 'function') {
+          console.log('[BottomNav] восстанавливаю витрину');
+          restoreStorefront();
+        } else if (typeof loadProducts === 'function') {
+          loadProducts({ force: true });
+        }
+      } catch (e) {
+        console.warn('[BottomNav] не удалось восстановить витрину:', e);
+      }
+    }
+
+    restore();
+    setTimeout(restore, 400);
+    setTimeout(restore, 1500);
   }
 
   function preloadPageFrames() {
-    if (_framesPreloaded) return;
+    // Предзагрузка отключена: profile/cart/chat поднимают свои копии
+    // Firebase и на телефоне отбирают сеть у ещё не догруженных товаров.
     _framesPreloaded = true;
-    var pages = ['cart.html', 'chat.html', 'profile.html'];
-    var delay = 0;
-    pages.forEach(function(url) {
-      if (_frameCache[url]) return;
-      delay += 1500;
-      setTimeout(function() {
-        var frame = document.createElement('iframe');
-        frame.className = 'page-frame-cached';
-        frame.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:calc(100% - ' + BOTTOM_NAV_HEIGHT + 'px - env(safe-area-inset-bottom, 0px));z-index:9990;border:none;background:#fff;display:none;pointer-events:none;';
-        frame.src = url;
-        document.body.appendChild(frame);
-        _frameCache[url] = frame;
-      }, delay);
-    });
   }
 
   // ============ АКТИВНАЯ ВКЛАДКА ============
@@ -678,10 +728,13 @@
     handlePageParam();
   }
 
-  // Предзагрузка iframe только на index.html
   if (isIndexPage()) {
-    window.addEventListener('load', function() {
-      setTimeout(preloadPageFrames, 3000);
+    // Возврат из bfcache или из фона: если витрина опустела — восстанавливаем.
+    window.addEventListener('pageshow', function() {
+      ensureProductsVisible();
+    });
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden && !_currentFrameUrl) ensureProductsVisible();
     });
   }
 

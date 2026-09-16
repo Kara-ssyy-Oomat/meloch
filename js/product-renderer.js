@@ -71,7 +71,18 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // === ОПТИМИЗАЦИЯ: Debounced renderProducts ===
+// Потолок ожидания: поток частых вызовов не должен бесконечно отодвигать
+// отрисовку — иначе витрина остаётся пустой, пока вызовы не прекратятся.
+const _RENDER_MAX_WAIT_MS = 400;
+let _renderProductsFirstRequest = 0;
+
 function renderProductsDebounced() {
+  const now = Date.now();
+  if (!_renderProductsPending) _renderProductsFirstRequest = now;
+  if (_renderProductsPending && (now - _renderProductsFirstRequest) >= _RENDER_MAX_WAIT_MS) {
+    renderProductsNow();
+    return;
+  }
   if (_renderProductsTimer) {
     clearTimeout(_renderProductsTimer);
   }
@@ -79,15 +90,26 @@ function renderProductsDebounced() {
   _renderProductsTimer = setTimeout(() => {
     _renderProductsPending = false;
     _renderProductsTimer = null;
-    renderProductsCore();
+    try { renderProductsCore(); } catch (e) { console.error('[Products] render failed:', e); }
   }, 100); // Ждём 100мс перед рендером
 }
 
-// Оригинальная функция
 function renderProducts() {
-  // Если уже запланирован рендер, не делаем сразу
-  if (_renderProductsPending) return;
+  // Нельзя отбрасывать повторные вызовы: иначе рендер, запланированный
+  // на пустом `products`, «съедает» последующий вызов уже с данными —
+  // а если таймер ещё и не успел сработать (iOS троттлит, пока открыт
+  // iframe профиля), витрина остаётся пустой навсегда.
   renderProductsDebounced();
+}
+
+// Мгновенный рендер без debounce — для возврата с профиля/корзины.
+function renderProductsNow() {
+  if (_renderProductsTimer) {
+    clearTimeout(_renderProductsTimer);
+    _renderProductsTimer = null;
+  }
+  _renderProductsPending = false;
+  try { renderProductsCore(); } catch (e) { console.error('[Products] render failed:', e); }
 }
 
 // Кэш переводов для поиска (чтобы не пересоздавать при каждом вызове)
@@ -200,9 +222,6 @@ function getSearchTranslations(query) {
   return result;
 }
 
-// Первичный рендер (при загрузке модуля)
-renderProducts();
-
 // Глобальный наблюдатель для изображений (чтобы не создавать новые каждый раз)
 let globalImageObserver = null;
 
@@ -218,6 +237,7 @@ function renderProductsCore() {
   
   // Рендер карточек в стиле AliExpress
   const container = document.getElementById('productTable');
+  if (!container) return;
   
   // ВАЖНО: Очищаем старые обработчики событий перед очисткой контейнера
   if (globalImageObserver) {
