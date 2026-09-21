@@ -235,6 +235,50 @@
     .btn-blue { background: #17a2b8; color: white; }
     .btn-primary { background: #007bff; color: white; }
     .btn-red { background: #dc3545; color: white; }
+
+    /* Поиск товара */
+    .search-row { margin-bottom: 10px; }
+    .search-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 150px;
+      display: flex;
+    }
+    .search-wrap input {
+      width: 100%;
+      padding: 10px 38px 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fff;
+      box-sizing: border-box;
+    }
+    .search-wrap input:focus {
+      outline: none;
+      border-color: #28a745;
+    }
+    .controls-row .search-clear {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: #eee;
+      color: #666;
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .controls-row .search-clear[hidden] { display: none; }
+    .filter-info {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #666;
+    }
+    .filter-info b { color: #333; }
     
     /* Таблица */
     .table-container {
@@ -448,6 +492,13 @@
           <div class="value gray" id="totalProducts">0</div>
         </div>
       </div>
+      <div class="controls-row search-row">
+        <div class="search-wrap">
+          <input type="text" id="profitSearchInput" placeholder="🔍 Поиск товара по названию" autocomplete="off"
+                 oninput="onProfitSearchInput()" onkeydown="onProfitSearchKeydown(event)">
+          <button type="button" class="search-clear" id="profitSearchClear" onclick="clearProfitSearch()" hidden aria-label="Очистить поиск">✕</button>
+        </div>
+      </div>
       <div class="controls-row">
         <select id="profitCategoryFilter" onchange="filterProfitReport()">
           <option value="">Все категории</option>
@@ -461,6 +512,7 @@
         </select>
         <button class="btn-green" onclick="exportProfitToExcel()">📥 Excel</button>
       </div>
+      <div class="filter-info" id="profitFilterInfo"></div>
     </div>
     <div class="table-container">
       <table>
@@ -800,14 +852,8 @@ function itemMatchesOwnerFilter(item) {
 function onOwnerProfitFilterChange() {
   const el = document.getElementById('ownerProfitFilter');
   try { if (el) localStorage.setItem('ownerProfitFilter', el.value); } catch (e) {}
-  const catSel = document.getElementById('profitCategoryFilter');
-  if (catSel) {
-    const keep = catSel.value;
-    catSel.innerHTML = '<option value="">Все категории</option>';
-    loadCategories();
-    if ([...catSel.options].some(o => o.value === keep)) catSel.value = keep;
-    else catSel.value = '';
-  }
+  // Набор товаров изменился — пересобираем список категорий (выбор сохраняется, если категория осталась)
+  loadCategories();
   if (currentTab === 'orders') loadOrderProfitReport();
   else if (currentTab === 'agents') loadAgentsProfitReport();
   else loadProfitReport();
@@ -986,16 +1032,26 @@ async function loadProducts() {
   }
 }
 
-// Загрузка категорий в фильтр
+// Загрузка категорий в фильтр.
+// Список пересобирается целиком — иначе при повторном вызове категории дублировались.
 function loadCategories() {
-  const categories = [...new Set(applyOwnerProductFilter(products).map(p => p.category).filter(c => c))];
   const select = document.getElementById('profitCategoryFilter');
+  if (!select) return;
+
+  const previous = select.value;
+  const categories = [...new Set(applyOwnerProductFilter(products).map(p => p.category).filter(c => c))]
+    .sort((a, b) => String(a).localeCompare(String(b), 'ru'));
+
+  select.innerHTML = '<option value="">Все категории</option>';
   categories.forEach(cat => {
     const option = document.createElement('option');
     option.value = cat;
     option.textContent = cat;
     select.appendChild(option);
   });
+
+  // Сохраняем выбранную категорию, если она осталась в списке
+  select.value = categories.includes(previous) ? previous : '';
 }
 
 // Переключение вкладок
@@ -1024,74 +1080,163 @@ function switchTab(tab) {
 // ============ ОТЧЁТ ПО ТОВАРАМ ============
 function loadProfitReport() {
   if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
-  let filtered = applyOwnerProductFilter([...products]);
-  
-  // Вычисляем общую прибыль и среднюю наценку
-  let totalProfit = 0;
-  let totalMarkup = 0;
-  let count = 0;
-  
-  filtered.forEach(p => {
-    const salePrice = parseFloat(p.price) || 0;
-    const costPrice = parseFloat(p.costPrice) || 0;
-    if (costPrice > 0 && salePrice > 0) {
-      const profit = salePrice - costPrice;
-      const markup = (profit / costPrice) * 100;
-      totalProfit += profit;
-      totalMarkup += markup;
-      count++;
-    }
-  });
-  
-  const avgMarkup = count > 0 ? (totalMarkup / count).toFixed(1) : 0;
-  
-  document.getElementById('totalProfit').textContent = totalProfit.toFixed(2) + ' сом';
-  document.getElementById('avgMarkup').textContent = avgMarkup + '%';
-  document.getElementById('totalProducts').textContent = filtered.length;
-  
   filterProfitReport();
 }
 
-function filterProfitReport() {
-  const category = document.getElementById('profitCategoryFilter').value;
-  const sortBy = document.getElementById('profitSortFilter').value;
-  
+// ============ ПОИСК ТОВАРА ============
+let profitSearchQuery = '';
+let profitSearchTimer = null;
+
+function escapeHtml(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function onProfitSearchInput() {
+  const input = document.getElementById('profitSearchInput');
+  const clearBtn = document.getElementById('profitSearchClear');
+  if (!input) return;
+
+  if (clearBtn) clearBtn.hidden = input.value.trim() === '';
+
+  // Небольшая задержка, чтобы не перерисовывать таблицу на каждую букву
+  clearTimeout(profitSearchTimer);
+  profitSearchTimer = setTimeout(() => {
+    profitSearchQuery = input.value.trim().toLowerCase();
+    filterProfitReport();
+  }, 150);
+}
+
+function onProfitSearchKeydown(event) {
+  if (event.key === 'Escape') {
+    clearProfitSearch();
+  } else if (event.key === 'Enter') {
+    // Сразу применяем, не дожидаясь задержки
+    event.preventDefault();
+    clearTimeout(profitSearchTimer);
+    const input = document.getElementById('profitSearchInput');
+    profitSearchQuery = input ? input.value.trim().toLowerCase() : '';
+    filterProfitReport();
+  }
+}
+
+function clearProfitSearch() {
+  const input = document.getElementById('profitSearchInput');
+  const clearBtn = document.getElementById('profitSearchClear');
+  clearTimeout(profitSearchTimer);
+  profitSearchQuery = '';
+  if (input) {
+    input.value = '';
+    input.focus();
+  }
+  if (clearBtn) clearBtn.hidden = true;
+  filterProfitReport();
+}
+
+// Товар подходит, если каждое слово запроса встречается в названии или категории
+function productMatchesSearch(product, words) {
+  if (!words.length) return true;
+  const haystack = ((product.title || '') + ' ' + (product.category || '')).toLowerCase();
+  return words.every(word => haystack.includes(word));
+}
+
+// Единый источник данных для таблицы и для выгрузки в Excel
+function getFilteredProfitProducts() {
+  const categoryEl = document.getElementById('profitCategoryFilter');
+  const sortEl = document.getElementById('profitSortFilter');
+  const category = categoryEl ? categoryEl.value : '';
+  const sortBy = sortEl ? sortEl.value : 'profit-desc';
+  const words = profitSearchQuery ? profitSearchQuery.split(/\s+/).filter(Boolean) : [];
+
   let filtered = applyOwnerProductFilter([...products]);
-  
+
   if (category) {
     filtered = filtered.filter(p => p.category === category);
   }
-  
+  if (words.length) {
+    filtered = filtered.filter(p => productMatchesSearch(p, words));
+  }
+
   // Сортировка
   filtered.sort((a, b) => {
-    const profitA = (parseFloat(a.price) || 0) - (parseFloat(a.costPrice) || 0);
-    const profitB = (parseFloat(b.price) || 0) - (parseFloat(b.costPrice) || 0);
-    const markupA = a.costPrice > 0 ? (profitA / a.costPrice) * 100 : 0;
-    const markupB = b.costPrice > 0 ? (profitB / b.costPrice) * 100 : 0;
-    
+    const costA = parseFloat(a.costPrice) || 0;
+    const costB = parseFloat(b.costPrice) || 0;
+    const profitA = (parseFloat(a.price) || 0) - costA;
+    const profitB = (parseFloat(b.price) || 0) - costB;
+    const markupA = costA > 0 ? (profitA / costA) * 100 : 0;
+    const markupB = costB > 0 ? (profitB / costB) * 100 : 0;
+
     switch(sortBy) {
       case 'profit-desc': return profitB - profitA;
       case 'profit-asc': return profitA - profitB;
       case 'markup-desc': return markupB - markupA;
       case 'markup-asc': return markupA - markupB;
-      case 'name': return (a.title || '').localeCompare(b.title || '');
+      case 'name': return (a.title || '').localeCompare(b.title || '', 'ru');
       default: return 0;
     }
   });
-  
+
+  return filtered;
+}
+
+function filterProfitReport() {
   const tbody = document.getElementById('profitReportBody');
+  if (!tbody) return;
+
+  const totalAvailable = applyOwnerProductFilter(products).length;
+  const filtered = getFilteredProfitProducts();
+
+  // Сводка считается по тому, что реально показано в таблице
+  let totalProfit = 0;
+  let totalMarkup = 0;
+  let count = 0;
+
+  filtered.forEach(p => {
+    const salePrice = parseFloat(p.price) || 0;
+    const costPrice = parseFloat(p.costPrice) || 0;
+    if (costPrice > 0 && salePrice > 0) {
+      totalProfit += salePrice - costPrice;
+      totalMarkup += ((salePrice - costPrice) / costPrice) * 100;
+      count++;
+    }
+  });
+
+  const avgMarkup = count > 0 ? (totalMarkup / count).toFixed(1) : '0';
+  document.getElementById('totalProfit').textContent = totalProfit.toFixed(2) + ' сом';
+  document.getElementById('avgMarkup').textContent = avgMarkup + '%';
+  document.getElementById('totalProducts').textContent = filtered.length;
+
+  const info = document.getElementById('profitFilterInfo');
+  if (info) {
+    const isFiltered = filtered.length !== totalAvailable;
+    info.textContent = isFiltered
+      ? `Показано ${filtered.length} из ${totalAvailable} товаров`
+      : `Всего товаров: ${totalAvailable}`;
+  }
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:40px; color:#999;">
+      ${totalAvailable ? '🔍 Ничего не найдено — измените запрос или категорию' : 'Нет товаров'}
+    </td></tr>`;
+    return;
+  }
+
   tbody.innerHTML = filtered.map((p, i) => {
     const salePrice = parseFloat(p.price) || 0;
     const costPrice = parseFloat(p.costPrice) || 0;
     const profit = salePrice - costPrice;
     const markup = costPrice > 0 ? ((profit / costPrice) * 100).toFixed(1) : 0;
     const profitColor = profit > 0 ? '#28a745' : profit < 0 ? '#dc3545' : '#6c757d';
-    
+
     return `
       <tr>
         <td data-label="#">${i + 1}</td>
-        <td class="product-name-cell">${p.title || 'Без названия'}</td>
-        <td data-label="Категория" class="center">${p.category || '-'}</td>
+        <td class="product-name-cell">${escapeHtml(p.title || 'Без названия')}</td>
+        <td data-label="Категория" class="center">${escapeHtml(p.category || '-')}</td>
         <td data-label="Закупка" class="right">${costPrice.toFixed(2)} сом</td>
         <td data-label="Продажа" class="right">${salePrice.toFixed(2)} сом</td>
         <td data-label="Прибыль" class="right" style="color:${profitColor}; font-weight:600;">${profit.toFixed(2)} сом</td>
@@ -2075,7 +2220,13 @@ async function deleteAllExpensesForPeriod() {
 
 // ============ ЭКСПОРТ В EXCEL ============
 function exportProfitToExcel() {
-  const data = applyOwnerProductFilter(products).map(p => ({
+  // Выгружаем ровно то, что сейчас показано в таблице (поиск + категория + сортировка)
+  const rows = getFilteredProfitProducts();
+  if (!rows.length) {
+    Swal.fire('Нечего выгружать', 'По текущему поиску и фильтру товаров нет', 'info');
+    return;
+  }
+  const data = rows.map(p => ({
     'Товар': p.title,
     'Категория': p.category,
     'Закупка': parseFloat(p.costPrice) || 0,
