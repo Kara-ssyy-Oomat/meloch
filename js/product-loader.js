@@ -187,6 +187,26 @@ function getEffectiveStock(product) {
   return Math.max(0, Math.floor(product.stock));
 }
 
+// Минимальная партия с учётом остатка.
+// Если на складе меньше минимума (мин. 5, осталось 2) — продаём остаток целиком,
+// иначе товар было бы невозможно купить.
+function getMinPurchaseQty(product, stock) {
+  if (!product) return 1;
+  const minQty = (typeof product.minQty === 'number' && product.minQty > 1) ? Math.floor(product.minQty) : 1;
+  const s = (stock === undefined) ? getEffectiveStock(product) : stock;
+  if (s !== null && s > 0 && s < minQty) return s;
+  return minQty;
+}
+
+// true, когда покупка возможна только целым остатком (остаток меньше минимума)
+function isRemainderOnly(product, stock) {
+  if (!product) return false;
+  const minQty = (typeof product.minQty === 'number' && product.minQty > 1) ? Math.floor(product.minQty) : 1;
+  if (minQty <= 1) return false;
+  const s = (stock === undefined) ? getEffectiveStock(product) : stock;
+  return s !== null && s > 0 && s < minQty;
+}
+
 // Скрытие splash-экрана (вызывается при первом показе товаров)
 function hideSplashScreen() {
   var splash = document.getElementById('splashScreen');

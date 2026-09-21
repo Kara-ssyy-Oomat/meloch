@@ -30,6 +30,24 @@ function getEffectiveStock(product) {
   return Math.max(0, Math.floor(product.stock));
 }
 
+// Минимальная партия с учётом остатка: если на складе меньше минимума —
+// продаём остаток целиком, иначе товар было бы невозможно купить.
+function getMinPurchaseQty(product, stock) {
+  if (!product) return 1;
+  const minQty = (typeof product.minQty === 'number' && product.minQty > 1) ? Math.floor(product.minQty) : 1;
+  const s = (stock === undefined) ? getEffectiveStock(product) : stock;
+  if (s !== null && s > 0 && s < minQty) return s;
+  return minQty;
+}
+
+function isRemainderOnly(product, stock) {
+  if (!product) return false;
+  const minQty = (typeof product.minQty === 'number' && product.minQty > 1) ? Math.floor(product.minQty) : 1;
+  if (minQty <= 1) return false;
+  const s = (stock === undefined) ? getEffectiveStock(product) : stock;
+  return s !== null && s > 0 && s < minQty;
+}
+
 /**
  * Проверяет корзину по локальному кэшу products и готовит данные списания
  * (на клиенте используется только для валидации / UI).

@@ -394,9 +394,13 @@ function renderProductsCore() {
         </div>
       `;
     }
-    const stockHtml = stock !== null
+    // Остатка меньше минимальной партии — продаём его целиком
+    const remainderOnly = isRemainderOnly(p, stock);
+    const minPurchaseQty = getMinPurchaseQty(p, stock);
+    const stockHtml = (stock !== null
       ? `<div class="card-stock ${outOfStock ? 'out' : ''}">Остаток: ${outOfStock ? 'Нет' : stock} ${unitLabel}</div>`
-      : '';
+      : '')
+      + (remainderOnly ? `<div class="card-remainder-note" style="font-size:11px;color:#e65100;background:#fff3e0;padding:4px 6px;border-radius:4px;margin-top:3px;text-align:center;">🔥 Последние ${stock} ${unitLabel} — минимум ${p.minQty}, берём остаток целиком</div>` : '');
     const blockedBadgeHtml = (p.blocked || outOfStock) ? `<div class="blocked-badge">🚫</div>` : '';
     // Добавляем значок пачки
     const packBadgeHtml = p.isPack ? `<div class="pack-badge">ПАЧКА</div>` : '';
@@ -473,10 +477,10 @@ function renderProductsCore() {
                   <button class="pack-btn" onclick="incrementQty('${p.id}', this)" ${outOfStock ? 'disabled' : ''}>+</button>
                 </div>
                 <button onclick="applyQtyInput('${p.id}')" style="width:100%;margin-top:4px;padding:8px;background:#1565c0;color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">✔ Применить</button>
-                ${p.minQty > 1 ? `<div style="font-size:10px;color:#1565c0;background:#e3f2fd;padding:4px 6px;border-radius:0 0 6px 6px;text-align:center;">💡 Каждое нажатие + добавляет ${p.minQty} шт</div>` : ''}
+                ${minPurchaseQty > 1 ? `<div style="font-size:10px;color:#1565c0;background:#e3f2fd;padding:4px 6px;border-radius:0 0 6px 6px;text-align:center;">💡 Каждое нажатие + добавляет ${minPurchaseQty} шт</div>` : ''}
               ` : `
                 <div style="display:flex; gap:0; margin:0; padding:0;">
-                  <input type="text" inputmode="numeric" value="${p.minQty||1}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px; border-radius:0 0 0 6px; margin:0; flex:1;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
+                  <input type="text" inputmode="numeric" value="${minPurchaseQty}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px; border-radius:0 0 0 6px; margin:0; flex:1;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
                   <button onclick="addToCartById('${p.id}', this)" style="background:linear-gradient(90deg,#ff7a00,#ff3b00); color:white; border:none; padding:8px 12px; border-radius:0 0 6px 0; cursor:pointer; margin:0; flex:1;" ${buyDisabledAttr}>${buyLabel}</button>
                 </div>
               `)}
@@ -496,10 +500,10 @@ function renderProductsCore() {
               <button class="pack-btn" onclick="incrementQty('${p.id}', this)" ${outOfStock ? 'disabled' : ''}>+</button>
             </div>
             <button onclick="applyQtyInput('${p.id}')" style="width:100%;margin-top:4px;padding:8px;background:#1565c0;color:white;border:none;border-radius:6px;font-weight:600;cursor:pointer;">✔ Применить</button>
-            ${p.minQty > 1 ? `<div style="font-size:10px;color:#1565c0;background:#e3f2fd;padding:4px 6px;border-radius:4px;text-align:center;margin-top:4px;">💡 Каждое нажатие + добавляет ${p.minQty} шт</div>` : ''}
+            ${minPurchaseQty > 1 ? `<div style="font-size:10px;color:#1565c0;background:#e3f2fd;padding:4px 6px;border-radius:4px;text-align:center;margin-top:4px;">💡 Каждое нажатие + добавляет ${minPurchaseQty} шт</div>` : ''}
           ` : `
             <div class="card-actions" style="margin-top:6px;">
-              <input type="text" inputmode="numeric" value="${p.minQty||1}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
+              <input type="text" inputmode="numeric" value="${minPurchaseQty}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
               <button onclick="addToCartById('${p.id}', this)" ${buyDisabledAttr}>${buyLabel}</button>
             </div>
           `)}
@@ -627,9 +631,12 @@ function loadMoreProducts() {
     if (p.showPackInfo && p.packQty) {
       packInfoHtml = `<div style="background:#f3e5f5;border-radius:6px;padding:6px 8px;margin:4px 0;font-size:11px;"><div style="color:#7b1fa2;font-weight:700;">📦 1 пачка = ${p.packQty} шт</div></div>`;
     }
-    const stockHtml = stock !== null
+    const remainderOnly = isRemainderOnly(p, stock);
+    const minPurchaseQty = getMinPurchaseQty(p, stock);
+    const stockHtml = (stock !== null
       ? `<div class="card-stock ${outOfStock ? 'out' : ''}">Остаток: ${outOfStock ? 'Нет' : stock} ${unitLabel}</div>`
-      : '';
+      : '')
+      + (remainderOnly ? `<div class="card-remainder-note" style="font-size:11px;color:#e65100;background:#fff3e0;padding:4px 6px;border-radius:4px;margin-top:3px;text-align:center;">🔥 Последние ${stock} ${unitLabel} — минимум ${p.minQty}, берём остаток целиком</div>` : '');
     const blockedBadgeHtml = (p.blocked || outOfStock) ? `<div class="blocked-badge">🚫</div>` : '';
     const packBadgeHtml = p.isPack ? `<div class="pack-badge">ПАЧКА</div>` : '';
     const hasExtraImages = p.extraImages && Array.isArray(p.extraImages) && p.extraImages.length > 0;
@@ -682,7 +689,7 @@ function loadMoreProducts() {
         </div>
         ${stockHtml}
         <div class="card-actions" style="margin-top:6px;">
-          <input type="text" inputmode="numeric" value="${p.minQty||1}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
+          <input type="text" inputmode="numeric" value="${minPurchaseQty}" class="card-qty-input" data-product-id="${p.id}" style="text-align:center; font-size:16px;" oninput="updateCardPrice(this, '${p.id}'); this.dataset.lastValue=this.value;" onfocus="this.dataset.lastValue=this.value; this.select();" placeholder="${p.isPack ? 'пачек' : 'шт'}" ${qtyDisabledAttr} />
           <button onclick="addToCartById('${p.id}', this)" ${buyDisabledAttr}>${buyLabel}</button>
         </div>
         `}
@@ -775,7 +782,7 @@ function updateCardPriceNow(inputEl, productId) {
     if (!card) return;
     
     // Проверка минимального количества - показываем предупреждение визуально
-    const minQty = product.minQty || 1;
+    const minQty = getMinPurchaseQty(product);
     let minQtyWarning = card.querySelector('.min-qty-warning');
     if (qty < minQty && qty > 0) {
       // Показываем предупреждение о минимальном количестве
@@ -785,7 +792,9 @@ function updateCardPriceNow(inputEl, productId) {
         minQtyWarning.style.cssText = 'font-size:11px;color:#c62828;background:#ffebee;padding:4px 8px;border-radius:4px;text-align:center;margin-top:4px;';
         inputEl.parentElement.insertAdjacentElement('afterend', minQtyWarning);
       }
-      minQtyWarning.textContent = `⚠️ Минимум: ${minQty} шт`;
+      minQtyWarning.textContent = isRemainderOnly(product)
+        ? `⚠️ Остаток ${minQty} шт — только целиком`
+        : `⚠️ Минимум: ${minQty} шт`;
       inputEl.style.borderColor = '#c62828';
     } else {
       // Убираем предупреждение

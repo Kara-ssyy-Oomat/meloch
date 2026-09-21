@@ -99,7 +99,7 @@ function addToCart(id, title, price, image, btn) {
     if (!rawValue || rawValue.trim() === '') {
       rawValue = qtyInput.dataset.lastValue || '';
     }
-    qty = parseInt(rawValue, 10) || (product.minQty || 1);
+    qty = parseInt(rawValue, 10) || getMinPurchaseQty(product, stock);
   }
 
   // ЗАЩИТА ОТ САБОТАЖА: ограничение количества за один раз
@@ -114,13 +114,17 @@ function addToCart(id, title, price, image, btn) {
     qty = MAX_QTY_PER_ITEM;
   }
 
-  // ПРОВЕРКА минимального количества покупки
-  const minQty = product.minQty || 1;
+  // ПРОВЕРКА минимального количества покупки.
+  // Когда остатка меньше минимума — минимумом становится сам остаток (продаём целиком).
+  const remainderOnly = isRemainderOnly(product, stock);
+  const minQty = getMinPurchaseQty(product, stock);
   if (qty < minQty) {
     Swal.fire({
       icon: 'warning',
       title: 'Минимальное количество',
-      html: `Минимум для покупки этого товара: <b>${minQty}</b> шт`,
+      html: remainderOnly
+        ? `Остался последний остаток: <b>${stock}</b> шт.<br>Его можно взять только целиком.`
+        : `Минимум для покупки этого товара: <b>${minQty}</b> шт`,
       confirmButtonText: 'Понятно'
     });
     // Автоматически исправляем значение в input
@@ -128,8 +132,9 @@ function addToCart(id, title, price, image, btn) {
     return;
   }
 
-  // Автоматическое округление до кратного minQty (только если включено roundQty)
-  if (product.roundQty && product.minQty && product.minQty > 1) {
+  // Автоматическое округление до кратного minQty (только если включено roundQty).
+  // При распродаже остатка не округляем — кратного количества уже не набрать.
+  if (product.roundQty && !remainderOnly && product.minQty && product.minQty > 1) {
     const minQty = product.minQty;
     const remainder = qty % minQty;
     if (remainder !== 0) {
@@ -146,8 +151,22 @@ function addToCart(id, title, price, image, btn) {
         showConfirmButton: false
       });
     }
+    // Округление могло выйти за остаток (мин. 5, на складе 7, ввели 6 → 10) —
+    // тогда отдаём весь остаток.
+    if (stock !== null && qty > stock) {
+      qty = stock;
+      if (qtyInput) qtyInput.value = qty;
+      Swal.fire({
+        icon: 'info',
+        title: `Берём весь остаток: ${stock} шт`,
+        timer: 2500,
+        toast: true,
+        position: 'bottom',
+        showConfirmButton: false
+      });
+    }
   }
-  
+
   // Проверка на превышение остатка
   if (stock !== null && qty > stock) {
     Swal.fire('Ошибка', `Доступно только ${stock} шт`, 'warning');
@@ -538,13 +557,19 @@ function changeCartItemQty(index, delta) {
   
   const item = cart[index];
   const product = products.find(p => p.id === item.id);
-  const minQty = (product && product.minQty) ? product.minQty : 1;
-  
+  const productStock = product ? getEffectiveStock(product) : null;
+  const minQty = product ? getMinPurchaseQty(product, productStock) : 1;
+
   // Определяем шаг изменения
   let step = minQty;
   if (product && product.isPack) step = 1; // Для пачек всегда шаг 1
-  
-  const newQty = item.qty + (delta * step);
+
+  let newQty = item.qty + (delta * step);
+
+  // Шаг может перескочить остаток (мин. 5, на складе 7, в корзине 5) — добираем до остатка
+  if (delta > 0 && productStock !== null && newQty > productStock && item.qty < productStock) {
+    newQty = productStock;
+  }
 
   // ЗАЩИТА ОТ САБОТАЖА: ограничение количества
   if (newQty > MAX_QTY_PER_ITEM) {
@@ -562,7 +587,7 @@ function changeCartItemQty(index, delta) {
 
   // Проверяем остаток
   if (product) {
-    const stock = getEffectiveStock(product);
+    const stock = productStock;
     if (stock !== null && newQty > stock) {
       Swal.fire({
         icon: 'warning',

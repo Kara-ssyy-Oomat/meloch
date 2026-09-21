@@ -233,7 +233,7 @@
   <script src="js/bot-blocker.js?v=2"></script>
   <script src="js/background-pause.js?v=3"></script>
   <script src="js/products-cache.js?v=3"></script>
-  <script src="js/stock-deduct.js?v=4"></script>
+  <script src="js/stock-deduct.js?v=5"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при отправке заказа -->
@@ -601,10 +601,27 @@
     function changeQty(index, delta) {
       const item = cart[index];
       const product = products.find(p => p.id === item.id);
-      const step = (item.isPack || (product && product.isPack)) ? 1 : (product?.minQty || 1);
-      const newQty = item.qty + (delta * step);
+      const stock = product ? getEffectiveStock(product) : null;
+      // Если остатка меньше минимальной партии — шагом становится сам остаток
+      const minQty = product ? getMinPurchaseQty(product, stock) : 1;
+      const step = (item.isPack || (product && product.isPack)) ? 1 : minQty;
+      let newQty = item.qty + (delta * step);
       
       if (newQty <= 0) { removeItem(index); return; }
+      
+      if (delta > 0 && stock !== null && newQty > stock) {
+        // Шаг перескочил остаток — добираем то, что есть; если уже всё взято, стоп
+        if (item.qty >= stock) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Ограничение',
+            text: `Доступно только ${stock} ${product.isPack ? 'пачек' : 'шт'}`,
+            toast: true, position: 'bottom', timer: 2000, showConfirmButton: false
+          });
+          return;
+        }
+        newQty = stock;
+      }
       
       item.qty = newQty;
       if (product && product.optQty && newQty >= product.optQty && product.optPrice) {

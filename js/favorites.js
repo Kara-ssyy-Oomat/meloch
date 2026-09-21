@@ -128,9 +128,12 @@ function renderFavoritesPage() {
       `;
     }
     
-    const stockHtml = stock !== null
+    const remainderOnly = typeof isRemainderOnly === 'function' && isRemainderOnly(product, stock);
+    const minPurchaseQty = typeof getMinPurchaseQty === 'function' ? getMinPurchaseQty(product, stock) : (product.minQty || 1);
+    const stockHtml = (stock !== null
       ? `<div class="card-stock ${outOfStock ? 'out' : ''}" style="font-size:11px;">Остаток: ${outOfStock ? 'Нет' : stock} ${unitLabel}</div>`
-      : '';
+      : '')
+      + (remainderOnly ? `<div style="font-size:10px;color:#e65100;background:#fff3e0;padding:3px 5px;border-radius:4px;margin-top:2px;text-align:center;">🔥 Последние ${stock} ${unitLabel} — только целиком</div>` : '');
     
     html += `
       <div class="product-card" data-product-id="${product.id}" style="position:relative;">
@@ -147,7 +150,7 @@ function renderFavoritesPage() {
           ${product.optPrice && product.optQty ? `<div style="font-size:10px;color:#007bff;">Опт: ${product.optPrice} сом от ${product.optQty} ${product.isPack ? 'пач' : 'шт'}</div>` : ''}
           ${stockHtml}
           <div class="card-actions" style="margin-top:4px;">
-            <input type="text" inputmode="numeric" value="${product.minQty||1}" class="card-qty-input" id="fav-qty-${product.id}" style="text-align:center; font-size:14px; width:60px; padding:6px;" placeholder="${product.isPack ? 'пач' : 'шт'}" onfocus="this.value=''" ${qtyDisabledAttr} />
+            <input type="text" inputmode="numeric" value="${minPurchaseQty}" class="card-qty-input" id="fav-qty-${product.id}" style="text-align:center; font-size:14px; width:60px; padding:6px;" placeholder="${product.isPack ? 'пач' : 'шт'}" onfocus="this.value=''" ${qtyDisabledAttr} />
             <button onclick="addToCartFromFavorites('${product.id}')" style="flex:1; padding:8px 10px; font-size:13px;" ${buyDisabledAttr}>${buyLabel}</button>
           </div>
         </div>
@@ -166,22 +169,31 @@ function addToCartFromFavorites(productId) {
   const product = products.find(p => p.id === productId);
   if (!product) return;
   
-  const qtyInput = document.getElementById('fav-qty-' + productId);
-  let qty = parseInt(qtyInput?.value || product.minQty || 1, 10);
-  if (isNaN(qty) || qty < 1) qty = product.minQty || 1;
-  
-  // Округление для минимального количества
-  const minQty = product.minQty || 1;
-  if (product.roundQty && minQty > 1 && qty % minQty !== 0) {
-    qty = Math.ceil(qty / minQty) * minQty;
-    if (qtyInput) qtyInput.value = qty;
-  }
-  
   const stock = typeof getEffectiveStock === 'function' ? getEffectiveStock(product) : (typeof product.stock === 'number' && isFinite(product.stock) ? Math.max(0, Math.floor(product.stock)) : null);
   if (stock !== null && stock <= 0) {
     Swal.fire('Ошибка', 'Нет в наличии', 'warning');
     return;
   }
+
+  // Если остатка меньше минимальной партии — минимумом становится сам остаток
+  const remainderOnly = typeof isRemainderOnly === 'function' && isRemainderOnly(product, stock);
+  const minQty = typeof getMinPurchaseQty === 'function' ? getMinPurchaseQty(product, stock) : (product.minQty || 1);
+
+  const qtyInput = document.getElementById('fav-qty-' + productId);
+  let qty = parseInt(qtyInput?.value || minQty, 10);
+  if (isNaN(qty) || qty < 1) qty = minQty;
+
+  // Округление для минимального количества
+  if (product.roundQty && !remainderOnly && minQty > 1 && qty % minQty !== 0) {
+    qty = Math.ceil(qty / minQty) * minQty;
+    if (qtyInput) qtyInput.value = qty;
+  }
+
+  if (qty < minQty) {
+    qty = minQty;
+    if (qtyInput) qtyInput.value = qty;
+  }
+
   if (stock !== null && qty > stock) {
     Swal.fire('Ошибка', `Доступно только ${stock} шт`, 'warning');
     return;
@@ -290,11 +302,12 @@ function addAllFavoritesToCart() {
     const stock = typeof getEffectiveStock === 'function' ? getEffectiveStock(product) : (typeof product.stock === 'number' && isFinite(product.stock) ? Math.max(0, Math.floor(product.stock)) : null);
     if (stock !== null && stock <= 0) return;
     
-    // Добавляем минимальное количество товара
-    const qty = product.minQty || 1;
+    // Добавляем минимальное количество товара (или весь остаток, если его меньше минимума)
+    const qty = typeof getMinPurchaseQty === 'function' ? getMinPurchaseQty(product, stock) : (product.minQty || 1);
     const existingIndex = cart.findIndex(item => item.id === productId);
     
     if (existingIndex !== -1) {
+      if (stock !== null && cart[existingIndex].qty + qty > stock) return;
       cart[existingIndex].qty += qty;
     } else {
       cart.push({

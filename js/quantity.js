@@ -45,7 +45,16 @@ function incrementPack(productId, btnElement) {
   // Добавление или обновление в корзине (сохраняем количество в штуках)
   const cartItem = cart.find(item => item.id === productId);
   const currentUnitsInCart = cartItem ? cartItem.qty : 0;
-  const newTotalUnits = currentUnitsInCart + unitsPerBox;
+  let newTotalUnits = currentUnitsInCart + unitsPerBox;
+
+  // Коробка больше остатка — берём то, что есть
+  if (stock !== null && newTotalUnits > stock) {
+    if (currentUnitsInCart >= stock) {
+      Swal.fire('Ошибка', `Доступно только ${stock} шт`, 'warning');
+      return;
+    }
+    newTotalUnits = stock;
+  }
   
   if (cartItem) {
     cartItem.qty = newTotalUnits;
@@ -54,7 +63,7 @@ function incrementPack(productId, btnElement) {
       id: productId, 
       title: product.title, 
       price: product.price || 0, 
-      qty: unitsPerBox, 
+      qty: newTotalUnits, 
       image: product.image, 
       costPrice: product.costPrice || 0,
       sellerId: product.sellerId || null,
@@ -344,9 +353,14 @@ function setQtyInput(productId, inputElement) {
     }
   }
   
+  // Проверка остатка
+  const stock = getEffectiveStock(product);
+  // При распродаже остатка (остаток меньше минимума) округление не применяем
+  const remainderOnly = isRemainderOnly(product, stock);
+
   // Автоматическое округление до кратного minQty (только если включено roundQty)
   const minQty = product.minQty || 1;
-  if (product.roundQty && minQty > 1 && newQty > 0) {
+  if (product.roundQty && !remainderOnly && minQty > 1 && newQty > 0) {
     const remainder = newQty % minQty;
     if (remainder !== 0) {
       const oldQty = newQty;
@@ -364,13 +378,12 @@ function setQtyInput(productId, inputElement) {
     }
   }
   
-  // Проверка остатка
-  const stock = getEffectiveStock(product);
-  
   if (stock !== null && newQty > stock) {
     // Округляем вниз до кратного minQty, но не больше остатка (только если roundQty)
-    if (product.roundQty && minQty > 1) {
+    if (product.roundQty && !remainderOnly && minQty > 1) {
       newQty = Math.floor(stock / minQty) * minQty;
+      // Кратного набрать не получилось — отдаём весь остаток
+      if (newQty <= 0) newQty = stock;
     } else {
       newQty = stock;
     }
@@ -441,7 +454,8 @@ function incrementQty(productId, btnElement) {
     return;
   }
 
-  const minQty = product.minQty || 1;
+  // Если остатка меньше минимальной партии — шагом становится сам остаток
+  const minQty = getMinPurchaseQty(product, stock);
   const cartItem = cart.find(item => item.id === productId);
   let currentQty = cartItem ? cartItem.qty : 0;
   
@@ -466,12 +480,17 @@ function incrementQty(productId, btnElement) {
   }
   
   // Новое количество = текущее (или введённое округлённое) + minQty
-  const newQty = currentQty + minQty;
+  let newQty = currentQty + minQty;
   
   // Проверяем остаток
   if (stock !== null && newQty > stock) {
-    Swal.fire('Ошибка', `Доступно только ${stock} шт`, 'warning');
-    return;
+    // Шаг перескочил остаток, но добрать его ещё можно — берём всё что есть
+    if (currentQty < stock) {
+      newQty = stock;
+    } else {
+      Swal.fire('Ошибка', `Доступно только ${stock} шт`, 'warning');
+      return;
+    }
   }
 
   // Определяем цену (оптовую или обычную)
@@ -511,7 +530,7 @@ function decrementQty(productId) {
   const product = products.find(p => p.id === productId);
   if (!product) return;
   
-  const minQty = product.minQty || 1;
+  const minQty = getMinPurchaseQty(product);
   const cartItemIndex = cart.findIndex(item => item.id === productId);
   
   // Читаем введённое значение из поля ввода (если есть)
