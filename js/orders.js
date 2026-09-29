@@ -231,11 +231,11 @@ async function buildPhotoPDFBlob(name, phone, address, driverName, driverPhone, 
     const product = products.find(p => p.id === item.id);
     const isPack = item.isPack || (product && product.isPack) || false;
     const unitLabel = isPack ? 'пач' : 'шт';
-    const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
+    const unitsPerBox = getBoxUnits(item.unitsPerBox, product && product.unitsPerBox);
     
     // Рассчитываем количество коробок
-    const boxCount = Math.floor(item.qty / unitsPerBox);
-    const remainingUnits = item.qty % unitsPerBox;
+    const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+    const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
     
     // Формируем строку количества в коробках (короткий формат)
     let qtyLine1 = '';
@@ -751,11 +751,11 @@ async function sendOrderAsPrintPDF(name, phone, address, driverName, driverPhone
       const product = products.find(p => p.id === item.id);
       const isPack = item.isPack || (product && product.isPack) || false;
       const unitLabel = isPack ? 'пач' : 'шт';
-      const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
+      const unitsPerBox = getBoxUnits(item.unitsPerBox, product && product.unitsPerBox);
       
       // Рассчитываем количество коробок
-      const boxCount = Math.floor(item.qty / unitsPerBox);
-      const remainingUnits = item.qty % unitsPerBox;
+      const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+      const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
       
       // Формируем строку количества коробок
       let boxText = '';
@@ -911,11 +911,11 @@ async function sendOrderAsExcelFile(name, phone, address, driverName, driverPhon
       const product = products.find(p => p.id === item.id);
       const isPack = item.isPack || (product && product.isPack) || false;
       const unitLabel = isPack ? 'пач' : 'шт';
-      const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
+      const unitsPerBox = getBoxUnits(item.unitsPerBox, product && product.unitsPerBox);
       
       // Рассчитываем количество коробок
-      const boxCount = Math.floor(item.qty / unitsPerBox);
-      const remainingUnits = item.qty % unitsPerBox;
+      const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+      const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
       
       // Формируем строку количества коробок
       let boxText = '';
@@ -938,7 +938,7 @@ async function sendOrderAsExcelFile(name, phone, address, driverName, driverPhon
       data.push([
         titleWithVariant,
         boxText,
-        `${unitsPerBox} ${unitLabel}`,
+        (unitsPerBox > 0 ? `${unitsPerBox} ${unitLabel}` : '—'),
         `${item.qty} ${unitLabel}`,
         `${pricePerUnit} сом`,
         `${item.qty * item.price} сом`
@@ -1046,9 +1046,9 @@ async function sendNotificationsToSellers(customerName, customerPhone, customerA
         const variantInfo = item.variantName ? ` [${item.variantName}]` : '';
         
         // Расчёт коробок
-        const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
-        const boxCount = Math.floor(item.qty / unitsPerBox);
-        const remainingUnits = item.qty % unitsPerBox;
+        const unitsPerBox = getBoxUnits(item.unitsPerBox, product && product.unitsPerBox);
+        const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+        const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
         let qtyText = '';
         if (boxCount > 0 && remainingUnits === 0) {
           qtyText = `${boxCount} кор (${unitsPerBox} ${unitLabel})`;
@@ -1138,9 +1138,9 @@ async function sendSeparatedOrderToAdmin(customerName, customerPhone, customerAd
         const variantInfo = item.variantName ? ` [${item.variantName}]` : '';
         
         // Расчёт коробок для наших товаров
-        const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
-        const boxCount = Math.floor(item.qty / unitsPerBox);
-        const remainingUnits = item.qty % unitsPerBox;
+        const unitsPerBox = getBoxUnits(item.unitsPerBox, product && product.unitsPerBox);
+        const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+        const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
         let qtyText;
         if (boxCount > 0 && remainingUnits > 0) {
           qtyText = `${boxCount} кор (${boxCount * unitsPerBox} ${unitLabel}) + ${remainingUnits} ${unitLabel}`;
@@ -1182,9 +1182,9 @@ async function sendSeparatedOrderToAdmin(customerName, customerPhone, customerAd
         const variantInfo = item.variantName ? ` [${item.variantName}]` : '';
         
         // Расчёт коробок для товаров продавцов
-        const unitsPerBox = item.unitsPerBox || (product && product.unitsPerBox) || 72;
-        const boxCount = Math.floor(item.qty / unitsPerBox);
-        const remainingUnits = item.qty % unitsPerBox;
+        const unitsPerBox = getBoxUnits(item.unitsPerBox, product && product.unitsPerBox);
+        const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+        const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
         let qtyText;
         if (boxCount > 0 && remainingUnits > 0) {
           qtyText = `${boxCount} кор (${boxCount * unitsPerBox} ${unitLabel}) + ${remainingUnits} ${unitLabel}`;

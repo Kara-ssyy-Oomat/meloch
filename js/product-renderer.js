@@ -397,6 +397,10 @@ function renderProductsCore() {
     // Остатка меньше минимальной партии — продаём его целиком
     const remainderOnly = isRemainderOnly(p, stock);
     const minPurchaseQty = getMinPurchaseQty(p, stock);
+    // «Штук в коробке» = 0 — покупка коробками у товара отключена, поэтому
+    // шаговые кнопки коробок не показываем даже при включённом режиме коробок.
+    const boxUnits = getBoxUnits(p.unitsPerBox);
+    const boxControls = boxUnits > 0 && (boxPurchaseMode || (p.isPack && p.useQtyButtons));
     const stockHtml = (stock !== null
       ? `<div class="card-stock ${outOfStock ? 'out' : ''}">Остаток: ${outOfStock ? 'Нет' : stock} ${unitLabel}</div>`
       : '')
@@ -463,13 +467,13 @@ function renderProductsCore() {
           ${(p.category === 'корейские' || p.category === 'часы' || p.category === 'электроника') && p.description ? `
             <div style="display:flex; flex-direction:column; margin-top:6px;">
               <button onclick="showProductDetailModal('${p.id}')" style="width:100%; padding:8px; background:linear-gradient(135deg, #ff9800, #f57c00); color:white; border:none; border-radius:6px 6px 0 0; cursor:pointer; font-size:13px; font-weight:500; margin:0;">📝 Описание товара</button>
-              ${(boxPurchaseMode || (p.isPack && p.useQtyButtons)) ? `
+              ${boxControls ? `
                 <div class="pack-controls" style="background:#f8f9fa; padding:12px; border-radius:0 0 6px 6px;">
                   <button class="pack-btn" onclick="decrementPack('${p.id}')" ${outOfStock ? 'disabled' : ''}>−</button>
                   <div class="pack-qty-display" id="pack-qty-${p.id}" style="width:90px;text-align:center;font-size:18px;font-weight:700;border:2px solid #4caf50;border-radius:8px;padding:10px 5px;background:#e8f5e9;display:inline-block;min-height:24px;color:#2e7d32;">0 шт</div>
                   <button class="pack-btn" onclick="incrementPack('${p.id}', this)" ${outOfStock ? 'disabled' : ''}>+</button>
                 </div>
-                <div class="box-mode-hint" style="font-size:11px;color:#2e7d32;background:#e8f5e9;padding:6px;border-radius:4px;text-align:center;margin-top:4px;font-weight:600;">📦 +1 нажатие = ${p.unitsPerBox || 72} шт (коробка)</div>
+                <div class="box-mode-hint" style="font-size:11px;color:#2e7d32;background:#e8f5e9;padding:6px;border-radius:4px;text-align:center;margin-top:4px;font-weight:600;">📦 +1 нажатие = ${boxUnits} шт (коробка)</div>
               ` : (p.useQtyButtons && !p.isPack ? `
                 <div class="pack-controls" style="background:#f8f9fa; padding:12px; border-radius:0 0 6px 6px;">
                   <button class="pack-btn" onclick="decrementQty('${p.id}')" ${outOfStock ? 'disabled' : ''}>−</button>
@@ -486,13 +490,13 @@ function renderProductsCore() {
               `)}
             </div>
           ` : `
-          ${(boxPurchaseMode || (p.isPack && p.useQtyButtons)) ? `
+          ${boxControls ? `
             <div class="pack-controls" style="margin-top:6px;">
               <button class="pack-btn" onclick="decrementPack('${p.id}')" ${outOfStock ? 'disabled' : ''}>−</button>
               <div class="pack-qty-display" id="pack-qty-${p.id}" style="width:90px;text-align:center;font-size:18px;font-weight:700;border:2px solid #4caf50;border-radius:8px;padding:10px 5px;background:#e8f5e9;display:inline-block;min-height:24px;color:#2e7d32;">0 шт</div>
               <button class="pack-btn" onclick="incrementPack('${p.id}', this)" ${outOfStock ? 'disabled' : ''}>+</button>
             </div>
-            <div class="box-mode-hint" style="font-size:11px;color:#2e7d32;background:#e8f5e9;padding:6px;border-radius:4px;text-align:center;margin-top:4px;font-weight:600;">📦 +1 нажатие = ${p.unitsPerBox || 72} шт (коробка)</div></div>
+            <div class="box-mode-hint" style="font-size:11px;color:#2e7d32;background:#e8f5e9;padding:6px;border-radius:4px;text-align:center;margin-top:4px;font-weight:600;">📦 +1 нажатие = ${boxUnits} шт (коробка)</div></div>
           ` : (p.useQtyButtons && !p.isPack ? `
             <div class="pack-controls" style="margin-top:6px;">
               <button class="pack-btn" onclick="decrementQty('${p.id}')" ${outOfStock ? 'disabled' : ''}>−</button>

@@ -36,8 +36,12 @@ function incrementPack(productId, btnElement) {
     return;
   }
 
-  // Количество штук в коробке (используем unitsPerBox или 72 по умолчанию)
-  const unitsPerBox = product.unitsPerBox || 72;
+  // Количество штук в коробке. 0 — покупка коробками у товара отключена
+  const unitsPerBox = getBoxUnits(product.unitsPerBox);
+  if (unitsPerBox <= 0) {
+    Swal.fire('Покупка коробками выключена', 'Для этого товара не указано, сколько штук в коробке', 'warning');
+    return;
+  }
   
   // Определяем цену за штуку
   let pricePerUnit = (product.price || 0) / (product.packQty || 1);
@@ -104,8 +108,12 @@ function decrementPack(productId) {
 
   const cartItem = cart[cartItemIndex];
   
-  // Определяем количество штук в коробке (используем unitsPerBox или 72 по умолчанию)
-  const unitsPerBox = product.unitsPerBox || 72;
+  // Количество штук в коробке. 0 — покупка коробками у товара отключена
+  const unitsPerBox = getBoxUnits(product.unitsPerBox);
+  if (unitsPerBox <= 0) {
+    Swal.fire('Покупка коробками выключена', 'Для этого товара не указано, сколько штук в коробке', 'warning');
+    return;
+  }
   
   // Текущее количество штук в корзине
   const currentUnits = cartItem.qty || 0;

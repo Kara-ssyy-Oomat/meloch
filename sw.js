@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.48.0-min-qty-remainder'; // Остаток меньше минимальной партии продаётся целиком
+const CACHE_VERSION = 'kerben-v4.49.0-box-units'; // Штук в коробке: по умолчанию 1000, 0 = покупка коробками выключена
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
@@ -119,6 +119,7 @@ const STATIC_CACHE_URLS = [
   './js/filters.js',
   './js/advanced-search.js',
   './js/helpers.js',
+  './js/box-units.js',
   './js/image-optimizer.js',
   './js/upload.js',
   './js/gallery.js',

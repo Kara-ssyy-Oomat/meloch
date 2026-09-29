@@ -20,6 +20,7 @@
   <script src="js/bot-blocker.js?v=2"></script>
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
+  <script src="js/box-units.js?v=1"></script>
   <script src="js/telegram-client.js?v=2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -3336,10 +3337,10 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       const product = productsMap[item.id] || productsMap[item.productId] || {};
       const isPack = item.isPack || product.isPack || false;
       const unitLabel = isPack ? 'пач' : 'шт';
-      const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
+      const unitsPerBox = getBoxUnits(item.unitsPerBox, product.unitsPerBox);
       
-      const boxCount = Math.floor(item.qty / unitsPerBox);
-      const remainingUnits = item.qty % unitsPerBox;
+      const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+      const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
       
       let boxText = '';
       if (boxCount > 0 && remainingUnits === 0) {
@@ -3355,7 +3356,7 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       excelData.push([
         titleWithVariant,
         boxText,
-        `${unitsPerBox} ${unitLabel}`,
+        (unitsPerBox > 0 ? `${unitsPerBox} ${unitLabel}` : '—'),
         `${item.qty} ${unitLabel}`,
         `${item.price} сом`,
         `${item.qty * item.price} сом`
@@ -3475,10 +3476,10 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
       const product = productsMap[item.id] || productsMap[item.productId] || {};
       const isPack = item.isPack || product.isPack || false;
       const unitLabel = isPack ? 'пач' : 'шт';
-      const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
+      const unitsPerBox = getBoxUnits(item.unitsPerBox, product.unitsPerBox);
       
-      const boxCount = Math.floor(item.qty / unitsPerBox);
-      const remainingUnits = item.qty % unitsPerBox;
+      const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+      const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
       
       let boxText = '';
       if (boxCount > 0 && remainingUnits === 0) {
@@ -3691,11 +3692,11 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
         const product = productsMap[item.id] || productsMap[item.productId] || {};
         const isPack = item.isPack || product.isPack || false;
         const unitLabel = isPack ? 'пач' : 'шт';
-        const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
+        const unitsPerBox = getBoxUnits(item.unitsPerBox, product.unitsPerBox);
         
         // Рассчитываем количество коробок
-        const boxCount = Math.floor(item.qty / unitsPerBox);
-        const remainingUnits = item.qty % unitsPerBox;
+        const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+        const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
         
         // Формируем строку количества в коробках (короткий формат)
         let qtyLine1 = '';
@@ -3975,10 +3976,10 @@ async function exportOrderToExcel(orderId, clientName, clientPhone) {
         const product = productsMap[item.id] || productsMap[item.productId] || {};
         const isPack = item.isPack || product.isPack || false;
         const unitLabel = isPack ? 'пач' : 'шт';
-        const unitsPerBox = item.unitsPerBox || product.unitsPerBox || 72;
+        const unitsPerBox = getBoxUnits(item.unitsPerBox, product.unitsPerBox);
 
-        const boxCount = Math.floor(item.qty / unitsPerBox);
-        const remainingUnits = item.qty % unitsPerBox;
+        const boxCount = unitsPerBox > 0 ? Math.floor(item.qty / unitsPerBox) : 0;
+        const remainingUnits = unitsPerBox > 0 ? item.qty % unitsPerBox : item.qty;
 
         let qtyLine1 = '';
         let qtyLine2 = '';

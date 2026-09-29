@@ -167,7 +167,7 @@ function addSelectedVariantsToCart() {
         // Увеличиваем количество
         cart[existingIndex].qty += qty;
         // Обновляем unitsPerBox (могло измениться)
-        cart[existingIndex].unitsPerBox = product.unitsPerBox || 72;
+        cart[existingIndex].unitsPerBox = getBoxUnits(product.unitsPerBox);
       } else {
         // Добавляем новый
         cart.push({
@@ -179,7 +179,7 @@ function addSelectedVariantsToCart() {
           costPrice: product.costPrice || 0,
           sellerId: product.sellerId || null,
           sellerName: product.sellerName || null,
-          unitsPerBox: product.unitsPerBox || 72,
+          unitsPerBox: getBoxUnits(product.unitsPerBox),
           isPack: product.isPack || false,
           packQty: product.packQty || null,
           // Данные варианта

@@ -201,7 +201,7 @@ function addToCart(id, title, price, image, btn) {
       cart[existingIndex].price = Math.round(product.optPrice);
     }
     // Обновляем unitsPerBox (могло измениться)
-    cart[existingIndex].unitsPerBox = product.unitsPerBox || 72;
+    cart[existingIndex].unitsPerBox = getBoxUnits(product.unitsPerBox);
   } else {
     // Новый товар: проверяем лимит количества разных позиций
     if (cart.length >= MAX_CART_ITEMS) {
@@ -221,7 +221,7 @@ function addToCart(id, title, price, image, btn) {
       costPrice: product.costPrice || 0,
       sellerId: product.sellerId || null,
       sellerName: product.sellerName || null,
-      unitsPerBox: product.unitsPerBox || 72,
+      unitsPerBox: getBoxUnits(product.unitsPerBox),
       isPack: product.isPack || false,
       packQty: product.packQty || null
     });
@@ -616,7 +616,7 @@ function changeCartItemQty(index, delta) {
         item.price = product.price;
       }
       // Обновляем unitsPerBox (могло измениться в настройках товара)
-      item.unitsPerBox = product.unitsPerBox || 72;
+      item.unitsPerBox = getBoxUnits(product.unitsPerBox);
     }
     
     updateCart();

@@ -227,9 +227,9 @@ async function openEditProductModal(productId) {
     <div style="background:#e8f5e9; border:2px solid #4caf50; border-radius:8px; padding:12px; margin-bottom:12px;">
       <div style="display:flex; align-items:center; gap:10px;">
         <label style="font-size:13px; color:#2e7d32; font-weight:700;">📦 Штук в коробке:</label>
-        <input type="number" id="editUnitsPerBox" value="${p.unitsPerBox||72}" min="1" style="width:100px; padding:10px; border:2px solid #4caf50; border-radius:6px; background:#fff; font-size:16px; font-weight:700; text-align:center;">
+        <input type="number" id="editUnitsPerBox" value="${getBoxUnits(p.unitsPerBox)}" min="0" style="width:100px; padding:10px; border:2px solid #4caf50; border-radius:6px; background:#fff; font-size:16px; font-weight:700; text-align:center;">
       </div>
-      <div style="font-size:11px; color:#666; margin-top:6px;">Используется для режима покупки по коробкам</div>
+      <div style="font-size:11px; color:#666; margin-top:6px;">Используется для режима покупки по коробкам. Поставьте <b>0</b> — покупка по коробкам для этого товара отключится, пока не впишете число.</div>
     </div>
     
     <!-- Настройки пачки -->
@@ -349,7 +349,7 @@ async function saveEditProductModal() {
   const isPack = document.getElementById('editIsPack').checked;
   const packQty = parseInt(document.getElementById('editPackQty').value) || 6;
   const packsPerBox = parseInt(document.getElementById('editPacksPerBox').value) || 20;
-  const unitsPerBox = parseInt(document.getElementById('editUnitsPerBox').value) || 72;
+  const unitsPerBox = getBoxUnits(document.getElementById('editUnitsPerBox').value);
   const showPricePerUnit = document.getElementById('editShowPricePerUnit').checked;
   const showPackInfo = document.getElementById('editShowPackInfo').checked;
   

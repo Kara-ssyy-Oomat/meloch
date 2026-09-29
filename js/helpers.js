@@ -346,11 +346,7 @@ async function updateProductPack(productId, isPack, packQty, packsPerBox) {
 // Обновить количество штук в коробке
 async function updateProductUnitsPerBox(productId, unitsPerBox) {
   try {
-    const newUnitsPerBox = parseInt(unitsPerBox) || 72;
-    if (newUnitsPerBox < 1) {
-      Swal.fire('Ошибка', 'Количество должно быть не менее 1', 'warning');
-      return;
-    }
+    const newUnitsPerBox = getBoxUnits(unitsPerBox);
     
     const product = products.find(p => p.id === productId);
     if (product) {
@@ -367,7 +363,7 @@ async function updateProductUnitsPerBox(productId, unitsPerBox) {
       toast: true,
       position: 'top-end',
       icon: 'success',
-      title: `📦 Коробка = ${newUnitsPerBox} шт`,
+      title: newUnitsPerBox > 0 ? `📦 Коробка = ${newUnitsPerBox} шт` : '📦 Покупка коробками выключена',
       showConfirmButton: false,
       timer: 2000
     });

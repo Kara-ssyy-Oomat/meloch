@@ -16,6 +16,7 @@
   <script src="js/bot-blocker.js?v=2"></script>
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
+  <script src="js/box-units.js?v=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -89,7 +90,33 @@
           
           <input type="number" id="newOptQty" placeholder="Минимальное количество для опта" inputmode="numeric" autocomplete="off" style="padding:14px; border:1px solid #ddd; border-radius:8px; min-height:48px; font-size:16px;">
           
-          <input type="number" id="newMinQty" placeholder="Минимальное количество для покупки" inputmode="numeric" autocomplete="off" style="padding:14px; border:1px solid #ddd; border-radius:8px; min-height:48px; font-size:16px;">
+          <!-- Мин. покупка -->
+          <div style="background:#fff3e0; border:1px solid #ffb74d; border-radius:8px; padding:12px;">
+            <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+              <div>
+                <label for="newMinQty" style="font-size:12px; color:#e65100; display:block; margin-bottom:4px;">🛒 Мин. покупка</label>
+                <input type="number" id="newMinQty" value="1" min="1" step="1" inputmode="numeric" autocomplete="off" style="width:90px; padding:10px; border:1px solid #ffb74d; border-radius:6px; font-size:16px;">
+              </div>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-top:15px;">
+                <input type="checkbox" id="newUseQtyButtons" style="width:20px; height:20px; min-width:20px; min-height:20px; cursor:pointer;">
+                <span style="font-size:13px; color:#1565c0;">🔢 Кнопки +/-</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-top:15px;">
+                <input type="checkbox" id="newRoundQty" style="width:20px; height:20px; min-width:20px; min-height:20px; cursor:pointer;">
+                <span style="font-size:13px; color:#ff5722;">🔄 Округлять</span>
+              </label>
+            </div>
+            <div style="font-size:11px; color:#888; margin-top:6px;">🔄 Округлять — количество кратно мин. покупке (напр. 5, 10, 15...)</div>
+          </div>
+
+          <!-- Штук в коробке -->
+          <div style="background:#e8f5e9; border:2px solid #4caf50; border-radius:8px; padding:12px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label for="newUnitsPerBox" style="font-size:13px; color:#2e7d32; font-weight:700;">📦 Штук в коробке:</label>
+              <input type="number" id="newUnitsPerBox" value="1000" min="0" step="1" inputmode="numeric" autocomplete="off" style="width:100px; padding:10px; border:2px solid #4caf50; border-radius:6px; background:#fff; font-size:16px; font-weight:700; text-align:center;">
+            </div>
+            <div style="font-size:11px; color:#666; margin-top:6px;">Используется для режима покупки по коробкам. Поставьте <b>0</b> — покупка по коробкам для этого товара отключится, пока не впишете число.</div>
+          </div>
 
           <input type="number" id="newStock" placeholder="📦 Остаток (если пусто — без лимита)" min="0" step="1" inputmode="numeric" autocomplete="off" style="padding:14px; border:1px solid #ddd; border-radius:8px; min-height:48px; font-size:16px;">
           
@@ -735,6 +762,9 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
     const optPrice = +document.getElementById('newOptPrice').value;
     const optQty = +document.getElementById('newOptQty').value;
     const minQty = +document.getElementById('newMinQty').value;
+    const useQtyButtons = document.getElementById('newUseQtyButtons').checked;
+    const roundQty = document.getElementById('newRoundQty').checked;
+    const unitsPerBox = getBoxUnits(document.getElementById('newUnitsPerBox').value);
     
     const stockRaw = document.getElementById('newStock') ? String(document.getElementById('newStock').value).trim() : '';
     let stock = null;
@@ -824,6 +854,9 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
       optPrice: optPrice > 0 ? optPrice : null,
       optQty: optQty > 0 ? optQty : null,
       minQty: minQty > 0 ? minQty : 1,
+      useQtyButtons,
+      roundQty,
+      unitsPerBox,
       ...(stock !== null ? { stock } : {}),
       image: imageUrl,
       extraImages: extraImages.length > 0 ? extraImages : [],
@@ -866,7 +899,10 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
     document.getElementById('newCategoryInputDiv').style.display = 'none';
     document.getElementById('newOptPrice').value = '';
     document.getElementById('newOptQty').value = '';
-    document.getElementById('newMinQty').value = '';
+    document.getElementById('newMinQty').value = '1';
+    document.getElementById('newUseQtyButtons').checked = false;
+    document.getElementById('newRoundQty').checked = false;
+    document.getElementById('newUnitsPerBox').value = String(BOX_UNITS_DEFAULT);
     if (document.getElementById('newStock')) document.getElementById('newStock').value = '';
     document.getElementById('newIsPack').checked = false;
     document.getElementById('newPackQty').value = '';
