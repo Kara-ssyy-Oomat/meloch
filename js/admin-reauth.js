@@ -89,6 +89,15 @@
     }
   }
 
+  // Остаток старой схемы: до разделения экземпляров Firebase склад логинился
+  // в то же приложение, что и админка, поэтому аккаунт wm_…@kerben-warehouse.local
+  // мог остаться в хранилище сессии. Этот файл подключён ТОЛЬКО на админ-страницах,
+  // где такой пользователь ничего не делает, а лишь блокирует права админа.
+  function isLeftoverWarehouseUser(user) {
+    return !!(user && user.email
+      && /^wm_.*@kerben-warehouse[.]local$/i.test(user.email));
+  }
+
   function isFirebaseAdminAlready() {
     try {
       if (typeof firebase === 'undefined' || !firebase.auth) return false;
@@ -153,6 +162,18 @@
 
       // Уже залогинен как админ — всё ок
       if (isFirebaseAdminAlready()) return finish(true);
+
+      // Вычищаем складскую сессию, доставшуюся от старой схемы: иначе она
+      // висит в админском слоте и Firestore отклоняет админские операции.
+      // Если пароль админа сохранён — ниже сразу поднимется админ. Если нет,
+      // js/auth.js поднимет анонимную сессию: каталог работать будет, а админу
+      // останется войти заново через профиль.
+      try {
+        if (isLeftoverWarehouseUser(firebase.auth().currentUser)) {
+          console.warn('[Admin Reauth] в админской сессии остался складской аккаунт — выходим из него');
+          firebase.auth().signOut().catch(function () {});
+        }
+      } catch (e) {}
 
       // В этой сессии страницы пароль уже оказался неподходящим —
       // не пытаемся снова до перезагрузки.

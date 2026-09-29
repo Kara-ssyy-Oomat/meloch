@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.49.0-box-units'; // Штук в коробке: по умолчанию 1000, 0 = покупка коробками выключена
+const CACHE_VERSION = 'kerben-v4.50.0-wm-separate-auth'; // Склад в отдельном экземпляре Firebase: сессии склада и админки больше не конфликтуют
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

@@ -19,6 +19,47 @@
   var WM_CREDS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
   var OBFUSC_KEY = 'kerben_wm_local_obfusc_2026';
 
+  // ------------------------------------------------------------------
+  // Отдельный экземпляр Firebase для склада.
+  // Firebase Auth держит ОДНУ сессию на экземпляр приложения и делит её
+  // между всеми вкладками домена. Из-за этого вход под wm_… выбивал
+  // admin@kerben.local в соседней вкладке админки, admin-reauth.js возвращал
+  // админа обратно, склад снова забирал сессию — вкладки отбирали её по кругу,
+  // и Firestore отклонял запись у той, что проиграла последней.
+  // Именованное приложение хранит сессию под своим ключом, поэтому склад
+  // и админка больше не пересекаются.
+  // ------------------------------------------------------------------
+  var WM_APP_NAME = 'kerben-wm';
+
+  function getWmApp() {
+    if (typeof firebase === 'undefined' || typeof firebase.initializeApp !== 'function') return null;
+    try {
+      for (var i = 0; i < firebase.apps.length; i++) {
+        if (firebase.apps[i] && firebase.apps[i].name === WM_APP_NAME) return firebase.apps[i];
+      }
+    } catch (e) {}
+    var base = null;
+    try { base = firebase.apps[0] || null; } catch (e) {}
+    if (!base || !base.options) return null;
+    try {
+      return firebase.initializeApp(base.options, WM_APP_NAME);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Возвращают auth/firestore склада. null — если Firebase не поднялся;
+  // вызывающий код в этом случае откатывается на приложение по умолчанию.
+  function wmAuth() {
+    var app = getWmApp();
+    try { return app ? app.auth() : null; } catch (e) { return null; }
+  }
+
+  function wmDb() {
+    var app = getWmApp();
+    try { return app ? app.firestore() : null; } catch (e) { return null; }
+  }
+
   function obfuscate(text) {
     var x = '';
     var s = String(text || '');
@@ -114,9 +155,11 @@
 
       if (typeof firebase === 'undefined' || !firebase.auth) return finish(false);
 
+      var auth = wmAuth();
+      if (!auth) return finish(false);
+
       try {
-        var current = firebase.auth().currentUser;
-        if (isWmUser(current)) return finish(true);
+        if (isWmUser(auth.currentUser)) return finish(true);
       } catch (e) {}
 
       var creds = getStoredPassword();
@@ -129,7 +172,7 @@
         finish(false);
       }, 8000);
 
-      firebase.auth().signInWithEmailAndPassword(creds.email, creds.password)
+      auth.signInWithEmailAndPassword(creds.email, creds.password)
         .then(function (res) {
           if (settled) return;
           settled = true;
@@ -171,6 +214,8 @@
     window.location.href = url;
   }
 
+  global.kerbenWmAuth = wmAuth;
+  global.kerbenWmDb = wmDb;
   global.kerbenGetWmSession = getSession;
   global.kerbenSaveWmSession = saveSession;
   global.kerbenSaveWmCreds = saveCreds;

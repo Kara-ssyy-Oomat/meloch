@@ -16,7 +16,7 @@
   </script>
   <script src="js/firebase-config.js?v=4"></script>
   <script src="js/auth.js?v=3"></script>
-  <script src="js/wm-reauth.js?v=2"></script>
+  <script src="js/wm-reauth.js?v=3"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -197,6 +197,12 @@
   </div>
 
   <script>
+    // Склад работает в ОТДЕЛЬНОМ экземпляре Firebase (см. js/wm-reauth.js):
+    // сессия приложения по умолчанию общая для всех вкладок домена, и вход
+    // под wm_… выбивал админскую сессию в соседней вкладке админки.
+    const wmAuth = (typeof kerbenWmAuth === 'function' && kerbenWmAuth()) || firebase.auth();
+    const wmDb = (typeof kerbenWmDb === 'function' && kerbenWmDb()) || db;
+
     // Нормализация номера телефона (+996 ...)
     function normalizePhone(phone) {
       let n = String(phone || '').replace(/[^\d+]/g, '');
@@ -256,7 +262,7 @@
         //    Это даст нам стабильный uid для документа warehouseManagers/{uid}.
         let uid = null;
         try {
-          const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+          const cred = await wmAuth.createUserWithEmailAndPassword(email, password);
           uid = cred.user.uid;
         } catch (err) {
           if (err && err.code === 'auth/email-already-in-use') {
@@ -264,7 +270,7 @@
             // это единственный способ определить: подошёл ли пароль
             // и какой у заявки статус.
             try {
-              const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+              const cred = await wmAuth.signInWithEmailAndPassword(email, password);
               uid = cred.user.uid;
             } catch (signInErr) {
               btn.disabled = false;
@@ -296,7 +302,7 @@
         }
 
         // 2) Проверяем, есть ли уже документ (повторная заявка того же человека).
-        const existingDocRef = db.collection('warehouseManagers').doc(uid);
+        const existingDocRef = wmDb.collection('warehouseManagers').doc(uid);
         const existingDoc = await existingDocRef.get();
 
         if (existingDoc.exists) {
@@ -338,7 +344,7 @@
         try {
           const phoneKey = phone.replace(/[^\d]/g, '');
           if (phoneKey) {
-            await db.collection('warehouseManagerByPhone').doc(phoneKey).set({
+            await wmDb.collection('warehouseManagerByPhone').doc(phoneKey).set({
               uid: uid,
               status: 'pending',
               name: name,

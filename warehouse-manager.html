@@ -18,7 +18,7 @@
   </script>
   <script src="js/firebase-config.js?v=4"></script>
   <script src="js/auth.js?v=3"></script>
-  <script src="js/wm-reauth.js?v=2"></script>
+  <script src="js/wm-reauth.js?v=3"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { -webkit-tap-highlight-color: transparent; }
@@ -640,6 +640,14 @@
 // Всё остальное — блокируется правилами Firestore.
 // ============================================================
 
+// Склад работает в ОТДЕЛЬНОМ экземпляре Firebase (см. js/wm-reauth.js).
+// Сессия приложения по умолчанию общая для всех вкладок домена, поэтому
+// вход под wm_… выбивал админскую сессию в соседней вкладке админки.
+// Если по какой-то причине отдельный экземпляр не поднялся — откатываемся
+// на приложение по умолчанию, чтобы страница осталась рабочей.
+const wmAuth = (typeof kerbenWmAuth === 'function' && kerbenWmAuth()) || firebase.auth();
+const wmDb = (typeof kerbenWmDb === 'function' && kerbenWmDb()) || db;
+
 // ---------- ХРАНЕНИЕ СЕССИИ ----------
 // Ключи-«индикаторы» видны и другим страницам сайта (js/wm-reauth.js)
 // — по ним показывается плавающая кнопка «📦 Мой склад» и запускается
@@ -752,7 +760,7 @@ async function wmLogin() {
   const email = phoneToWmEmail(normalizedPhone);
 
   try {
-    const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+    const cred = await wmAuth.signInWithEmailAndPassword(email, password);
     saveWmSession(email, normalizedPhone, '', '', cred.user && cred.user.uid);
     saveWmCreds(email, password, normalizedPhone);
     if (typeof kerbenSaveWmCreds === 'function') kerbenSaveWmCreds(email, password, normalizedPhone);
@@ -805,7 +813,7 @@ async function wmLogout() {
   if (!c.isConfirmed) return;
   clearWmSession();
   if (typeof kerbenClearWmSession === 'function') kerbenClearWmSession();
-  try { await firebase.auth().signOut(); } catch (e) {}
+  try { await wmAuth.signOut(); } catch (e) {}
   stopStatusListener();
   showScreen('screenLogin');
   document.getElementById('loginBtn').disabled = false;
@@ -832,7 +840,7 @@ async function checkWmStatusAndRender(user) {
   stopStatusListener();
   _currentUserUid = user.uid;
 
-  const ref = db.collection('warehouseManagers').doc(user.uid);
+  const ref = wmDb.collection('warehouseManagers').doc(user.uid);
 
   // Сначала разовое .get() — иначе при зависшем onSnapshot boot-спиннер
   // крутится вечно. Слушатель подключаем уже после первого экрана.
@@ -872,7 +880,7 @@ function applyStatus(data) {
   // Сохраняем статус локально — профиль и ярлык «Мой склад» на главной
   // читают его без повторного входа.
   try {
-    const u = firebase.auth().currentUser;
+    const u = wmAuth.currentUser;
     saveWmSession(
       (u && u.email) || (data && data.email) || '',
       (data && data.phone) || '',
@@ -885,7 +893,7 @@ function applyStatus(data) {
     if (st === 'approved' && u && data && data.phone) {
       const phoneKey = String(data.phone).replace(/[^\d]/g, '');
       if (phoneKey) {
-        db.collection('warehouseManagerByPhone').doc(phoneKey).set({
+        wmDb.collection('warehouseManagerByPhone').doc(phoneKey).set({
           uid: u.uid,
           status: 'approved',
           name: data.name || '',
@@ -947,7 +955,7 @@ function applyStatus(data) {
 }
 
 function refreshStatus() {
-  const user = firebase.auth().currentUser;
+  const user = wmAuth.currentUser;
   if (!user) { showScreen('screenLogin'); return; }
   // onSnapshot уже поднимает свежие данные — просто сообщаем пользователю
   toast('Проверено. Обновление придёт автоматически.');
@@ -970,7 +978,7 @@ let _primaryWarehouseName = '';
 
 async function loadPrimaryWarehouseId() {
   try {
-    const doc = await db.collection('settings').doc('warehouse').get();
+    const doc = await wmDb.collection('settings').doc('warehouse').get();
     if (doc.exists) {
       _primaryWarehouseId = String(doc.data().primaryWarehouseId || '');
     }
@@ -982,7 +990,7 @@ async function loadPrimaryWarehouseId() {
   _primaryWarehouseName = '';
   if (_primaryWarehouseId) {
     try {
-      const whDoc = await db.collection('warehouses').doc(_primaryWarehouseId).get();
+      const whDoc = await wmDb.collection('warehouses').doc(_primaryWarehouseId).get();
       if (whDoc.exists) {
         _primaryWarehouseName = String(whDoc.data().name || '');
       }
@@ -1001,7 +1009,7 @@ async function loadProductsForWm() {
   container.innerHTML = '<div class="loading-block"><div class="spinner"></div><div>Загрузка товаров...</div></div>';
   try {
     await loadPrimaryWarehouseId();
-    const snap = await withTimeout(db.collection('products').get(), 20000, 'products-timeout');
+    const snap = await withTimeout(wmDb.collection('products').get(), 20000, 'products-timeout');
     const items = [];
     snap.forEach(doc => {
       items.push({ id: doc.id, ...doc.data() });
@@ -1318,7 +1326,7 @@ async function saveAllPendingChanges() {
   if (saveBtn) saveBtn.disabled = true;
   if (cancelBtn) cancelBtn.disabled = true;
 
-  const authUser = firebase.auth().currentUser;
+  const authUser = wmAuth.currentUser;
   const changerUid = authUser ? authUser.uid : null;
   const changerEmail = (authUser && authUser.email) || '';
   const changerName = (_currentWmDoc && _currentWmDoc.name) ? _currentWmDoc.name
@@ -1340,20 +1348,20 @@ async function saveAllPendingChanges() {
   });
 
   async function runOne(productId, change) {
-    const productRef = db.collection('products').doc(productId);
-    const logRef = db.collection('stockChangeLog').doc();
+    const productRef = wmDb.collection('products').doc(productId);
+    const logRef = wmDb.collection('stockChangeLog').doc();
     // Дополнительно пишем в warehouseMovements adjustment-запись, чтобы
     // изменение появилось у админа на admin-warehouse.html → «Движения»
     // и он мог отменить её оттуда (bulk-cancel уже умеет type='adjustment').
     // Кросс-ссылки sourceLogId ↔ movementId сохраняем в обоих документах,
     // чтобы при отмене из любого места пометить связанную запись.
-    const movRef = db.collection('warehouseMovements').doc();
+    const movRef = wmDb.collection('warehouseMovements').doc();
     let realOld = 0;
     let realNew = 0;
     let warehouseUsed = _primaryWarehouseId || '__flat';
 
     try {
-      await db.runTransaction(async function (tx) {
+      await wmDb.runTransaction(async function (tx) {
         const doc = await tx.get(productRef);
         if (!doc.exists) throw new Error('Товар удалён');
         const data = doc.data() || {};
@@ -1493,7 +1501,7 @@ async function saveAllPendingChanges() {
   // Пишем ТОЛЬКО если что-то реально сохранилось.
   if (succeeded > 0) {
     try {
-      await db.collection('settings').doc('productsRevision').set({
+      await wmDb.collection('settings').doc('productsRevision').set({
         updatedAt: Date.now(),
         by: changerName,
         source: 'warehouse-manager',
@@ -1566,7 +1574,7 @@ function initWmAuth() {
       try {
         const ok = await kerbenRestoreWmSession();
         if (ok) {
-          const u = firebase.auth().currentUser;
+          const u = wmAuth.currentUser;
           if (u && u.email && /^wm_.*@kerben-warehouse[.]local$/i.test(u.email)) {
             await checkWmStatusAndRender(u);
             return;
@@ -1589,7 +1597,7 @@ function initWmAuth() {
   setTimeout(() => {
     const boot = document.getElementById('screenBoot');
     if (!boot || boot.style.display === 'none') return;
-    const u = firebase.auth().currentUser;
+    const u = wmAuth.currentUser;
     if (u && u.email && /^wm_.*@kerben-warehouse[.]local$/i.test(u.email)) {
       checkWmStatusAndRender(u);
     } else {
@@ -1597,7 +1605,7 @@ function initWmAuth() {
     }
   }, 4000);
 
-  firebase.auth().onAuthStateChanged(async function (user) {
+  wmAuth.onAuthStateChanged(async function (user) {
     if (user && user.email && /^wm_.*@kerben-warehouse[.]local$/i.test(user.email)) {
       firstStateReceived = true;
       clearTimeout(fallbackTimer);
@@ -1628,7 +1636,7 @@ window.addEventListener('beforeunload', function (e) {
 // Освежаем статус при возврате в вкладку (могли одобрить, пока телефон был закрыт)
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
-  const user = firebase.auth().currentUser;
+  const user = wmAuth.currentUser;
   if (user && _currentUserUid === user.uid && _statusUnsub) {
     // onSnapshot автоматически принесёт свежие данные — ничего делать не надо
     return;
