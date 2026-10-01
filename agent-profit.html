@@ -228,6 +228,41 @@
       font-size: 16px;
     }
     
+    /* Выбор произвольного диапазона дат (период «Выбрать даты») */
+    .date-range-row {
+      display: none;
+      flex-basis: 100%;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding-top: 4px;
+    }
+    
+    .date-range-row.active { display: flex; }
+    
+    .date-range-row label {
+      font-size: 13px;
+      color: #555;
+      font-weight: 600;
+    }
+    
+    .date-range-row input[type="date"] {
+      padding: 7px 10px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      background: #f5f5f5;
+      font-size: 13px;
+      color: #333;
+      flex: 1;
+      min-width: 120px;
+    }
+    
+    .date-range-row .range-days {
+      font-size: 12px;
+      color: #9c27b0;
+      font-weight: 600;
+    }
+    
     .action-btn {
       padding: 8px 14px;
       border: none;
@@ -898,7 +933,7 @@
         <h1>💰 Моя прибыль</h1>
         <div class="header-subtitle" id="agentName">Агент: ---</div>
         <!-- Метка версии: если её не видно, устройство держит старую копию -->
-        <div class="header-subtitle" style="font-size:11px; opacity:0.75;">версия 4.45</div>
+        <div class="header-subtitle" style="font-size:11px; opacity:0.75;">версия 4.47</div>
       </div>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
@@ -953,12 +988,13 @@
       <!-- Фильтры -->
       <div class="filters-bar">
         <div class="filters-group">
-          <select id="periodFilter" class="filter-select" onchange="filterOrders()">
+          <select id="periodFilter" class="filter-select" onchange="onPeriodFilterChange()">
             <option value="all" selected>📅 Все время</option>
             <option value="today">📅 Сегодня</option>
             <option value="week">📅 Неделя</option>
             <option value="month">📅 Месяц</option>
             <option value="year">📅 Год</option>
+            <option value="custom">📅 Выбрать даты</option>
           </select>
           <span class="filter-divider">|</span>
           <select id="statusFilter" class="filter-select" onchange="filterOrders()">
@@ -975,6 +1011,14 @@
         <div style="display:flex; gap:8px;">
           <button class="action-btn orange" onclick="exportReport()">📊 Экспорт</button>
           <button class="action-btn blue" onclick="loadOrders()">🔄</button>
+        </div>
+        
+        <div class="date-range-row" id="periodCustomRange">
+          <label>📅 От:</label>
+          <input type="date" id="periodDateFrom" onchange="onPeriodRangeChange()">
+          <label>До:</label>
+          <input type="date" id="periodDateTo" onchange="onPeriodRangeChange()">
+          <span class="range-days" id="periodDaysCount"></span>
         </div>
       </div>
       
@@ -2011,6 +2055,8 @@
 
         function _keepOrder(data) {
           if (!data || data.excludedFromAgent === true) return false;
+          // Удалённый админом заказ (мягкое удаление) прибыль не приносит
+          if (data.deleted === true) return false;
           var st = data.status;
           if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
           return true;
@@ -2159,6 +2205,60 @@
       Swal.fire({ icon: 'success', title: 'Обновлено', timer: 1000, showConfirmButton: false });
     }
     
+    // ===== Период «Выбрать даты» =====
+    // Формат для <input type="date"> по локальному времени: toISOString()
+    // переводит в UTC и в поясе +6 отдаёт предыдущий день.
+    function _toDateInputValue(d) {
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${d.getFullYear()}-${mm}-${dd}`;
+    }
+
+    // "ГГГГ-ММ-ДД" → локальное начало дня (или конец, если endOfDay),
+    // чтобы в диапазон попадали оба выбранных дня целиком.
+    function _parseDateInput(value, endOfDay) {
+      if (!value) return null;
+      const [y, m, d] = value.split('-').map(Number);
+      if (!y || !m || !d) return null;
+      return endOfDay
+        ? new Date(y, m - 1, d, 23, 59, 59, 999)
+        : new Date(y, m - 1, d, 0, 0, 0, 0);
+    }
+
+    function _updatePeriodDaysCount() {
+      const countEl = document.getElementById('periodDaysCount');
+      const from = _parseDateInput(document.getElementById('periodDateFrom').value, false);
+      const to = _parseDateInput(document.getElementById('periodDateTo').value, false);
+      if (!from || !to) {
+        countEl.textContent = '';
+        return;
+      }
+      const days = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+      countEl.textContent = days > 0
+        ? `(${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'})`
+        : '⚠️ Неверный диапазон';
+    }
+
+    function onPeriodFilterChange() {
+      const isCustom = document.getElementById('periodFilter').value === 'custom';
+      document.getElementById('periodCustomRange').classList.toggle('active', isCustom);
+      if (isCustom) {
+        // По умолчанию: начало месяца — сегодня
+        const now = new Date();
+        const fromEl = document.getElementById('periodDateFrom');
+        const toEl = document.getElementById('periodDateTo');
+        if (!fromEl.value) fromEl.value = _toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1));
+        if (!toEl.value) toEl.value = _toDateInputValue(now);
+        _updatePeriodDaysCount();
+      }
+      filterOrders();
+    }
+
+    function onPeriodRangeChange() {
+      _updatePeriodDaysCount();
+      filterOrders();
+    }
+
     // Фильтрация заказов
     function filterOrders() {
       const periodFilter = document.getElementById('periodFilter').value;
@@ -2190,6 +2290,13 @@
             const yearStart = new Date(today.getFullYear(), 0, 1);
             periodMatch = orderTime >= yearStart.getTime();
             break;
+          case 'custom': {
+            const from = _parseDateInput(document.getElementById('periodDateFrom').value, false);
+            const to = _parseDateInput(document.getElementById('periodDateTo').value, true);
+            periodMatch = (!from || orderTime >= from.getTime())
+              && (!to || orderTime <= to.getTime());
+            break;
+          }
         }
         
         const statusMatch = statusFilter === 'all' || order.status === statusFilter;
@@ -2614,7 +2721,7 @@
         const date = new Date(timestamp);
         if (isNaN(date.getTime())) return;
         
-        const dateKey = date.toISOString().split('T')[0];
+        const dateKey = _toDateInputValue(date);
         if (!dailyData[dateKey]) {
           dailyData[dateKey] = 0;
         }
@@ -2639,7 +2746,7 @@
       }
       
       const labels = sortedDates.map(d => {
-        const date = new Date(d);
+        const date = _parseDateInput(d, false);
         return date.getDate() + '.' + (date.getMonth() + 1);
       });
       const data = sortedDates.map(d => dailyData[d]);
@@ -2790,7 +2897,7 @@
     // Открыть модалку
     function openAgentExpenseModal() {
       document.getElementById('agentExpenseModal').style.display = 'flex';
-      document.getElementById('agentExpenseDate').value = new Date().toISOString().split('T')[0];
+      document.getElementById('agentExpenseDate').value = _toDateInputValue(new Date());
       document.getElementById('agentExpenseDesc').value = '';
       document.getElementById('agentExpenseAmount').value = '';
       setTimeout(() => document.getElementById('agentExpenseDesc').focus(), 200);

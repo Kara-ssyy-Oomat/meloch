@@ -305,6 +305,18 @@ const firebaseConfig = {
 let db;
 let products = [];
 
+// Отчёты по прибыли (admin-profit.html) и по агентам (admin-agents.html)
+// держат заказы в localStorage до 30 минут. После любого изменения заказа
+// этот кэш нужно сбросить, иначе отчёты покажут старые суммы: удалённый
+// товар продолжит приносить прибыль, а агенту останется прежняя комиссия.
+function invalidateProfitCaches() {
+  try {
+    ['profitOrdersCache', 'profitOrdersCacheTs',
+     'agentsOrdersCache', 'agentsOrdersCacheTs']
+      .forEach(key => localStorage.removeItem(key));
+  } catch (e) { /* localStorage может быть недоступен — не критично */ }
+}
+
 // Проверяет, не отвалилась ли админ-сессия Firebase Auth, и если да —
 // предлагает восстановить её через ввод пароля. Возвращает true, если в
 // итоге сессия активна и можно продолжать работу.
@@ -1014,6 +1026,7 @@ async function saveEditOrder() {
     }
 
     await _runAdminOp(() => db.collection('orders').doc(currentEditOrderId).update(update), 'сохранение заказа');
+    invalidateProfitCaches(); // мог поменяться агент заказа
 
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === currentEditOrderId);
@@ -1075,6 +1088,7 @@ async function toggleOrderExcludedFromAgent(orderId, excluded) {
       excludedFromAgent: excluded === true,
       excludedFromAgentAt: excluded ? Date.now() : null
     }), excluded ? 'исключение заказа из прибыли агента' : 'возврат заказа агенту');
+    invalidateProfitCaches();
 
     // Локально обновляем кэш, чтобы не ждать повторной загрузки из БД
     if (Array.isArray(ordersManagementAllOrders)) {
@@ -1172,6 +1186,7 @@ async function updateOrderStatus(orderId, newStatus) {
       status: newStatus,
       statusUpdatedAt: Date.now()
     }), 'смена статуса');
+    invalidateProfitCaches(); // отмена/разотмена меняет прибыль и комиссию
 
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -1927,6 +1942,7 @@ async function deleteOrder(orderId) {
       deletedAt: Date.now(),
       statusBeforeDelete: orderDoc.exists ? orderDoc.data().status : null
     });
+    invalidateProfitCaches();
     
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -1972,6 +1988,7 @@ async function restoreOrder(orderId) {
       deletedAt: firebase.firestore.FieldValue.delete(),
       statusBeforeDelete: firebase.firestore.FieldValue.delete()
     });
+    invalidateProfitCaches();
     
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -2005,6 +2022,7 @@ async function permanentDeleteOrder(orderId) {
   
   try {
     await db.collection('orders').doc(orderId).delete();
+    invalidateProfitCaches();
     
     if (Array.isArray(ordersManagementAllOrders)) {
       const index = ordersManagementAllOrders.findIndex(o => o.id === orderId);
@@ -2179,6 +2197,7 @@ async function deleteSelectedOrderItems(orderId) {
         confirmButtonText: 'Понятно'
       });
       await db.collection('orders').doc(orderId).delete();
+      invalidateProfitCaches();
 
       if (Array.isArray(ordersManagementAllOrders)) {
         const idx = ordersManagementAllOrders.findIndex(o => o.id === orderId);
@@ -2192,6 +2211,7 @@ async function deleteSelectedOrderItems(orderId) {
 
     const total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
     await db.collection('orders').doc(orderId).update({ items, total });
+    invalidateProfitCaches();
 
     if (Array.isArray(ordersManagementAllOrders)) {
       const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -2378,6 +2398,7 @@ async function updateOrderItemPrice(orderId, itemIndex, newPrice) {
 
         // Обновляем ТОЛЬКО заказ — цены на сайте НЕ трогаем
         await db.collection('orders').doc(orderId).update({ items, total });
+        invalidateProfitCaches();
 
         // Обновляем локальный кэш
         if (Array.isArray(ordersManagementAllOrders)) {
@@ -2490,6 +2511,7 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
         const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
         await db.collection('orders').doc(orderId).update({ items, total });
       }
+      invalidateProfitCaches();
       
       const updatedTotal = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
       if (Array.isArray(ordersManagementAllOrders)) {
@@ -2552,6 +2574,7 @@ async function deleteOrderItemFromModal(orderId, itemIndex) {
         confirmButtonText: 'Понятно'
       });
       await db.collection('orders').doc(orderId).delete();
+      invalidateProfitCaches();
       
       if (Array.isArray(ordersManagementAllOrders)) {
         const idx = ordersManagementAllOrders.findIndex(o => o.id === orderId);
@@ -2563,6 +2586,7 @@ async function deleteOrderItemFromModal(orderId, itemIndex) {
     } else {
       const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
       await db.collection('orders').doc(orderId).update({ items, total });
+      invalidateProfitCaches();
       
       if (Array.isArray(ordersManagementAllOrders)) {
         const order = ordersManagementAllOrders.find(o => o.id === orderId);
@@ -2803,6 +2827,7 @@ async function mergeClientOrders(orderIds) {
     for (const order of otherOrders) {
       await db.collection('orders').doc(order.id).delete();
     }
+    invalidateProfitCaches();
 
     Swal.fire({
       icon: 'success',
@@ -3009,6 +3034,7 @@ async function addProductToOrder(productId, productName, productPrice, productCo
       items,
       total
     });
+    invalidateProfitCaches();
 
     // Списываем добавленный товар со склада.
     // Контекст oldQty=0 → newQty=qty попадёт в warehouseMovements, чтобы

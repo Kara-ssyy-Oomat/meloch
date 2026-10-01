@@ -279,6 +279,35 @@
       color: #666;
     }
     .filter-info b { color: #333; }
+
+    /* Выбор произвольного диапазона дат (появляется при периоде «Выбрать даты») */
+    .date-range-row {
+      display: none;
+      width: 100%;
+      padding: 10px 0 0;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .date-range-row.active { display: flex; }
+    .date-range-row label {
+      font-size: 13px;
+      color: #555;
+      font-weight: 600;
+    }
+    .date-range-row input[type="date"] {
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      background: #fff;
+      color: #333;
+    }
+    .date-range-row .range-days {
+      font-size: 13px;
+      color: #667eea;
+      font-weight: 600;
+    }
     
     /* Таблица */
     .table-container {
@@ -396,6 +425,7 @@
         align-items: stretch;
       }
       .controls-row > * { width: 100%; }
+      .date-range-row input[type="date"] { flex: 1; min-width: 120px; }
       
       /* Карточный вид таблиц */
       table, thead, tbody, th, tr, td { display: block; width: 100%; }
@@ -453,7 +483,7 @@
   <div class="profit-header">
     <div>
       <h1>💰 Отчет по прибыли</h1>
-      <p>Анализ прибыльности товаров</p>
+      <p>Прибыль по фактическим продажам</p>
       <div class="owner-profit-filter" id="ownerProfitFilterWrap">
         <select id="ownerProfitFilter" onchange="onOwnerProfitFilterChange()">
           <option value="all">Добавить прибыль менеджеров (все товары)</option>
@@ -480,7 +510,11 @@
     <div class="filters-panel">
       <div class="stats-row">
         <div class="stat-card">
-          <div class="label">💰 Общая прибыль</div>
+          <div class="label">💵 Выручка за период</div>
+          <div class="value blue" id="productsRevenue">0 сом</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">💰 Прибыль за период</div>
           <div class="value green" id="totalProfit">0 сом</div>
         </div>
         <div class="stat-card">
@@ -488,8 +522,8 @@
           <div class="value blue" id="avgMarkup">0%</div>
         </div>
         <div class="stat-card">
-          <div class="label">📦 Всего товаров</div>
-          <div class="value gray" id="totalProducts">0</div>
+          <div class="label">📦 Продано единиц</div>
+          <div class="value gray" id="productsUnitsSold">0</div>
         </div>
       </div>
       <div class="controls-row search-row">
@@ -500,17 +534,35 @@
         </div>
       </div>
       <div class="controls-row">
+        <select id="productsDateFilter" onchange="onProductsDateFilterChange()">
+          <option value="today">Сегодня</option>
+          <option value="yesterday">Вчера</option>
+          <option value="week">За неделю</option>
+          <option value="month" selected>За месяц</option>
+          <option value="custom">📅 Выбрать даты</option>
+          <option value="all">Все время</option>
+        </select>
         <select id="profitCategoryFilter" onchange="filterProfitReport()">
           <option value="">Все категории</option>
         </select>
         <select id="profitSortFilter" onchange="filterProfitReport()">
           <option value="profit-desc">По прибыли (↓)</option>
           <option value="profit-asc">По прибыли (↑)</option>
+          <option value="revenue-desc">По выручке (↓)</option>
+          <option value="qty-desc">По количеству (↓)</option>
           <option value="markup-desc">По наценке (↓)</option>
           <option value="markup-asc">По наценке (↑)</option>
           <option value="name">По названию</option>
         </select>
+        <button class="btn-blue" onclick="refreshProfitReport('products')">🔄 Обновить</button>
         <button class="btn-green" onclick="exportProfitToExcel()">📥 Excel</button>
+      </div>
+      <div class="date-range-row" id="productsCustomDateRange">
+        <label>📅 От:</label>
+        <input type="date" id="productsDateFrom" onchange="loadProfitReport()">
+        <label>До:</label>
+        <input type="date" id="productsDateTo" onchange="loadProfitReport()">
+        <span class="range-days" id="productsDateDaysCount"></span>
       </div>
       <div class="filter-info" id="profitFilterInfo"></div>
     </div>
@@ -521,8 +573,9 @@
             <th>#</th>
             <th>Товар</th>
             <th class="center">Категория</th>
+            <th class="right">📦 Продано</th>
             <th class="right">💵 Закупка</th>
-            <th class="right">💰 Продажа</th>
+            <th class="right">💰 Выручка</th>
             <th class="right">📊 Прибыль</th>
             <th class="right">% Наценка</th>
           </tr>
@@ -550,11 +603,12 @@
         </div>
       </div>
       <div class="controls-row">
-        <select id="orderDateFilter" onchange="loadOrderProfitReport()">
+        <select id="orderDateFilter" onchange="onOrderDateFilterChange()">
           <option value="today">Сегодня</option>
           <option value="yesterday">Вчера</option>
           <option value="week">За неделю</option>
           <option value="month">За месяц</option>
+          <option value="custom">📅 Выбрать даты</option>
           <option value="all">Все время</option>
         </select>
         <select id="orderSortFilter" onchange="loadOrderProfitReport()">
@@ -562,7 +616,15 @@
           <option value="date-desc">По дате (новые)</option>
           <option value="date-asc">По дате (старые)</option>
         </select>
+        <button class="btn-blue" onclick="refreshProfitReport('orders')">🔄 Обновить</button>
         <button class="btn-green" onclick="exportOrderProfitToExcel()">📥 Excel</button>
+      </div>
+      <div class="date-range-row" id="orderCustomDateRange">
+        <label>📅 От:</label>
+        <input type="date" id="orderDateFrom" onchange="loadOrderProfitReport()">
+        <label>До:</label>
+        <input type="date" id="orderDateTo" onchange="loadOrderProfitReport()">
+        <span class="range-days" id="orderDateDaysCount"></span>
       </div>
     </div>
     <div class="table-container">
@@ -605,11 +667,12 @@
         </div>
       </div>
       <div class="controls-row">
-        <select id="agentsDateFilter" onchange="loadAgentsProfitReport()">
+        <select id="agentsDateFilter" onchange="onAgentsDateFilterChange()">
           <option value="today">Сегодня</option>
           <option value="yesterday">Вчера</option>
           <option value="week">За неделю</option>
           <option value="month" selected>За месяц</option>
+          <option value="custom">📅 Выбрать даты</option>
           <option value="all">Все время</option>
         </select>
         <select id="agentsSortFilter" onchange="loadAgentsProfitReport()">
@@ -618,8 +681,15 @@
           <option value="commission-desc">По комиссии (↓)</option>
           <option value="name">По имени</option>
         </select>
-        <button class="btn-blue" onclick="loadAgentsProfitReport()">🔄 Обновить</button>
+        <button class="btn-blue" onclick="refreshProfitReport('agents')">🔄 Обновить</button>
         <button class="btn-green" onclick="exportAgentsProfitToExcel()">📥 Excel</button>
+      </div>
+      <div class="date-range-row" id="agentsCustomDateRange">
+        <label>📅 От:</label>
+        <input type="date" id="agentsDateFrom" onchange="loadAgentsProfitReport()">
+        <label>До:</label>
+        <input type="date" id="agentsDateTo" onchange="loadAgentsProfitReport()">
+        <span class="range-days" id="agentsDateDaysCount"></span>
       </div>
     </div>
     <div class="table-container" id="agentsProfitReportContent">
@@ -653,16 +723,16 @@
           <option value="month">За месяц</option>
           <option value="custom">📅 Выбрать даты</option>
         </select>
-        <button class="btn-blue" onclick="loadExpensesReport()">🔄 Обновить</button>
+        <button class="btn-blue" onclick="refreshProfitReport('expenses')">🔄 Обновить</button>
         <button class="btn-primary" onclick="openAddExpenseModal()">➕ Добавить расход</button>
         <button class="btn-red" onclick="deleteAllExpensesForPeriod()" style="font-size:12px;">🗑️ Удалить все за период</button>
       </div>
-      <div id="customDateRange" style="display:none; padding:8px 0 0; width:100%; display:none; gap:8px; align-items:center; flex-wrap:wrap;">
-        <label style="font-size:13px; color:#555;">С:</label>
-        <input type="date" id="expenseDateFrom" onchange="loadExpensesReport()" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
-        <label style="font-size:13px; color:#555;">По:</label>
-        <input type="date" id="expenseDateTo" onchange="loadExpensesReport()" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
-        <span id="customDateDaysCount" style="font-size:13px; color:#667eea; font-weight:600;"></span>
+      <div class="date-range-row" id="customDateRange">
+        <label>📅 От:</label>
+        <input type="date" id="expenseDateFrom" onchange="loadExpensesReport()">
+        <label>До:</label>
+        <input type="date" id="expenseDateTo" onchange="loadExpensesReport()">
+        <span class="range-days" id="customDateDaysCount"></span>
       </div>
     </div>
     <div class="table-container">
@@ -961,6 +1031,21 @@ function _invalidateProfitPageCache() {
   } catch(e) {}
 }
 
+// «🔄 Обновить» обязан перечитать заказы из базы. Без сброса кэша отчёт
+// до 30 минут показывал старые суммы после удаления или отмены заказа.
+async function refreshProfitReport(which) {
+  _invalidateProfitPageCache();
+  if (which === 'products') {
+    await loadProfitReport();
+  } else if (which === 'agents') {
+    await loadAgentsProfitReport();
+  } else if (which === 'expenses') {
+    await loadExpensesReport();
+  } else {
+    await loadOrderProfitReport();
+  }
+}
+
 // При загрузке страницы
 document.addEventListener('DOMContentLoaded', async function() {
   console.log('📈 Загрузка страницы отчёта по прибыли...');
@@ -972,10 +1057,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   applyManagerUiLimits();
   
   // Показываем индикатор загрузки
-  document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:#999;">⏳ Загрузка данных...</td></tr>';
+  document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#999;">⏳ Загрузка данных...</td></tr>';
   
   try {
-    // Загружаем товары
+    // Загружаем товары — нужны для категорий и закупочных цен
     await loadProducts();
     allProducts = Array.isArray(products) ? products.slice() : [];
     products = applyManagerProductFilter(allProducts);
@@ -984,12 +1069,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     loadCategories();
     
     // Загружаем данные для текущей вкладки
-    loadProfitReport();
+    await loadProfitReport();
     
     console.log('✅ Страница загружена успешно');
   } catch (error) {
     console.error('❌ Ошибка загрузки:', error);
-    document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:#dc3545;">❌ Ошибка загрузки: ' + error.message + '</td></tr>';
+    document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#dc3545;">❌ Ошибка загрузки: ' + error.message + '</td></tr>';
   }
 });
 
@@ -1077,10 +1162,105 @@ function switchTab(tab) {
   else if (tab === 'expenses') loadExpensesReport();
 }
 
-// ============ ОТЧЁТ ПО ТОВАРАМ ============
-function loadProfitReport() {
+// ============ ОТЧЁТ ПО ТОВАРАМ (фактические продажи) ============
+// Считаем по реально проданным позициям из заказов, а не по прайс-листу:
+// поэтому удаление товара из заказа и отмена заказа сразу уменьшают прибыль.
+// Агрегат за выбранный период лежит здесь, чтобы поиск, категория и
+// сортировка не перечитывали заказы заново.
+let profitProductRows = [];
+
+function onProductsDateFilterChange() {
+  toggleCustomDateRange('productsDateFilter', 'productsCustomDateRange', 'productsDateFrom', 'productsDateTo', 'productsDateDaysCount');
+  loadProfitReport();
+}
+
+// Сводит проданные позиции по товарам за период.
+// endDate = null означает «без верхней границы».
+function aggregateProductSales(orders, startDate, endDate) {
+  const byProduct = new Map();
+
+  (orders || []).forEach(order => {
+    // Те же правила, что и в отчёте по заказам: удалённые и отменённые
+    // заказы прибыли не дают
+    if (order.deleted) return;
+    if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
+
+    const orderDate = order.timestamp ? new Date(order.timestamp) : new Date(order.date || 0);
+    if (orderDate < startDate) return;
+    if (endDate && orderDate > endDate) return;
+
+    const items = order.items || order.cart || [];
+    items.forEach(item => {
+      if (!itemMatchesOwnerFilter(item)) return;
+
+      const qty = parseFloat(item.qty || item.quantity) || 0;
+      if (qty <= 0) return;
+
+      const salePrice = parseFloat(item.price) || 0;
+      const product = findProductAnywhere(item.id);
+
+      // Закупку берём из заказа, иначе из каталога
+      let costPrice = parseFloat(item.costPrice) || 0;
+      if (costPrice === 0 && product) costPrice = parseFloat(product.costPrice) || 0;
+
+      // Позиции без id группируем по названию, иначе они слиплись бы в одну
+      const key = item.id || ('title:' + String(item.title || '').trim().toLowerCase());
+      let row = byProduct.get(key);
+      if (!row) {
+        row = {
+          id: item.id || null,
+          title: (product && product.title) || item.title || 'Без названия',
+          // Категорию берём из каталога — там она актуальная и совпадает
+          // со списком в фильтре; в заказе может лежать старая
+          category: (product && product.category) || item.category || '-',
+          qtySold: 0,
+          revenue: 0,
+          cost: 0,
+          profit: 0,
+          qtyWithoutCost: 0
+        };
+        byProduct.set(key, row);
+      }
+
+      row.qtySold += qty;
+      row.revenue += salePrice * qty;
+      if (costPrice > 0) {
+        row.cost += costPrice * qty;
+        row.profit += (salePrice - costPrice) * qty;
+      } else {
+        // Без закупочной цены прибыль по позиции посчитать нельзя
+        row.qtyWithoutCost += qty;
+      }
+    });
+  });
+
+  return Array.from(byProduct.values());
+}
+
+async function loadProfitReport() {
   if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
-  filterProfitReport();
+
+  const dateFilter = document.getElementById('productsDateFilter').value;
+  const { startDate, endDate } = resolveDateRange(dateFilter, 'productsDateFrom', 'productsDateTo');
+  if (dateFilter === 'custom') {
+    updateRangeDaysCount('productsDateFrom', 'productsDateTo', 'productsDateDaysCount');
+  }
+
+  const tbody = document.getElementById('profitReportBody');
+  if (tbody && !profitProductRows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#999;">⏳ Считаем продажи...</td></tr>';
+  }
+
+  try {
+    const allOrders = await _getOrdersCached();
+    profitProductRows = aggregateProductSales(allOrders, startDate, endDate);
+    filterProfitReport();
+  } catch (error) {
+    console.error('Ошибка загрузки отчёта по товарам:', error);
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#dc3545;">❌ Не удалось посчитать продажи</td></tr>';
+    }
+  }
 }
 
 // ============ ПОИСК ТОВАРА ============
@@ -1152,7 +1332,7 @@ function getFilteredProfitProducts() {
   const sortBy = sortEl ? sortEl.value : 'profit-desc';
   const words = profitSearchQuery ? profitSearchQuery.split(/\s+/).filter(Boolean) : [];
 
-  let filtered = applyOwnerProductFilter([...products]);
+  let filtered = [...profitProductRows];
 
   if (category) {
     filtered = filtered.filter(p => p.category === category);
@@ -1161,20 +1341,17 @@ function getFilteredProfitProducts() {
     filtered = filtered.filter(p => productMatchesSearch(p, words));
   }
 
-  // Сортировка
-  filtered.sort((a, b) => {
-    const costA = parseFloat(a.costPrice) || 0;
-    const costB = parseFloat(b.costPrice) || 0;
-    const profitA = (parseFloat(a.price) || 0) - costA;
-    const profitB = (parseFloat(b.price) || 0) - costB;
-    const markupA = costA > 0 ? (profitA / costA) * 100 : 0;
-    const markupB = costB > 0 ? (profitB / costB) * 100 : 0;
+  // Наценка считаем от фактической закупки проданного количества
+  const markupOf = row => (row.cost > 0 ? (row.profit / row.cost) * 100 : 0);
 
+  filtered.sort((a, b) => {
     switch(sortBy) {
-      case 'profit-desc': return profitB - profitA;
-      case 'profit-asc': return profitA - profitB;
-      case 'markup-desc': return markupB - markupA;
-      case 'markup-asc': return markupA - markupB;
+      case 'profit-desc': return b.profit - a.profit;
+      case 'profit-asc': return a.profit - b.profit;
+      case 'revenue-desc': return b.revenue - a.revenue;
+      case 'qty-desc': return b.qtySold - a.qtySold;
+      case 'markup-desc': return markupOf(b) - markupOf(a);
+      case 'markup-asc': return markupOf(a) - markupOf(b);
       case 'name': return (a.title || '').localeCompare(b.title || '', 'ru');
       default: return 0;
     }
@@ -1187,63 +1364,172 @@ function filterProfitReport() {
   const tbody = document.getElementById('profitReportBody');
   if (!tbody) return;
 
-  const totalAvailable = applyOwnerProductFilter(products).length;
+  const totalAvailable = profitProductRows.length;
   const filtered = getFilteredProfitProducts();
 
   // Сводка считается по тому, что реально показано в таблице
   let totalProfit = 0;
-  let totalMarkup = 0;
-  let count = 0;
+  let totalRevenue = 0;
+  let totalCost = 0;
+  let totalUnits = 0;
+  let unitsWithoutCost = 0;
 
-  filtered.forEach(p => {
-    const salePrice = parseFloat(p.price) || 0;
-    const costPrice = parseFloat(p.costPrice) || 0;
-    if (costPrice > 0 && salePrice > 0) {
-      totalProfit += salePrice - costPrice;
-      totalMarkup += ((salePrice - costPrice) / costPrice) * 100;
-      count++;
-    }
+  filtered.forEach(row => {
+    totalProfit += row.profit;
+    totalRevenue += row.revenue;
+    totalCost += row.cost;
+    totalUnits += row.qtySold;
+    unitsWithoutCost += row.qtyWithoutCost;
   });
 
-  const avgMarkup = count > 0 ? (totalMarkup / count).toFixed(1) : '0';
+  // Средняя наценка взвешенная: прибыль ко всей закупке, а не среднее
+  // по товарам — иначе один дешёвый товар перекашивает цифру
+  const avgMarkup = totalCost > 0 ? ((totalProfit / totalCost) * 100).toFixed(1) : '0';
+  document.getElementById('productsRevenue').textContent = totalRevenue.toFixed(2) + ' сом';
   document.getElementById('totalProfit').textContent = totalProfit.toFixed(2) + ' сом';
   document.getElementById('avgMarkup').textContent = avgMarkup + '%';
-  document.getElementById('totalProducts').textContent = filtered.length;
+  document.getElementById('productsUnitsSold').textContent = formatQty(totalUnits);
 
   const info = document.getElementById('profitFilterInfo');
   if (info) {
-    const isFiltered = filtered.length !== totalAvailable;
-    info.textContent = isFiltered
-      ? `Показано ${filtered.length} из ${totalAvailable} товаров`
-      : `Всего товаров: ${totalAvailable}`;
+    const parts = [];
+    parts.push(filtered.length !== totalAvailable
+      ? `Показано ${filtered.length} из ${totalAvailable} проданных товаров`
+      : `Товаров с продажами: ${totalAvailable}`);
+    if (unitsWithoutCost > 0) {
+      parts.push(`⚠️ ${formatQty(unitsWithoutCost)} ед. без закупочной цены — их прибыль не учтена`);
+    }
+    info.textContent = parts.join(' • ');
   }
 
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:40px; color:#999;">
-      ${totalAvailable ? '🔍 Ничего не найдено — измените запрос или категорию' : 'Нет товаров'}
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:40px; color:#999;">
+      ${totalAvailable ? '🔍 Ничего не найдено — измените запрос или категорию' : 'Нет продаж за выбранный период'}
     </td></tr>`;
     return;
   }
 
-  tbody.innerHTML = filtered.map((p, i) => {
-    const salePrice = parseFloat(p.price) || 0;
-    const costPrice = parseFloat(p.costPrice) || 0;
-    const profit = salePrice - costPrice;
-    const markup = costPrice > 0 ? ((profit / costPrice) * 100).toFixed(1) : 0;
-    const profitColor = profit > 0 ? '#28a745' : profit < 0 ? '#dc3545' : '#6c757d';
+  tbody.innerHTML = filtered.map((row, i) => {
+    const markup = row.cost > 0 ? ((row.profit / row.cost) * 100).toFixed(1) : '—';
+    const profitColor = row.profit > 0 ? '#28a745' : row.profit < 0 ? '#dc3545' : '#6c757d';
+    // Если часть продаж без закупки — честно помечаем, что прибыль неполная
+    const costNote = row.qtyWithoutCost > 0
+      ? ` <span style="color:#999;font-size:11px;">(${formatQty(row.qtyWithoutCost)} без закуп.)</span>`
+      : '';
 
     return `
       <tr>
         <td data-label="#">${i + 1}</td>
-        <td class="product-name-cell">${escapeHtml(p.title || 'Без названия')}</td>
-        <td data-label="Категория" class="center">${escapeHtml(p.category || '-')}</td>
-        <td data-label="Закупка" class="right">${costPrice.toFixed(2)} сом</td>
-        <td data-label="Продажа" class="right">${salePrice.toFixed(2)} сом</td>
-        <td data-label="Прибыль" class="right" style="color:${profitColor}; font-weight:600;">${profit.toFixed(2)} сом</td>
-        <td data-label="Наценка" class="right">${markup}%</td>
+        <td class="product-name-cell">${escapeHtml(row.title)}</td>
+        <td data-label="Категория" class="center">${escapeHtml(row.category)}</td>
+        <td data-label="Продано" class="right">${formatQty(row.qtySold)} шт${costNote}</td>
+        <td data-label="Закупка" class="right">${row.cost.toFixed(2)} сом</td>
+        <td data-label="Выручка" class="right">${row.revenue.toFixed(2)} сом</td>
+        <td data-label="Прибыль" class="right" style="color:${profitColor}; font-weight:600;">${row.profit.toFixed(2)} сом</td>
+        <td data-label="Наценка" class="right">${markup}${markup === '—' ? '' : '%'}</td>
       </tr>
     `;
   }).join('');
+}
+
+// Количество может быть дробным (вес) — лишние нули не показываем
+function formatQty(n) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+}
+
+// ============ ПЕРИОД: ПРОИЗВОЛЬНЫЙ ДИАПАЗОН ДАТ ============
+// Форматируем дату в значение для <input type="date"> по локальному времени.
+// toISOString() здесь использовать нельзя: он переводит в UTC и в нашем
+// часовом поясе (+6) отдаёт предыдущий день.
+function toDateInputValue(d) {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+// Разбираем "ГГГГ-ММ-ДД" в локальное начало/конец дня, чтобы диапазон
+// включал оба выбранных дня целиком.
+function parseDateInputStart(value) {
+  if (!value) return null;
+  const [y, m, d] = value.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+function parseDateInputEnd(value) {
+  if (!value) return null;
+  const [y, m, d] = value.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, 23, 59, 59, 999);
+}
+
+// Показ/скрытие полей «От/До» с подстановкой значений по умолчанию
+// (начало месяца — сегодня).
+function toggleCustomDateRange(selectId, wrapId, fromId, toId, countId) {
+  const isCustom = document.getElementById(selectId).value === 'custom';
+  document.getElementById(wrapId).classList.toggle('active', isCustom);
+  if (!isCustom) return;
+  const now = new Date();
+  const fromEl = document.getElementById(fromId);
+  const toEl = document.getElementById(toId);
+  if (!fromEl.value) fromEl.value = toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1));
+  if (!toEl.value) toEl.value = toDateInputValue(now);
+  updateRangeDaysCount(fromId, toId, countId);
+}
+
+// Подпись с количеством дней в выбранном диапазоне
+function updateRangeDaysCount(fromId, toId, countId) {
+  const countEl = document.getElementById(countId);
+  if (!countEl) return;
+  const from = parseDateInputStart(document.getElementById(fromId).value);
+  const to = parseDateInputStart(document.getElementById(toId).value);
+  if (!from || !to) {
+    countEl.textContent = '';
+    return;
+  }
+  const days = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  countEl.textContent = days > 0
+    ? `(${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'})`
+    : '⚠️ Неверный диапазон';
+}
+
+// Границы периода для селекта. endDate = null — без верхней границы.
+function resolveDateRange(dateFilter, fromId, toId) {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let startDate = new Date(0);
+  let endDate = null;
+
+  switch(dateFilter) {
+    case 'today':
+      startDate = todayStart;
+      break;
+    case 'yesterday':
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      endDate = new Date(todayStart.getTime() - 1);
+      break;
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case 'custom':
+      startDate = parseDateInputStart(document.getElementById(fromId).value) || new Date(0);
+      endDate = parseDateInputEnd(document.getElementById(toId).value);
+      break;
+  }
+  return { startDate, endDate };
+}
+
+function onOrderDateFilterChange() {
+  toggleCustomDateRange('orderDateFilter', 'orderCustomDateRange', 'orderDateFrom', 'orderDateTo', 'orderDateDaysCount');
+  loadOrderProfitReport();
+}
+
+function onAgentsDateFilterChange() {
+  toggleCustomDateRange('agentsDateFilter', 'agentsCustomDateRange', 'agentsDateFrom', 'agentsDateTo', 'agentsDateDaysCount');
+  loadAgentsProfitReport();
 }
 
 // ============ ОТЧЁТ ПО ЗАКАЗАМ ============
@@ -1252,22 +1538,9 @@ async function loadOrderProfitReport() {
   const dateFilter = document.getElementById('orderDateFilter').value;
   const sortBy = document.getElementById('orderSortFilter').value;
   
-  const now = new Date();
-  let startDate = new Date(0);
-  
-  switch(dateFilter) {
-    case 'today':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'yesterday':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      break;
-    case 'week':
-      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      break;
-    case 'month':
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
+  const { startDate, endDate } = resolveDateRange(dateFilter, 'orderDateFrom', 'orderDateTo');
+  if (dateFilter === 'custom') {
+    updateRangeDaysCount('orderDateFrom', 'orderDateTo', 'orderDateDaysCount');
   }
   
   try {
@@ -1276,7 +1549,7 @@ async function loadOrderProfitReport() {
     
     allOrders.forEach(data => {
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
-      if (orderDate >= startDate) {
+      if (orderDate >= startDate && (!endDate || orderDate <= endDate)) {
         // Пропускаем отменённые и удалённые заказы — они не считаются в прибыли
         if (data.deleted) return;
         if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
@@ -1378,22 +1651,9 @@ async function loadAgentsProfitReport() {
   const dateFilter = document.getElementById('agentsDateFilter').value;
   const sortBy = document.getElementById('agentsSortFilter').value;
   
-  const now = new Date();
-  let startDate = new Date(0);
-  
-  switch(dateFilter) {
-    case 'today':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'yesterday':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      break;
-    case 'week':
-      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      break;
-    case 'month':
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
+  const { startDate, endDate } = resolveDateRange(dateFilter, 'agentsDateFrom', 'agentsDateTo');
+  if (dateFilter === 'custom') {
+    updateRangeDaysCount('agentsDateFrom', 'agentsDateTo', 'agentsDateDaysCount');
   }
   
   try {
@@ -1431,7 +1691,7 @@ async function loadAgentsProfitReport() {
       
       totalOrdersChecked++;
       
-      if (orderDate < startDate) {
+      if (orderDate < startDate || (endDate && orderDate > endDate)) {
         ordersSkippedByDate++;
         return;
       }
@@ -1439,6 +1699,8 @@ async function loadAgentsProfitReport() {
       // Пропускаем отменённые и удалённые заказы — не считаем прибыль агенту
       if (data.deleted) return;
       if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
+      // Админ вручную исключил заказ из прибыли агента — агент его тоже не видит
+      if (data.excludedFromAgent === true) return;
       
       // Ищем агента по разным полям: partner, agentId, referredBy
       let agent = null;
@@ -1578,46 +1840,13 @@ async function loadAgentsProfitReport() {
 
 // Показать/скрыть поля выбора дат
 function onExpenseDateFilterChange() {
-  const dateFilter = document.getElementById('expenseDateFilter').value;
-  const customRange = document.getElementById('customDateRange');
-  if (dateFilter === 'custom') {
-    customRange.style.display = 'flex';
-    // Устанавливаем значения по умолчанию: начало месяца — сегодня
-    const now = new Date();
-    const fromEl = document.getElementById('expenseDateFrom');
-    const toEl = document.getElementById('expenseDateTo');
-    if (!fromEl.value) {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      fromEl.value = monthStart.toISOString().split('T')[0];
-    }
-    if (!toEl.value) {
-      toEl.value = now.toISOString().split('T')[0];
-    }
-    updateCustomDaysCount();
-  } else {
-    customRange.style.display = 'none';
-  }
+  toggleCustomDateRange('expenseDateFilter', 'customDateRange', 'expenseDateFrom', 'expenseDateTo', 'customDateDaysCount');
   loadExpensesReport();
 }
 
 // Подсчёт количества дней в выбранном диапазоне
 function updateCustomDaysCount() {
-  const fromEl = document.getElementById('expenseDateFrom');
-  const toEl = document.getElementById('expenseDateTo');
-  const countEl = document.getElementById('customDateDaysCount');
-  if (fromEl.value && toEl.value) {
-    const from = new Date(fromEl.value);
-    const to = new Date(toEl.value);
-    const diffMs = to.getTime() - from.getTime();
-    const days = Math.round(diffMs / (24 * 60 * 60 * 1000)) + 1;
-    if (days > 0) {
-      countEl.textContent = `(${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'})`;
-    } else {
-      countEl.textContent = '⚠️ Неверный диапазон';
-    }
-  } else {
-    countEl.textContent = '';
-  }
+  updateRangeDaysCount('expenseDateFrom', 'expenseDateTo', 'customDateDaysCount');
 }
 
 async function loadExpensesReport() {
@@ -1625,34 +1854,12 @@ async function loadExpensesReport() {
   const dateFilter = document.getElementById('expenseDateFilter').value;
   
   const now = new Date();
-  let startDate = new Date(0);
-  let endDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Завтра, чтобы включить сегодняшние
-  
-  switch(dateFilter) {
-    case 'today':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'yesterday':
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'week':
-      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      break;
-    case 'month':
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
-    case 'custom':
-      const fromVal = document.getElementById('expenseDateFrom').value;
-      const toVal = document.getElementById('expenseDateTo').value;
-      if (fromVal) startDate = new Date(fromVal);
-      if (toVal) {
-        endDate = new Date(toVal);
-        endDate.setHours(23, 59, 59, 999); // Включаем весь последний день
-      }
-      updateCustomDaysCount();
-      break;
-  }
+  const range = resolveDateRange(dateFilter, 'expenseDateFrom', 'expenseDateTo');
+  const startDate = range.startDate;
+  // Расходам нужна конкретная верхняя граница: по умолчанию — завтра,
+  // чтобы сегодняшние записи попадали в отчёт.
+  const endDate = range.endDate || new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  if (dateFilter === 'custom') updateCustomDaysCount();
   
   console.log('📊 Загрузка расходов, период:', dateFilter, 'с', startDate, 'по', endDate);
   
@@ -1812,17 +2019,23 @@ async function loadExpensesReport() {
     
     let periodProfit = 0;
     ordersArr.forEach(data => {
+      // Те же правила, что и в остальных отчётах: удалённые и отменённые
+      // заказы прибыли не дают, иначе чистая прибыль получалась завышенной
+      if (data.deleted) return;
+      if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
+
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       if (orderDate >= startDate && orderDate <= endDate) {
         const items = data.items || data.cart || [];
         items.forEach(item => {
+          if (!itemMatchesOwnerFilter(item)) return;
           const qty = item.qty || item.quantity || 1;
           const sale = (parseFloat(item.price) || 0) * qty;
           
           // Ищем costPrice: сначала в заказе, потом в базе товаров
           let costPrice = parseFloat(item.costPrice) || 0;
           if (costPrice === 0 && item.id) {
-            const product = products.find(p => p.id === item.id);
+            const product = findProductAnywhere(item.id);
             if (product && product.costPrice) {
               costPrice = parseFloat(product.costPrice) || 0;
             }
@@ -1934,7 +2147,7 @@ function updateFillRangeDaysInfo() {
 
 function openAddExpenseModal() {
   document.getElementById('addExpenseModal').classList.add('active');
-  document.getElementById('expenseDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('expenseDate').value = toDateInputValue(new Date());
   document.getElementById('expenseDescription').value = '';
   document.getElementById('expenseAmount').value = '';
   document.getElementById('expenseIsRecurring').checked = false;
@@ -2028,7 +2241,7 @@ async function saveExpense() {
 
       const batch = db.batch();
       datesToAdd.forEach(d => {
-        const dateStr = d.toISOString().split('T')[0];
+        const dateStr = toDateInputValue(d);
         const ref = db.collection('expenses').doc();
         batch.set(ref, {
           description,
@@ -2160,13 +2373,14 @@ async function deleteAllExpensesForPeriod() {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       periodName = 'месяц';
       break;
-    case 'custom':
+    case 'custom': {
       const fromVal = document.getElementById('expenseDateFrom').value;
       const toVal = document.getElementById('expenseDateTo').value;
-      if (fromVal) startDate = new Date(fromVal);
-      if (toVal) { endDate = new Date(toVal); endDate.setHours(23, 59, 59, 999); }
+      startDate = parseDateInputStart(fromVal) || startDate;
+      endDate = parseDateInputEnd(toVal) || endDate;
       periodName = `${fromVal || '...'} — ${toVal || '...'}`;
       break;
+    }
   }
 
   try {
@@ -2220,18 +2434,21 @@ async function deleteAllExpensesForPeriod() {
 
 // ============ ЭКСПОРТ В EXCEL ============
 function exportProfitToExcel() {
-  // Выгружаем ровно то, что сейчас показано в таблице (поиск + категория + сортировка)
+  // Выгружаем ровно то, что сейчас показано в таблице (период + поиск + категория + сортировка)
   const rows = getFilteredProfitProducts();
   if (!rows.length) {
-    Swal.fire('Нечего выгружать', 'По текущему поиску и фильтру товаров нет', 'info');
+    Swal.fire('Нечего выгружать', 'За выбранный период подходящих продаж нет', 'info');
     return;
   }
-  const data = rows.map(p => ({
-    'Товар': p.title,
-    'Категория': p.category,
-    'Закупка': parseFloat(p.costPrice) || 0,
-    'Продажа': parseFloat(p.price) || 0,
-    'Прибыль': (parseFloat(p.price) || 0) - (parseFloat(p.costPrice) || 0)
+  const data = rows.map(row => ({
+    'Товар': row.title,
+    'Категория': row.category,
+    'Продано, шт': row.qtySold,
+    'Закупка': Number(row.cost.toFixed(2)),
+    'Выручка': Number(row.revenue.toFixed(2)),
+    'Прибыль': Number(row.profit.toFixed(2)),
+    '% Наценка': row.cost > 0 ? Number(((row.profit / row.cost) * 100).toFixed(1)) : '',
+    'Без закупочной цены, шт': row.qtyWithoutCost || ''
   }));
   
   const ws = XLSX.utils.json_to_sheet(data);

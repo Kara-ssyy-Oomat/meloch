@@ -2277,6 +2277,8 @@
           snap.forEach(function(doc) {
             const data = doc.data() || {};
             if (data.excludedFromAgent === true) return;
+            // Удалённый админом заказ (мягкое удаление) прибыль не приносит
+            if (data.deleted === true) return;
             const st = data.status;
             if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
             if (!dedupe.has(doc.id)) dedupe.set(doc.id, data);

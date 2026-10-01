@@ -633,6 +633,14 @@
       return arr;
     }
 
+    // Заказ учитывается в статистике: не удалён админом и не отменён.
+    // Иначе агенту начислялась бы комиссия за отменённые и удалённые заказы.
+    function orderCountsForStats(order) {
+      if (!order || order.deleted === true) return false;
+      const st = order.status;
+      return st !== 'cancelled' && st !== 'Отменён' && st !== 'Отменен';
+    }
+
     // Загрузка всех данных (лимиты для контроля Read Ops)
     async function loadAllData() {
       try {
@@ -656,6 +664,8 @@
         const clientsMap = {};
         
         ordersArr.forEach(order => {
+          // Удалённые и отменённые заказы не дают ни комиссии, ни статистики
+          if (!orderCountsForStats(order)) return;
           
           // Статистика по агентам
           let agentId = null;
@@ -667,7 +677,8 @@
             }
           }
           
-          if (agentId) {
+          // excludedFromAgent — админ вручную исключил заказ из прибыли агента
+          if (agentId && order.excludedFromAgent !== true) {
             if (!ordersByAgent[agentId]) {
               ordersByAgent[agentId] = { count: 0, total: 0 };
             }
@@ -1057,7 +1068,10 @@
         snapshot1.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
         snapshot2.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
         
-        const orders = Array.from(ordersMap.values());
+        // Те же правила, что и в карточке агента: удалённые, отменённые и
+        // исключённые вручную заказы комиссию не дают
+        const orders = Array.from(ordersMap.values())
+          .filter(o => orderCountsForStats(o) && o.excludedFromAgent !== true);
         orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         
         if (orders.length === 0) {
@@ -1463,6 +1477,12 @@
     // ===== ОБЩИЕ ФУНКЦИИ =====
     
     async function refreshData() {
+      // Сбрасываем кэш заказов: иначе кнопка «Обновить» до 30 минут
+      // показывала бы старые суммы после удаления или отмены заказа.
+      try {
+        localStorage.removeItem(_AGENTS_LS_KEY);
+        localStorage.removeItem(_AGENTS_LS_TS_KEY);
+      } catch(e) {}
       await loadAllData();
       Swal.fire({
         icon: 'success',
