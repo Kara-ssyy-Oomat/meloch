@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.52.0-fresh-stock'; // После долгого перерыва витрина перерисовывается свежими остатками с сервера, а не остаётся на кэше
+const CACHE_VERSION = 'kerben-v4.53.0-order-stock-push'; // Списание остатков заказом объявляется остальным устройствам, а не ждёт 15-минутного кэша
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

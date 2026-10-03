@@ -236,6 +236,7 @@
   <script src="js/products-cache.js?v=3"></script>
   <script src="js/box-units.js?v=1"></script>
   <script src="js/stock-deduct.js?v=5"></script>
+  <script src="js/stock-announce.js?v=1"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/persist-profile.js?v=1"></script>
   <!-- XLSX и jsPDF загружаются лениво — нужны только при отправке заказа -->
@@ -1984,6 +1985,15 @@
             } else {
               p.stock = Math.max(0, Math.floor(p.stock) - need);
             }
+          }
+        } catch (e) {}
+
+        // Выше поправлен только локальный кэш. Чтобы списание увидели и на
+        // других устройствах, объявляем изменённые товары — но после того,
+        // как сервер реально спишет (следит announceOrderStockChange).
+        try {
+          if (typeof announceOrderStockChange === 'function') {
+            announceOrderStockChange(orderRef.id, _snapshotCart.map(function (i) { return i.id; }));
           }
         } catch (e) {}
 

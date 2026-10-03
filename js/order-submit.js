@@ -717,6 +717,16 @@ document.getElementById('submitOrder').onclick = async () => {
       renderProducts();
       updateCart();
     } catch (e) {}
+
+    // Выше мы поправили остатки только у себя на экране. Чтобы их увидели
+    // и на других устройствах, объявляем изменённые товары — но после того,
+    // как сервер реально спишет (следит announceOrderStockChange).
+    try {
+      if (typeof announceOrderStockChange === 'function') {
+        announceOrderStockChange(orderRef.id, orderData.cart.map(function (i) { return i.id; }));
+      }
+    } catch (e) {}
+
     
     // Сохраняем данные пользователя (включая водителя)
     localStorage.setItem('userData', JSON.stringify({
