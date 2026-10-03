@@ -64,12 +64,44 @@
     }
   }
 
+  // Переключения сети нельзя запускать внахлёст. Быстрая череда
+  // visibilitychange/focus/blur (переключили вкладку туда-обратно) давала
+  // одновременные disableNetwork() и enableNetwork(), а встречные вызовы —
+  // известный способ уронить очередь внутри SDK с «INTERNAL ASSERTION
+  // FAILED». Поэтому выстраиваем их в одну цепочку, по одному за раз.
+  //
+  // Каждый вызов ещё и ограничен по времени: у развалившегося клиента
+  // enableNetwork() не завершается никогда и запер бы цепочку навсегда.
+  var netChain = Promise.resolve();
+  var NET_CALL_TIMEOUT_MS = 5000;
+
+  function queueNet(run) {
+    netChain = netChain.then(function () {
+      return new Promise(function (resolve) {
+        var done = false;
+        var finish = function () { if (!done) { done = true; resolve(); } };
+        setTimeout(finish, NET_CALL_TIMEOUT_MS);
+        try {
+          var p = run();
+          if (p && typeof p.then === 'function') p.then(finish, finish);
+          else finish();
+        } catch (e) {
+          finish();
+        }
+      });
+    });
+    return netChain;
+  }
+
   function disableNet() {
-    var db = getDb();
-    if (!db || networkDisabled) return;
+    if (!getDb() || networkDisabled) return;
     networkDisabled = true;
-    try {
-      db.disableNetwork()
+    queueNet(function () {
+      // Клиент берём в момент выполнения, а не постановки в очередь:
+      // пока вызов ждал своей очереди, сторож мог заменить экземпляр.
+      var db = getDb();
+      if (!db) { networkDisabled = false; return; }
+      return db.disableNetwork()
         .then(function () {
           console.log('[BackgroundPause] Firestore выключен (вкладка в фоне)');
         })
@@ -77,28 +109,26 @@
           networkDisabled = false;
           console.warn('[BackgroundPause] disableNetwork error:', err);
         });
-    } catch (e) {
-      networkDisabled = false;
-    }
+    });
   }
 
   function enableNet() {
-    var db = getDb();
-    if (!db || !networkDisabled) return;
-    var was = networkDisabled;
+    if (!getDb() || !networkDisabled) return;
     networkDisabled = false;
-    try {
-      db.enableNetwork()
+    queueNet(function () {
+      var db = getDb();
+      if (!db) { networkDisabled = true; return; }
+      return db.enableNetwork()
         .then(function () {
           console.log('[BackgroundPause] Firestore включён (вкладка активна)');
         })
         .catch(function (err) {
-          networkDisabled = was;
+          // Сеть так и осталась выключенной — возвращаем флаг, иначе
+          // следующий enableNet() решит, что всё уже поднято, и не повторит.
+          networkDisabled = true;
           console.warn('[BackgroundPause] enableNetwork error:', err);
         });
-    } catch (e) {
-      networkDisabled = was;
-    }
+    });
   }
 
   function scheduleDisable() {
@@ -167,6 +197,14 @@
       if (tries > 150) { clearInterval(poll); }
     }, 200);
   }
+
+  // Новый клиент Firestore (js/firestore-guard.js) всегда поднимается
+  // с включённой сетью. Без сброса флага мы считали бы её выключенной и
+  // при уходе вкладки в фон не стали бы разрывать соединение.
+  window.addEventListener('kerben-firestore-rebuilt', function () {
+    networkDisabled = false;
+    if (document.hidden) scheduleDisable();
+  });
 
   window.KerbenBackgroundPause = {
     isPaused: function () { return networkDisabled; },

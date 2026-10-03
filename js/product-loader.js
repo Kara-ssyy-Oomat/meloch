@@ -387,6 +387,21 @@ function startProductsRevisionListener() {
   }
 }
 
+// js/firestore-guard.js поднимает новый клиент Firestore взамен упавшего.
+// Старая подписка умерла вместе с прошлым экземпляром SDK, поэтому
+// подписываемся заново, а если витрина осталась пустой — дотягиваем товары.
+window.addEventListener('kerben-firestore-rebuilt', function () {
+  _productsRevisionUnsub = null;
+  _productsRevisionInitial = true;
+  startProductsRevisionListener();
+  // Если загрузка уже идёт, она сама повторит запрос на новом клиенте —
+  // второй параллельный запуск стоил бы лишних 5000 чтений.
+  if (_loadProductsInFlight) return;
+  if (!Array.isArray(products) || products.length === 0) {
+    loadProducts({ force: true });
+  }
+});
+
 // Параллельные вызовы loadProducts() дедуплицируются. Раньше app-init,
 // revision-listener и product-editor могли запустить по своему запросу на
 // 5000 документов одновременно: лишние Read Ops плюс гонка, из-за которой
@@ -401,9 +416,14 @@ let _loadSeq = 0;
 let _loadAppliedSeq = 0;
 
 // Жёсткий таймаут на запрос товаров. Без него зависший .get() (Firestore
-// ушёл в offline, гонка с enablePersistence, мёртвый сокет после возврата
-// из фона) оставлял витрину пустой навсегда: splash скрывался по
-// 4-секундному таймеру, а сетка так и не заполнялась.
+// ушёл в offline, гонка с enablePersistence, развалившаяся очередь SDK)
+// оставлял витрину пустой навсегда: splash скрывался по 4-секундному
+// таймеру, а сетка так и не заполнялась.
+//
+// Укорачивать его нельзя: 5000 товаров на медленном 3G честно едут дольше
+// десяти секунд, и преждевременный повтор означал бы второй платный запрос
+// на всю коллекцию. Сломанный клиент мы и так узнаём мгновенно — он падает
+// синхронно, не дожидаясь таймаута (см. _clientLooksDead).
 const PRODUCTS_GET_TIMEOUT_MS = 15000;
 
 // Сколько раз пользователю разрешено перезапустить загрузку кнопкой
@@ -411,21 +431,58 @@ const PRODUCTS_GET_TIMEOUT_MS = 15000;
 const _STALLED_MANUAL_RETRY_LIMIT = 3;
 let _stalledManualRetries = 0;
 
-function _getProductsSnapshotWithTimeout() {
+// Промис Firestore может не завершиться НИКОГДА: после падения SDK его
+// очередь отдаёт вечно-pending промис вместо результата. Поэтому всё, чего
+// мы ждём по пути к отрисовке витрины, ограничиваем по времени.
+// Принимает функцию, а не готовый промис: запрос может бросить и синхронно.
+function _withDeadline(start, ms, code) {
+  let source;
+  try {
+    source = Promise.resolve(start());
+  } catch (e) {
+    return Promise.reject(e);
+  }
   return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      const err = new Error('Firestore не ответил за ' + PRODUCTS_GET_TIMEOUT_MS + ' мс');
-      err.code = 'deadline-exceeded';
+      const err = new Error('Firestore не ответил за ' + ms + ' мс');
+      err.code = code || 'deadline-exceeded';
       reject(err);
-    }, PRODUCTS_GET_TIMEOUT_MS);
-    db.collection('products').limit(5000).get().then(
-      (snap) => { if (settled) return; settled = true; clearTimeout(timer); resolve(snap); },
+    }, ms);
+    source.then(
+      (value) => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); },
       (err) => { if (settled) return; settled = true; clearTimeout(timer); reject(err); }
     );
   });
+}
+
+function _getProductsSnapshotWithTimeout() {
+  return _withDeadline(
+    () => db.collection('products').limit(5000).get(),
+    PRODUCTS_GET_TIMEOUT_MS
+  );
+}
+
+// Сторож уже видел падение клиента — значит запрос гарантированно не дойдёт.
+function _clientLooksDead() {
+  const guard = window.KerbenFirestoreGuard;
+  return !!(guard && guard.isBroken());
+}
+
+// Подготовка к повторной попытке.
+// enableNetwork() чинит только «уснувшую» сеть. Если очередь внутри SDK
+// развалилась («INTERNAL ASSERTION FAILED»), он не поможет — больше того,
+// сам повиснет навсегда и остановит цикл повторов. Поэтому сначала даём
+// сторожу поднять новый клиент, и только потом трогаем сеть, с таймаутом.
+async function _reviveFirestore(error) {
+  const guard = window.KerbenFirestoreGuard;
+  if (guard) {
+    try { if (error) guard.reportCrash(error); } catch (_) {}
+    try { await guard.ensureUsable(); } catch (_) {}
+  }
+  try { await _withDeadline(() => db.enableNetwork(), 3000); } catch (_) {}
 }
 
 // Загрузка товаров с мгновенным отображением из localStorage.
@@ -566,16 +623,20 @@ function _restoreFetchProducts() {
 // Возврат на главную из профиля/корзины: сразу рисуем то, что уже есть
 // (RAM / localStorage), и только если кэша нет — идём в сеть заново.
 function restoreStorefront() {
-  try {
-    if (window.KerbenBackgroundPause && typeof KerbenBackgroundPause.resumeNow === 'function') {
-      KerbenBackgroundPause.resumeNow();
-    }
-  } catch (e) {}
-  try {
-    if (typeof db !== 'undefined' && db && typeof db.enableNetwork === 'function') {
-      db.enableNetwork().catch(function () {});
-    }
-  } catch (e) {}
+  // Сетью распоряжается background-pause — он выстраивает enableNetwork/
+  // disableNetwork в одну очередь. Свой параллельный enableNetwork() здесь
+  // сталкивался с его вызовами, а встречные переключения сети роняют
+  // очередь SDK. Дёргаем напрямую только если модуля на странице нет.
+  var pause = window.KerbenBackgroundPause;
+  if (pause && typeof pause.resumeNow === 'function') {
+    try { pause.resumeNow(); } catch (e) {}
+  } else {
+    try {
+      if (typeof db !== 'undefined' && db && typeof db.enableNetwork === 'function') {
+        db.enableNetwork().catch(function () {});
+      }
+    } catch (e) {}
+  }
 
   if (Array.isArray(products) && products.length > 0) {
     productsReady = true;
@@ -758,6 +819,9 @@ async function _loadProductsCore() {
             await _waitForFirebaseUser(6000);
           }
         } catch (_) {}
+        // Клиент мог развалиться, пока мы ждали auth или persistence:
+        // запрос на нём просто сожжёт попытку, лучше сразу взять новый.
+        if (_clientLooksDead()) await _reviveFirestore();
         snapshot = await _getProductsSnapshotWithTimeout();
         break; // успех
       } catch (e) {
@@ -766,13 +830,16 @@ async function _loadProductsCore() {
         const msg = e && e.message ? e.message : '';
         const isPerm = code === 'permission-denied'
                     || /permission|insufficient/i.test(msg);
-        // Зависший или оборванный запрос: чаще всего Firestore остался в
-        // offline после ухода вкладки в фон. Поднимаем сеть и пробуем снова.
-        const isStalled = code === 'deadline-exceeded' || code === 'unavailable';
+        // Зависший или оборванный запрос: Firestore остался в offline после
+        // ухода вкладки в фон — либо клиент SDK развалился целиком. И то,
+        // и другое лечится в _reviveFirestore().
+        const isStalled = code === 'deadline-exceeded'
+                       || code === 'unavailable'
+                       || /INTERNAL ASSERTION FAILED/.test(msg);
         if (isStalled && _attempt < MAX_ATTEMPTS) {
           console.warn('[Products] запрос не дошёл (' + (code || msg) + '), попытка',
-            _attempt, '— включаю сеть и пробую ещё раз');
-          try { await db.enableNetwork(); } catch (_) {}
+            _attempt, '— восстанавливаю соединение и пробую ещё раз');
+          await _reviveFirestore(e);
           await new Promise(r => setTimeout(r, 400 * _attempt));
           continue;
         }
@@ -829,8 +896,21 @@ async function _loadProductsCore() {
     
     // Запоминаем старое значение флага (из localStorage) перед обновлением с Firebase
     const pausedBeforeFirebase = warehousePaused;
-    // Дождёмся загрузки флага паузы перед финальным рендером
-    await pausePromise;
+    // Дождёмся загрузки флага паузы перед финальным рендером — но не дольше
+    // пяти секунд. Товары уже получены, и если этот запрос повис (сломанный
+    // клиент SDK), держать из-за него пустой экран нельзя: значения флагов
+    // всё равно есть в localStorage.
+    try {
+      await _withDeadline(() => pausePromise, 5000);
+    } catch (_) {
+      // Не дождались — рисуем по локальным флагам, но если ответ всё-таки
+      // придёт и остатки окажутся другими, перерисуем ещё раз.
+      const pausedOnScreen = warehousePaused;
+      pausePromise.then(function () {
+        if (pausedOnScreen !== warehousePaused) renderProducts();
+        if (typeof updateCart === 'function') updateCart();
+      }, function () {});
+    }
     
     // Перерисовываем — данные или флаг паузы могли измениться
     if (showedFromCache) {
@@ -848,8 +928,10 @@ async function _loadProductsCore() {
     // Скрываем splash если ещё не скрыт (для случая без кэша)
     hideSplashScreen();
     
-    // Загружаем кэш категорий продавцов
-    await loadSellerCategoriesCache();
+    // Загружаем кэш категорий продавцов. Витрина уже отрисована, поэтому
+    // ждём недолго — иначе зависший запрос не даёт loadProducts() завершиться
+    // и обрывает всё, что app-init делает после неё (корзина, избранное).
+    try { await _withDeadline(() => loadSellerCategoriesCache(), 8000); } catch (_) {}
   } catch (error) {
     console.error('Error loading products:', error);
     const code = error && error.code ? error.code : '';
@@ -913,7 +995,8 @@ async function _loadProductsCore() {
           '</div>',
         confirmButtonColor: '#dc3545'
       });
-    } else if (code === 'deadline-exceeded' || code === 'unavailable') {
+    } else if (code === 'deadline-exceeded' || code === 'unavailable'
+               || /INTERNAL ASSERTION FAILED/.test(msg)) {
       // Ручной повтор. Перезапускаем ТОЛЬКО по явному нажатию кнопки и не
       // больше _stalledRetryLimit раз — иначе при закрытии диалога по Esc
       // или при отсутствии сети получался бесконечный цикл перезапусков.
@@ -931,7 +1014,8 @@ async function _loadProductsCore() {
       }).then((res) => {
         if (canRetry && res && res.isConfirmed) {
           _stalledManualRetries++;
-          loadProducts({ force: true });
+          // Повтор на том же сломанном клиенте упёрся бы в тот же таймаут.
+          _reviveFirestore().then(() => loadProducts({ force: true }));
         }
       });
     } else {

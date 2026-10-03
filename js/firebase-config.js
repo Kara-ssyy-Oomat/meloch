@@ -29,7 +29,15 @@ function initFirebase() {
     // После первой загрузки документа SDK будет отдавать его из локального
     // IndexedDB, не списывая Read из платного плана. Сильно снижает расход
     // у постоянных посетителей и вернувшихся клиентов.
-    // synchronizeTabs = true — кэш разделяется между вкладками одного клиента.
+    //
+    // БЕЗ synchronizeTabs. Общий на все вкладки кэш (multi-tab persistence)
+    // — главный источник падений «INTERNAL ASSERTION FAILED: Unexpected
+    // state»: вкладки делят один IndexedDB и перехватывают друг у друга
+    // primary-lease, а любая гонка там роняет очередь SDK насмерть. У
+    // клиента с 5-10 открытыми вкладками сайта это случалось регулярно,
+    // и витрина оставалась пустой. Теперь IndexedDB-кэш достаётся первой
+    // вкладке, остальные получают failed-precondition и работают из
+    // localStorage-кэша товаров — читается он так же мгновенно.
     //
     // ВАЖНО: enablePersistence нельзя вызывать параллельно с .get()/onSnapshot —
     // запросы, стартовавшие пока persistence ещё поднимается, у Firebase
@@ -44,11 +52,11 @@ function initFirebase() {
     window._kerbenPersistenceReady = Promise.resolve();
     if (!window.KERBEN_SKIP_PERSISTENCE && !_framed) {
       try {
-        window._kerbenPersistenceReady = db.enablePersistence({ synchronizeTabs: true })
+        window._kerbenPersistenceReady = db.enablePersistence()
           .then(() => console.log('🗃️ Firestore offline-cache включён (IndexedDB)'))
           .catch((err) => {
             if (err && err.code === 'failed-precondition') {
-              console.log('🗃️ Offline-cache: открыто несколько вкладок без synchronizeTabs');
+              console.log('🗃️ Offline-cache занят другой вкладкой — работаем из localStorage');
             } else if (err && err.code === 'unimplemented') {
               console.log('🗃️ Offline-cache: браузер не поддерживает IndexedDB');
             }
@@ -87,6 +95,46 @@ function initFirebase() {
     Swal.fire('Ошибка', 'Ошибка инициализации Firebase: ' + error.message, 'error');
   }
 }
+
+// Поднять новый клиент Firestore взамен развалившегося.
+//
+// После «INTERNAL ASSERTION FAILED» очередь внутри SDK остаётся
+// с rejected-хвостом: любой следующий запрос либо отваливается, либо
+// висит вечно. Лечения нет — экземпляр надо выбросить целиком.
+//
+// terminate() в compat-сборке сначала убирает сервис из приложения и
+// только потом гасит очередь, поэтому следующий firebase.firestore()
+// отдаёт уже чистый клиент. Приложение то же самое — значит анонимная
+// или админская сессия остаётся на месте и правила Firestore не начнут
+// отвечать permission-denied.
+//
+// Новый клиент поднимаем БЕЗ persistence: IndexedDB — главный источник
+// таких падений, а товары у нас и так кэшируются в localStorage.
+//
+// Вызывается из js/firestore-guard.js.
+window.kerbenRebuildFirestore = function () {
+  if (typeof firebase === 'undefined' || !firebase.firestore) {
+    return Promise.resolve(false);
+  }
+  try {
+    if (db && typeof db.terminate === 'function') {
+      var closing = db.terminate();
+      if (closing && typeof closing.catch === 'function') closing.catch(function () {});
+    }
+  } catch (e) {
+    // terminate() на сломанной очереди может бросить синхронно — не важно,
+    // сервис из приложения он снимает до этого.
+  }
+  try {
+    db = firebase.firestore();
+    window._kerbenPersistenceReady = Promise.resolve();
+    console.warn('[Firebase] клиент Firestore пересоздан (offline-кэш выключен)');
+    return Promise.resolve(true);
+  } catch (e) {
+    console.error('[Firebase] не удалось пересоздать Firestore:', e);
+    return Promise.resolve(false);
+  }
+};
 
 // ОПТИМИЗАЦИЯ COSTS: вместо постоянного onSnapshot — лёгкая разовая проверка
 // непрочитанных сообщений. Запускается:

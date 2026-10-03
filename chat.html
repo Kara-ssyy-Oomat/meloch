@@ -161,13 +161,14 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/firestore-guard.js?v=1"></script>
   <script src="js/auth.js?v=3"></script>
   <script src="js/admin-reauth.js?v=3"></script>
   <script src="js/pending-orders.js?v=2"></script>
   <!-- Чат — даём больше времени до отключения (10 мин) чтобы не рвать live-обновления при кратком переключении -->
   <script>window.KERBEN_BACKGROUND = { graceMs: 600000 };</script>
   <script src="js/bot-blocker.js?v=2"></script>
-  <script src="js/background-pause.js?v=3"></script>
+  <script src="js/background-pause.js?v=4"></script>
   <script src="js/products-cache.js?v=3"></script>
 </head>
 
@@ -220,14 +221,23 @@
     };
     
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    // let, а не const: js/firestore-guard.js заменяет клиент целиком, когда
+    // SDK падает с «INTERNAL ASSERTION FAILED» — на старом экземпляре
+    // переписка уже не загрузится и не отправится.
+    let db = firebase.firestore();
+    window.addEventListener('kerben-firestore-rebuilt', function () {
+      db = firebase.firestore();
+    });
     // ОПТИМИЗАЦИЯ COSTS: оффлайн-кэш Firestore (бесплатные чтения из IndexedDB).
     // Только когда страница открыта сама по себе. В iframe поверх index.html
     // persistence поднимать НЕЛЬЗЯ: клиенты делят один IndexedDB, и запуск
     // persistence здесь завешивал .get(), уже стартовавший на главной, —
     // из-за этого товары не появлялись. Кэш уже поднят родительской страницей.
+    //
+    // Без synchronizeTabs — см. js/firebase-config.js: общий на все вкладки
+    // кэш роняет SDK с «INTERNAL ASSERTION FAILED: Unexpected state».
     if (window.parent === window) {
-      try { db.enablePersistence({ synchronizeTabs: true }).catch(()=>{}); } catch(e) {}
+      try { db.enablePersistence().catch(()=>{}); } catch(e) {}
     }
     
     let clientId = localStorage.getItem('chatClientId');
