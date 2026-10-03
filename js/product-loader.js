@@ -57,8 +57,13 @@ const LS_PAUSED_WH_IDS_KEY = 'pausedWarehouseIds';
 let hideOutOfStockForClients = false;
 const LS_HIDE_OOS_KEY = 'hideOutOfStockForClients';
 
-// ID главного склада (для отображения остатков на карточках)
+// ID главного склада. Он нужен ДО первой отрисовки: пока его нет,
+// _sellableQtyFromWarehouseStock складывает все склады вместо того, чтобы
+// взять только главный, и витрина показывает завышенный остаток. Поэтому
+// держим его в localStorage — в том же ключе, что и cart.html, чтобы
+// витрина и корзина считали остаток от одного и того же склада.
 let primaryWarehouseId = '';
+const LS_WH_SETTINGS_KEY = 'cartWhSettings';
 
 // Минимальная сумма заказа
 let minOrderAmount = 0;
@@ -68,6 +73,10 @@ const LS_MIN_ORDER_KEY = 'minOrderSettings';
 // Загрузка флага паузы складов (кэшируется в localStorage для мгновенного чтения)
 function loadWarehousePausedFromLS() {
   try { warehousePaused = localStorage.getItem(LS_WH_PAUSED_KEY) === '1'; } catch(e) {}
+  try {
+    const wh = JSON.parse(localStorage.getItem(LS_WH_SETTINGS_KEY) || 'null');
+    primaryWarehouseId = (wh && wh.primaryWarehouseId) || '';
+  } catch(e) { primaryWarehouseId = ''; }
   try {
     const raw = localStorage.getItem(LS_PAUSED_WH_IDS_KEY);
     pausedWarehouseIds = raw ? new Set(JSON.parse(raw)) : new Set();
@@ -84,13 +93,20 @@ async function loadWarehousePausedFlag() {
     const doc = await db.collection('settings').doc('warehouse').get();
     const data = doc.exists ? doc.data() : {};
     warehousePaused = data.paused === true;
-    if (data.primaryWarehouseId) {
-      primaryWarehouseId = data.primaryWarehouseId;
-    }
+    // Присваиваем всегда, в том числе пустую строку: админ может снять
+    // отметку «главный» (admin-warehouse.html пишет туда ''), и тогда
+    // остаток снова считается суммой активных складов. Раньше условие
+    // `if (data.primaryWarehouseId)` оставляло у клиентов прежний склад.
+    primaryWarehouseId = String(data.primaryWarehouseId || '');
     // НОВОЕ: скрывать oos от клиентов
     hideOutOfStockForClients = data.hideOutOfStockForClients === true;
     try { localStorage.setItem(LS_WH_PAUSED_KEY, warehousePaused ? '1' : '0'); } catch(e) {}
     try { localStorage.setItem(LS_HIDE_OOS_KEY, hideOutOfStockForClients ? '1' : '0'); } catch(e) {}
+    try {
+      localStorage.setItem(LS_WH_SETTINGS_KEY, JSON.stringify({
+        primaryWarehouseId: primaryWarehouseId, paused: warehousePaused
+      }));
+    } catch(e) {}
   } catch(e) { /* при ошибке сети оставляем значение из localStorage */ }
   // Загружаем индивидуально приостановленные склады
   try {
@@ -121,6 +137,22 @@ async function loadWarehousePausedFlag() {
       minOrderEnabled = cached.enabled === true;
     } catch(e2) {}
   }
+}
+
+// Слепок всех настроек, от которых зависит показанный остаток: главный
+// склад, общая пауза, список приостановленных складов и скрытие «нет в
+// наличии». Настройки приходят с сервера позже первой отрисовки, поэтому
+// сравниваем слепок до и после — и перерисовываем, если остатки на
+// карточках стали бы другими. Раньше проверяли только флаг паузы, и
+// подъехавший позже главный склад на витрину уже не попадал.
+function _warehouseSettingsSignature() {
+  const paused = [...pausedWarehouseIds].sort().join(',');
+  return [
+    primaryWarehouseId,
+    warehousePaused ? '1' : '0',
+    hideOutOfStockForClients ? '1' : '0',
+    paused
+  ].join('|');
 }
 
 // Стабильная функция сравнения товаров по позиции.
@@ -696,17 +728,13 @@ async function _loadProductsCore() {
       productsReady = true;
       renderProducts();
       hideSplashScreen();
-      // Обновляем флаг с сервера в фоне и перерисовываем если изменился
-      const pausedBefore = warehousePaused;
-      const pausedIdsBefore = new Set(pausedWarehouseIds);
+      // Обновляем настройки склада с сервера в фоне и перерисовываем,
+      // если от этого поменяются остатки на карточках.
+      const whBefore = _warehouseSettingsSignature();
       const minOrderBefore = minOrderEnabled;
       const minOrderAmountBefore = minOrderAmount;
       loadWarehousePausedFlag().then(() => {
-        if (pausedBefore !== warehousePaused ||
-            pausedIdsBefore.size !== pausedWarehouseIds.size ||
-            [...pausedWarehouseIds].some(id => !pausedIdsBefore.has(id))) {
-          renderProducts();
-        }
+        if (whBefore !== _warehouseSettingsSignature()) renderProducts();
         // Обновляем корзину если настройки минимальной суммы изменились
         if (minOrderBefore !== minOrderEnabled || minOrderAmountBefore !== minOrderAmount) {
           if (typeof updateCart === 'function') updateCart();
@@ -745,7 +773,11 @@ async function _loadProductsCore() {
     if (showedFromCache && lsAgeMs < FRESH_DURATION) {
       // Только проверим флаг паузы складов и настройки минимального заказа
       // (это дешёво — 1-3 doc reads, и нужно для корректного UI).
+      // Товары уже на экране, посчитанные по настройкам из localStorage;
+      // если с сервера приехали другие — пересчитываем остатки.
+      const whBefore = _warehouseSettingsSignature();
       loadWarehousePausedFlag().then(() => {
+        if (whBefore !== _warehouseSettingsSignature()) renderProducts();
         if (typeof updateCart === 'function') updateCart();
       });
       // Догружаем категории продавцов, если ещё не кэшированы
@@ -894,28 +926,28 @@ async function _loadProductsCore() {
 
     productsReady = true;
     
-    // Запоминаем старое значение флага (из localStorage) перед обновлением с Firebase
-    const pausedBeforeFirebase = warehousePaused;
-    // Дождёмся загрузки флага паузы перед финальным рендером — но не дольше
-    // пяти секунд. Товары уже получены, и если этот запрос повис (сломанный
-    // клиент SDK), держать из-за него пустой экран нельзя: значения флагов
-    // всё равно есть в localStorage.
+    // Запоминаем настройки склада (из localStorage) перед обновлением с Firebase
+    const whBeforeFirebase = _warehouseSettingsSignature();
+    // Дождёмся загрузки настроек склада перед финальным рендером — но не
+    // дольше пяти секунд. Товары уже получены, и если этот запрос повис
+    // (сломанный клиент SDK), держать из-за него пустой экран нельзя:
+    // настройки всё равно есть в localStorage.
     try {
       await _withDeadline(() => pausePromise, 5000);
     } catch (_) {
-      // Не дождались — рисуем по локальным флагам, но если ответ всё-таки
-      // придёт и остатки окажутся другими, перерисуем ещё раз.
-      const pausedOnScreen = warehousePaused;
+      // Не дождались — рисуем по локальным настройкам, но когда ответ
+      // всё-таки придёт, пересчитаем остатки, если они стали другими.
+      const whOnScreen = _warehouseSettingsSignature();
       pausePromise.then(function () {
-        if (pausedOnScreen !== warehousePaused) renderProducts();
+        if (whOnScreen !== _warehouseSettingsSignature()) renderProducts();
         if (typeof updateCart === 'function') updateCart();
       }, function () {});
     }
     
-    // Перерисовываем — данные или флаг паузы могли измениться
+    // Перерисовываем — состав товаров или настройки склада могли измениться
     if (showedFromCache) {
       const oldCount = (productsCache.length || 0);
-      if (oldCount !== products.length || pausedBeforeFirebase !== warehousePaused) {
+      if (oldCount !== products.length || whBeforeFirebase !== _warehouseSettingsSignature()) {
         renderProducts();
       }
     } else {

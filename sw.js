@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.51.0-firestore-guard'; // Лечим падение клиента Firestore «INTERNAL ASSERTION FAILED», из-за которого витрина иногда открывалась пустой
+const CACHE_VERSION = 'kerben-v4.51.1-primary-warehouse'; // Витрина считает остаток от главного склада с первой отрисовки, а не суммой всех складов
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
