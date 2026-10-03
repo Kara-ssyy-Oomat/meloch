@@ -88,7 +88,11 @@ function loadWarehousePausedFromLS() {
     minOrderEnabled = cached.enabled === true;
   } catch(e) {}
 }
+// Возвращает true, если настройки склада реально прочитались с сервера.
+// Это важно знать вызывающему: без primaryWarehouseId остаток считается
+// суммой всех складов вместо главного, и такую загрузку надо повторить.
 async function loadWarehousePausedFlag() {
+  let settingsRead = false;
   try {
     const doc = await db.collection('settings').doc('warehouse').get();
     const data = doc.exists ? doc.data() : {};
@@ -107,6 +111,7 @@ async function loadWarehousePausedFlag() {
         primaryWarehouseId: primaryWarehouseId, paused: warehousePaused
       }));
     } catch(e) {}
+    settingsRead = true;
   } catch(e) { /* при ошибке сети оставляем значение из localStorage */ }
   // Загружаем индивидуально приостановленные склады
   try {
@@ -114,7 +119,12 @@ async function loadWarehousePausedFlag() {
     pausedWarehouseIds = new Set();
     whSnap.forEach(d => pausedWarehouseIds.add(d.id));
     try { localStorage.setItem(LS_PAUSED_WH_IDS_KEY, JSON.stringify([...pausedWarehouseIds])); } catch(e) {}
-  } catch(e) { pausedWarehouseIds = new Set(); }
+  } catch(e) {
+    // Список не доехал — оставляем тот, что подняли из localStorage.
+    // Обнуление здесь делало приостановленные склады «активными», и их
+    // остаток попадал в доступное количество.
+    settingsRead = false;
+  }
   // Загружаем минимальную сумму заказа
   try {
     const moDoc = await db.collection('settings').doc('minOrder').get();
@@ -137,6 +147,7 @@ async function loadWarehousePausedFlag() {
       minOrderEnabled = cached.enabled === true;
     } catch(e2) {}
   }
+  return settingsRead;
 }
 
 // Слепок всех настроек, от которых зависит показанный остаток: главный
@@ -153,6 +164,38 @@ function _warehouseSettingsSignature() {
     hideOutOfStockForClients ? '1' : '0',
     paused
   ].join('|');
+}
+
+// Отпечаток того, что СЕЙЧАС нарисовано на витрине. Нужен, чтобы после
+// ответа сервера понять, изменилось ли хоть что-то видимое.
+//
+// Раньше здесь сравнивалось только количество товаров — и сравнивалось
+// с уже перезаписанным массивом, то есть всегда само с собой. Из-за этого
+// витрина, нарисованная из кэша, не перерисовывалась НИКОГДА: свежие
+// данные с сервера молча ложились в память, а покупатель до конца визита
+// смотрел на старые остатки.
+//
+// Считаем числовым хэшем, а не строкой: при 5000 товаров склейка строки
+// съела бы несколько мегабайт на ровном месте.
+function _productsRenderHash(list) {
+  if (!Array.isArray(list)) return '0';
+  let h = 5381;
+  const mix = function (value) {
+    const s = (value === undefined || value === null) ? '' : String(value);
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    h = (h ^ 0x9e3779b9) | 0;
+  };
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i] || {};
+    mix(p.id); mix(p.title); mix(p.price); mix(p.optPrice); mix(p.oldPrice);
+    mix(p.stock); mix(p.minQty); mix(p.blocked ? 1 : 0); mix(p.image);
+    const ws = p.warehouseStock;
+    if (ws && typeof ws === 'object') {
+      const keys = Object.keys(ws).sort();
+      for (let k = 0; k < keys.length; k++) { mix(keys[k]); mix(ws[keys[k]]); }
+    }
+  }
+  return list.length + ':' + h;
 }
 
 // Стабильная функция сравнения товаров по позиции.
@@ -748,6 +791,7 @@ async function _loadProductsCore() {
     // пустой экран. Если кэш старее LS_CACHE_DURATION — всё равно
     // покажем, но дальше пойдём в Firestore за свежими данными.
     let showedFromCache = false;
+    let shownHash = '';
     let lsAgeMs = Infinity;
     try {
       const lsTime = parseInt(localStorage.getItem(LS_PRODUCTS_TIME_KEY) || '0');
@@ -759,6 +803,7 @@ async function _loadProductsCore() {
         productsReady = true;
         renderProducts();
         showedFromCache = true;
+        shownHash = _productsRenderHash(products);
         hideSplashScreen();
         productsCache = lsProducts;
         productsCacheTime = now - Math.min(lsAgeMs, CACHE_DURATION);
@@ -933,7 +978,14 @@ async function _loadProductsCore() {
     // (сломанный клиент SDK), держать из-за него пустой экран нельзя:
     // настройки всё равно есть в localStorage.
     try {
-      await _withDeadline(() => pausePromise, 5000);
+      const settingsRead = await _withDeadline(() => pausePromise, 5000);
+      // Настройки грузятся параллельно с товарами, поэтому они могли упасть
+      // на том клиенте Firestore, который мы потом заменили из-за сбоя SDK.
+      // Без них неизвестен главный склад, и остаток показывается суммой всех
+      // складов вместо одного. Повторяем запрос на живом клиенте.
+      if (settingsRead === false) {
+        try { await _withDeadline(() => loadWarehousePausedFlag(), 5000); } catch (_) {}
+      }
     } catch (_) {
       // Не дождались — рисуем по локальным настройкам, но когда ответ
       // всё-таки придёт, пересчитаем остатки, если они стали другими.
@@ -944,10 +996,14 @@ async function _loadProductsCore() {
       }, function () {});
     }
     
-    // Перерисовываем — состав товаров или настройки склада могли измениться
+    // Перерисовываем, если с сервера приехало хоть что-то отличное от
+    // нарисованного: другие остатки, цены, состав товаров или настройки
+    // склада. Это и есть «открыл сайт — вижу свежие остатки»: кэш
+    // показывается мгновенно, а через секунду его сменяют данные сервера.
     if (showedFromCache) {
-      const oldCount = (productsCache.length || 0);
-      if (oldCount !== products.length || whBeforeFirebase !== _warehouseSettingsSignature()) {
+      const freshHash = _productsRenderHash(products);
+      if (freshHash !== shownHash || whBeforeFirebase !== _warehouseSettingsSignature()) {
+        console.log('[Products] данные на сервере отличаются от кэша — обновляю витрину');
         renderProducts();
       }
     } else {
