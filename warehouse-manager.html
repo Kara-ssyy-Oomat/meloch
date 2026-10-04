@@ -666,6 +666,7 @@
     <div style="display:flex; gap:8px; align-items:center; padding-bottom:12px; flex-wrap:wrap;">
       <span style="font-size:12px; color:#666;">Сортировка:</span>
       <select class="sort-select" id="wmSort" onchange="rerenderProducts()">
+        <option value="site">Как на сайте</option>
         <option value="name">По названию</option>
         <option value="stock-asc">Остаток: сначала мало</option>
         <option value="stock-desc">Остаток: сначала много</option>
@@ -1194,6 +1195,24 @@ function computeEffectiveStock(product) {
   return Math.max(0, Math.floor(s));
 }
 
+// Порядок товаров как на витрине. Повторяет _stableProductOrderCompare из
+// js/product-loader.js: сначала поле order (товары без него — в конец), при
+// равных — время создания, затем id. Если менять там — поправить и здесь,
+// иначе склад и сайт разойдутся местами товаров.
+function siteOrderCompare(a, b) {
+  const ao = (typeof a.order === 'number' && isFinite(a.order)) ? a.order : Number.MAX_SAFE_INTEGER;
+  const bo = (typeof b.order === 'number' && isFinite(b.order)) ? b.order : Number.MAX_SAFE_INTEGER;
+  if (ao !== bo) return ao - bo;
+  const ac = (typeof a.createdAt === 'number') ? a.createdAt : 0;
+  const bc = (typeof b.createdAt === 'number') ? b.createdAt : 0;
+  if (ac !== bc) return ac - bc;
+  const aid = a.id || '';
+  const bid = b.id || '';
+  if (aid < bid) return -1;
+  if (aid > bid) return 1;
+  return 0;
+}
+
 function rerenderProducts() {
   const q = (document.getElementById('wmSearch').value || '').trim().toLowerCase();
   const cat = _wmCurrentCat;
@@ -1213,6 +1232,9 @@ function rerenderProducts() {
   }
 
   list.sort(function (a, b) {
+    if (sortMode === 'site') {
+      return siteOrderCompare(a, b);
+    }
     if (sortMode === 'stock-asc') {
       return computeEffectiveStock(a) - computeEffectiveStock(b);
     }
