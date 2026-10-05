@@ -43,7 +43,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- XLSX больше не нужен: выгрузка идёт в PDF, а jsPDF грузится по требованию -->
   <script src="js/auth.js?v=3"></script>
   <script src="js/admin-reauth.js?v=3"></script>
   <script src="js/bot-blocker.js?v=2"></script>
@@ -555,7 +555,7 @@
           <option value="name">По названию</option>
         </select>
         <button class="btn-blue" onclick="refreshProfitReport('products')">🔄 Обновить</button>
-        <button class="btn-green" onclick="exportProfitToExcel()">📥 Excel</button>
+        <button class="btn-green" onclick="exportProfitToPDF()">📄 PDF с фото</button>
       </div>
       <div class="date-range-row" id="productsCustomDateRange">
         <label>📅 От:</label>
@@ -1213,6 +1213,9 @@ function aggregateProductSales(orders, startDate, endDate) {
           // Категорию берём из каталога — там она актуальная и совпадает
           // со списком в фильтре; в заказе может лежать старая
           category: (product && product.category) || item.category || '-',
+          // Фото нужно для выгрузки в PDF; в заказе оно есть даже у товаров,
+          // которых уже нет в каталоге
+          image: (product && product.image) || item.image || '',
           qtySold: 0,
           revenue: 0,
           cost: 0,
@@ -2432,29 +2435,302 @@ async function deleteAllExpensesForPeriod() {
   }
 }
 
-// ============ ЭКСПОРТ В EXCEL ============
-function exportProfitToExcel() {
-  // Выгружаем ровно то, что сейчас показано в таблице (период + поиск + категория + сортировка)
+// ============ ЭКСПОРТ В PDF С ФОТО ============
+// Файл делается для отправки наружу: в нём только фото, название и
+// проданное количество. Закупка, выручка и прибыль в PDF не попадают.
+
+// jsPDF нужен только при выгрузке — грузим по требованию, как в корзине и профиле
+let _jsPdfLoading = null;
+function ensureJsPdf() {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+  if (!_jsPdfLoading) {
+    _jsPdfLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = resolve;
+      s.onerror = () => { _jsPdfLoading = null; reject(new Error('Не удалось загрузить библиотеку PDF')); };
+      document.head.appendChild(s);
+    });
+  }
+  return _jsPdfLoading;
+}
+
+// Просим у Cloudinary картинку поменьше — она грузится быстрее оригинала
+function getSmallImageUrl(url, width, quality) {
+  if (!url || typeof url !== 'string') return url;
+  try {
+    if (url.includes('cloudinary.com') && url.includes('/upload/')) {
+      const cleanUrl = url.replace(/\/upload\/[a-z][a-z0-9_,]+\//, '/upload/');
+      return cleanUrl.replace('/upload/', '/upload/w_' + width + ',q_' + quality + ',f_jpg/');
+    }
+  } catch (e) {}
+  return url;
+}
+
+// Грузим через <img> с crossOrigin: fetch на эти домены упирается в CORS
+function loadImageToBase64(url, timeoutMs) {
+  return new Promise(resolve => {
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(null); } }, timeoutMs || 8000);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth || img.width;
+        c.height = img.naturalHeight || img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        resolve(c.toDataURL('image/jpeg', 0.92));
+      } catch (e) {
+        // canvas tainted — значит сервер не отдал CORS-заголовки
+        resolve(null);
+      }
+    };
+    img.onerror = () => { if (!done) { done = true; clearTimeout(timer); resolve(null); } };
+    img.src = url;
+  });
+}
+
+// Три попытки: Cloudinary → прокси wsrv.nl → оригинал
+async function loadProductPhoto(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('http')) return null;
+
+  let result = await loadImageToBase64(getSmallImageUrl(imageUrl, 500, 90), 8000);
+  if (result) return result;
+
+  result = await loadImageToBase64('https://wsrv.nl/?url=' + encodeURIComponent(imageUrl) + '&w=500&q=90&output=jpg', 8000);
+  if (result) return result;
+
+  return await loadImageToBase64(imageUrl, 8000);
+}
+
+// Качаем фото пачками: по одному 200 товаров ждать слишком долго
+async function loadPhotosWithLimit(rows, limit, onProgress) {
+  const photos = new Array(rows.length).fill(null);
+  let next = 0;
+  let done = 0;
+  async function worker() {
+    while (next < rows.length) {
+      const i = next++;
+      photos[i] = await loadProductPhoto(rows[i].image);
+      onProgress(++done);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, rows.length) }, worker));
+  return photos;
+}
+
+function dataUrlToImage(dataUrl) {
+  return new Promise(resolve => {
+    if (!dataUrl) return resolve(null);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
+// Кириллица во встроенных шрифтах jsPDF не поддерживается, поэтому
+// весь текст рисуем на canvas и вставляем в PDF картинкой.
+function wrapCanvasText(ctx, text, maxWidth, maxLines) {
+  const words = String(text == null ? '' : text).trim().split(/\s+/);
+  const lines = [];
+  let line = '';
+
+  words.forEach(word => {
+    const candidate = line ? line + ' ' + word : word;
+    if (!line || ctx.measureText(candidate).width <= maxWidth) {
+      line = candidate;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  });
+  if (line) lines.push(line);
+
+  const clipped = lines.slice(0, maxLines).map(l => {
+    let s = l;
+    while (s.length > 1 && ctx.measureText(s).width > maxWidth) s = s.slice(0, -1);
+    return s === l ? l : s + '…';
+  });
+  if (lines.length > maxLines) {
+    let last = clipped[maxLines - 1];
+    while (last.length > 1 && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1);
+    clipped[maxLines - 1] = last + '…';
+  }
+  return clipped;
+}
+
+// Подпись периода для шапки PDF
+function getProductsPeriodLabel() {
+  const sel = document.getElementById('productsDateFilter');
+  if (!sel) return '';
+  if (sel.value === 'custom') {
+    const from = parseDateInputStart(document.getElementById('productsDateFrom').value);
+    const to = parseDateInputStart(document.getElementById('productsDateTo').value);
+    if (from && to) {
+      const fromStr = from.toLocaleDateString('ru-RU');
+      const toStr = to.toLocaleDateString('ru-RU');
+      return fromStr === toStr ? fromStr : fromStr + ' — ' + toStr;
+    }
+  }
+  return (sel.options[sel.selectedIndex].text || '').replace(/^[^\wА-Яа-я]+/, '');
+}
+
+async function exportProfitToPDF() {
   const rows = getFilteredProfitProducts();
   if (!rows.length) {
     Swal.fire('Нечего выгружать', 'За выбранный период подходящих продаж нет', 'info');
     return;
   }
-  const data = rows.map(row => ({
-    'Товар': row.title,
-    'Категория': row.category,
-    'Продано, шт': row.qtySold,
-    'Закупка': Number(row.cost.toFixed(2)),
-    'Выручка': Number(row.revenue.toFixed(2)),
-    'Прибыль': Number(row.profit.toFixed(2)),
-    '% Наценка': row.cost > 0 ? Number(((row.profit / row.cost) * 100).toFixed(1)) : '',
-    'Без закупочной цены, шт': row.qtyWithoutCost || ''
-  }));
-  
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Прибыль по товарам');
-  XLSX.writeFile(wb, 'profit_products.xlsx');
+
+  // Фото тяжёлые: на большом списке предупреждаем, во что это выльется
+  if (rows.length > 40) {
+    const go = await Swal.fire({
+      title: 'Товаров много',
+      html: `В PDF попадёт <b>${rows.length}</b> товаров с фото.<br>Это займёт время, а файл получится большим.<br><br>Можно сузить список категорией или периодом.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Всё равно создать',
+      cancelButtonText: 'Отмена'
+    });
+    if (!go.isConfirmed) return;
+  }
+
+  // На длинных списках жертвуем качеством ради размера файла
+  const scale = rows.length > 80 ? 1.5 : 2;
+  const jpegQuality = rows.length > 80 ? 0.7 : 0.82;
+
+  try {
+    Swal.fire({
+      title: 'Готовим PDF',
+      html: 'Загрузка библиотеки...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+
+    await ensureJsPdf();
+
+    Swal.update({ html: `Загрузка фото 0/${rows.length}...` });
+    const photos = await loadPhotosWithLimit(rows, 5, done => {
+      Swal.update({ html: `Загрузка фото ${done}/${rows.length}...` });
+    });
+
+    Swal.update({ html: 'Сборка страниц...' });
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const MARGIN = 20;
+    const CONTENT_W = 170;
+    const PAGE_BOTTOM = 287;
+    const ROW_W = 700;
+    const ROW_H = 150;
+    const ROW_H_MM = CONTENT_W * ROW_H / ROW_W;
+
+    const category = document.getElementById('profitCategoryFilter').value;
+    const totalUnits = rows.reduce((sum, r) => sum + r.qtySold, 0);
+
+    // --- Шапка ---
+    const headCanvas = document.createElement('canvas');
+    headCanvas.width = ROW_W * scale;
+    headCanvas.height = 150 * scale;
+    const headCtx = headCanvas.getContext('2d');
+    headCtx.scale(scale, scale);
+    headCtx.fillStyle = '#fff';
+    headCtx.fillRect(0, 0, ROW_W, 150);
+    headCtx.fillStyle = '#000';
+    headCtx.textAlign = 'center';
+    headCtx.font = 'bold 34px Arial';
+    headCtx.fillText('ПРОДАНО ТОВАРОВ', ROW_W / 2, 45);
+    headCtx.font = '24px Arial';
+    headCtx.fillText(`${category || 'Все категории'} · ${getProductsPeriodLabel()}`, ROW_W / 2, 85);
+    headCtx.font = 'bold 26px Arial';
+    headCtx.fillText(`Всего: ${formatQty(totalUnits)} шт · наименований: ${rows.length}`, ROW_W / 2, 125);
+
+    let y = 15;
+    const headH = CONTENT_W * 150 / ROW_W;
+    doc.addImage(headCanvas.toDataURL('image/jpeg', 0.9), 'JPEG', MARGIN, y, CONTENT_W, headH);
+    y += headH + 4;
+
+    // --- Строки товаров ---
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+
+      if (y + ROW_H_MM > PAGE_BOTTOM) {
+        doc.addPage();
+        y = 15;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = ROW_W * scale;
+      canvas.height = ROW_H * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, ROW_W, ROW_H);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, ROW_W - 2, ROW_H - 2);
+
+      // Колонки: фото | название | количество
+      const PHOTO_X = 10, PHOTO_CELL = 130;
+      const NAME_X = 155, NAME_W = 360;
+      const QTY_X = 690;
+
+      ctx.beginPath();
+      ctx.moveTo(145, 1); ctx.lineTo(145, ROW_H - 1);
+      ctx.moveTo(525, 1); ctx.lineTo(525, ROW_H - 1);
+      ctx.strokeStyle = '#999';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      const photo = await dataUrlToImage(photos[i]);
+      if (photo) {
+        // Вписываем фото в квадрат, пропорции не ломаем
+        const aspect = photo.width / photo.height;
+        let w = PHOTO_CELL, h = PHOTO_CELL;
+        if (aspect >= 1) h = PHOTO_CELL / aspect;
+        else w = PHOTO_CELL * aspect;
+        ctx.drawImage(photo, PHOTO_X + (PHOTO_CELL - w) / 2, (ROW_H - h) / 2, w, h);
+      } else {
+        ctx.fillStyle = '#f0f0f0';
+        ctx.fillRect(PHOTO_X, 10, PHOTO_CELL, PHOTO_CELL);
+        ctx.fillStyle = '#999';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('нет фото', PHOTO_X + PHOTO_CELL / 2, ROW_H / 2 + 5);
+      }
+
+      // Название
+      ctx.fillStyle = '#000';
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 22px Arial';
+      const titleLines = wrapCanvasText(ctx, row.title, NAME_W, 3);
+      const titleStartY = ROW_H / 2 - (titleLines.length - 1) * 14 + 8;
+      titleLines.forEach((line, li) => ctx.fillText(line, NAME_X, titleStartY + li * 28));
+
+      // Количество
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 34px Arial';
+      ctx.fillText(`${formatQty(row.qtySold)} шт`, QTY_X, ROW_H / 2 + 12);
+
+      doc.addImage(canvas.toDataURL('image/jpeg', jpegQuality), 'JPEG', MARGIN, y, CONTENT_W, ROW_H_MM);
+      y += ROW_H_MM + 2;
+    }
+
+    const clean = s => s.replace(/[^\wА-Яа-яЁё.-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+    doc.save(`Продано_${clean(category || 'все')}_${clean(getProductsPeriodLabel())}.pdf`);
+
+    Swal.close();
+  } catch (error) {
+    console.error('Ошибка создания PDF:', error);
+    Swal.fire('Ошибка', 'Не удалось создать PDF: ' + error.message, 'error');
+  }
 }
 
 function exportOrderProfitToExcel() {
