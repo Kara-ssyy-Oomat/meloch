@@ -1217,11 +1217,23 @@ async function loadData() {
     if (typeof kerbenWaitForAuth === 'function') {
       try { await kerbenWaitForAuth(5000); } catch (e) {}
     }
+    // loadPrimaryWarehouse — некритичный запрос (читает только id главного
+    // склада и состояние паузы, у функции есть внутренний fallback). Запускаем
+    // его параллельно, НО НЕ в составе Promise.all: иначе короткий таймаут
+    // settings валит всю страницу, хотя остальные три запроса ещё в полёте.
+    // Если он не успеет — просто обновим кнопку паузы, когда дойдёт ответ.
+    withTimeout(loadPrimaryWarehouse(), 20000, 'Настройки склада: превышено время ожидания')
+      .catch(e => {
+        console.warn('[warehouse] loadPrimaryWarehouse не успел:', e && e.message || e);
+        // fallback: без настроек работаем как с «пустым» primaryWarehouseId
+        primaryWarehouseId = primaryWarehouseId || '';
+        try { updatePauseButton(); } catch(_) {}
+      });
+
     await Promise.all([
       withTimeout(loadWarehouses(), 20000, 'Склады: превышено время ожидания'),
       withTimeout(loadProducts(), 25000, 'Товары: превышено время ожидания'),
-      withTimeout(loadMovements(), 20000, 'Движения: превышено время ожидания'),
-      withTimeout(loadPrimaryWarehouse(), 8000, 'Настройки склада: превышено время ожидания')
+      withTimeout(loadMovements(), 20000, 'Движения: превышено время ожидания')
     ]);
     updateStats();
     renderWarehouses();
