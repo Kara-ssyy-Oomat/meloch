@@ -43,6 +43,44 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     } catch (e) {}
   }
 
+  // ===============================================================
+  // ЗАЩИТА ОТ ЦИКЛИЧНОЙ ПЕРЕЗАГРУЗКИ (reload-loop)
+  // ---------------------------------------------------------------
+  // На мобильном Chrome / Android PWA цепочка update() → skipWaiting
+  // → clients.claim() → controllerchange → location.reload() на
+  // некоторых устройствах срабатывает заново сразу после reload,
+  // и сайт «вечно обновляется», не давая работать.
+  //
+  // Нам нужны ДВА предохранителя:
+  //   1) throttle на registration.update(): не чаще, чем раз в
+  //      UPDATE_MIN_INTERVAL_MS. visibilitychange/focus на телефоне
+  //      могут срабатывать каждые пару секунд.
+  //   2) rate-limit на controllerchange-reload: если мы ТОЛЬКО ЧТО
+  //      перезагрузились по SW (меньше RELOAD_LOOP_WINDOW_MS назад),
+  //      НЕ перезагружаемся ещё раз. Иначе уходим в бесконечный цикл.
+  // ===============================================================
+  const UPDATE_MIN_INTERVAL_MS = 60 * 1000;       // не чаще 1 раза в минуту
+  const RELOAD_LOOP_WINDOW_MS  = 20 * 1000;       // окно обнаружения цикла
+  const RELOAD_FLAG_KEY        = '__kerben_sw_last_reload';
+
+  let _lastUpdateAt = 0;
+  function throttledUpdate(registration) {
+    const now = Date.now();
+    if (now - _lastUpdateAt < UPDATE_MIN_INTERVAL_MS) return;
+    _lastUpdateAt = now;
+    try { registration.update().catch(() => {}); } catch (e) {}
+  }
+
+  function markReloadAttempt() {
+    try { sessionStorage.setItem(RELOAD_FLAG_KEY, String(Date.now())); } catch (e) {}
+  }
+  function hadRecentReload() {
+    try {
+      const v = Number(sessionStorage.getItem(RELOAD_FLAG_KEY) || 0);
+      return v > 0 && (Date.now() - v) < RELOAD_LOOP_WINDOW_MS;
+    } catch (e) { return false; }
+  }
+
   window.addEventListener('load', () => {
     // updateViaCache: 'none' — САМ файл sw.js всегда тянется по сети,
     // а не из HTTP-кэша. Иначе браузер может кешировать sw.js и никогда
@@ -52,22 +90,24 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
         console.log('✅ Service Worker зарегистрирован:', registration.scope);
 
         // Немедленная проверка обновлений при загрузке
-        registration.update().catch(() => {});
+        throttledUpdate(registration);
 
         // Проверка обновлений каждые 5 минут
-        setInterval(() => { registration.update().catch(() => {}); }, 5 * 60 * 1000);
+        setInterval(() => { throttledUpdate(registration); }, 5 * 60 * 1000);
 
-        // Проверка при возвращении на вкладку (когда открыли PWA снова)
-        document.addEventListener('visibilitychange', () => {
-          if (!document.hidden) registration.update().catch(() => {});
-        });
-        // И при возврате фокуса окна (Android PWA — из фонового режима)
-        window.addEventListener('focus', () => { registration.update().catch(() => {}); });
+        // Проверку при visibilitychange/focus УБРАЛИ: на мобильном Chrome
+        // эти события срабатывают каждые несколько секунд (переключение
+        // приложений, пуши, разблокировка экрана) и в связке с
+        // SKIP_WAITING + clients.claim() + reload() создавали ощущение
+        // «вечной перезагрузки» PWA. Для свежести достаточно проверки
+        // при загрузке страницы + каждые 5 минут.
 
         // Если новый SW уже в waiting на момент регистрации — сразу просим
         // его активироваться. Это бывает если пользователь пришёл в
         // приложение уже после того, как новый SW был установлен и ждал.
-        if (registration.waiting && navigator.serviceWorker.controller) {
+        // НО: если буквально только что уже была SW-перезагрузка — не
+        // трогаем, чтобы не поймать цикл.
+        if (registration.waiting && navigator.serviceWorker.controller && !hadRecentReload()) {
           console.log('🔄 Новая версия уже ждёт активации — скипаем waiting');
           registration.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
@@ -79,6 +119,12 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              if (hadRecentReload()) {
+                // Если минутой раньше уже перезагружались — пропускаем
+                // скип и ждём, пока пользователь сам обновит страницу.
+                console.warn('[SW] Недавняя SW-перезагрузка — не форсируем skipWaiting, чтобы не зациклиться');
+                return;
+              }
               console.log('🔄 Найдена новая версия — активируем...');
               // Просим новый SW перескочить waiting-стадию.
               // Совместимость: старый sw.js слушал строку 'skipWaiting',
@@ -97,10 +143,18 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   // При смене контроллера — перезагружаем страницу, чтобы весь HTML/JS/CSS
   // подгрузился свежим. Показываем короткий тост, чтобы пользователь понимал
   // почему страница «мигает».
+  //
+  // ВАЖНО: если мы перезагружались по SW < 20 секунд назад — НЕ перезагружаемся
+  // снова, чтобы не поймать бесконечный цикл (бывало на мобильном Chrome).
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (refreshing) return;
+    if (hadRecentReload()) {
+      console.warn('[SW] controllerchange, но только что уже была перезагрузка — пропускаем, чтобы не зациклиться');
+      return;
+    }
     refreshing = true;
+    markReloadAttempt();
     console.log('✨ Приложение обновлено — перезагрузка...');
     _showUpdateToast('🔄 Обновляем приложение...');
     // Небольшая задержка, чтобы тост успел показаться (200мс) и SW
