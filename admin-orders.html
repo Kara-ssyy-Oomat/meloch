@@ -2329,8 +2329,31 @@ async function openOrderItemsDetailModal(orderId, clientName, clientPhone, dateS
 }
 
 function closeOrderItemsDetailModal() {
+  // ВАЖНО: сначала «сливаем» все отложенные правки (qty/price). Иначе если
+  // админ менял количества и сразу жмёт ✕, debounce-таймер ещё не успел
+  // записать правки в Firestore, и часть изменений просто теряется.
+  try { flushPendingOrderItemEdits(); } catch (e) { console.warn('[orders] flush pending edits:', e && e.message); }
   document.getElementById('orderItemsDetailModal').style.display = 'none';
   unlockPageScroll();
+}
+
+// Моментально выполняет все висящие debounce-правки qty/price и ждёт их
+// завершения. Используется при закрытии модалки позиций заказа.
+async function flushPendingOrderItemEdits() {
+  const qtyEntries = Array.from(updateQtyTimeouts.values());
+  const priceEntries = Array.from(updatePriceTimeouts.values());
+  // Отменяем setTimeout и форсируем сохранение немедленно.
+  updateQtyTimeouts.forEach((t) => clearTimeout(t && t.timeoutId ? t.timeoutId : t));
+  updatePriceTimeouts.forEach((t) => clearTimeout(t && t.timeoutId ? t.timeoutId : t));
+  updateQtyTimeouts.clear();
+  updatePriceTimeouts.clear();
+  // Выполнить все отложенные `run`-функции (если формат — объект с .run).
+  const runs = [];
+  qtyEntries.forEach((t) => { if (t && typeof t.run === 'function') runs.push(t.run()); });
+  priceEntries.forEach((t) => { if (t && typeof t.run === 'function') runs.push(t.run()); });
+  if (runs.length) {
+    try { await Promise.all(runs); } catch (e) { /* тихо */ }
+  }
 }
 
 // Обновить количество товара в заказе
@@ -2377,44 +2400,51 @@ async function updateOrderItemPrice(orderId, itemIndex, newPrice) {
   // Ключ таймаута индивидуальный для каждой позиции — правки разных
   // товаров одного заказа больше не отменяют друг друга.
   const priceTimeoutKey = `${orderId}_${itemIndex}`;
-  clearTimeout(updatePriceTimeouts.get(priceTimeoutKey));
-  updatePriceTimeouts.set(priceTimeoutKey, setTimeout(async () => {
+  const existing = updatePriceTimeouts.get(priceTimeoutKey);
+  if (existing) clearTimeout(existing.timeoutId);
+
+  // Функция реального сохранения — вызывается ЛИБО по таймеру (через 600мс),
+  // ЛИБО немедленно из flushPendingOrderItemEdits() при закрытии модалки.
+  // ВАЖНО: вся правка items идёт через runTransaction. Без транзакции
+  // параллельная правка двух позиций читает одну и ту же версию, пишет
+  // обратно разные массивы — и правка одной из позиций теряется.
+  const runSave = async () => {
     updatePriceTimeouts.delete(priceTimeoutKey);
     try {
-      const orderDoc = await db.collection('orders').doc(orderId).get();
-      if (!orderDoc.exists) return;
-
-      const orderData = orderDoc.data();
-      const items = orderData.items || [];
-
-      if (items[itemIndex]) {
-        // Сохраняем оригинальную цену для справки (если ещё не сохранена)
+      const orderRef = db.collection('orders').doc(orderId);
+      let committed = null;
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(orderRef);
+        if (!snap.exists) return;
+        const data = snap.data() || {};
+        const items = (data.items || []).map(x => ({ ...x })); // клон
+        if (!items[itemIndex]) return;
         if (items[itemIndex].originalPrice === undefined) {
           items[itemIndex].originalPrice = items[itemIndex].price;
         }
         items[itemIndex].price = price;
-
         const total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
-
-        // Обновляем ТОЛЬКО заказ — цены на сайте НЕ трогаем
-        await db.collection('orders').doc(orderId).update({ items, total });
-        invalidateProfitCaches();
-
-        // Обновляем локальный кэш
-        if (Array.isArray(ordersManagementAllOrders)) {
-          const order = ordersManagementAllOrders.find(o => o.id === orderId);
-          if (order) {
-            order.items = items;
-            order.total = total;
-          }
+        tx.update(orderRef, { items, total });
+        committed = { items, total };
+      });
+      if (!committed) return;
+      invalidateProfitCaches();
+      if (Array.isArray(ordersManagementAllOrders)) {
+        const order = ordersManagementAllOrders.find(o => o.id === orderId);
+        if (order) {
+          order.items = committed.items;
+          order.total = committed.total;
         }
-        renderOrdersManagementFromCache();
       }
+      renderOrdersManagementFromCache();
     } catch (error) {
       console.error('Ошибка обновления цены в заказе:', error);
       Swal.fire('Ошибка', 'Не удалось обновить цену', 'error');
     }
-  }, 600));
+  };
+
+  const timeoutId = setTimeout(runSave, 600);
+  updatePriceTimeouts.set(priceTimeoutKey, { timeoutId, run: runSave });
 }
 
 async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
@@ -2466,68 +2496,94 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
   // Ключ таймаута индивидуальный для каждой позиции — правки разных
   // товаров одного заказа больше не отменяют друг друга.
   const qtyTimeoutKey = `${orderId}_${itemIndex}`;
-  clearTimeout(updateQtyTimeouts.get(qtyTimeoutKey));
+  const existing = updateQtyTimeouts.get(qtyTimeoutKey);
+  if (existing) clearTimeout(existing.timeoutId);
 
   // Не коммитим qty <= 0 — см. комментарий выше. Только UI обновили.
   if (qty <= 0) return;
 
-  updateQtyTimeouts.set(qtyTimeoutKey, setTimeout(async () => {
+  // Функция реального сохранения — вызывается ЛИБО по таймеру (500мс),
+  // ЛИБО немедленно из flushPendingOrderItemEdits() при закрытии модалки.
+  // ВАЖНО: правку items делаем через runTransaction. Иначе если админ
+  // быстро меняет количество у двух-трёх позиций, debounce-таймеры могут
+  // сработать почти одновременно, прочитать одну и ту же версию заказа
+  // и перезаписать друг друга — часть правок просто теряется (именно это
+  // жаловал пользователь: «после закрытия изменяется только часть правок»).
+  const runSave = async () => {
     updateQtyTimeouts.delete(qtyTimeoutKey);
     try {
-      const orderDoc = await db.collection('orders').doc(orderId).get();
-      if (!orderDoc.exists) return;
-      
-      const orderData = orderDoc.data();
-      const items = orderData.items || [];
-      
-      if (items[itemIndex]) {
-        const oldQty = items[itemIndex].qty || 0;
-        items[itemIndex].qty = qty;
-        
-        // Цену не трогаем — она может быть изменена вручную
-        // Берём цену из поля ввода если есть
-        const priceInput = document.getElementById(`itemPrice_${orderId}_${itemIndex}`);
-        if (priceInput) {
-          items[itemIndex].price = parseFloat(priceInput.value) || items[itemIndex].price;
-        }
-      
-        const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
-      
-        // Сначала сохраняем items/total
-        await db.collection('orders').doc(orderId).update({ items, total });
+      const orderRef = db.collection('orders').doc(orderId);
+      let committed = null;
+      let diffForStock = 0;
+      let itemIdForStock = '';
+      let oldQtyForStock = 0;
 
-        // Потом корректируем склад (функция сама обновит warehouseDeductions)
-        // Контекст oldQty/newQty попадёт в запись warehouseMovements, чтобы
-        // на странице «Движения» было видно причину корректировки.
-        const itemId = items[itemIndex].id;
-        const diff = qty - oldQty;
-        const editCtx = { oldQty, newQty: qty, reason: `Корректировка количества в заказе (было ${oldQty}, стало ${qty})` };
-        if (diff > 0 && itemId) {
-          await deductStockForItem(orderId, itemId, diff, editCtx);
-        } else if (diff < 0 && itemId) {
-          await returnStockForItem(orderId, itemId, Math.abs(diff), editCtx);
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(orderRef);
+        if (!snap.exists) return;
+        const data = snap.data() || {};
+        const items = (data.items || []).map(x => ({ ...x })); // клон
+
+        if (items[itemIndex]) {
+          const oldQty = items[itemIndex].qty || 0;
+          items[itemIndex].qty = qty;
+
+          // Цену читаем из поля ввода, если есть — она могла быть
+          // изменена вручную в параллельном debounce-е.
+          const priceInput = document.getElementById(`itemPrice_${orderId}_${itemIndex}`);
+          if (priceInput) {
+            items[itemIndex].price = parseFloat(priceInput.value) || items[itemIndex].price;
+          }
+
+          const total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
+          tx.update(orderRef, { items, total });
+          committed = { items, total };
+
+          diffForStock = qty - oldQty;
+          itemIdForStock = items[itemIndex].id || '';
+          oldQtyForStock = oldQty;
+        } else {
+          const total = items.reduce((sum, item) => sum + ((item.price || 0) * (item.qty || 0)), 0);
+          tx.update(orderRef, { items, total });
+          committed = { items, total };
         }
-      } else {
-        const total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
-        await db.collection('orders').doc(orderId).update({ items, total });
+      });
+
+      if (!committed) return;
+
+      // Склад корректируем ВНЕ транзакции (там своя транзакция в
+      // deductStockForItem/returnStockForItem). Контекст oldQty/newQty
+      // попадёт в запись warehouseMovements.
+      if (itemIdForStock && diffForStock !== 0) {
+        const editCtx = {
+          oldQty: oldQtyForStock,
+          newQty: qty,
+          reason: `Корректировка количества в заказе (было ${oldQtyForStock}, стало ${qty})`
+        };
+        if (diffForStock > 0) {
+          await deductStockForItem(orderId, itemIdForStock, diffForStock, editCtx);
+        } else {
+          await returnStockForItem(orderId, itemIdForStock, Math.abs(diffForStock), editCtx);
+        }
       }
+
       invalidateProfitCaches();
-      
-      const updatedTotal = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+
       if (Array.isArray(ordersManagementAllOrders)) {
         const order = ordersManagementAllOrders.find(o => o.id === orderId);
         if (order) {
-          order.items = items;
-          order.total = updatedTotal;
+          order.items = committed.items;
+          order.total = committed.total;
         }
       }
-      
       renderOrdersManagementFromCache();
-      
     } catch (error) {
       console.error('Ошибка обновления количества:', error);
     }
-  }, 500));
+  };
+
+  const timeoutId = setTimeout(runSave, 500);
+  updateQtyTimeouts.set(qtyTimeoutKey, { timeoutId, run: runSave });
 }
 
 // Удалить товар из заказа через модальное окно
