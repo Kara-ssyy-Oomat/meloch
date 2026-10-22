@@ -7,6 +7,9 @@ let currentEditProductId = null;
 let _scrollBeforeEditModal = 0;
 let _editWarehouses = [];
 let _editPrimaryWhId = '';
+// Остаток, который видел админ в форме. Товары берутся из кэша (до часа),
+// поэтому в базу пишем только разницу с ним, а не само число из формы.
+let _editShownStock = null;
 
 // Сколько ждём справочники перед открытием формы. Раньше ожидание было
 // без ограничения: если Firestore не отвечал (сеть отвалилась, вкладка
@@ -109,6 +112,8 @@ async function openEditProductModal(productId) {
     _editWarehouses = whSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     _editPrimaryWhId = (whSettings.exists && whSettings.data().primaryWarehouseId) || '';
   }
+
+  _editShownStock = typeof p.stock === 'number' ? p.stock : null;
 
   content.innerHTML = `
     <!-- Фото товара -->
@@ -367,8 +372,8 @@ async function saveEditProductModal() {
   const hasWarehouseStock = !!(p.warehouseStock && typeof p.warehouseStock === 'object'
     && Object.keys(p.warehouseStock).length > 0);
   const stockChanged = (stock === null)
-    ? (typeof p.stock === 'number')
-    : (stock !== p.stock);
+    ? (_editShownStock !== null)
+    : (stock !== _editShownStock);
 
   if (stockChanged && hasWarehouseStock && !selectedWhId && stock !== null) {
     Swal.fire({
@@ -390,7 +395,6 @@ async function saveEditProductModal() {
     p.description = description;
     p.costPrice = costPrice;
     p.price = price;
-    if (stock === null) delete p.stock; else p.stock = stock;
     p.minQty = minQty;
     p.useQtyButtons = useQtyButtons;
     p.roundQty = roundQty;
@@ -422,46 +426,63 @@ async function saveEditProductModal() {
       updateData.variants = firebase.firestore.FieldValue.delete();
     }
 
-    if (stock === null) {
-      // Удаляем stock целиком — FieldValue.delete() идемпотентен, транзакция не нужна
+    if (!stockChanged) {
+      // Остаток не трогали — не пишем его: число в форме могло устареть,
+      // и сохранение цены откатывало бы продажи и приходы.
+      await db.collection('products').doc(currentEditProductId).update(updateData);
+    } else if (stock === null) {
       updateData.stock = firebase.firestore.FieldValue.delete();
       updateData.warehouseStock = firebase.firestore.FieldValue.delete();
+      delete p.stock;
       p.warehouseStock = null;
       await db.collection('products').doc(currentEditProductId).update(updateData);
+      _editShownStock = null;
     } else {
-      if (selectedWhId) {
-        // Транзакция — читаем актуальный warehouseStock, обновляем один склад.
-        // Защита от гонки: CF может одновременно списывать другой склад.
-        const productRef = db.collection('products').doc(currentEditProductId);
-        await db.runTransaction(async (tx) => {
-          const snap = await tx.get(productRef);
-          const data = (snap.exists && snap.data()) || {};
-          const freshWs = { ...(data.warehouseStock || {}) };
-          freshWs[selectedWhId] = stock;
-          const totalStock = Object.values(freshWs).reduce((s, v) => s + (Number(v) || 0), 0);
+      const delta = stock - (_editShownStock || 0);
+      const productRef = db.collection('products').doc(currentEditProductId);
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(productRef);
+        const data = (snap.exists && snap.data()) || {};
+        const freshWs = { ...(data.warehouseStock || {}) };
+        const freshHasWs = Object.keys(freshWs).length > 0;
+        const freshFlat = typeof data.stock === 'number' ? Math.max(0, Math.floor(data.stock)) : 0;
+        const targetWh = selectedWhId || (freshHasWs ? _editPrimaryWhId : '');
+        if (freshHasWs && !targetWh) {
+          throw new Error('остаток этого товара уже ведётся по складам. Обновите страницу и выберите склад.');
+        }
+        if (targetWh) {
+          const base = freshHasWs ? Math.max(0, Math.floor(Number(freshWs[targetWh]) || 0)) : freshFlat;
+          freshWs[targetWh] = Math.max(0, base + delta);
           updateData.warehouseStock = freshWs;
-          updateData.stock = totalStock;
-          tx.update(productRef, updateData);
-        });
-        p.warehouseStock = updateData.warehouseStock;
-        p.stock = updateData.stock;
-      } else {
-        updateData.stock = stock;
-        await db.collection('products').doc(currentEditProductId).update(updateData);
-      }
+          updateData.stock = Object.values(freshWs).reduce((s, v) => s + (Number(v) || 0), 0);
+        } else {
+          delete updateData.warehouseStock;
+          updateData.stock = Math.max(0, freshFlat + delta);
+        }
+        tx.update(productRef, updateData);
+      });
+      // Разница уже записана: повторное «Сохранить» не должно её повторить.
+      _editShownStock = stock;
+      p.stock = updateData.stock;
+      if (updateData.warehouseStock) p.warehouseStock = updateData.warehouseStock;
     }
     
     // Запоминаем правку: ответ Firestore, отправленный до этого сохранения,
     // иначе вернёт старые значения и затрёт их на экране и в кэше.
     if (typeof registerLocalProductEdit === 'function') {
-      registerLocalProductEdit(currentEditProductId, {
+      const editedFields = {
         title: p.title, category: p.category, description: p.description,
         costPrice: p.costPrice, price: p.price, minQty: p.minQty,
         useQtyButtons: p.useQtyButtons, roundQty: p.roundQty, isPack: p.isPack,
         packQty: p.packQty, packsPerBox: p.packsPerBox, unitsPerBox: p.unitsPerBox,
         showPricePerUnit: p.showPricePerUnit, showPackInfo: p.showPackInfo,
-        variants: p.variants, stock: p.stock, warehouseStock: p.warehouseStock
-      });
+        variants: p.variants
+      };
+      if (stockChanged) {
+        editedFields.stock = p.stock;
+        editedFields.warehouseStock = p.warehouseStock;
+      }
+      registerLocalProductEdit(currentEditProductId, editedFields);
     }
 
     // Кэш пишем общей функцией из product-loader.js: свой список полей здесь

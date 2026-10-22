@@ -121,6 +121,15 @@ service cloud.firestore {
                        'lastStockChangeByUid', 'updatedAt']);
     }
 
+    // Остатки меняют только админ, управляющий складом и Cloud Functions
+    // (admin SDK правила не проверяют). Анонимный вход есть у каждого
+    // посетителя, и без этой проверки любой браузер — в том числе со старой
+    // версией сайта из кэша — мог перезаписать остаток.
+    function stockFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['stock', 'warehouseStock']);
+    }
+
     // Валидация того, что итоговый stock — число [0..10_000_000].
     // Защита от прямых запросов в DevTools: если wm попробует записать
     // отрицательный или гигантский остаток, правила откажут.
@@ -239,6 +248,7 @@ service cloud.firestore {
         // === АДМИН и обычные аутентифицированные роли (продавец и т.п.) ===
         // Оставляем прежнюю валидацию — обычный поток редактирования товара.
         (!isWarehouseManagerEmail()
+          && (isAdminUser() || stockFieldsUnchanged())
           && strOk('name', 500)
           && strOk('description', 5000)
           && strOk('category', 200)
@@ -404,7 +414,14 @@ service cloud.firestore {
       allow read: if isRegularAuthed();
       allow delete: if isAdminUser();
 
-      allow update: if reasonableDocSize() && (
+      allow update: if reasonableDocSize()
+        // 'pending' бывает только при создании. Заказ пишется двумя путями
+        // (orderNotify и .set() из браузера); запоздавший .set() из браузера
+        // админа перезаписывал уже списанный заказ обратно в «не списан» —
+        // потом «Списать сейчас» списывал второй раз, а отмена не возвращала.
+        && !(request.resource.data.get('stockDeductionStatus', null) == 'pending'
+             && resource.data.get('stockDeductionStatus', null) != 'pending')
+        && (
         // === АДМИН — может всё (с разумным лимитом размера) ===
         isAdminUser()
         ||

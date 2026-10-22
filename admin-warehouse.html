@@ -1182,6 +1182,9 @@ let lowStockThreshold = 5; // Порог "мало"
 let currentTab = 'warehouses';
 let selectedWarehouseFilter = 'all';
 let stockChanges = {}; // {productId: qty} для текущего склада
+// {productId: qty} — что админ видел до правки. В базу идёт разница с этим
+// числом: пока окно открыто, заказы продолжают списывать остаток.
+let stockChangeBase = {};
 let primaryWarehouseId = ''; // ID главного склада
 let warehousePaused = false; // Склады приостановлены
 
@@ -2224,6 +2227,7 @@ let currentStockWarehouseId = null;
 function openStockModal(warehouseId) {
   currentStockWarehouseId = warehouseId;
   stockChanges = {};
+  stockChangeBase = {};
   const wh = warehouses.find(w => w.id === warehouseId);
   document.getElementById('stockModalTitle').textContent = `📦 ${wh ? wh.name : 'Склад'}`;
   document.getElementById('stockProductSearch').value = '';
@@ -2247,6 +2251,7 @@ function closeStockModal() {
   document.getElementById('stockModal').classList.remove('active');
   currentStockWarehouseId = null;
   stockChanges = {};
+  stockChangeBase = {};
 }
 
 function renderStockProducts(filter = '') {
@@ -2393,6 +2398,7 @@ function onStockChange(input, productId) {
   const original = parseInt(input.dataset.original) || 0;
   
   if (newVal !== original) {
+    if (!stockChangeBase.hasOwnProperty(productId)) stockChangeBase[productId] = original;
     stockChanges[productId] = newVal;
     input.style.background = '#e8f5e9';
     input.style.fontWeight = '700';
@@ -2423,6 +2429,7 @@ function stockMovement(productId, direction) {
     newStock = Math.max(0, currentStock - moveQty);
   }
   
+  if (!stockChangeBase.hasOwnProperty(productId)) stockChangeBase[productId] = originalStock;
   stockChanges[productId] = newStock;
   
   // Обновляем отображение без перерисовки всей таблицы
@@ -2479,10 +2486,10 @@ async function saveStockChanges() {
   
   if (!result.isConfirmed) return;
   
+  const savedIds = [];
   try {
     Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     
-    const movementBatch = [];
     const autoUnblockedIds = [];
 
     // Каждый товар в отдельной транзакции — защита от гонки с Cloud Function,
@@ -2494,18 +2501,26 @@ async function saveStockChanges() {
 
       let diff = 0;
       let oldQty = 0;
+      let savedQty = newQty;
       let wasAutoUnblocked = false;
 
       await db.runTransaction(async (tx) => {
+        wasAutoUnblocked = false;
         const snap = await tx.get(productRef);
         if (!snap.exists) return;
         const product = snap.data() || {};
 
         const ws = { ...(product.warehouseStock || {}) };
+        // Остаток без разбивки по складам переносим на склад, а не затираем.
+        if (Object.keys(ws).length === 0 && typeof product.stock === 'number' && product.stock > 0) {
+          ws[primaryWarehouseId || warehouseId] = Math.max(0, Math.floor(product.stock));
+        }
         oldQty = ws[warehouseId] || 0;
-        diff = newQty - oldQty;
+        const base = stockChangeBase.hasOwnProperty(productId) ? stockChangeBase[productId] : oldQty;
+        savedQty = Math.max(0, oldQty + (newQty - base));
+        diff = savedQty - oldQty;
 
-        ws[warehouseId] = newQty;
+        ws[warehouseId] = savedQty;
         const totalStock = Object.values(ws).reduce((sum, v) => sum + (Number(v) || 0), 0);
 
         const updateData = { warehouseStock: ws, stock: totalStock };
@@ -2516,34 +2531,33 @@ async function saveStockChanges() {
         }
 
         tx.update(productRef, updateData);
+
+        // Движение — в той же транзакции: при обрыве посередине остаток
+        // и история не разойдутся.
+        if (diff !== 0) {
+          tx.set(db.collection('warehouseMovements').doc(), {
+            productId,
+            productTitle: (localProduct && localProduct.title) || product.title || '',
+            warehouseId,
+            warehouseName: wh ? wh.name : '',
+            type: diff > 0 ? 'receipt' : 'adjustment',
+            qty: Math.abs(diff),
+            direction: diff > 0 ? 'in' : 'out',
+            oldQty,
+            newQty: savedQty,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            note: diff > 0 ? 'Приход на склад' : 'Корректировка остатка'
+          });
+        }
       });
 
-      if (wasAutoUnblocked) autoUnblockedIds.push(productId);
+      // Правка записана разницей — повторное «Сохранить» после сбоя
+      // не должно применить её ещё раз.
+      delete stockChanges[productId];
+      delete stockChangeBase[productId];
+      savedIds.push(productId);
 
-      if (diff !== 0) {
-        movementBatch.push({
-          productId,
-          productTitle: (localProduct && localProduct.title) || '',
-          warehouseId,
-          warehouseName: wh ? wh.name : '',
-          type: diff > 0 ? 'receipt' : 'adjustment',
-          qty: Math.abs(diff),
-          direction: diff > 0 ? 'in' : 'out',
-          oldQty,
-          newQty,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          note: diff > 0 ? 'Приход на склад' : 'Корректировка остатка'
-        });
-      }
-    }
-    
-    // Движения пишем отдельным batch (не участвуют в гонке по stock)
-    if (movementBatch.length > 0) {
-      const movBatch = db.batch();
-      for (const mov of movementBatch) {
-        movBatch.set(db.collection('warehouseMovements').doc(), mov);
-      }
-      await movBatch.commit();
+      if (wasAutoUnblocked) autoUnblockedIds.push(productId);
     }
 
     // Обновляем локальный массив (иначе UI до loadProducts покажет старое)
@@ -2586,7 +2600,19 @@ async function saveStockChanges() {
     if (currentTab === 'movements') renderMovements();
   } catch (e) {
     console.error('Ошибка сохранения остатков:', e);
-    Swal.fire('Ошибка', 'Не удалось сохранить: ' + e.message, 'error');
+    const left = Object.keys(stockChanges).length;
+    Swal.fire('Ошибка', 'Не удалось сохранить: ' + e.message +
+      (savedIds.length > 0
+        ? '<br><br>Уже сохранено: <b>' + savedIds.length + '</b> из ' + changedIds.length +
+          '. Не сохранены: <b>' + left + '</b> — они остались в окне, нажмите «Сохранить» ещё раз.'
+        : ''), 'error');
+    if (savedIds.length > 0) {
+      try {
+        await loadProducts();
+        const searchInput = document.getElementById('stockProductSearch');
+        renderStockProducts(searchInput ? searchInput.value : '');
+      } catch (_) {}
+    }
   }
 }
 
@@ -2904,11 +2930,18 @@ async function editProductStock(productId) {
     return;
   }
   
-  const ws = product.warehouseStock || {};
+  const ws = { ...(product.warehouseStock || {}) };
+  // Остаток без разбивки по складам показываем на главном складе — туда же
+  // он и ляжет при сохранении.
+  if (Object.keys(ws).length === 0 && typeof product.stock === 'number' && product.stock > 0) {
+    ws[primaryWarehouseId || warehouses[0].id] = Math.max(0, Math.floor(product.stock));
+  }
+  const shownWs = {};
   
   let inputsHtml = '';
   warehouses.forEach((wh, i) => {
     const qty = ws[wh.id] || 0;
+    shownWs[wh.id] = qty;
     inputsHtml += `
       <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #f0f0f0;">
         <span style="font-weight:600;">${wh.name}</span>
@@ -2953,12 +2986,19 @@ async function editProductStock(productId) {
       const snap = await tx.get(productRef);
       if (!snap.exists) throw new Error('Товар не найден');
       const data = snap.data() || {};
+      movementDocs.length = 0; // транзакцию могут перезапустить
       const currentWs = { ...(data.warehouseStock || {}) };
+      if (Object.keys(currentWs).length === 0 && typeof data.stock === 'number' && data.stock > 0) {
+        currentWs[primaryWarehouseId || warehouses[0].id] = Math.max(0, Math.floor(data.stock));
+      }
 
-      // Применяем изменения по складам
+      // Применяем только изменённые склады и только разницей с тем, что
+      // было в окне: остальные склады могли измениться заказами.
       for (const whId of Object.keys(newWs)) {
+        const shownQty = shownWs[whId] || 0;
+        if ((newWs[whId] || 0) === shownQty) continue;
         const oldQty = currentWs[whId] || 0;
-        const newQty = newWs[whId] || 0;
+        const newQty = Math.max(0, oldQty + (newWs[whId] || 0) - shownQty);
         currentWs[whId] = newQty;
 
         if (oldQty !== newQty) {
@@ -3268,8 +3308,26 @@ async function undoSelectedMovements() {
           if (!snap.exists) throw new Error('товар не найден');
           const product = snap.data() || {};
           const ws = Object.assign({}, product.warehouseStock || {});
+          // Без разбивки по складам откатываем сам stock: сумма по пустой
+          // карте складов обнулила бы остаток.
+          const isFlat = Object.keys(ws).length === 0;
+          const hasFlatStock = typeof product.stock === 'number';
+          let flatStock = hasFlatStock ? Math.max(0, Math.floor(product.stock)) : 0;
 
-          for (const m of movs) {
+          for (const mov of movs) {
+            let m = mov;
+            if (isFlat) {
+              if (m.type === 'transfer' || !m.warehouseId) continue;
+              flatStock = m.direction === 'in'
+                ? Math.max(0, flatStock - (m.qty || 0))
+                : flatStock + (m.qty || 0);
+              continue;
+            }
+            if (m.warehouseId === '__flat') {
+              // Движение управляющего, сделанное до разбивки товара по складам.
+              if (!primaryWarehouseId) continue;
+              m = Object.assign({}, m, { warehouseId: primaryWarehouseId });
+            }
             if (m.type === 'transfer') {
               const fromId = m.fromWarehouseId;
               const toId = m.toWarehouseId;
@@ -3288,8 +3346,12 @@ async function undoSelectedMovements() {
               }
             }
           }
-          const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
-          tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+          if (isFlat) {
+            if (hasFlatStock) tx.update(productRef, { stock: flatStock });
+          } else {
+            const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+            tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+          }
 
           // Помечаем оригинал(ы) как отменённые и пишем обратные записи
           for (const m of movs) {

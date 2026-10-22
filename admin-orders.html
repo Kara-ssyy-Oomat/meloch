@@ -1379,6 +1379,12 @@ async function returnStockForItem(orderId, productId, qty, context) {
       const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
       if (!hasStock && !hasWarehouse) return;
 
+      if (!hasWarehouse) {
+        tx.update(productRef, { stock: Math.max(0, Math.floor(product.stock)) + qty });
+        returnedByWh = { '': qty };
+        return;
+      }
+
       const ws = { ...(product.warehouseStock || {}) };
       ws[primaryWhId] = (ws[primaryWhId] || 0) + qty;
       returnedByWh = {};
@@ -1488,6 +1494,9 @@ async function deductStockForItem(orderId, productId, qty, context) {
   if (whSettings.exists && whSettings.data().paused === true) return;
 
   const orderData = orderDoc.exists ? orderDoc.data() : {};
+  // Заказ ещё не списан (пауза склада, ждёт сервер, отменён) — его спишут
+  // целиком по актуальному количеству; досписание здесь дало бы двойное.
+  if (orderData.stockDeducted === false) return;
 
   const pausedWhIds = new Set();
   try {
@@ -1497,6 +1506,7 @@ async function deductStockForItem(orderId, productId, qty, context) {
 
   const productRef = db.collection('products').doc(productId);
   let itemDeductions = {};
+  let flatDeducted = 0;
   let productTitle = '';
 
   // Транзакция: атомарное чтение + запись product stock
@@ -1510,18 +1520,29 @@ async function deductStockForItem(orderId, productId, qty, context) {
     const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
     if (!hasStock && !hasWarehouse) return;
 
+    // Остаток без разбивки по складам: stock = сумма по складам обнулила бы его.
+    if (!hasWarehouse) {
+      const available = Math.max(0, Math.floor(product.stock));
+      flatDeducted = Math.min(available, qty);
+      if (flatDeducted > 0) tx.update(productRef, { stock: available - flatDeducted });
+      return;
+    }
+
     const ws = { ...(product.warehouseStock || {}) };
     let remaining = qty;
     itemDeductions = {};
 
-    if (primaryWhId && !pausedWhIds.has(primaryWhId) && (ws[primaryWhId] || 0) > 0) {
+    // Как на сервере (deductStockOnOrderCreate): при активном главном складе
+    // продаём только с него, чужие склады не трогаем.
+    const primaryActive = !!(primaryWhId && !pausedWhIds.has(primaryWhId));
+    if (primaryActive && (ws[primaryWhId] || 0) > 0) {
       const deduct = Math.min(remaining, ws[primaryWhId]);
       ws[primaryWhId] -= deduct;
       remaining -= deduct;
       itemDeductions[primaryWhId] = deduct;
     }
 
-    if (remaining > 0) {
+    if (remaining > 0 && !primaryActive) {
       const otherWh = Object.entries(ws)
         .filter(([whId, whQty]) => whQty > 0 && whId !== primaryWhId && !pausedWhIds.has(whId))
         .sort((a, b) => b[1] - a[1]);
@@ -1548,7 +1569,15 @@ async function deductStockForItem(orderId, productId, qty, context) {
     } else {
       deductions[productId] = itemDeductions;
     }
-    await db.collection('orders').doc(orderId).update({ warehouseDeductions: deductions });
+    await db.collection('orders').doc(orderId).update({
+      warehouseDeductions: deductions,
+      stockDeductedProductIds: firebase.firestore.FieldValue.arrayUnion(productId)
+    });
+  } else if (flatDeducted > 0 && orderDoc.exists) {
+    await db.collection('orders').doc(orderId).update({
+      stockDeductedProductIds: firebase.firestore.FieldValue.arrayUnion(productId)
+    });
+    itemDeductions = { '': flatDeducted };
   }
 
   // Движения по складам
@@ -1635,6 +1664,16 @@ async function returnStockFromOrder(orderData) {
   const productIds = [...allProductIds];
   const orderId = orderData.id || (orderData._orderRef && orderData._orderRef.id) || '';
 
+  // У старых заказов списка нет — для них возвращаем как раньше.
+  const deductedIdsSet = (Array.isArray(orderData.stockDeductedProductIds)
+    && orderData.stockDeductedProductIds.length > 0)
+    ? new Set(orderData.stockDeductedProductIds) : null;
+  const shortageByProduct = {};
+  (Array.isArray(orderData.stockDeductionShortages) ? orderData.stockDeductionShortages : [])
+    .forEach(s => {
+      if (s && s.productId) shortageByProduct[s.productId] = Math.max(0, Number(s.shortage) || 0);
+    });
+
   // Каждый товар обрабатываем в отдельной транзакции — защита от гонки
   // с Cloud Function (deductStockOnOrderCreate), которая может
   // одновременно писать в тот же product document.
@@ -1643,6 +1682,10 @@ async function returnStockFromOrder(orderData) {
     const itemDed = deductions[productId];
     const hasDeductions = itemDed && typeof itemDed === 'object' && Object.keys(itemDed).length > 0;
     const item = items.find(i => i.id === productId);
+    // Варианты одного товара — отдельные строки с одним id.
+    const itemQtyTotal = items
+      .filter(i => i && i.id === productId)
+      .reduce((s, i) => s + Math.max(0, Math.floor(i.qty || 0)), 0);
 
     let returnQty = 0;
     let returnWhId = '';
@@ -1682,11 +1725,16 @@ async function returnStockFromOrder(orderData) {
       });
       returnWhId = Object.keys(itemDed)[0] || '';
 
-    } else if (item && item.qty > 0) {
-      returnQty = item.qty;
+    } else if (itemQtyTotal > 0) {
+      // Без разбивки по складам сервер списывает только реально имевшееся
+      // количество: возвращаем не больше, иначе остаток вырастает из воздуха.
+      if (deductedIdsSet && !deductedIdsSet.has(productId)) continue;
+      returnQty = Math.max(0, itemQtyTotal - (shortageByProduct[productId] || 0));
+      if (returnQty <= 0) continue;
       if (primaryWhId) {
         if (!globalPausedNow && pausedWhIds.has(primaryWhId)) continue;
 
+        let returnedFlat = false;
         await db.runTransaction(async (tx) => {
           const productDoc = await tx.get(productRef);
           if (!productDoc.exists) return;
@@ -1695,12 +1743,18 @@ async function returnStockFromOrder(orderData) {
           const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object' && Object.keys(product.warehouseStock).length > 0;
           if (!hasStock && !hasWarehouse) return;
 
+          if (!hasWarehouse) {
+            tx.update(productRef, { stock: Math.max(0, Math.floor(product.stock)) + returnQty });
+            returnedFlat = true;
+            return;
+          }
+
           const ws = { ...(product.warehouseStock || {}) };
           ws[primaryWhId] = (ws[primaryWhId] || 0) + returnQty;
           const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
           tx.update(productRef, { warehouseStock: ws, stock: newTotal });
         });
-        returnWhId = primaryWhId;
+        returnWhId = returnedFlat ? '' : primaryWhId;
       } else {
         // Нет складов — атомарный increment (уже безопасен)
         await productRef.update({
@@ -1751,7 +1805,9 @@ async function returnStockFromOrder(orderData) {
       stockDeductionProcessedIds: [],
       stockDeductionStatus: firebase.firestore.FieldValue.delete(),
       stockDeductionFinishedAt: firebase.firestore.FieldValue.delete(),
-      stockDeductionError: firebase.firestore.FieldValue.delete()
+      stockDeductionError: firebase.firestore.FieldValue.delete(),
+      stockDeductionShortages: firebase.firestore.FieldValue.delete(),
+      stockDeductionHasShortage: firebase.firestore.FieldValue.delete()
     });
   }
 }
@@ -1777,6 +1833,9 @@ function _shouldOfferManualStockDeduct(order) {
   // 'done_with_shortage' — часть списана, часть нет. Кнопка бесполезна
   // (админ должен решать в ручную), но баннер shortage покажем отдельно.
   if (st === 'done_with_shortage') return false;
+  // Сервер упал посреди заказа и перестал повторять: часть позиций не списана.
+  // Ручное списание пропустит уже списанные (stockDeductedProductIds).
+  if (st === 'failed') return true;
   if (order.stockDeducted === true && !order.stockDeductionHasShortage) return false;
   // Показываем для: skipped, shortage (всё пропало), skipped_unfulfilled,
   // skipped_cancelled, failed, pending (застряло), undefined
@@ -2560,10 +2619,18 @@ async function updateOrderItemQtyManagement(orderId, itemIndex, newQty) {
           newQty: qty,
           reason: `Корректировка количества в заказе (было ${oldQtyForStock}, стало ${qty})`
         };
-        if (diffForStock > 0) {
-          await deductStockForItem(orderId, itemIdForStock, diffForStock, editCtx);
-        } else {
-          await returnStockForItem(orderId, itemIdForStock, Math.abs(diffForStock), editCtx);
+        try {
+          if (diffForStock > 0) {
+            await deductStockForItem(orderId, itemIdForStock, diffForStock, editCtx);
+          } else {
+            await returnStockForItem(orderId, itemIdForStock, Math.abs(diffForStock), editCtx);
+          }
+        } catch (stockErr) {
+          console.error('Склад не скорректирован после правки количества:', stockErr);
+          Swal.fire('Склад не обновлён',
+            'Количество в заказе сохранено (было ' + oldQtyForStock + ', стало ' + qty + '), '
+            + 'но остаток на складе изменить не удалось: ' + (stockErr && stockErr.message || 'ошибка сети')
+            + '.<br><br>Поправьте остаток этого товара вручную на странице «Склад».', 'warning');
         }
       }
 

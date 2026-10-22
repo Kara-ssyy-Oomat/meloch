@@ -940,6 +940,8 @@ async function undoLogEntry(logId, btn) {
         const cur = Math.max(0, Math.floor(Number(ws[entry.warehouseId]) || 0));
         const next = Math.max(0, cur + revDelta);
         patch['warehouseStock.' + entry.warehouseId] = next;
+        const wsAfter = Object.assign({}, ws, { [entry.warehouseId]: next });
+        patch.stock = Object.values(wsAfter).reduce((s, v) => s + Math.max(0, Math.floor(Number(v) || 0)), 0);
         restoredValue = next;
       }
       tx.update(productRef, patch);

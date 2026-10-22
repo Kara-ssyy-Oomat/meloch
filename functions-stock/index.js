@@ -25,6 +25,22 @@ const db = admin.firestore();
 
 const STOCK_CLAIM_STALE_MS = 3 * 60 * 1000; // processing старше 3 мин = можно перехватить
 
+// Варианты одного товара (цвет, размер) лежат в заказе отдельными строками
+// с одним id. Результаты списания, warehouseDeductions и id записей истории
+// ведутся по товару — без суммирования строки затирали друг друга, и при
+// отмене возвращалась только последняя.
+function _aggregateItems(items) {
+  const byId = new Map();
+  (Array.isArray(items) ? items : []).forEach((i) => {
+    if (!i || !i.id) return;
+    const qty = Math.max(0, Math.floor(i.qty || 0));
+    const cur = byId.get(i.id);
+    if (cur) cur.qty += qty;
+    else byId.set(i.id, { id: i.id, qty, title: i.title || '' });
+  });
+  return Array.from(byId.values());
+}
+
 function _isCancelledStatus(status) {
   return status === 'cancelled' || status === 'Отменён' || status === 'Отменен';
 }
@@ -331,7 +347,7 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     if (fresh.exists) orderData = fresh.data();
   } catch (e) { /* используем hint */ }
 
-  const items = (orderData && Array.isArray(orderData.items)) ? orderData.items : [];
+  const items = _aggregateItems(orderData && orderData.items);
   if (!items.length) {
     await orderRef.update({
       stockDeducted: false,
@@ -456,18 +472,9 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     }
   }
 
-  if (anyError) {
-    console.error(`[StockDeduct] товар ошибка:`, anyError.message);
-    await orderRef.update({
-      stockDeductionStatus: 'failed',
-      stockDeductionError: String(anyError.message || anyError).slice(0, 500),
-      stockDeductionFinishedAt: Date.now(),
-      warehouseDeductions: Object.keys(warehouseDeductions).length > 0 ? warehouseDeductions : null
-    }).catch(() => {});
-    throw anyError;
-  }
-
-  // Один update() на все прогресс-поля
+  // Прогресс сохраняем ДО выхода с ошибкой: иначе retry не знает, какие
+  // товары уже списаны, и списывает их повторно. Без catch — если прогресс
+  // не записался, retry обязан начаться заново, а не идти дальше.
   if (newProcessed.length > 0 || newDeducted.length > 0 || Object.keys(batchUpdate).length > 0) {
     const upd = Object.assign({}, batchUpdate);
     if (newProcessed.length > 0) {
@@ -477,9 +484,17 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
       upd.stockDeductedProductIds = admin.firestore.FieldValue.arrayUnion(...newDeducted);
       upd.stockDeducted = true;
     }
-    await orderRef.update(upd).catch(err => {
-      console.warn('[StockDeduct] batch update:', err.message);
-    });
+    await orderRef.update(upd);
+  }
+
+  if (anyError) {
+    console.error(`[StockDeduct] товар ошибка:`, anyError.message);
+    await orderRef.update({
+      stockDeductionStatus: 'failed',
+      stockDeductionError: String(anyError.message || anyError).slice(0, 500),
+      stockDeductionFinishedAt: Date.now()
+    }).catch(() => {});
+    throw anyError;
   }
 
   // Финализация: если заказ уже отменили — вернём то, что списали
@@ -681,7 +696,7 @@ exports.manualDeductOrderStock = functions
     // списалось (для товаров без warehouseStock warehouseDeductions
     // пустое, только stock уменьшается). Так админ увидит недостачу
     // если товар заказан во время паузы а сейчас на складе меньше.
-    const items = Array.isArray(order.items) ? order.items : [];
+    const items = _aggregateItems(order.items);
     const before = {};
     await Promise.all(items.map(async (item) => {
       if (!item || !item.id) return;
