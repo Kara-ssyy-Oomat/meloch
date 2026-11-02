@@ -602,6 +602,13 @@
           <div class="value gray" id="totalClientsCount">0</div>
         </div>
       </div>
+      <div class="controls-row search-row">
+        <div class="search-wrap">
+          <input type="text" id="orderClientSearch" placeholder="🔍 Имя или телефон клиента" autocomplete="off"
+                 oninput="onOrderClientSearchInput()">
+          <button type="button" class="search-clear" id="orderClientSearchClear" onclick="clearOrderClientSearch()" hidden aria-label="Очистить поиск">✕</button>
+        </div>
+      </div>
       <div class="controls-row">
         <select id="orderDateFilter" onchange="onOrderDateFilterChange()">
           <option value="today">Сегодня</option>
@@ -749,6 +756,20 @@
         <tbody id="expensesReportBody"></tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- Модальное окно: прибыль по товарам одного заказа -->
+<div id="orderProfitDetailModal" class="modal-overlay" onclick="if (event.target === this) closeOrderProfitDetail()">
+  <div class="modal-content" style="max-width:900px; width:95%;">
+    <div class="modal-header" style="background:linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+      <div>
+        <h2 id="orderProfitDetailTitle">Заказ</h2>
+        <div id="orderProfitDetailInfo" style="font-size:13px; opacity:0.9; margin-top:4px;"></div>
+      </div>
+      <button class="back-btn" onclick="closeOrderProfitDetail()">&times;</button>
+    </div>
+    <div class="modal-body" id="orderProfitDetailBody"></div>
   </div>
 </div>
 
@@ -1536,10 +1557,124 @@ function onAgentsDateFilterChange() {
 }
 
 // ============ ОТЧЁТ ПО ЗАКАЗАМ ============
+let _orderClientSearchTimer = null;
+let _orderProfitRows = [];
+
+function openOrderProfitDetail(index) {
+  const order = _orderProfitRows[index];
+  if (!order) return;
+
+  const items = (order.items || order.cart || []).filter(itemMatchesOwnerFilter);
+  let sumSale = 0, sumCost = 0, sumProfit = 0;
+  const rows = items.map(item => {
+    const qty = item.qty || item.quantity || 1;
+    let costPrice = parseFloat(item.costPrice) || 0;
+    if (costPrice === 0 && item.id) {
+      const product = findProductAnywhere(item.id);
+      if (product && product.costPrice) costPrice = parseFloat(product.costPrice) || 0;
+    }
+    const price = parseFloat(item.price) || 0;
+    const sale = price * qty;
+    const cost = costPrice * qty;
+    const profit = costPrice > 0 ? sale - cost : 0;
+    sumSale += sale;
+    sumCost += cost;
+    sumProfit += profit;
+    return { item, qty, price, costPrice, sale, cost, profit };
+  }).sort((a, b) => b.profit - a.profit);
+
+  const date = order.orderDate || new Date(order.timestamp || 0);
+  document.getElementById('orderProfitDetailTitle').textContent = '👤 ' + (order.name || 'Аноним');
+  document.getElementById('orderProfitDetailInfo').textContent =
+    [order.phone ? '📱 ' + order.phone : '',
+     '📅 ' + date.toLocaleDateString('ru-RU') + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })]
+      .filter(Boolean).join('  •  ');
+
+  const color = v => v > 0 ? '#28a745' : v < 0 ? '#dc3545' : '#999';
+  const money = v => v.toFixed(2) + ' сом';
+
+  const body = rows.length === 0
+    ? '<div style="text-align:center; color:#999; padding:30px;">В заказе нет товаров для отображения</div>'
+    : `
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="background:#f1f3f5;">
+            <th style="padding:8px; text-align:left;">Товар</th>
+            <th style="padding:8px; text-align:center;">Кол-во</th>
+            <th style="padding:8px; text-align:right;">Цена</th>
+            <th style="padding:8px; text-align:right;">Закупка за шт</th>
+            <th style="padding:8px; text-align:right;">Сумма</th>
+            <th style="padding:8px; text-align:right;">Прибыль</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr style="border-bottom:1px solid #eee;">
+              <td data-label="Товар" style="padding:8px; font-weight:600;">${escapeHtml(r.item.title || r.item.name || 'Товар')}${r.item.variantName ? ' <span style="background:#f3e5f5; color:#7b1fa2; padding:1px 6px; border-radius:4px; font-size:11px;">' + escapeHtml(r.item.variantName) + '</span>' : ''}</td>
+              <td data-label="Кол-во" style="padding:8px; text-align:center;">${r.qty}</td>
+              <td data-label="Цена" style="padding:8px; text-align:right;">${money(r.price)}</td>
+              <td data-label="Закупка за шт" style="padding:8px; text-align:right;">${r.costPrice > 0 ? money(r.costPrice) : '<span style="color:#e67e22;">нет закуп. цены</span>'}</td>
+              <td data-label="Сумма" style="padding:8px; text-align:right;">${money(r.sale)}</td>
+              <td data-label="Прибыль" style="padding:8px; text-align:right; font-weight:700; color:${color(r.profit)};">${r.profit > 0 ? '+' : ''}${money(r.profit)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:space-between; margin-top:14px; padding-top:12px; border-top:2px solid #e0e0e0; font-weight:600;">
+        <div>💰 Сумма: ${money(sumSale)}</div>
+        <div>💵 Закупка: ${money(sumCost)}</div>
+        <div style="font-size:17px; color:${color(sumProfit)};">📊 Прибыль: ${sumProfit > 0 ? '+' : ''}${money(sumProfit)}</div>
+      </div>
+    `;
+
+  document.getElementById('orderProfitDetailBody').innerHTML = body;
+  document.getElementById('orderProfitDetailModal').classList.add('active');
+}
+
+function closeOrderProfitDetail() {
+  document.getElementById('orderProfitDetailModal').classList.remove('active');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeOrderProfitDetail();
+});
+
+function onOrderClientSearchInput() {
+  const input = document.getElementById('orderClientSearch');
+  const clearBtn = document.getElementById('orderClientSearchClear');
+  if (clearBtn) clearBtn.hidden = !(input && input.value);
+  clearTimeout(_orderClientSearchTimer);
+  _orderClientSearchTimer = setTimeout(loadOrderProfitReport, 250);
+}
+
+function clearOrderClientSearch() {
+  const input = document.getElementById('orderClientSearch');
+  if (input) { input.value = ''; input.focus(); }
+  onOrderClientSearchInput();
+}
+
+// Телефон в заказе хранится так, как его ввёл клиент (с пробелами, +996 или 0),
+// поэтому номера сравниваются только по цифрам.
+function _orderMatchesClientSearch(order, rawQuery) {
+  const q = (rawQuery || '').trim().toLowerCase();
+  if (!q) return true;
+  const name = String(order.name || '').toLowerCase();
+  if (name.includes(q)) return true;
+  const phone = String(order.phone || '');
+  if (phone.toLowerCase().includes(q)) return true;
+  if (!/^[\d\s+()\-]+$/.test(q)) return false;
+  const qDigits = q.replace(/\D/g, '');
+  const phoneDigits = phone.replace(/\D/g, '');
+  if (qDigits.length >= 9) return phoneDigits.endsWith(qDigits.slice(-9));
+  return qDigits.length >= 3 && phoneDigits.includes(qDigits.replace(/^0/, ''));
+}
+
 async function loadOrderProfitReport() {
   if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
   const dateFilter = document.getElementById('orderDateFilter').value;
   const sortBy = document.getElementById('orderSortFilter').value;
+  const searchEl = document.getElementById('orderClientSearch');
+  const clientQuery = searchEl ? searchEl.value.trim() : '';
   
   const { startDate, endDate } = resolveDateRange(dateFilter, 'orderDateFrom', 'orderDateTo');
   if (dateFilter === 'custom') {
@@ -1552,6 +1687,7 @@ async function loadOrderProfitReport() {
     
     allOrders.forEach(data => {
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
+      if (!_orderMatchesClientSearch(data, clientQuery)) return;
       if (orderDate >= startDate && (!endDate || orderDate <= endDate)) {
         // Пропускаем отменённые и удалённые заказы — они не считаются в прибыли
         if (data.deleted) return;
@@ -1624,17 +1760,42 @@ async function loadOrderProfitReport() {
     
     // Таблица
     const tbody = document.getElementById('orderProfitReportBody');
-    tbody.innerHTML = orders.map((o, i) => {
+    if (orders.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#999; padding:30px;">${
+        clientQuery ? 'По «' + escapeHtml(clientQuery) + '» заказов за выбранный период нет. Попробуйте период «Все время».' : 'Нет заказов за выбранный период'
+      }</td></tr>`;
+      return;
+    }
+    let totalsRow = '';
+    if (clientQuery) {
+      const sumCost = orders.reduce((s, o) => s + o.totalCost, 0);
+      const sumSale = orders.reduce((s, o) => s + o.totalSale, 0);
+      const sumItems = orders.reduce((s, o) => s + o.itemCount, 0);
+      const totalColor = totalProfit > 0 ? '#28a745' : totalProfit < 0 ? '#dc3545' : '#6c757d';
+      totalsRow = `
+        <tr style="background:#f0fdf4; font-weight:700;">
+          <td data-label="#"></td>
+          <td data-label="Итого">Итого</td>
+          <td data-label="Заказов">${orders.length} заказ(ов)</td>
+          <td data-label="Товаров" class="center">${sumItems}</td>
+          <td data-label="Закупка" class="right">${sumCost.toFixed(2)} сом</td>
+          <td data-label="Сумма" class="right">${sumSale.toFixed(2)} сом</td>
+          <td data-label="Прибыль" class="right" style="color:${totalColor};">${totalProfit.toFixed(2)} сом</td>
+        </tr>
+      `;
+    }
+    _orderProfitRows = orders;
+    tbody.innerHTML = totalsRow + orders.map((o, i) => {
       const profitColor = o.profit > 0 ? '#28a745' : o.profit < 0 ? '#dc3545' : '#6c757d';
       const dateStr = o.orderDate.toLocaleDateString('ru-RU');
       // Если есть товары без закупочной цены - показываем примечание
       const profitNote = o.itemsWithoutCost > 0 ? ` <span style="color:#999;font-size:11px;">(${o.itemsWithoutCost} без закуп.)</span>` : '';
       
       return `
-        <tr>
+        <tr onclick="openOrderProfitDetail(${i})" style="cursor:pointer;" title="Нажмите, чтобы увидеть прибыль по каждому товару">
           <td data-label="#">${i + 1}</td>
           <td data-label="Дата">${dateStr}</td>
-          <td data-label="Клиент">${o.name || 'Аноним'}</td>
+          <td data-label="Клиент">${o.name || 'Аноним'}${clientQuery && o.phone ? '<br><small style="color:#999;">' + escapeHtml(o.phone) + '</small>' : ''}</td>
           <td data-label="Товаров" class="center">${o.itemCount}</td>
           <td data-label="Закупка" class="right">${o.totalCost.toFixed(2)} сом</td>
           <td data-label="Сумма" class="right">${o.totalSale.toFixed(2)} сом</td>
