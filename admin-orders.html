@@ -437,12 +437,218 @@ let ordersManagementAllOrders = null;
 let ordersManagementSearchDebounceTimer = null;
 let _ordersSearchComposing = false;
 
+// Основной запрос берёт только 200 последних заказов. Более старые
+// догружаются кнопкой «Загрузить ещё» (по 200) или находятся поиском в базе.
+const ORDERS_PAGE_SIZE = 200;
+let _ordersLastDoc = null;
+let _ordersHasMore = false;
+let _ordersLoadingMore = false;
+// Растёт при каждой полной перезагрузке, чтобы ответы старых запросов
+// не смешивались с новым списком.
+let _ordersLoadGeneration = 0;
+
+let _ordersDbSearchTimer = null;
+let _ordersDbSearchSeq = 0;
+const _ordersDbSearchDone = new Map();
+let _ordersDbSearchState = null;
+
+function _ordersWithTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(
+      () => rej(new Error('Таймаут ' + ms + 'мс: ' + label)),
+      ms
+    ))
+  ]);
+}
+
+function _mergeOrderDocsIntoCache(docs) {
+  if (!Array.isArray(ordersManagementAllOrders)) return 0;
+  const known = new Set(ordersManagementAllOrders.map(o => o.id));
+  let added = 0;
+  docs.forEach(doc => {
+    if (known.has(doc.id)) return;
+    const data = doc.data();
+    ordersManagementAllOrders.push({ id: doc.id, ...data, timestamp: data.timestamp || Date.now() });
+    known.add(doc.id);
+    added++;
+  });
+  return added;
+}
+
+function _renderOrdersKeepScroll() {
+  const listDiv = document.getElementById('ordersManagementList');
+  const top = listDiv ? listDiv.scrollTop : 0;
+  renderOrdersManagementFromCache();
+  if (listDiv) listDiv.scrollTop = top;
+}
+
+async function loadMoreOrders() {
+  if (_ordersLoadingMore || !_ordersHasMore || !_ordersLastDoc || !db) return;
+  _ordersLoadingMore = true;
+  const gen = _ordersLoadGeneration;
+  _renderOrdersKeepScroll();
+  try {
+    const snap = await _ordersWithTimeout(
+      db.collection('orders').orderBy('timestamp', 'desc')
+        .startAfter(_ordersLastDoc).limit(ORDERS_PAGE_SIZE).get(),
+      15000, 'more'
+    );
+    if (gen !== _ordersLoadGeneration) return;
+    if (!snap.empty) _ordersLastDoc = snap.docs[snap.docs.length - 1];
+    _ordersHasMore = snap.size === ORDERS_PAGE_SIZE;
+    _mergeOrderDocsIntoCache(snap.docs);
+  } catch (error) {
+    console.error('Ошибка догрузки заказов:', error);
+    if (gen === _ordersLoadGeneration) {
+      Swal.fire('Ошибка', 'Не удалось загрузить старые заказы. Проверьте интернет и попробуйте ещё раз.', 'error');
+    }
+  } finally {
+    if (gen === _ordersLoadGeneration) {
+      _ordersLoadingMore = false;
+      _renderOrdersKeepScroll();
+    }
+  }
+}
+
+// Телефон в заказе хранится так, как его ввёл клиент, поэтому ищем
+// по самым частым вариантам записи одного и того же номера.
+function _phoneSearchVariants(raw) {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 9) return [];
+  const l = digits.slice(-9);
+  const a = l.slice(0, 3), b = l.slice(3, 6), c = l.slice(6, 9);
+  const b2 = l.slice(3, 5), c2 = l.slice(5, 7), d2 = l.slice(7, 9);
+  const variants = [
+    raw.trim(), l, '0' + l, '996' + l, '+996' + l,
+    `0${a} ${b} ${c}`, `+996 ${a} ${b} ${c}`, `996 ${a} ${b} ${c}`, `${a} ${b} ${c}`,
+    `0${a} ${b2} ${c2} ${d2}`, `+996 ${a} ${b2} ${c2} ${d2}`, `${a} ${b2} ${c2} ${d2}`,
+    `0${a}-${b}-${c}`, `+996-${a}-${b}-${c}`, `+996 ${a}-${b}-${c}`,
+    `0${a}-${b2}-${c2}-${d2}`, `+996 ${a}-${b2}-${c2}-${d2}`,
+    `+996 (${a}) ${b}-${c}`, `+996(${a})${b}${c}`, `+996 (${a}) ${b} ${c}`,
+    `0 ${a} ${b} ${c}`, `+996${a} ${b} ${c}`, `+ 996 ${a} ${b} ${c}`
+  ];
+  return [...new Set(variants)].slice(0, 30);
+}
+
+function _nameSearchVariants(q) {
+  const t = q.trim();
+  const cap = t.charAt(0).toUpperCase() + t.slice(1);
+  const words = t.toLowerCase().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return [...new Set([t, cap, words])];
+}
+
+function scheduleOrdersDbSearch() {
+  clearTimeout(_ordersDbSearchTimer);
+  const searchEl = document.getElementById('ordersSearchClient');
+  const q = ((searchEl ? searchEl.value : '') || '').trim();
+  if (!q) {
+    _ordersDbSearchState = null;
+    return;
+  }
+  _ordersDbSearchTimer = setTimeout(() => runOrdersDbSearch(q), 700);
+}
+
+async function runOrdersDbSearch(q) {
+  if (!db || !Array.isArray(ordersManagementAllOrders)) return;
+  const key = q.toLowerCase();
+  const looksLikePhone = /^[\d\s+()\-]+$/.test(q);
+
+  if (looksLikePhone && q.replace(/\D/g, '').length < 9) {
+    _ordersDbSearchState = { q, status: 'shortPhone' };
+    _renderOrdersKeepScroll();
+    return;
+  }
+  if (!looksLikePhone && q.length < 2) return;
+
+  if (_ordersDbSearchDone.has(key)) {
+    _ordersDbSearchState = { q, status: 'done', found: _ordersDbSearchDone.get(key) };
+    _renderOrdersKeepScroll();
+    return;
+  }
+
+  const seq = ++_ordersDbSearchSeq;
+  const gen = _ordersLoadGeneration;
+  _ordersDbSearchState = { q, status: 'loading' };
+  _renderOrdersKeepScroll();
+
+  try {
+    const orders = db.collection('orders');
+    let queries;
+    if (looksLikePhone) {
+      queries = [orders.where('phone', 'in', _phoneSearchVariants(q)).limit(300).get()];
+    } else {
+      queries = _nameSearchVariants(q).map(v =>
+        orders.where('name', '>=', v).where('name', '<=', v + '\uf8ff').limit(100).get()
+      );
+    }
+    const snaps = await _ordersWithTimeout(Promise.all(queries), 15000, 'search');
+    if (gen !== _ordersLoadGeneration) return;
+
+    const ids = new Set();
+    const docs = [];
+    snaps.forEach(s => s.forEach(doc => {
+      if (!ids.has(doc.id)) { ids.add(doc.id); docs.push(doc); }
+    }));
+    _mergeOrderDocsIntoCache(docs);
+    _ordersDbSearchDone.set(key, docs.length);
+    if (seq !== _ordersDbSearchSeq) return;
+    _ordersDbSearchState = { q, status: 'done', found: docs.length };
+  } catch (error) {
+    console.error('Ошибка поиска заказов в базе:', error);
+    if (seq !== _ordersDbSearchSeq || gen !== _ordersLoadGeneration) return;
+    _ordersDbSearchState = { q, status: 'error' };
+  }
+  _renderOrdersKeepScroll();
+}
+
+function _appendOrdersFooter(listDiv) {
+  const searchEl = document.getElementById('ordersSearchClient');
+  const currentQ = ((searchEl ? searchEl.value : '') || '').trim();
+  const st = _ordersDbSearchState;
+
+  if (st && st.q === currentQ) {
+    const comboEl = document.getElementById('ordersFilterCombined');
+    const sourceEl = document.getElementById('ordersFilterSource');
+    const filtered = (comboEl && comboEl.value !== 'all|all') || (sourceEl && sourceEl.value !== 'all');
+    let text = '';
+    if (st.status === 'loading') {
+      text = '⏳ Ищу также в старых заказах...';
+    } else if (st.status === 'shortPhone') {
+      text = '📞 Чтобы найти старые заказы, введите номер полностью (9 последних цифр).';
+    } else if (st.status === 'error') {
+      text = '⚠️ Не удалось поискать в старых заказах. Проверьте интернет.';
+    } else if (st.status === 'done') {
+      text = st.found > 0
+        ? `🔎 Во всей базе найдено заказов: <b>${st.found}</b>` + (filtered ? '. Часть может быть скрыта фильтром — выберите «Все».' : '.')
+        : '🔎 В старых заказах ничего не найдено.';
+    }
+    if (text) {
+      const info = document.createElement('div');
+      info.style.cssText = 'text-align:center; font-size:13px; color:#666; padding:10px; margin:4px 0 12px; background:#fff; border-radius:8px; border:1px dashed #ccc;';
+      info.innerHTML = text;
+      listDiv.appendChild(info);
+    }
+  }
+
+  if (_ordersHasMore) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.disabled = _ordersLoadingMore;
+    btn.textContent = _ordersLoadingMore ? '⏳ Загрузка...' : '⬇️ Загрузить ещё старые заказы';
+    btn.style.cssText = 'display:block; width:100%; padding:12px; margin:4px 0 16px; background:#fff; color:#007bff; border:1px solid #007bff; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer;';
+    btn.onclick = loadMoreOrders;
+    listDiv.appendChild(btn);
+  }
+}
+
 function scheduleOrdersManagementSearch() {
   if (_ordersSearchComposing) return;
   clearTimeout(ordersManagementSearchDebounceTimer);
   ordersManagementSearchDebounceTimer = setTimeout(() => {
     renderOrdersManagementFromCache();
   }, _isIOS ? 350 : 200);
+  scheduleOrdersDbSearch();
 }
 
 function applyOrdersCombinedFilter() {
@@ -526,6 +732,8 @@ function renderOrdersManagementFromCache() {
   }
   const sourceFilter = (sourceEl ? sourceEl.value : 'all') || 'all';
   const searchQuery = ((searchEl ? searchEl.value : '') || '').toLowerCase();
+  const searchDigits = /^[\d\s+()\-]+$/.test(searchQuery.trim()) ? searchQuery.replace(/\D/g, '') : '';
+  const searchPhoneTail = searchDigits.length >= 9 ? searchDigits.slice(-9) : '';
 
   const now = Date.now();
   const oneDayMs = 24 * 60 * 60 * 1000;
@@ -574,7 +782,12 @@ function renderOrdersManagementFromCache() {
     const name = (order.name || '').toLowerCase();
     const phone = (order.phone || '').toLowerCase();
     const itemsText = (order.items || []).map(i => (i.title || '').toLowerCase()).join(' ');
-    const searchMatch = !searchQuery || name.includes(searchQuery) || phone.includes(searchQuery) || itemsText.includes(searchQuery);
+    const phoneDigits = phone.replace(/\D/g, '');
+    const phoneMatch = phone.includes(searchQuery)
+      || (searchPhoneTail && phoneDigits.endsWith(searchPhoneTail))
+      || (searchDigits.length >= 3 && searchDigits.length < 9
+          && phoneDigits.includes(searchDigits.replace(/^0/, '')));
+    const searchMatch = !searchQuery || name.includes(searchQuery) || phoneMatch || itemsText.includes(searchQuery);
 
     return dateMatch && statusMatch && searchMatch && sourceMatch;
   });
@@ -583,6 +796,7 @@ function renderOrdersManagementFromCache() {
 
   if (orders.length === 0) {
     listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:60px; font-size:16px;">🔍 Заказы не найдены</div>';
+    _appendOrdersFooter(listDiv);
     return;
   }
 
@@ -606,6 +820,7 @@ function renderOrdersManagementFromCache() {
     const orderCard = createOrderCard(order, index);
     listDiv.appendChild(orderCard);
   });
+  _appendOrdersFooter(listDiv);
 }
 
 async function loadOrdersManagement(forceRefresh = false) {
@@ -625,6 +840,13 @@ async function loadOrdersManagement(forceRefresh = false) {
   }
 
   listDiv.innerHTML = '<div style="text-align:center; color:#999; padding:40px;">⏳ Загрузка заказов...</div>';
+
+  const gen = ++_ordersLoadGeneration;
+  _ordersLastDoc = null;
+  _ordersHasMore = false;
+  _ordersLoadingMore = false;
+  _ordersDbSearchDone.clear();
+  _ordersDbSearchState = null;
 
   // Ждём готовности Firebase Auth перед запросами. Без этого первый запрос
   // может уйти ДО появления request.auth — правила orders/{id} требуют
@@ -646,22 +868,19 @@ async function loadOrdersManagement(forceRefresh = false) {
     // pending/deleted чтобы не требовать composite index.
     // ЗАЩИТА ОТ ВИСЯКА: каждый запрос с таймаутом 15с — если SDK залип
     // (например, проблема с IndexedDB или auth-токеном), не висим вечно.
-    const _withTimeout = (promise, ms, label) =>
-      Promise.race([
-        promise,
-        new Promise((_, rej) => setTimeout(
-          () => rej(new Error('Таймаут ' + ms + 'мс: ' + label)),
-          ms
-        ))
-      ]);
+    const _withTimeout = _ordersWithTimeout;
     const [recentSnapshot, pendingSnapshot, unfulfilledSnapshot, deletedSnapshot] = await Promise.all([
-      _withTimeout(db.collection('orders').orderBy('timestamp', 'desc').limit(200).get(), 15000, 'recent'),
+      _withTimeout(db.collection('orders').orderBy('timestamp', 'desc').limit(ORDERS_PAGE_SIZE).get(), 15000, 'recent'),
       _withTimeout(db.collection('orders').where('status', '==', 'pending').limit(500).get(), 15000, 'pending'),
       // Заявки, где все товары распроданы (созданы клиентом, но склад не тронут).
       // Их админ должен видеть отдельно, чтобы связаться с клиентом.
       _withTimeout(db.collection('orders').where('status', '==', 'unfulfilled').limit(200).get(), 15000, 'unfulfilled'),
       _withTimeout(db.collection('orders').where('deleted', '==', true).limit(200).get(), 15000, 'deleted')
     ]);
+    if (gen !== _ordersLoadGeneration) return;
+
+    if (!recentSnapshot.empty) _ordersLastDoc = recentSnapshot.docs[recentSnapshot.docs.length - 1];
+    _ordersHasMore = recentSnapshot.size === ORDERS_PAGE_SIZE;
 
     if (recentSnapshot.empty && pendingSnapshot.empty && unfulfilledSnapshot.empty && deletedSnapshot.empty) {
       ordersManagementAllOrders = [];
@@ -698,7 +917,9 @@ async function loadOrdersManagement(forceRefresh = false) {
 
     ordersManagementAllOrders = Object.values(allMap);
     renderOrdersManagementFromCache();
+    scheduleOrdersDbSearch();
   } catch (error) {
+    if (gen !== _ordersLoadGeneration) return;
     console.error('Ошибка загрузки заказов:', error);
     const msg = error && error.message ? error.message : 'Неизвестная ошибка';
     const isTimeout = msg.indexOf('Таймаут') === 0;
