@@ -492,6 +492,13 @@
           <option value="korean">Только корейский менеджер</option>
           <option value="appliances">Только менеджер бытовых</option>
         </select>
+        <select id="profitCostMode" onchange="onProfitCostModeChange()" style="margin-top:8px;">
+          <option value="original">📄 Себестоимость на момент продажи</option>
+          <option value="recalculated">🔁 С учётом перерасчёта приходных цен</option>
+        </select>
+        <div style="margin-top:8px; font-size:13px;">
+          <a href="admin-cost-prices.html" style="color:#fff; font-weight:600;">🏷️ Массовое изменение приходных цен и перерасчёт →</a>
+        </div>
       </div>
     </div>
     <button class="back-btn" onclick="window.location.href='profile.html'">←</button>
@@ -958,6 +965,11 @@ function applyManagerUiLimits() {
     if (sel) {
       try { sel.value = localStorage.getItem('ownerProfitFilter') || 'all'; } catch (e) {}
     }
+    const costModeSel = document.getElementById('profitCostMode');
+    if (costModeSel) {
+      try { costModeSel.value = localStorage.getItem('profitCostMode') === 'recalculated' ? 'recalculated' : 'original'; } catch (e) {}
+    }
+    applyProfitCostModeLabel();
     return;
   }
 
@@ -1001,8 +1013,89 @@ const _PROFIT_CACHE_MS = 1800000; // 30 минут
 const _PROFIT_LS_KEY = 'profitOrdersCache';
 const _PROFIT_LS_TS_KEY = 'profitOrdersCacheTs';
 
+// ============ ПЕРЕРАСЧЁТ ПРИБЫЛИ (admin-cost-prices.html) ============
+// Заказы не меняются: новая себестоимость позиций лежит в profitAdjustments
+// (один документ на заказ) и подмешивается только в режиме «с учётом перерасчёта».
+const _costAdjCache = { map: null, ts: 0 };
+
+function getProfitCostMode() {
+  if (userRole !== 'admin') return 'original';
+  const el = document.getElementById('profitCostMode');
+  if (el && el.value) return el.value;
+  try { return localStorage.getItem('profitCostMode') || 'original'; } catch (e) { return 'original'; }
+}
+
+function onProfitCostModeChange() {
+  const el = document.getElementById('profitCostMode');
+  try { if (el) localStorage.setItem('profitCostMode', el.value); } catch (e) {}
+  applyProfitCostModeLabel();
+  if (currentTab === 'orders') loadOrderProfitReport();
+  else if (currentTab === 'agents') loadAgentsProfitReport();
+  else if (currentTab === 'expenses') loadExpensesReport();
+  else loadProfitReport();
+}
+
+function applyProfitCostModeLabel() {
+  const sub = document.querySelector('.profit-header p');
+  if (!sub || isCategoryManager()) return;
+  sub.textContent = getProfitCostMode() === 'recalculated'
+    ? 'Прибыль по фактическим продажам • 🔁 с учётом перерасчёта приходных цен'
+    : 'Прибыль по фактическим продажам';
+}
+
+async function _ensureCostAdjustments() {
+  if (getProfitCostMode() !== 'recalculated') return;
+  if (_costAdjCache.map && (Date.now() - _costAdjCache.ts) < _PROFIT_CACHE_MS) return;
+  try {
+    if (typeof window.kerbenAdminSilentReauth === 'function') {
+      try { await window.kerbenAdminSilentReauth(); } catch (e) {}
+    }
+    const snap = await db.collection('profitAdjustments').limit(10000).get();
+    const map = new Map();
+    snap.forEach(doc => map.set(doc.id, (doc.data().items || [])));
+    _costAdjCache.map = map;
+    _costAdjCache.ts = Date.now();
+    _costAdjCache.failed = false;
+  } catch (error) {
+    console.error('❌ Не удалось загрузить перерасчёт прибыли:', error);
+    const alreadyFailed = _costAdjCache.failed;
+    _costAdjCache.map = new Map();
+    // Повторная попытка через минуту, а не на каждом переключении вкладки
+    _costAdjCache.ts = Date.now() - _PROFIT_CACHE_MS + 60000;
+    _costAdjCache.failed = true;
+    if (!alreadyFailed && typeof Swal !== 'undefined') {
+      Swal.fire({ icon: 'warning', title: 'Перерасчёт не загружен', text: 'Показана себестоимость на момент продажи. Обновите страницу через несколько секунд.', timer: 3500, showConfirmButton: false });
+    }
+  }
+}
+
+function _findCostAdjustment(order, item, index) {
+  if (getProfitCostMode() !== 'recalculated' || !_costAdjCache.map || !order || !order.id) return null;
+  const adj = _costAdjCache.map.get(order.id);
+  if (!adj || !adj.length) return null;
+  const itemId = (item && item.id) || null;
+  // Позицию ищем по индексу, а если заказ потом редактировали и порядок
+  // сдвинулся — по товару: новая приходная цена у товара одна.
+  const hit = adj.find(a => a.i === index && a.id === itemId) || (itemId ? adj.find(a => a.id === itemId) : null);
+  return hit ? (parseFloat(hit.newCost) || 0) : null;
+}
+
+// Себестоимость позиции за единицу: из перерасчёта (если включён),
+// иначе зафиксированная в заказе, иначе из каталога.
+function getItemCostPrice(order, item, index) {
+  const adjusted = _findCostAdjustment(order, item, index);
+  if (adjusted !== null) return adjusted;
+  let costPrice = parseFloat(item.costPrice) || 0;
+  if (costPrice === 0 && item.id) {
+    const product = findProductAnywhere(item.id);
+    if (product && product.costPrice) costPrice = parseFloat(product.costPrice) || 0;
+  }
+  return costPrice;
+}
+
 async function _getOrdersCached() {
   if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return [];
+  await _ensureCostAdjustments();
   if (_profitPageCache.orders && (Date.now() - _profitPageCache.ordersTs) < _PROFIT_CACHE_MS) {
     return _profitPageCache.orders;
   }
@@ -1046,6 +1139,7 @@ async function _getAgentsCached() {
 function _invalidateProfitPageCache() {
   _profitPageCache.orders = null; _profitPageCache.ordersTs = 0;
   _profitPageCache.agents = null; _profitPageCache.agentsTs = 0;
+  _costAdjCache.map = null; _costAdjCache.ts = 0;
   try {
     localStorage.removeItem(_PROFIT_LS_KEY);
     localStorage.removeItem(_PROFIT_LS_TS_KEY);
@@ -1211,7 +1305,7 @@ function aggregateProductSales(orders, startDate, endDate) {
     if (endDate && orderDate > endDate) return;
 
     const items = order.items || order.cart || [];
-    items.forEach(item => {
+    items.forEach((item, itemIndex) => {
       if (!itemMatchesOwnerFilter(item)) return;
 
       const qty = parseFloat(item.qty || item.quantity) || 0;
@@ -1220,9 +1314,7 @@ function aggregateProductSales(orders, startDate, endDate) {
       const salePrice = parseFloat(item.price) || 0;
       const product = findProductAnywhere(item.id);
 
-      // Закупку берём из заказа, иначе из каталога
-      let costPrice = parseFloat(item.costPrice) || 0;
-      if (costPrice === 0 && product) costPrice = parseFloat(product.costPrice) || 0;
+      const costPrice = getItemCostPrice(order, item, itemIndex);
 
       // Позиции без id группируем по названию, иначе они слиплись бы в одну
       const key = item.id || ('title:' + String(item.title || '').trim().toLowerCase());
@@ -1564,15 +1656,13 @@ function openOrderProfitDetail(index) {
   const order = _orderProfitRows[index];
   if (!order) return;
 
-  const items = (order.items || order.cart || []).filter(itemMatchesOwnerFilter);
+  const items = (order.items || order.cart || [])
+    .map((item, itemIndex) => ({ item, itemIndex }))
+    .filter(entry => itemMatchesOwnerFilter(entry.item));
   let sumSale = 0, sumCost = 0, sumProfit = 0;
-  const rows = items.map(item => {
+  const rows = items.map(({ item, itemIndex }) => {
     const qty = item.qty || item.quantity || 1;
-    let costPrice = parseFloat(item.costPrice) || 0;
-    if (costPrice === 0 && item.id) {
-      const product = findProductAnywhere(item.id);
-      if (product && product.costPrice) costPrice = parseFloat(product.costPrice) || 0;
-    }
+    const costPrice = getItemCostPrice(order, item, itemIndex);
     const price = parseFloat(item.price) || 0;
     const sale = price * qty;
     const cost = costPrice * qty;
@@ -1705,19 +1795,12 @@ async function loadOrderProfitReport() {
       const items = order.items || order.cart || [];
       let managerItemCount = 0;
       
-      items.forEach(item => {
+      items.forEach((item, itemIndex) => {
         if (!itemMatchesOwnerFilter(item)) return;
         managerItemCount += 1;
         const qty = item.qty || item.quantity || 1;
         
-        // Ищем costPrice: сначала в заказе, потом в базе товаров
-        let costPrice = parseFloat(item.costPrice) || 0;
-        if (costPrice === 0 && item.id) {
-          const product = findProductAnywhere(item.id);
-          if (product && product.costPrice) {
-            costPrice = parseFloat(product.costPrice) || 0;
-          }
-        }
+        const costPrice = getItemCostPrice(order, item, itemIndex);
         
         const salePrice = parseFloat(item.price) || 0;
         
@@ -1897,15 +1980,11 @@ async function loadAgentsProfitReport() {
         let orderSale = 0;
         
         const ownerMode = getOwnerProfitMode();
-        items.forEach(item => {
+        items.forEach((item, itemIndex) => {
           if (!itemMatchesOwnerFilter(item)) return;
           const qty = item.qty || item.quantity || 1;
           const salePrice = parseFloat(item.price) || 0;
-          let costPrice = parseFloat(item.costPrice) || 0;
-          if (costPrice === 0 && item.id) {
-            const product = findProductAnywhere(item.id);
-            if (product && product.costPrice) costPrice = parseFloat(product.costPrice) || 0;
-          }
+          const costPrice = getItemCostPrice(data, item, itemIndex);
           
           // Если total не было или фильтр режет товары менеджеров — считаем по позициям
           if (!data.total || ownerMode !== 'all') {
@@ -2191,19 +2270,12 @@ async function loadExpensesReport() {
       const orderDate = data.timestamp ? new Date(data.timestamp) : new Date(data.date || 0);
       if (orderDate >= startDate && orderDate <= endDate) {
         const items = data.items || data.cart || [];
-        items.forEach(item => {
+        items.forEach((item, itemIndex) => {
           if (!itemMatchesOwnerFilter(item)) return;
           const qty = item.qty || item.quantity || 1;
           const sale = (parseFloat(item.price) || 0) * qty;
           
-          // Ищем costPrice: сначала в заказе, потом в базе товаров
-          let costPrice = parseFloat(item.costPrice) || 0;
-          if (costPrice === 0 && item.id) {
-            const product = findProductAnywhere(item.id);
-            if (product && product.costPrice) {
-              costPrice = parseFloat(product.costPrice) || 0;
-            }
-          }
+          const costPrice = getItemCostPrice(data, item, itemIndex);
           
           const cost = costPrice * qty;
           // Прибыль только если есть закупочная цена

@@ -87,6 +87,7 @@ Disallow: /
 User-agent: *
 Disallow: /admin-agents.html
 Disallow: /admin-categories.html
+Disallow: /admin-cost-prices.html
 Disallow: /admin-chat.html
 Disallow: /admin-orders.html
 Disallow: /admin-products.html

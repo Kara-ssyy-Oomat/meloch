@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <script>if(window.parent!==window)document.write('<style>.bottom-nav,#bottomNavBar{display:none!important}body{padding-bottom:0!important}</style>')</script>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Массовое изменение цен - Админ</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/auth.js?v=3"></script>
+  <script src="js/admin-reauth.js?v=3"></script>
+  <script src="js/bot-blocker.js?v=2"></script>
+  <script src="js/background-pause.js?v=2"></script>
+  <script src="js/products-cache.js?v=3"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding-bottom: 70px;
+      color: #333;
+    }
+    input, select, textarea, button { font-family: inherit; }
+    .swal2-container { z-index: 999999 !important; }
+
+    .header {
+      background: linear-gradient(135deg, #3f51b5, #00897b);
+      color: white;
+      padding: 18px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header h2 { font-size: 20px; }
+    .header p { margin-top: 4px; opacity: 0.9; font-size: 13px; }
+    .back-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: none;
+      font-size: 24px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      overflow-x: auto;
+      position: sticky;
+      top: 80px;
+      z-index: 90;
+    }
+    .tabs button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      background: #eceff1;
+      color: #333;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tabs button.active { background: linear-gradient(90deg, #3f51b5, #00897b); color: #fff; }
+
+    .container { padding: 16px; max-width: 1100px; margin: 0 auto; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .card-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+    .info-box {
+      background: #e8eaf6;
+      border: 1px solid #c5cae9;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      color: #283593;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+    .warn-box {
+      background: #fff3e0;
+      border: 1px solid #ffe0b2;
+      color: #e65100;
+    }
+
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+    .field { flex: 1; min-width: 150px; }
+    .field label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 600; }
+    .field input, .field select {
+      width: 100%;
+      padding: 11px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+      background: #fff;
+    }
+    .field input:focus, .field select:focus { outline: none; border-color: #3f51b5; }
+
+    .btn {
+      padding: 11px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:disabled { background: #ccc !important; color: #fff !important; cursor: not-allowed; }
+    .btn-primary { background: #3f51b5; color: #fff; }
+    .btn-green { background: #2e7d32; color: #fff; }
+    .btn-gray { background: #eceff1; color: #333; }
+    .btn-red { background: #c62828; color: #fff; }
+    .btn-teal { background: #00897b; color: #fff; }
+    .btn-big { width: 100%; padding: 15px; font-size: 16px; border-radius: 12px; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat {
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .stat .label { font-size: 12px; color: #777; margin-bottom: 4px; }
+    .stat .value { font-size: 20px; font-weight: 700; }
+    .c-green { color: #2e7d32; }
+    .c-red { color: #c62828; }
+    .c-blue { color: #1565c0; }
+    .c-gray { color: #777; }
+    .c-indigo { color: #3f51b5; }
+
+    /* Список товаров */
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+    .toolbar .count { font-size: 13px; color: #555; margin-left: auto; }
+    .plist { max-height: 60vh; overflow-y: auto; border: 1px solid #eee; border-radius: 10px; }
+    .prow {
+      display: grid;
+      grid-template-columns: 34px 1fr 90px 100px 130px 90px;
+      gap: 8px;
+      align-items: center;
+      padding: 9px 10px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+    }
+    .prow:last-child { border-bottom: none; }
+    .prow.head {
+      position: sticky;
+      top: 0;
+      background: #f8f9fa;
+      font-size: 12px;
+      color: #666;
+      font-weight: 700;
+      z-index: 1;
+    }
+    .prow.changed { background: #f1f8e9; }
+    .prow.unselected-draft { opacity: 0.55; }
+    .prow input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
+    .prow .title { overflow: hidden; }
+    .prow .title b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .prow .title small { color: #999; font-size: 11px; }
+    .prow .num { text-align: right; }
+    .prow .retail { color: #999; }
+    .prow input.newcost {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 15px;
+      text-align: right;
+    }
+    .prow input.newcost:focus { outline: none; border-color: #3f51b5; }
+    .prow.changed input.newcost { border-color: #7cb342; background: #fff; font-weight: 700; }
+
+    .savebar {
+      position: sticky;
+      bottom: 70px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 14px;
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.12);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      z-index: 50;
+    }
+    .savebar .summary { flex: 1; font-size: 14px; min-width: 180px; }
+
+    /* Таблица отчёта */
+    .table-wrap { overflow-x: auto; }
+    table.rep { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.rep th { background: #f1f3f5; padding: 8px; text-align: right; white-space: nowrap; color: #555; }
+    table.rep th:first-child, table.rep td:first-child { text-align: left; }
+    table.rep td { padding: 8px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; }
+    table.rep td.name { white-space: normal; min-width: 160px; font-weight: 600; }
+    table.rep tr.total td { background: #f8f9fa; font-weight: 700; }
+
+    .hist-item {
+      border: 1px solid #eee;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .hist-item .meta { font-size: 12px; color: #777; margin-top: 3px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+    .badge-active { background: #e8f5e9; color: #2e7d32; }
+    .badge-cancelled { background: #eceff1; color: #777; }
+    .badge-replaced { background: #fff3e0; color: #e65100; }
+    .empty { text-align: center; color: #999; padding: 24px; font-size: 14px; }
+
+    #accessDenied { display: none; min-height: 100vh; align-items: center; justify-content: center; flex-direction: column; text-align: center; padding: 24px; }
+
+    @media (max-width: 700px) {
+      .header { padding: 14px; }
+      .header h2 { font-size: 17px; }
+      .tabs { top: 72px; }
+      .prow { grid-template-columns: 30px 1fr 110px; grid-template-areas: "c t n" "c r d"; row-gap: 4px; }
+      .prow.head { display: none; }
+      .prow .cb { grid-area: c; }
+      .prow .title { grid-area: t; }
+      .prow .retail { grid-area: r; text-align: left; font-size: 12px; }
+      .prow .cur { display: none; }
+      .prow .newwrap { grid-area: n; }
+      .prow .diff { grid-area: d; font-size: 12px; }
+      .prow .retail::before { content: 'Продажа: '; }
+      .stat .value { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="accessDenied">
+  <div style="font-size:48px; margin-bottom:12px;">🔒</div>
+  <div style="font-size:20px; font-weight:700; margin-bottom:8px;">Доступ запрещён</div>
+  <div style="color:#666;">Раздел доступен только главному администратору.</div>
+  <button class="btn btn-gray" style="margin-top:18px;" onclick="window.location.href='index.html'">На главную</button>
+</div>
+
+<div id="app" style="display:none;">
+  <div class="header">
+    <div>
+      <h2>🏷️ Массовое изменение цен</h2>
+      <p>Приходные цены и перерасчёт прибыли</p>
+    </div>
+    <button class="back-btn" onclick="window.location.href='profile.html'">←</button>
+  </div>
+
+  <div class="tabs">
+    <button id="tabBtn-prices" class="active" onclick="switchTab('prices')">💵 Приходные цены</button>
+    <button id="tabBtn-recalc" onclick="switchTab('recalc')">🔁 Перерасчёт прибыли</button>
+    <button id="tabBtn-history" onclick="switchTab('history')">📜 История</button>
+  </div>
+
+  <div class="container">
+
+    <!-- ================= ПРИХОДНЫЕ ЦЕНЫ ================= -->
+    <div class="tab-panel active" id="panel-prices">
+      <div class="info-box">
+        Меняется <b>только приходная (закупочная) цена</b>. Розничные и оптовые цены, заказы и история продаж не меняются.
+        Старые приходные цены сохраняются в истории изменений.
+      </div>
+
+      <div class="card">
+        <div class="card-title">1. Выберите товары</div>
+        <div class="row">
+          <div class="field">
+            <label>Категория</label>
+            <select id="fCategory" onchange="renderProducts()">
+              <option value="">Все товары</option>
+            </select>
+          </div>
+          <div class="field" style="flex:2;">
+            <label>Поиск</label>
+            <input type="text" id="fSearch" placeholder="🔍 Название товара" autocomplete="off" oninput="onSearchInput()">
+          </div>
+          <div class="field">
+            <label>Показать</label>
+            <select id="fShow" onchange="renderProducts()">
+              <option value="all">Все по фильтру</option>
+              <option value="selected">Только выбранные</option>
+              <option value="changed">Только с новой ценой</option>
+            </select>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="btn btn-gray" onclick="selectVisible(true)">☑️ Выбрать все показанные</button>
+          <button class="btn btn-gray" onclick="selectVisible(false)">⬜ Снять с показанных</button>
+          <button class="btn btn-gray" onclick="clearSelection()">✖ Снять весь выбор</button>
+          <span class="count" id="selCount">Выбрано: 0</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">2. Массовое изменение выбранных</div>
+        <div class="row">
+          <div class="field" style="flex:2;">
+            <label>Действие</label>
+            <select id="bulkOp" onchange="onBulkOpChange()">
+              <option value="inc_amount">➕ Увеличить на сумму (сом)</option>
+              <option value="dec_amount">➖ Уменьшить на сумму (сом)</option>
+              <option value="inc_percent">📈 Увеличить на процент</option>
+              <option value="dec_percent">📉 Уменьшить на процент</option>
+              <option value="set">✏️ Установить одну цену всем</option>
+            </select>
+          </div>
+          <div class="field">
+            <label id="bulkValueLabel">Сумма, сом</label>
+            <input type="number" id="bulkValue" min="0" step="0.01" inputmode="decimal" placeholder="0">
+          </div>
+          <div class="field">
+            <label>Округление</label>
+            <select id="bulkRound">
+              <option value="0.01">До 2 знаков</option>
+              <option value="1">До целых сом</option>
+            </select>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="btn btn-primary" id="bulkApplyBtn" onclick="applyBulk()">Применить к выбранным</button>
+          <button class="btn btn-gray" onclick="resetDrafts()">↺ Сбросить новые цены</button>
+        </div>
+        <div style="font-size:12px; color:#888; margin-top:8px;">
+          Новую цену можно также ввести вручную в колонке «Новая приходная» — товар выберется сам.
+          Изменения не сохраняются, пока вы не подтвердите их на следующем шаге.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Товары</div>
+        <div class="plist" id="productList">
+          <div class="empty">Загрузка товаров...</div>
+        </div>
+      </div>
+
+      <div class="savebar">
+        <div class="summary" id="saveSummary">Нет изменений</div>
+        <button class="btn btn-green" id="previewBtn" onclick="previewAndSave()" disabled>👁️ Проверить и сохранить</button>
+      </div>
+    </div>
+
+    <!-- ================= ПЕРЕРАСЧЁТ ПРИБЫЛИ ================= -->
+    <div class="tab-panel" id="panel-recalc">
+      <div class="info-box warn-box">
+        ⚠️ Перерасчёт <b>не меняет заказы и историю продаж</b>. Новая себестоимость хранится отдельно, и в «Отчёте по прибыли»
+        можно переключаться между прибылью на момент продажи и прибылью после перерасчёта.
+        Повторный перерасчёт того же периода <b>заменяет</b> прошлый результат, а не прибавляет разницу ещё раз.
+      </div>
+
+      <div class="card">
+        <div class="card-title">Параметры перерасчёта</div>
+        <div class="row">
+          <div class="field">
+            <label>Период</label>
+            <select id="rPeriod" onchange="onPeriodChange()">
+              <option value="today">Сегодня</option>
+              <option value="yesterday">Вчера</option>
+              <option value="week">Неделя (7 дней)</option>
+              <option value="month" selected>Текущий месяц</option>
+              <option value="custom">📅 Выбрать даты</option>
+            </select>
+          </div>
+          <div class="field" id="rFromWrap" style="display:none;">
+            <label>С</label>
+            <input type="date" id="rFrom">
+          </div>
+          <div class="field" id="rToWrap" style="display:none;">
+            <label>По</label>
+            <input type="date" id="rTo">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <div class="field">
+            <label>Какие приходные цены применить</label>
+            <select id="rBasis">
+              <option value="catalog">Текущие приходные цены всех товаров</option>
+            </select>
+          </div>
+        </div>
+        <div style="font-size:12px; color:#888; margin:8px 0 12px;">
+          «Текущие приходные цены» — для каждого проданного товара берётся его приходная цена из каталога сейчас.
+          Если выбрать конкретное изменение из истории — пересчитаются только товары из этого изменения.
+        </div>
+        <button class="btn btn-teal btn-big" id="recalcBtn" onclick="runRecalculation()">🔁 Пересчитать прибыль</button>
+      </div>
+
+      <div id="recalcReport"></div>
+    </div>
+
+    <!-- ================= ИСТОРИЯ ================= -->
+    <div class="tab-panel" id="panel-history">
+      <div class="card">
+        <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>💵 Изменения приходных цен</span>
+          <button class="btn btn-gray" onclick="loadHistory(true)">🔄</button>
+        </div>
+        <div id="priceHistoryList"><div class="empty">Загрузка...</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔁 Перерасчёты прибыли</div>
+        <div id="recalcHistoryList"><div class="empty">Загрузка...</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+var firebaseConfig = {
+  apiKey: "AIzaSyBRQ6hH7kXq7ApJmqbvTG1EQsXwxWEnaGg",
+  authDomain: "svoysayet.firebaseapp.com",
+  projectId: "svoysayet",
+  storageBucket: "svoysayet.firebasestorage.app",
+  messagingSenderId: "450143000217",
+  appId: "1:450143000217:web:7495cefaea0b94966e8a08"
+};
+
+var ADMIN_AUTH_EMAIL = 'admin@kerben.local';
+var ORDERS_LIMIT = 5000;
+var BATCH_LIMIT = 400;
+
+var db;
+var products = [];
+var productsById = new Map();
+var selected = new Set();
+var drafts = new Map(); // id -> новая приходная цена (ещё не сохранена)
+var costHistory = [];   // последние изменения приходных цен
+var recalcHistory = []; // последние перерасчёты
+var recalcBusy = false;
+var saveBusy = false;
+var searchTimer = null;
+
+// ============ УТИЛИТЫ ============
+function escapeHtml(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function num(v) {
+  var n = parseFloat(v);
+  return isFinite(n) ? n : 0;
+}
+function round2(v) {
+  return Math.round((num(v) + Number.EPSILON) * 100) / 100;
+}
+function money(v) {
+  return round2(v).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' сом';
+}
+function signedMoney(v) {
+  var r = round2(v);
+  return (r > 0 ? '+' : '') + money(r);
+}
+function colorClass(v) {
+  var r = round2(v);
+  return r > 0 ? 'c-green' : r < 0 ? 'c-red' : 'c-gray';
+}
+function formatQty(n) {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+}
+function formatDateTime(ms) {
+  var d = new Date(ms);
+  return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+function productTitle(p) {
+  return (p && (p.title || p.name)) || 'Без названия';
+}
+function opLabel(op, value) {
+  switch (op) {
+    case 'inc_amount': return '+' + value + ' сом';
+    case 'dec_amount': return '−' + value + ' сом';
+    case 'inc_percent': return '+' + value + '%';
+    case 'dec_percent': return '−' + value + '%';
+    case 'set': return '= ' + value + ' сом';
+    case 'manual': return 'вручную';
+    default: return op || '';
+  }
+}
+
+// ============ ДОСТУП ============
+function normalizePhone(phone) {
+  if (!phone) return '';
+  var n = String(phone).replace(/[^\d+]/g, '');
+  if (n.indexOf('0') === 0) n = '+996' + n.substring(1);
+  if (n.indexOf('+') !== 0) n = (n.indexOf('996') === 0 ? '+' : '+996') + n;
+  return n;
+}
+function isAdminLocally() {
+  try {
+    var c = JSON.parse(localStorage.getItem('customerData') || 'null');
+    return !!(c && c.isAdmin === true && normalizePhone(c.phone) === '+996559009860');
+  } catch (e) {
+    return false;
+  }
+}
+function isFirebaseAdmin() {
+  var u = firebase.auth().currentUser;
+  return !!(u && u.email && u.email.toLowerCase() === ADMIN_AUTH_EMAIL);
+}
+// Коллекции истории и перерасчёта закрыты правилами для всех, кроме
+// admin@kerben.local, поэтому перед чтением/записью поднимаем админ-сессию.
+async function ensureAdminSession() {
+  if (isFirebaseAdmin()) return true;
+  if (typeof window.kerbenAdminSilentReauth === 'function') {
+    try { await window.kerbenAdminSilentReauth(); } catch (e) {}
+  }
+  return isFirebaseAdmin();
+}
+async function requireAdminSession() {
+  if (await ensureAdminSession()) return true;
+  await Swal.fire('Нужен вход администратора',
+    'Сессия администратора истекла. Войдите заново через профиль и повторите действие.', 'error');
+  return false;
+}
+
+// ============ ИНИЦИАЛИЗАЦИЯ ============
+function init() {
+  if (!isAdminLocally()) {
+    document.getElementById('accessDenied').style.display = 'flex';
+    return;
+  }
+  document.getElementById('app').style.display = 'block';
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  setDefaultCustomDates();
+  loadProducts();
+  loadHistory(false);
+}
+
+// Приходные цены читаем из базы, а не из общего кэша товаров: по кэшу
+// (до часа давности) в историю попала бы уже неактуальная «старая» цена.
+async function loadProducts() {
+  try {
+    if (typeof window.kerbenWaitForAuth === 'function') {
+      try { await window.kerbenWaitForAuth(); } catch (e) {}
+    }
+    var snap = await db.collection('products').limit(5000).get();
+    products = [];
+    snap.forEach(function (doc) { products.push(Object.assign({ id: doc.id }, doc.data())); });
+    products.sort(function (a, b) { return productTitle(a).localeCompare(productTitle(b), 'ru'); });
+    productsById = new Map(products.map(function (p) { return [p.id, p]; }));
+    fillCategories();
+    renderProducts();
+  } catch (err) {
+    document.getElementById('productList').innerHTML =
+      '<div class="empty" style="color:#c62828;">Ошибка загрузки товаров: ' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function fillCategories() {
+  var select = document.getElementById('fCategory');
+  var prev = select.value;
+  var counts = {};
+  products.forEach(function (p) {
+    var c = (p.category || 'все').toLowerCase();
+    counts[c] = (counts[c] || 0) + 1;
+  });
+  var cats = Object.keys(counts).sort(function (a, b) { return a.localeCompare(b, 'ru'); });
+  select.innerHTML = '<option value="">Все товары (' + products.length + ')</option>' + cats.map(function (c) {
+    return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c === 'все' ? 'Без категории («все»)' : c) + ' (' + counts[c] + ')</option>';
+  }).join('');
+  select.value = counts[prev] ? prev : '';
+}
+
+// ============ ВКЛАДКИ ============
+function switchTab(tab) {
+  ['prices', 'recalc', 'history'].forEach(function (t) {
+    document.getElementById('tabBtn-' + t).classList.toggle('active', t === tab);
+    document.getElementById('panel-' + t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'history') loadHistory(false);
+  window.scrollTo(0, 0);
+}
+
+// ============ СПИСОК ТОВАРОВ ============
+function onSearchInput() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(renderProducts, 200);
+}
+
+function getVisibleProducts() {
+  var cat = document.getElementById('fCategory').value;
+  var show = document.getElementById('fShow').value;
+  var words = document.getElementById('fSearch').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return products.filter(function (p) {
+    if (cat && (p.category || 'все').toLowerCase() !== cat) return false;
+    if (show === 'selected' && !selected.has(p.id)) return false;
+    if (show === 'changed' && !drafts.has(p.id)) return false;
+    if (words.length) {
+      var t = productTitle(p).toLowerCase();
+      for (var i = 0; i < words.length; i++) if (t.indexOf(words[i]) === -1) return false;
+    }
+    return true;
+  });
+}
+
+function renderProducts() {
+  var list = document.getElementById('productList');
+  var visible = getVisibleProducts();
+  if (!products.length) {
+    list.innerHTML = '<div class="empty">Товаров нет</div>';
+    updateCounters();
+    return;
+  }
+  if (!visible.length) {
+    list.innerHTML = '<div class="empty">Нет товаров по фильтру</div>';
+    updateCounters();
+    return;
+  }
+  var html = '<div class="prow head"><div></div><div>Товар</div><div class="num">Продажа</div>' +
+    '<div class="num">Приход сейчас</div><div class="num">Новая приходная</div><div class="num">Разница</div></div>';
+  html += visible.map(rowHtml).join('');
+  list.innerHTML = html;
+  updateCounters();
+}
+
+function rowHtml(p) {
+  var cur = num(p.costPrice);
+  var isSel = selected.has(p.id);
+  var hasDraft = drafts.has(p.id);
+  var draft = hasDraft ? drafts.get(p.id) : '';
+  var cls = 'prow' + (hasDraft && isSel ? ' changed' : '') + (hasDraft && !isSel ? ' unselected-draft' : '');
+  return '<div class="' + cls + '" id="row-' + p.id + '">' +
+    '<div class="cb"><input type="checkbox" ' + (isSel ? 'checked' : '') + ' onchange="toggleSelect(\'' + p.id + '\', this.checked)"></div>' +
+    '<div class="title"><b title="' + escapeHtml(productTitle(p)) + '">' + escapeHtml(productTitle(p)) + '</b>' +
+      '<small>' + escapeHtml(p.category || 'все') + ' • приход: ' + money(cur) + '</small></div>' +
+    '<div class="num retail">' + money(p.price) + '</div>' +
+    '<div class="num cur">' + money(cur) + '</div>' +
+    '<div class="newwrap"><input class="newcost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="' + round2(cur) + '" value="' + (hasDraft ? draft : '') + '" oninput="onDraftInput(\'' + p.id + '\', this.value)"></div>' +
+    '<div class="num diff" id="diff-' + p.id + '">' + diffHtml(p) + '</div>' +
+  '</div>';
+}
+
+function diffHtml(p) {
+  if (!drafts.has(p.id)) return '<span class="c-gray">—</span>';
+  var d = round2(drafts.get(p.id) - num(p.costPrice));
+  return '<span class="' + colorClass(-d) + '">' + (d > 0 ? '+' : '') + money(d) + '</span>';
+}
+
+function refreshRow(id) {
+  var p = productsById.get(id);
+  var row = document.getElementById('row-' + id);
+  if (!p || !row) return;
+  var isSel = selected.has(id);
+  var hasDraft = drafts.has(id);
+  row.classList.toggle('changed', hasDraft && isSel);
+  row.classList.toggle('unselected-draft', hasDraft && !isSel);
+  row.querySelector('input[type="checkbox"]').checked = isSel;
+  document.getElementById('diff-' + id).innerHTML = diffHtml(p);
+}
+
+function toggleSelect(id, on) {
+  if (on) selected.add(id); else selected.delete(id);
+  refreshRow(id);
+  updateCounters();
+}
+
+function selectVisible(on) {
+  getVisibleProducts().forEach(function (p) {
+    if (on) selected.add(p.id); else selected.delete(p.id);
+  });
+  renderProducts();
+}
+
+function clearSelection() {
+  selected.clear();
+  renderProducts();
+}
+
+function onDraftInput(id, raw) {
+  var p = productsById.get(id);
+  if (!p) return;
+  var v = String(raw).trim();
+  if (v === '') {
+    drafts.delete(id);
+  } else {
+    var n = parseFloat(v.replace(',', '.'));
+    if (!isFinite(n) || n < 0) return;
+    if (round2(n) === round2(p.costPrice)) drafts.delete(id);
+    else drafts.set(id, round2(n));
+    selected.add(id);
+  }
+  refreshRow(id);
+  updateCounters();
+}
+
+function getPendingChanges() {
+  var out = [];
+  drafts.forEach(function (newCost, id) {
+    if (!selected.has(id)) return;
+    var p = productsById.get(id);
+    if (!p) return;
+    if (round2(newCost) === round2(p.costPrice)) return;
+    out.push({ p: p, oldCost: round2(p.costPrice), newCost: round2(newCost) });
+  });
+  return out;
+}
+
+function updateCounters() {
+  document.getElementById('selCount').textContent = 'Выбрано: ' + selected.size;
+  document.getElementById('bulkApplyBtn').textContent = 'Применить к выбранным (' + selected.size + ')';
+  var changes = getPendingChanges();
+  var sum = document.getElementById('saveSummary');
+  if (!changes.length) {
+    sum.innerHTML = 'Нет изменений';
+  } else {
+    var up = changes.filter(function (c) { return c.newCost > c.oldCost; }).length;
+    sum.innerHTML = 'Новая приходная цена у <b>' + changes.length + '</b> товар(ов): ↑ ' + up + ', ↓ ' + (changes.length - up);
+  }
+  document.getElementById('previewBtn').disabled = !changes.length || saveBusy;
+}
+
+// ============ МАССОВОЕ ИЗМЕНЕНИЕ ============
+function onBulkOpChange() {
+  var op = document.getElementById('bulkOp').value;
+  document.getElementById('bulkValueLabel').textContent =
+    (op === 'inc_percent' || op === 'dec_percent') ? 'Процент, %' : (op === 'set' ? 'Новая цена, сом' : 'Сумма, сом');
+}
+
+function calcBulkValue(cur, op, value, step) {
+  var v;
+  switch (op) {
+    case 'inc_amount': v = cur + value; break;
+    case 'dec_amount': v = cur - value; break;
+    case 'inc_percent': v = cur * (1 + value / 100); break;
+    case 'dec_percent': v = cur * (1 - value / 100); break;
+    case 'set': v = value; break;
+    default: v = cur;
+  }
+  v = step >= 1 ? Math.round(v) : round2(v);
+  return v;
+}
+
+async function applyBulk() {
+  var op = document.getElementById('bulkOp').value;
+  var value = parseFloat(String(document.getElementById('bulkValue').value).replace(',', '.'));
+  var step = parseFloat(document.getElementById('bulkRound').value) || 0.01;
+
+  if (!selected.size) {
+    Swal.fire('Не выбраны товары', 'Отметьте товары в списке или нажмите «Выбрать все показанные».', 'info');
+    return;
+  }
+  if (!isFinite(value) || value < 0) {
+    Swal.fire('Укажите значение', 'Введите сумму или процент (0 или больше).', 'warning');
+    return;
+  }
+  if (op === 'dec_percent' && value > 100) {
+    Swal.fire('Слишком большой процент', 'Уменьшить больше чем на 100% нельзя.', 'warning');
+    return;
+  }
+
+  var applied = 0, skippedZero = 0, clamped = 0;
+  selected.forEach(function (id) {
+    var p = productsById.get(id);
+    if (!p) return;
+    var cur = num(p.costPrice);
+    // Процент от нулевой приходной цены ничего не даёт — такие товары
+    // пропускаем и сообщаем, чтобы им задали цену вручную.
+    if (cur <= 0 && op !== 'set' && op !== 'inc_amount') {
+      skippedZero++;
+      return;
+    }
+    var v = calcBulkValue(cur, op, value, step);
+    if (v < 0) { v = 0; clamped++; }
+    if (round2(v) === round2(cur)) drafts.delete(id);
+    else drafts.set(id, round2(v));
+    applied++;
+  });
+
+  renderProducts();
+
+  var notes = [];
+  if (skippedZero) notes.push('⚠️ ' + skippedZero + ' товар(ов) без приходной цены пропущено — задайте им цену вручную.');
+  if (clamped) notes.push('⚠️ У ' + clamped + ' товар(ов) цена ушла бы в минус — поставлено 0.');
+  Swal.fire({
+    icon: notes.length ? 'warning' : 'success',
+    title: 'Новые цены подставлены',
+    html: 'Рассчитано для <b>' + applied + '</b> товар(ов). Это ещё не сохранено — проверьте список и нажмите «Проверить и сохранить».' +
+      (notes.length ? '<br><br>' + notes.join('<br>') : ''),
+    timer: notes.length ? undefined : 2500
+  });
+}
+
+function resetDrafts() {
+  drafts.clear();
+  renderProducts();
+}
+
+// ============ ПРЕДПРОСМОТР И СОХРАНЕНИЕ ============
+function describeBulkForHistory() {
+  var op = document.getElementById('bulkOp').value;
+  var value = parseFloat(String(document.getElementById('bulkValue').value).replace(',', '.'));
+  return { op: op, value: isFinite(value) ? value : null };
+}
+
+async function previewAndSave() {
+  if (saveBusy) return;
+  var changes = getPendingChanges();
+  if (!changes.length) return;
+
+  var aboveRetail = changes.filter(function (c) { return num(c.p.price) > 0 && c.newCost >= num(c.p.price); });
+  var rows = changes.map(function (c) {
+    var d = round2(c.newCost - c.oldCost);
+    var warn = num(c.p.price) > 0 && c.newCost >= num(c.p.price);
+    return '<tr' + (warn ? ' style="background:#ffebee;"' : '') + '>' +
+      '<td class="name">' + escapeHtml(productTitle(c.p)) + (warn ? ' ⚠️' : '') + '</td>' +
+      '<td>' + money(c.p.price) + '</td>' +
+      '<td>' + money(c.oldCost) + '</td>' +
+      '<td><b>' + money(c.newCost) + '</b></td>' +
+      '<td class="' + colorClass(-d) + '">' + (d > 0 ? '+' : '') + money(d) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  var html =
+    '<div style="text-align:left; font-size:14px; margin-bottom:10px;">Будет изменена приходная цена у <b>' + changes.length + '</b> товар(ов). ' +
+    'Цена продажи не меняется.</div>' +
+    (aboveRetail.length ? '<div style="text-align:left; color:#c62828; font-size:13px; margin-bottom:10px;">⚠️ У ' + aboveRetail.length +
+      ' товар(ов) новая приходная цена не ниже цены продажи — по ним будет убыток.</div>' : '') +
+    '<div class="table-wrap" style="max-height:45vh; overflow-y:auto;"><table class="rep">' +
+    '<thead><tr><th>Товар</th><th>Продажа</th><th>Было</th><th>Станет</th><th>Разница</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table></div>';
+
+  var res = await Swal.fire({
+    title: 'Проверьте новые приходные цены',
+    html: html,
+    width: 820,
+    input: 'text',
+    inputPlaceholder: 'Комментарий (необязательно): например, «новый прайс поставщика»',
+    showCancelButton: true,
+    confirmButtonText: '✅ Подтвердить и сохранить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#2e7d32'
+  });
+  if (!res.isConfirmed) return;
+
+  await saveCostChanges(changes, (res.value || '').trim());
+}
+
+async function fetchFreshCosts(ids) {
+  var fresh = new Map();
+  var FieldPath = firebase.firestore.FieldPath;
+  var chunks = [];
+  for (var i = 0; i < ids.length; i += 10) chunks.push(ids.slice(i, i + 10));
+  for (var j = 0; j < chunks.length; j += 20) {
+    var snaps = await Promise.all(chunks.slice(j, j + 20).map(function (chunk) {
+      return db.collection('products').where(FieldPath.documentId(), 'in', chunk).get();
+    }));
+    snaps.forEach(function (snap) {
+      snap.forEach(function (doc) { fresh.set(doc.id, doc.data()); });
+    });
+  }
+  return fresh;
+}
+
+async function saveCostChanges(changes, comment) {
+  if (!(await requireAdminSession())) return;
+  saveBusy = true;
+  var btn = document.getElementById('previewBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Сохранение...';
+
+  try {
+    // Перечитываем товары прямо перед записью: «старая» цена в истории
+    // должна быть той, что реально лежит в базе, даже если страница
+    // открыта давно или цену меняли с другого устройства.
+    var ids = changes.map(function (c) { return c.p.id; });
+    var fresh = await fetchFreshCosts(ids);
+    var now = Date.now();
+    var items = [];
+    changes.forEach(function (c) {
+      var data = fresh.get(c.p.id);
+      if (!data) return;
+      var oldCost = round2(data.costPrice);
+      if (oldCost === c.newCost) return;
+      items.push({
+        id: c.p.id,
+        title: productTitle(data),
+        category: data.category || 'все',
+        price: round2(data.price),
+        oldCost: oldCost,
+        newCost: c.newCost
+      });
+    });
+    if (!items.length) {
+      Swal.fire('Нечего сохранять', 'Приходные цены в базе уже совпадают с новыми.', 'info');
+      return;
+    }
+
+    var bulk = describeBulkForHistory();
+    var histRef = db.collection('costPriceHistory').doc();
+    // История пишется до товаров: если обновление товаров оборвётся,
+    // старые цены всё равно останутся сохранены.
+    await histRef.set({
+      createdAt: now,
+      createdAtServer: firebase.firestore.FieldValue.serverTimestamp(),
+      operation: bulk.op,
+      value: bulk.value,
+      comment: comment || '',
+      count: items.length,
+      items: items
+    });
+
+    for (var i = 0; i < items.length; i += BATCH_LIMIT) {
+      var batch = db.batch();
+      items.slice(i, i + BATCH_LIMIT).forEach(function (it) {
+        batch.update(db.collection('products').doc(it.id), {
+          costPrice: it.newCost,
+          costPriceUpdatedAt: now,
+          lastCostChangeId: histRef.id
+        });
+      });
+      await batch.commit();
+    }
+
+    items.forEach(function (it) {
+      var p = productsById.get(it.id);
+      if (p) {
+        p.costPrice = it.newCost;
+        p.costPriceUpdatedAt = now;
+      }
+      drafts.delete(it.id);
+    });
+    syncSharedProductsCache(items, now);
+    await bumpProductsRevision(items);
+
+    renderProducts();
+    await loadHistory(true);
+
+    var go = await Swal.fire({
+      icon: 'success',
+      title: 'Приходные цены сохранены',
+      html: 'Обновлено <b>' + items.length + '</b> товар(ов). Старые цены сохранены в истории.<br><br>' +
+        'Пересчитать прибыль за период с учётом новых цен?',
+      showCancelButton: true,
+      confirmButtonText: '🔁 К перерасчёту прибыли',
+      cancelButtonText: 'Позже',
+      confirmButtonColor: '#00897b'
+    });
+    if (go.isConfirmed) {
+      document.getElementById('rBasis').value = histRef.id;
+      switchTab('recalc');
+    }
+  } catch (err) {
+    console.error('Ошибка сохранения приходных цен:', err);
+    Swal.fire('Ошибка', 'Не удалось сохранить: ' + err.message, 'error');
+  } finally {
+    saveBusy = false;
+    btn.textContent = '👁️ Проверить и сохранить';
+    updateCounters();
+  }
+}
+
+// Общий кэш товаров правим на месте: иначе админка на главной до часа
+// показывает старую приходную цену, а сохранение товара оттуда вернёт её.
+function syncSharedProductsCache(items, now) {
+  try {
+    var map = {};
+    items.forEach(function (it) { map[it.id] = it.newCost; });
+    var cached = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+    if (Array.isArray(cached) && cached.length) {
+      cached.forEach(function (c) {
+        if (map.hasOwnProperty(c.id)) {
+          c.costPrice = map[c.id];
+          c.costPriceUpdatedAt = now;
+        }
+      });
+      localStorage.setItem('cachedProducts', JSON.stringify(cached));
+    }
+  } catch (e) {}
+}
+
+async function bumpProductsRevision(items) {
+  try {
+    await db.collection('settings').doc('productsRevision').set({
+      updatedAt: Date.now(),
+      by: 'массовое изменение приходных цен',
+      source: 'admin-cost-prices',
+      changedCount: items.length,
+      changedIds: items.length <= 20 ? items.map(function (i) { return i.id; }) : []
+    }, { merge: true });
+  } catch (e) {
+    console.warn('[cost-prices] не удалось обновить productsRevision:', e);
+  }
+}
+
+// ============ ПЕРИОД ============
+function toDateInputValue(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function parseDateInput(value, endOfDay) {
+  if (!value) return null;
+  var parts = value.split('-').map(Number);
+  if (!parts[0] || !parts[1] || !parts[2]) return null;
+  return endOfDay
+    ? new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999)
+    : new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+}
+function setDefaultCustomDates() {
+  var now = new Date();
+  document.getElementById('rFrom').value = toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1));
+  document.getElementById('rTo').value = toDateInputValue(now);
+}
+function onPeriodChange() {
+  var custom = document.getElementById('rPeriod').value === 'custom';
+  document.getElementById('rFromWrap').style.display = custom ? '' : 'none';
+  document.getElementById('rToWrap').style.display = custom ? '' : 'none';
+}
+
+// Границы совпадают с «Отчётом по прибыли», чтобы цифры за один и тот же
+// период сходились между страницами.
+function getRecalcRange() {
+  var period = document.getElementById('rPeriod').value;
+  var now = new Date();
+  var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var start, end = now.getTime(), label;
+  switch (period) {
+    case 'today':
+      start = todayStart.getTime(); label = 'Сегодня, ' + todayStart.toLocaleDateString('ru-RU'); break;
+    case 'yesterday':
+      start = todayStart.getTime() - 86400000; end = todayStart.getTime() - 1;
+      label = 'Вчера, ' + new Date(start).toLocaleDateString('ru-RU'); break;
+    case 'week':
+      start = now.getTime() - 7 * 86400000; label = 'Неделя: ' + new Date(start).toLocaleDateString('ru-RU') + ' — ' + now.toLocaleDateString('ru-RU'); break;
+    case 'month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      label = 'Месяц: ' + new Date(start).toLocaleDateString('ru-RU') + ' — ' + now.toLocaleDateString('ru-RU'); break;
+    case 'custom':
+      var f = parseDateInput(document.getElementById('rFrom').value, false);
+      var t = parseDateInput(document.getElementById('rTo').value, true);
+      if (!f || !t) return { error: 'Укажите обе даты периода' };
+      if (f > t) return { error: 'Дата «С» позже даты «По»' };
+      start = f.getTime(); end = t.getTime();
+      label = f.toLocaleDateString('ru-RU') + ' — ' + t.toLocaleDateString('ru-RU'); break;
+  }
+  return { start: start, end: end, label: label, period: period };
+}
+
+// ============ ПЕРЕРАСЧЁТ ПРИБЫЛИ ============
+function isOrderExcluded(order) {
+  if (order.deleted) return true;
+  var s = order.status;
+  return s === 'cancelled' || s === 'Отменён' || s === 'Отменен';
+}
+
+// Себестоимость «до» — ровно та, что сейчас показывает «Отчёт по прибыли»:
+// зафиксированная в заказе, а если её нет — из каталога.
+function baseItemCost(item, product) {
+  var c = num(item.costPrice);
+  if (c === 0 && product) c = num(product.costPrice);
+  return round2(c);
+}
+
+function getBasis() {
+  var v = document.getElementById('rBasis').value;
+  if (v === 'catalog') return { type: 'catalog', id: 'catalog', label: 'Текущие приходные цены всех товаров' };
+  var h = costHistory.find(function (x) { return x.id === v; });
+  if (!h) return { type: 'catalog', id: 'catalog', label: 'Текущие приходные цены всех товаров' };
+  var map = new Map();
+  (h.items || []).forEach(function (it) { map.set(it.id, round2(it.newCost)); });
+  return { type: 'batch', id: h.id, map: map, label: 'Изменение от ' + formatDateTime(h.createdAt) + ' (' + (h.count || map.size) + ' тов.)' };
+}
+
+// Новая себестоимость позиции по выбранной основе, или null — если основа
+// этот товар не затрагивает.
+function basisCost(basis, item) {
+  if (!item.id) return null;
+  if (basis.type === 'batch') return basis.map.has(item.id) ? basis.map.get(item.id) : null;
+  var p = productsById.get(item.id);
+  var c = p ? round2(p.costPrice) : 0;
+  return c > 0 ? c : null;
+}
+
+function findExistingAdj(existing, item, index) {
+  if (!existing || !existing.items) return null;
+  return existing.items.find(function (a) { return a.i === index && a.id === (item.id || null); })
+    || existing.items.find(function (a) { return a.id && a.id === item.id; })
+    || null;
+}
+
+// Считает прибыль «до» по исходным данным заказов и «после» — с новой
+// себестоимостью. Результат всегда абсолютный, а не приращение к прошлому
+// перерасчёту, поэтому повторный запуск даёт те же цифры.
+function computeRecalc(orders, existingAdj, basis, recalcId) {
+  var totals = { sales: 0, qty: 0, profitBefore: 0, profitAfter: 0, orders: 0, changedOrders: 0, changedItems: 0, qtyWithoutCost: 0 };
+  var byProduct = new Map();
+  var adjustments = new Map();
+  var replacedRecalcs = new Set();
+
+  orders.forEach(function (order) {
+    if (isOrderExcluded(order)) return;
+    totals.orders++;
+    var existing = existingAdj.get(order.id) || null;
+    var adjItems = [];
+
+    (order.items || order.cart || []).forEach(function (item, index) {
+      var qty = num(item.qty || item.quantity || 1);
+      if (qty <= 0) return;
+      var price = num(item.price);
+      var product = item.id ? productsById.get(item.id) : null;
+      var before = baseItemCost(item, product);
+      var after = before;
+      var source = null;
+
+      var c = basisCost(basis, item);
+      var prev = findExistingAdj(existing, item, index);
+      if (c !== null) {
+        after = c;
+        source = recalcId;
+        if (prev && prev.r && prev.r !== recalcId) replacedRecalcs.add(prev.r);
+      } else if (prev) {
+        // Товар не входит в выбранную основу — оставляем результат
+        // прошлого перерасчёта как есть, а не сбрасываем его.
+        after = round2(prev.newCost);
+        source = prev.r || null;
+      }
+
+      var sale = price * qty;
+      var pBefore = before > 0 ? (price - before) * qty : 0;
+      var pAfter = after > 0 ? (price - after) * qty : 0;
+      totals.sales += sale;
+      totals.qty += qty;
+      totals.profitBefore += pBefore;
+      totals.profitAfter += pAfter;
+      if (after <= 0) totals.qtyWithoutCost += qty;
+
+      if (round2(after) === round2(before)) return;
+
+      adjItems.push({ i: index, id: item.id || null, oldCost: before, newCost: round2(after), r: source });
+      totals.changedItems++;
+
+      var key = item.id || ('title:' + String(item.title || '').toLowerCase());
+      var row = byProduct.get(key);
+      if (!row) {
+        row = {
+          id: item.id || null,
+          title: (product && productTitle(product)) || item.title || 'Товар',
+          category: (product && product.category) || item.category || 'все',
+          qty: 0, sales: 0, costBefore: 0, costAfter: 0, profitBefore: 0, profitAfter: 0
+        };
+        byProduct.set(key, row);
+      }
+      row.qty += qty;
+      row.sales += sale;
+      row.costBefore += before * qty;
+      row.costAfter += after * qty;
+      row.profitBefore += pBefore;
+      row.profitAfter += pAfter;
+    });
+
+    if (adjItems.length) {
+      adjustments.set(order.id, { orderTimestamp: num(order.timestamp), items: adjItems });
+      totals.changedOrders++;
+    }
+  });
+
+  // Заказы, у которых раньше была корректировка, а теперь разницы нет
+  // (например, цену вернули обратно) — корректировку надо снять.
+  var toClear = [];
+  existingAdj.forEach(function (adj, orderId) {
+    if (adjustments.has(orderId)) return;
+    toClear.push(orderId);
+    (adj.items || []).forEach(function (a) { if (a.r && a.r !== recalcId) replacedRecalcs.add(a.r); });
+  });
+
+  var details = Array.from(byProduct.values()).map(function (r) {
+    return {
+      id: r.id, title: r.title, category: r.category, qty: r.qty,
+      sales: round2(r.sales),
+      unitBefore: r.qty ? round2(r.costBefore / r.qty) : 0,
+      unitAfter: r.qty ? round2(r.costAfter / r.qty) : 0,
+      costBefore: round2(r.costBefore), costAfter: round2(r.costAfter),
+      profitBefore: round2(r.profitBefore), profitAfter: round2(r.profitAfter),
+      diff: round2(r.profitAfter - r.profitBefore)
+    };
+  }).sort(function (a, b) { return Math.abs(b.diff) - Math.abs(a.diff); });
+
+  Object.keys(totals).forEach(function (k) { if (k !== 'orders' && k !== 'changedOrders' && k !== 'changedItems') totals[k] = round2(totals[k]); });
+  totals.diff = round2(totals.profitAfter - totals.profitBefore);
+
+  return {
+    totals: totals,
+    details: details,
+    adjustments: adjustments,
+    toClear: toClear,
+    replacedOrders: Array.from(existingAdj.keys()).length,
+    replacedRecalcs: Array.from(replacedRecalcs)
+  };
+}
+
+async function runRecalculation() {
+  if (recalcBusy) return;
+  var range = getRecalcRange();
+  if (range.error) {
+    Swal.fire('Проверьте период', range.error, 'warning');
+    return;
+  }
+  if (!(await requireAdminSession())) return;
+
+  recalcBusy = true;
+  var btn = document.getElementById('recalcBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Ищем продажи за период...';
+
+  try {
+    // Для основы «текущие цены» нужны свежие приходные цены из базы
+    await loadProducts();
+    var basis = getBasis();
+
+    var results = await Promise.all([
+      db.collection('orders').where('timestamp', '>=', range.start).where('timestamp', '<=', range.end).limit(ORDERS_LIMIT).get(),
+      db.collection('profitAdjustments').where('orderTimestamp', '>=', range.start).where('orderTimestamp', '<=', range.end).limit(ORDERS_LIMIT).get()
+    ]);
+    var orders = [];
+    results[0].forEach(function (doc) { orders.push(Object.assign({ id: doc.id }, doc.data())); });
+    var existingAdj = new Map();
+    results[1].forEach(function (doc) { existingAdj.set(doc.id, doc.data()); });
+
+    // При неполной выборке корректировки недочитанных заказов попали бы
+    // в «снять» и прошлый перерасчёт по ним стёрся бы.
+    if (orders.length >= ORDERS_LIMIT || existingAdj.size >= ORDERS_LIMIT) {
+      Swal.fire('Слишком большой период',
+        'За период больше ' + ORDERS_LIMIT + ' заказов. Выберите период поменьше и пересчитайте частями.', 'warning');
+      return;
+    }
+
+    var recalcRef = db.collection('profitRecalculations').doc();
+    var calc = computeRecalc(orders, existingAdj, basis, recalcRef.id);
+
+    if (!calc.totals.orders) {
+      Swal.fire('Продаж нет', 'За период «' + range.label + '» не найдено ни одного заказа.', 'info');
+      return;
+    }
+
+    var t = calc.totals;
+    var confirmHtml =
+      '<div style="text-align:left; font-size:14px; line-height:1.6;">' +
+      '<b>Период:</b> ' + escapeHtml(range.label) + '<br>' +
+      '<b>Цены:</b> ' + escapeHtml(basis.label) + '<br>' +
+      '<b>Заказов найдено:</b> ' + t.orders + ', позиций с новой себестоимостью: ' + t.changedItems + '<br>' +
+      '<b>Прибыль до:</b> ' + money(t.profitBefore) + '<br>' +
+      '<b>Прибыль после:</b> ' + money(t.profitAfter) + ' (<span class="' + colorClass(t.diff) + '">' + signedMoney(t.diff) + '</span>)<br><br>' +
+      '<div style="background:#fff3e0; padding:10px; border-radius:8px; color:#e65100; font-size:13px;">' +
+      '⚠️ Заказы и история продаж не изменятся. Новая себестоимость сохранится отдельно и будет учитываться в «Отчёте по прибыли» в режиме «с учётом перерасчёта».' +
+      (calc.replacedOrders ? '<br><br>У ' + calc.replacedOrders + ' заказ(ов) этого периода уже есть прошлый перерасчёт — он будет <b>заменён</b>, разница не прибавится повторно.' : '') +
+      '</div></div>';
+
+    var res = await Swal.fire({
+      title: 'Пересчитать прибыль?',
+      html: confirmHtml,
+      icon: 'warning',
+      width: 600,
+      showCancelButton: true,
+      confirmButtonText: '🔁 Да, пересчитать',
+      cancelButtonText: 'Отмена',
+      confirmButtonColor: '#00897b'
+    });
+    if (!res.isConfirmed) return;
+
+    btn.textContent = '⏳ Сохраняем перерасчёт...';
+    var report = await saveRecalculation(recalcRef, range, basis, calc);
+    renderReport(report, document.getElementById('recalcReport'));
+    loadHistory(true);
+    document.getElementById('recalcReport').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    console.error('Ошибка перерасчёта:', err);
+    Swal.fire('Ошибка', 'Не удалось пересчитать прибыль: ' + err.message, 'error');
+  } finally {
+    recalcBusy = false;
+    btn.disabled = false;
+    btn.textContent = '🔁 Пересчитать прибыль';
+  }
+}
+
+async function saveRecalculation(recalcRef, range, basis, calc) {
+  var now = Date.now();
+  var report = {
+    createdAt: now,
+    createdAtServer: firebase.firestore.FieldValue.serverTimestamp(),
+    status: 'applying',
+    period: range.period,
+    periodLabel: range.label,
+    startMs: range.start,
+    endMs: range.end,
+    basisType: basis.type,
+    basisId: basis.id,
+    basisLabel: basis.label,
+    totals: calc.totals,
+    details: calc.details,
+    replacedOrders: calc.replacedOrders,
+    replacedRecalcs: calc.replacedRecalcs
+  };
+  await recalcRef.set(report);
+
+  // Корректировка заказа перезаписывается целиком (set без merge) —
+  // у заказа всегда одна актуальная себестоимость позиции.
+  var ops = [];
+  calc.adjustments.forEach(function (adj, orderId) {
+    var ids = [];
+    adj.items.forEach(function (a) { if (a.r && ids.indexOf(a.r) === -1) ids.push(a.r); });
+    ops.push({ type: 'set', id: orderId, data: {
+      orderId: orderId,
+      orderTimestamp: adj.orderTimestamp,
+      items: adj.items,
+      recalcIds: ids,
+      lastRecalcId: recalcRef.id,
+      updatedAt: now
+    } });
+  });
+  calc.toClear.forEach(function (orderId) { ops.push({ type: 'delete', id: orderId }); });
+
+  for (var i = 0; i < ops.length; i += BATCH_LIMIT) {
+    var batch = db.batch();
+    ops.slice(i, i + BATCH_LIMIT).forEach(function (op) {
+      var ref = db.collection('profitAdjustments').doc(op.id);
+      if (op.type === 'set') batch.set(ref, op.data);
+      else batch.delete(ref);
+    });
+    await batch.commit();
+  }
+
+  await recalcRef.update({ status: 'active' });
+  for (var j = 0; j < calc.replacedRecalcs.length; j++) {
+    try {
+      await db.collection('profitRecalculations').doc(calc.replacedRecalcs[j]).update({
+        replacedBy: firebase.firestore.FieldValue.arrayUnion(recalcRef.id)
+      });
+    } catch (e) {
+      console.warn('[cost-prices] не удалось отметить заменённый перерасчёт:', e);
+    }
+  }
+
+  // Отчёт по прибыли кэширует заказы — сбрасываем, чтобы он сразу
+  // показал новые цифры.
+  try {
+    localStorage.removeItem('profitOrdersCache');
+    localStorage.removeItem('profitOrdersCacheTs');
+  } catch (e) {}
+
+  report.id = recalcRef.id;
+  report.status = 'active';
+  return report;
+}
+
+// ============ ОТЧЁТ ============
+function renderReport(r, container) {
+  var t = r.totals || {};
+  var statusBadge = r.status === 'cancelled'
+    ? '<span class="badge badge-cancelled">отменён</span>'
+    : (r.replacedBy && r.replacedBy.length ? '<span class="badge badge-replaced">частично заменён более поздним</span>' : '<span class="badge badge-active">действует</span>');
+
+  var detailsRows = (r.details || []).map(function (d) {
+    return '<tr>' +
+      '<td class="name">' + escapeHtml(d.title) + '<br><small style="color:#999; font-weight:400;">' + escapeHtml(d.category) + '</small></td>' +
+      '<td>' + formatQty(d.qty) + '</td>' +
+      '<td>' + money(d.sales) + '</td>' +
+      '<td>' + money(d.unitBefore) + '</td>' +
+      '<td><b>' + money(d.unitAfter) + '</b></td>' +
+      '<td>' + money(d.costBefore) + '</td>' +
+      '<td>' + money(d.costAfter) + '</td>' +
+      '<td class="' + colorClass(d.profitBefore) + '">' + money(d.profitBefore) + '</td>' +
+      '<td class="' + colorClass(d.profitAfter) + '">' + money(d.profitAfter) + '</td>' +
+      '<td class="' + colorClass(d.diff) + '"><b>' + signedMoney(d.diff) + '</b></td>' +
+    '</tr>';
+  }).join('');
+
+  var sumRow = '';
+  if ((r.details || []).length) {
+    var s = (r.details || []).reduce(function (acc, d) {
+      acc.qty += d.qty; acc.sales += d.sales; acc.cb += d.costBefore; acc.ca += d.costAfter;
+      acc.pb += d.profitBefore; acc.pa += d.profitAfter; acc.diff += d.diff; return acc;
+    }, { qty: 0, sales: 0, cb: 0, ca: 0, pb: 0, pa: 0, diff: 0 });
+    sumRow = '<tr class="total"><td>Итого по изменившимся</td><td>' + formatQty(s.qty) + '</td><td>' + money(s.sales) + '</td><td></td><td></td>' +
+      '<td>' + money(s.cb) + '</td><td>' + money(s.ca) + '</td><td>' + money(s.pb) + '</td><td>' + money(s.pa) + '</td>' +
+      '<td class="' + colorClass(s.diff) + '">' + signedMoney(s.diff) + '</td></tr>';
+  }
+
+  container.innerHTML =
+    '<div class="card">' +
+      '<div class="card-title" style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">' +
+        '<span>📊 Отчёт о разнице прибыли</span>' + statusBadge + '</div>' +
+      '<div style="font-size:13px; color:#666; margin-bottom:12px; line-height:1.6;">' +
+        '<b>Период:</b> ' + escapeHtml(r.periodLabel || '') + '<br>' +
+        '<b>Цены:</b> ' + escapeHtml(r.basisLabel || '') + '<br>' +
+        '<b>Выполнен:</b> ' + (r.createdAt ? formatDateTime(r.createdAt) : '—') +
+        (r.replacedOrders ? ' • прошлый перерасчёт заменён у ' + r.replacedOrders + ' заказ(ов)' : '') +
+      '</div>' +
+      '<div class="stats">' +
+        '<div class="stat"><div class="label">💰 Сумма продаж</div><div class="value c-blue">' + money(t.sales) + '</div></div>' +
+        '<div class="stat"><div class="label">📄 Прибыль до</div><div class="value c-gray">' + money(t.profitBefore) + '</div></div>' +
+        '<div class="stat"><div class="label">🔁 Прибыль после</div><div class="value c-indigo">' + money(t.profitAfter) + '</div></div>' +
+        '<div class="stat"><div class="label">± Разница в прибыли</div><div class="value ' + colorClass(t.diff) + '">' + signedMoney(t.diff) + '</div></div>' +
+        '<div class="stat"><div class="label">📦 Продано товаров</div><div class="value">' + formatQty(num(t.qty)) + ' шт</div></div>' +
+        '<div class="stat"><div class="label">📋 Заказов</div><div class="value">' + (t.orders || 0) + '</div>' +
+          '<div style="font-size:11px; color:#888;">изменилось: ' + (t.changedOrders || 0) + '</div></div>' +
+      '</div>' +
+      (num(t.qtyWithoutCost) > 0 ? '<div style="font-size:12px; color:#e65100; margin-bottom:10px;">⚠️ ' + formatQty(num(t.qtyWithoutCost)) + ' ед. без приходной цены — их прибыль не учтена.</div>' : '') +
+      ((r.details || []).length
+        ? '<div class="card-title" style="margin-top:6px;">Товары с изменившейся себестоимостью (' + r.details.length + ')</div>' +
+          '<div class="table-wrap"><table class="rep"><thead><tr>' +
+            '<th>Товар</th><th>Продано</th><th>Продажи</th><th>Приход было</th><th>Приход стало</th>' +
+            '<th>Себест. было</th><th>Себест. стало</th><th>Прибыль было</th><th>Прибыль стало</th><th>Разница</th>' +
+          '</tr></thead><tbody>' + detailsRows + sumRow + '</tbody></table></div>'
+        : '<div class="empty">За этот период себестоимость проданных товаров не изменилась.</div>') +
+      '<div class="toolbar" style="margin-top:14px;">' +
+        '<button class="btn btn-primary" onclick="window.location.href=\'admin-profit.html\'">💰 Открыть отчёт по прибыли</button>' +
+      '</div>' +
+    '</div>';
+}
+
+// ============ ИСТОРИЯ ============
+var historyLoadedAt = 0;
+
+async function loadHistory(force) {
+  if (!force && historyLoadedAt && Date.now() - historyLoadedAt < 60000) {
+    renderHistory();
+    return;
+  }
+  if (!(await ensureAdminSession())) {
+    var msg = '<div class="empty">История доступна после входа администратора (сессия восстанавливается автоматически — обновите через несколько секунд).</div>';
+    document.getElementById('priceHistoryList').innerHTML = msg;
+    document.getElementById('recalcHistoryList').innerHTML = msg;
+    return;
+  }
+  try {
+    var res = await Promise.all([
+      db.collection('costPriceHistory').orderBy('createdAt', 'desc').limit(50).get(),
+      db.collection('profitRecalculations').orderBy('createdAt', 'desc').limit(50).get()
+    ]);
+    costHistory = [];
+    res[0].forEach(function (doc) { costHistory.push(Object.assign({ id: doc.id }, doc.data())); });
+    recalcHistory = [];
+    res[1].forEach(function (doc) { recalcHistory.push(Object.assign({ id: doc.id }, doc.data())); });
+    historyLoadedAt = Date.now();
+    fillBasisSelect();
+    renderHistory();
+  } catch (err) {
+    console.error('Ошибка загрузки истории:', err);
+    var e = '<div class="empty" style="color:#c62828;">Ошибка загрузки: ' + escapeHtml(err.message) + '</div>';
+    document.getElementById('priceHistoryList').innerHTML = e;
+    document.getElementById('recalcHistoryList').innerHTML = e;
+  }
+}
+
+function fillBasisSelect() {
+  var sel = document.getElementById('rBasis');
+  var prev = sel.value;
+  sel.innerHTML = '<option value="catalog">Текущие приходные цены всех товаров</option>' + costHistory.map(function (h) {
+    return '<option value="' + h.id + '">Изменение от ' + formatDateTime(h.createdAt) + ' — ' + (h.count || 0) + ' тов.' +
+      (h.comment ? ' — ' + escapeHtml(h.comment.slice(0, 40)) : '') + '</option>';
+  }).join('');
+  sel.value = (prev === 'catalog' || costHistory.some(function (h) { return h.id === prev; })) ? prev : 'catalog';
+}
+
+function renderHistory() {
+  var ph = document.getElementById('priceHistoryList');
+  ph.innerHTML = costHistory.length ? costHistory.map(function (h) {
+    return '<div class="hist-item">' +
+      '<div><b>' + formatDateTime(h.createdAt) + '</b> — ' + (h.count || 0) + ' товар(ов)' +
+        '<div class="meta">Действие: ' + escapeHtml(opLabel(h.operation, h.value)) + (h.comment ? ' • ' + escapeHtml(h.comment) : '') + '</div></div>' +
+      '<button class="btn btn-gray" onclick="showPriceChange(\'' + h.id + '\')">👁️ Старые и новые цены</button>' +
+    '</div>';
+  }).join('') : '<div class="empty">Изменений приходных цен пока не было</div>';
+
+  var rh = document.getElementById('recalcHistoryList');
+  rh.innerHTML = recalcHistory.length ? recalcHistory.map(function (r) {
+    var t = r.totals || {};
+    var badge = r.status === 'cancelled' ? '<span class="badge badge-cancelled">отменён</span>'
+      : r.status === 'applying' ? '<span class="badge badge-replaced">не завершён</span>'
+      : (r.replacedBy && r.replacedBy.length ? '<span class="badge badge-replaced">частично заменён</span>' : '<span class="badge badge-active">действует</span>');
+    return '<div class="hist-item">' +
+      '<div><b>' + escapeHtml(r.periodLabel || '') + '</b> ' + badge +
+        '<div class="meta">' + formatDateTime(r.createdAt) + ' • ' + escapeHtml(r.basisLabel || '') + '</div>' +
+        '<div class="meta">Прибыль: ' + money(t.profitBefore) + ' → <b>' + money(t.profitAfter) + '</b> ' +
+          '(<span class="' + colorClass(t.diff) + '">' + signedMoney(t.diff) + '</span>)</div></div>' +
+      '<div style="display:flex; gap:6px; flex-wrap:wrap;">' +
+        '<button class="btn btn-gray" onclick="showRecalcReport(\'' + r.id + '\')">📊 Отчёт</button>' +
+        (r.status !== 'cancelled' ? '<button class="btn btn-red" onclick="cancelRecalculation(\'' + r.id + '\')">↩️ Отменить</button>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('') : '<div class="empty">Перерасчётов пока не было</div>';
+}
+
+function showPriceChange(id) {
+  var h = costHistory.find(function (x) { return x.id === id; });
+  if (!h) return;
+  var rows = (h.items || []).map(function (it) {
+    var d = round2(it.newCost - it.oldCost);
+    return '<tr><td class="name">' + escapeHtml(it.title) + '<br><small style="color:#999; font-weight:400;">' + escapeHtml(it.category || '') + '</small></td>' +
+      '<td>' + money(it.price) + '</td><td>' + money(it.oldCost) + '</td><td><b>' + money(it.newCost) + '</b></td>' +
+      '<td class="' + colorClass(-d) + '">' + (d > 0 ? '+' : '') + money(d) + '</td></tr>';
+  }).join('');
+  Swal.fire({
+    title: 'Изменение от ' + formatDateTime(h.createdAt),
+    html: '<div style="text-align:left; font-size:13px; color:#666; margin-bottom:8px;">' + (h.count || 0) + ' товар(ов) • ' +
+      escapeHtml(opLabel(h.operation, h.value)) + (h.comment ? ' • ' + escapeHtml(h.comment) : '') + '</div>' +
+      '<div class="table-wrap" style="max-height:55vh; overflow-y:auto;"><table class="rep"><thead><tr>' +
+      '<th>Товар</th><th>Продажа</th><th>Старая приходная</th><th>Новая приходная</th><th>Разница</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>',
+    width: 820,
+    showCloseButton: true,
+    confirmButtonText: 'Закрыть'
+  });
+}
+
+function showRecalcReport(id) {
+  var r = recalcHistory.find(function (x) { return x.id === id; });
+  if (!r) return;
+  switchTab('recalc');
+  renderReport(r, document.getElementById('recalcReport'));
+  document.getElementById('recalcReport').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function cancelRecalculation(id) {
+  var r = recalcHistory.find(function (x) { return x.id === id; });
+  if (!r) return;
+  var res = await Swal.fire({
+    title: 'Отменить перерасчёт?',
+    html: '<div style="text-align:left; font-size:14px; line-height:1.5;">Период: <b>' + escapeHtml(r.periodLabel || '') + '</b><br><br>' +
+      'Позиции, пересчитанные этим перерасчётом, вернутся к себестоимости на момент продажи. ' +
+      'Отчёт останется в истории с пометкой «отменён». Приходные цены товаров не изменятся.</div>',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: '↩️ Да, отменить',
+    cancelButtonText: 'Назад',
+    confirmButtonColor: '#c62828'
+  });
+  if (!res.isConfirmed) return;
+  if (!(await requireAdminSession())) return;
+
+  try {
+    var snap = await db.collection('profitAdjustments').where('recalcIds', 'array-contains', id).limit(ORDERS_LIMIT).get();
+    var docs = [];
+    snap.forEach(function (doc) { docs.push({ ref: doc.ref, data: doc.data() }); });
+    for (var i = 0; i < docs.length; i += BATCH_LIMIT) {
+      var batch = db.batch();
+      docs.slice(i, i + BATCH_LIMIT).forEach(function (d) {
+        var rest = (d.data.items || []).filter(function (a) { return a.r !== id; });
+        if (!rest.length) {
+          batch.delete(d.ref);
+        } else {
+          var ids = [];
+          rest.forEach(function (a) { if (a.r && ids.indexOf(a.r) === -1) ids.push(a.r); });
+          batch.update(d.ref, { items: rest, recalcIds: ids, updatedAt: Date.now() });
+        }
+      });
+      await batch.commit();
+    }
+    await db.collection('profitRecalculations').doc(id).update({ status: 'cancelled', cancelledAt: Date.now() });
+    try {
+      localStorage.removeItem('profitOrdersCache');
+      localStorage.removeItem('profitOrdersCacheTs');
+    } catch (e) {}
+    await loadHistory(true);
+    Swal.fire({ icon: 'success', title: 'Перерасчёт отменён', text: 'Затронуто заказов: ' + docs.length, timer: 2200, showConfirmButton: false });
+  } catch (err) {
+    console.error('Ошибка отмены перерасчёта:', err);
+    Swal.fire('Ошибка', 'Не удалось отменить: ' + err.message, 'error');
+  }
+}
+
+// ============ СТАРТ ============
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+<script src="js/bottom-nav.js?v=32"></script>
+<script defer src="js/sw-register.js"></script>
+</body>
+</html>

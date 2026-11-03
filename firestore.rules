@@ -944,6 +944,29 @@ service cloud.firestore {
     }
 
     // =========================================================
+    //     ПРИХОДНЫЕ ЦЕНЫ И ПЕРЕРАСЧЁТ ПРИБЫЛИ (admin-cost-prices)
+    // =========================================================
+    // История изменения приходных цен — только запись новых документов:
+    // старые цены нельзя подправить или стереть задним числом.
+    match /costPriceHistory/{id} {
+      allow read, create: if isAdminUser();
+      allow update, delete: if false;
+    }
+
+    // Отчёты перерасчёта. update нужен для статуса (active/cancelled)
+    // и пометки replacedBy; удалять нельзя — по ним сравнивают до/после.
+    match /profitRecalculations/{id} {
+      allow read, create, update: if isAdminUser();
+      allow delete: if false;
+    }
+
+    // Новая себестоимость позиций заказа (один документ на заказ).
+    // Сам заказ при перерасчёте не меняется.
+    match /profitAdjustments/{orderId} {
+      allow read, write: if isAdminUser();
+    }
+
+    // =========================================================
     //                ВСЁ ОСТАЛЬНОЕ — НАГЛУХО
     // =========================================================
     match /{document=**} {
