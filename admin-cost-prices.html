@@ -160,7 +160,7 @@
     .plist { max-height: 60vh; overflow-y: auto; border: 1px solid #eee; border-radius: 10px; }
     .prow {
       display: grid;
-      grid-template-columns: 34px 1fr 90px 100px 130px 90px;
+      grid-template-columns: 34px 52px 1fr 90px 100px 130px 90px;
       gap: 8px;
       align-items: center;
       padding: 9px 10px;
@@ -180,6 +180,67 @@
     .prow.changed { background: #f1f8e9; }
     .prow.unselected-draft { opacity: 0.55; }
     .prow input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; }
+    .thumb {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #f3f4f6;
+      cursor: zoom-in;
+      display: block;
+    }
+    .thumb-empty {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: #bbb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .photo-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      z-index: 20000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .photo-modal.open { display: flex; }
+    .photo-modal img {
+      max-width: 92vw;
+      max-height: 82vh;
+      object-fit: contain;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .photo-modal .photo-title {
+      position: absolute;
+      left: 0; right: 0; bottom: 18px;
+      text-align: center;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 0 70px;
+    }
+    .photo-modal button {
+      position: absolute;
+      border: none;
+      background: rgba(255,255,255,0.18);
+      color: #fff;
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      font-size: 24px;
+      cursor: pointer;
+    }
+    .photo-modal .photo-close { top: 16px; right: 16px; }
+    .photo-modal .photo-prev { left: 12px; top: 50%; transform: translateY(-50%); }
+    .photo-modal .photo-next { right: 12px; top: 50%; transform: translateY(-50%); }
     .prow .title { overflow: hidden; }
     .prow .title b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .prow .title small { color: #999; font-size: 11px; }
@@ -244,10 +305,12 @@
       .header { padding: 14px; }
       .header h2 { font-size: 17px; }
       .tabs { top: 72px; }
-      .prow { grid-template-columns: 30px 1fr 110px; grid-template-areas: "c t n" "c r d"; row-gap: 4px; }
+      .prow { grid-template-columns: 30px 44px 1fr 110px; grid-template-areas: "c p t n" "c p r d"; row-gap: 4px; }
       .prow.head { display: none; }
       .prow .cb { grid-area: c; }
+      .prow .photo { grid-area: p; }
       .prow .title { grid-area: t; }
+      .thumb, .thumb-empty { width: 40px; height: 40px; }
       .prow .retail { grid-area: r; text-align: left; font-size: 12px; }
       .prow .cur { display: none; }
       .prow .newwrap { grid-area: n; }
@@ -302,6 +365,13 @@
           <div class="field" style="flex:2;">
             <label>Поиск</label>
             <input type="text" id="fSearch" placeholder="🔍 Название товара" autocomplete="off" oninput="onSearchInput()">
+          </div>
+          <div class="field">
+            <label>Сортировка</label>
+            <select id="fSort" onchange="renderProducts()">
+              <option value="site">Как на сайте</option>
+              <option value="name">По названию</option>
+            </select>
           </div>
           <div class="field">
             <label>Показать</label>
@@ -432,6 +502,14 @@
     </div>
 
   </div>
+</div>
+
+<div id="photoModal" class="photo-modal" onclick="if (event.target === this) closePhoto()">
+  <button type="button" class="photo-close" onclick="closePhoto()" aria-label="Закрыть">×</button>
+  <button type="button" class="photo-prev" id="photoPrev" onclick="shiftPhoto(-1)" aria-label="Предыдущее">‹</button>
+  <img id="photoModalImg" alt="">
+  <button type="button" class="photo-next" id="photoNext" onclick="shiftPhoto(1)" aria-label="Следующее">›</button>
+  <div class="photo-title" id="photoModalTitle"></div>
 </div>
 
 <script>
@@ -565,7 +643,7 @@ async function loadProducts() {
     var snap = await db.collection('products').limit(5000).get();
     products = [];
     snap.forEach(function (doc) { products.push(Object.assign({ id: doc.id }, doc.data())); });
-    products.sort(function (a, b) { return productTitle(a).localeCompare(productTitle(b), 'ru'); });
+    products.sort(siteOrderCompare);
     productsById = new Map(products.map(function (p) { return [p.id, p]; }));
     fillCategories();
     renderProducts();
@@ -606,11 +684,39 @@ function onSearchInput() {
   searchTimer = setTimeout(renderProducts, 200);
 }
 
+// Тот же порядок, что на витрине: js/product-loader.js, _stableProductOrderCompare.
+function siteOrderCompare(a, b) {
+  var ao = (typeof a.order === 'number' && isFinite(a.order)) ? a.order : Number.MAX_SAFE_INTEGER;
+  var bo = (typeof b.order === 'number' && isFinite(b.order)) ? b.order : Number.MAX_SAFE_INTEGER;
+  if (ao !== bo) return ao - bo;
+  var ac = (typeof a.createdAt === 'number') ? a.createdAt : 0;
+  var bc = (typeof b.createdAt === 'number') ? b.createdAt : 0;
+  if (ac !== bc) return ac - bc;
+  var aid = a.id || '';
+  var bid = b.id || '';
+  if (aid < bid) return -1;
+  if (aid > bid) return 1;
+  return 0;
+}
+
+function sortVisible(list) {
+  var mode = document.getElementById('fSort').value;
+  var arr = list.slice();
+  arr.sort(function (a, b) {
+    if (mode === 'name') {
+      var byName = productTitle(a).localeCompare(productTitle(b), 'ru');
+      return byName || siteOrderCompare(a, b);
+    }
+    return siteOrderCompare(a, b);
+  });
+  return arr;
+}
+
 function getVisibleProducts() {
   var cat = document.getElementById('fCategory').value;
   var show = document.getElementById('fShow').value;
   var words = document.getElementById('fSearch').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  return products.filter(function (p) {
+  return sortVisible(products.filter(function (p) {
     if (cat && (p.category || 'все').toLowerCase() !== cat) return false;
     if (show === 'selected' && !selected.has(p.id)) return false;
     if (show === 'changed' && !drafts.has(p.id)) return false;
@@ -619,7 +725,7 @@ function getVisibleProducts() {
       for (var i = 0; i < words.length; i++) if (t.indexOf(words[i]) === -1) return false;
     }
     return true;
-  });
+  }));
 }
 
 function renderProducts() {
@@ -635,7 +741,7 @@ function renderProducts() {
     updateCounters();
     return;
   }
-  var html = '<div class="prow head"><div></div><div>Товар</div><div class="num">Продажа</div>' +
+  var html = '<div class="prow head"><div></div><div></div><div>Товар</div><div class="num">Продажа</div>' +
     '<div class="num">Приход сейчас</div><div class="num">Новая приходная</div><div class="num">Разница</div></div>';
   html += visible.map(rowHtml).join('');
   list.innerHTML = html;
@@ -650,6 +756,7 @@ function rowHtml(p) {
   var cls = 'prow' + (hasDraft && isSel ? ' changed' : '') + (hasDraft && !isSel ? ' unselected-draft' : '');
   return '<div class="' + cls + '" id="row-' + p.id + '">' +
     '<div class="cb"><input type="checkbox" ' + (isSel ? 'checked' : '') + ' onchange="toggleSelect(\'' + p.id + '\', this.checked)"></div>' +
+    photoHtml(p) +
     '<div class="title"><b title="' + escapeHtml(productTitle(p)) + '">' + escapeHtml(productTitle(p)) + '</b>' +
       '<small>' + escapeHtml(p.category || 'все') + ' • приход: ' + money(cur) + '</small></div>' +
     '<div class="num retail">' + money(p.price) + '</div>' +
@@ -658,6 +765,70 @@ function rowHtml(p) {
     '<div class="num diff" id="diff-' + p.id + '">' + diffHtml(p) + '</div>' +
   '</div>';
 }
+
+function cloudinary(url, transform) {
+  if (!url || url.indexOf('cloudinary.com') === -1 || url.indexOf('/upload/') === -1) return url || '';
+  return url.replace('/upload/', '/upload/' + transform + '/');
+}
+
+function productPhotos(p) {
+  var list = [];
+  function add(url) {
+    if (typeof url === 'string' && url && list.indexOf(url) === -1) list.push(url);
+  }
+  add(p.image);
+  if (Array.isArray(p.extraImages)) p.extraImages.forEach(add);
+  return list;
+}
+
+function photoHtml(p) {
+  var photos = productPhotos(p);
+  if (!photos.length) return '<div class="photo"><div class="thumb-empty">📷</div></div>';
+  return '<div class="photo"><img class="thumb" src="' + escapeHtml(cloudinary(photos[0], 'w_120,h_120,c_fill,q_70,f_auto')) +
+    '" alt="" onclick="openPhoto(\'' + p.id + '\')" onerror="this.outerHTML=\'<div class=&quot;thumb-empty&quot;>📷</div>\'"></div>';
+}
+
+var photoView = { id: null, index: 0 };
+
+function openPhoto(id) {
+  var p = productsById.get(id);
+  if (!p || !productPhotos(p).length) return;
+  photoView = { id: id, index: 0 };
+  showPhoto();
+}
+
+function shiftPhoto(delta) {
+  var p = productsById.get(photoView.id);
+  var photos = p ? productPhotos(p) : [];
+  if (photos.length < 2) return;
+  photoView.index = (photoView.index + delta + photos.length) % photos.length;
+  showPhoto();
+}
+
+function showPhoto() {
+  var p = productsById.get(photoView.id);
+  var photos = p ? productPhotos(p) : [];
+  if (!photos.length) return;
+  var img = document.getElementById('photoModalImg');
+  img.src = cloudinary(photos[photoView.index], 'w_1400,q_85,f_auto');
+  document.getElementById('photoModalTitle').textContent = productTitle(p) +
+    (photos.length > 1 ? '  ' + (photoView.index + 1) + ' / ' + photos.length : '');
+  document.getElementById('photoPrev').style.display = photos.length > 1 ? '' : 'none';
+  document.getElementById('photoNext').style.display = photos.length > 1 ? '' : 'none';
+  document.getElementById('photoModal').classList.add('open');
+}
+
+function closePhoto() {
+  document.getElementById('photoModal').classList.remove('open');
+  document.getElementById('photoModalImg').src = '';
+}
+
+document.addEventListener('keydown', function (e) {
+  if (!document.getElementById('photoModal').classList.contains('open')) return;
+  if (e.key === 'Escape') closePhoto();
+  else if (e.key === 'ArrowLeft') shiftPhoto(-1);
+  else if (e.key === 'ArrowRight') shiftPhoto(1);
+});
 
 function diffHtml(p) {
   if (!drafts.has(p.id)) return '<span class="c-gray">—</span>';
