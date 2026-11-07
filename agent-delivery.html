@@ -1238,160 +1238,98 @@
       try {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
-        const scale = 1.5;
-        let yPosition = 5;
-        
-        // Заголовок
-        const headerCanvas = document.createElement('canvas');
-        const headerCtx = headerCanvas.getContext('2d');
-        headerCanvas.width = 600 * scale;
-        headerCanvas.height = 80 * scale;
-        headerCtx.scale(scale, scale);
-        
-        headerCtx.fillStyle = '#4CAF50';
-        headerCtx.fillRect(0, 0, 600, 80);
-        headerCtx.fillStyle = 'white';
-        headerCtx.font = 'bold 28px Arial';
-        headerCtx.textAlign = 'center';
-        headerCtx.fillText('СПИСОК ДОСТАВКИ', 300, 28);
-        headerCtx.font = '14px Arial';
-        headerCtx.fillText(_deliveryAgentName ? ('[ ' + _deliveryAgentName + ' ]') : '', 300, 48);
-        headerCtx.font = '14px Arial';
-        headerCtx.fillText(_deliveryDate, 300, 68);
-        
-        const headerImage = headerCanvas.toDataURL('image/png');
-        doc.addImage(headerImage, 'PNG', 10, yPosition, 190, 22);
-        yPosition += 25;
-        
-        // Статистика
-        const statsCanvas = document.createElement('canvas');
-        const statsCtx = statsCanvas.getContext('2d');
-        statsCanvas.width = 600 * scale;
-        statsCanvas.height = 40 * scale;
-        statsCtx.scale(scale, scale);
-        
-        statsCtx.fillStyle = '#e8f5e9';
-        statsCtx.fillRect(0, 0, 600, 40);
-        statsCtx.strokeStyle = '#4CAF50';
-        statsCtx.lineWidth = 2;
-        statsCtx.strokeRect(0, 0, 600, 40);
-        
-        statsCtx.fillStyle = '#2e7d32';
-        statsCtx.font = 'bold 14px Arial';
-        statsCtx.textAlign = 'center';
-        statsCtx.fillText('Клиентов: ' + _deliveryClients.length + '  |  Итого: ' + _deliveryGrandTotal.toLocaleString() + ' сом', 300, 26);
-        
-        const statsImage = statsCanvas.toDataURL('image/png');
-        doc.addImage(statsImage, 'PNG', 10, yPosition, 190, 11);
-        yPosition += 14;
-        
-        // Клиенты
+        const scale = 2;
+        let yPosition = 8;
+        const pdfX = 14;
+        const pdfW = 182;
+
+        function paintDeliveryRow(draw, w, h, pdfH) {
+          const canvas = document.createElement('canvas');
+          canvas.width = w * scale;
+          canvas.height = h * scale;
+          const ctx = canvas.getContext('2d');
+          ctx.scale(scale, scale);
+          draw(ctx, w, h);
+          if (yPosition + pdfH > 288) {
+            doc.addPage();
+            yPosition = 8;
+          }
+          doc.addImage(canvas.toDataURL('image/png'), 'PNG', pdfX, yPosition, pdfW, pdfH);
+          yPosition += pdfH + 0.6;
+        }
+
+        paintDeliveryRow(function (ctx, w, h) {
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = '#d9d9d9';
+          ctx.beginPath();
+          ctx.moveTo(0, h - 1);
+          ctx.lineTo(w, h - 1);
+          ctx.stroke();
+          ctx.fillStyle = '#222';
+          ctx.font = 'bold 15px Arial';
+          ctx.textAlign = 'left';
+          ctx.fillText('Список доставки', 4, 18);
+          ctx.fillStyle = '#666';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'right';
+          const headRight = [_deliveryAgentName, _deliveryDate].filter(Boolean).join('  ·  ');
+          ctx.fillText(String(headRight).substring(0, 48), w - 4, 17);
+          ctx.textAlign = 'left';
+          ctx.fillText(_deliveryClients.length + ' клиент.   ' + _deliveryGrandTotal.toLocaleString() + ' сом', 4, 36);
+        }, 640, 46, 11);
+
         for (let i = 0; i < _deliveryClients.length; i++) {
           const client = _deliveryClients[i];
-          
-          // Проверяем, не выходим ли за страницу
-          if (yPosition > 260) {
-            doc.addPage();
-            yPosition = 10;
-          }
-          
           const showDays = _deliveryMultiDay && client.days && client.days.length;
-          const cardH = showDays ? 108 : 90;
-          const cardCanvas = document.createElement('canvas');
-          const cardCtx = cardCanvas.getContext('2d');
-          cardCanvas.width = 600 * scale;
-          cardCanvas.height = cardH * scale;
-          cardCtx.scale(scale, scale);
-          
-          // Фон карточки
-          cardCtx.fillStyle = 'white';
-          cardCtx.fillRect(0, 0, 600, cardH);
-          cardCtx.strokeStyle = '#e0e0e0';
-          cardCtx.lineWidth = 1;
-          cardCtx.strokeRect(0, 0, 600, cardH);
-          
-          // Зелёная полоска слева
-          cardCtx.fillStyle = '#4CAF50';
-          cardCtx.fillRect(0, 0, 6, cardH);
-          
-          // Номер
-          cardCtx.beginPath();
-          cardCtx.arc(30, 20, 14, 0, Math.PI * 2);
-          cardCtx.fillStyle = '#4CAF50';
-          cardCtx.fill();
-          cardCtx.fillStyle = 'white';
-          cardCtx.font = 'bold 14px Arial';
-          cardCtx.textAlign = 'center';
-          cardCtx.fillText(String(i + 1), 30, 25);
-          
-          // Сумма
-          cardCtx.fillStyle = '#4CAF50';
-          cardCtx.font = 'bold 18px Arial';
-          cardCtx.textAlign = 'right';
-          cardCtx.fillText(client.total.toLocaleString() + ' сом', 590, 25);
-          
-          // Имя
-          cardCtx.fillStyle = '#333';
-          cardCtx.font = 'bold 15px Arial';
-          cardCtx.textAlign = 'left';
-          cardCtx.fillText((client.name || 'Без имени').substring(0, 35), 55, 25);
-          
-          // Телефон
-          cardCtx.font = '13px Arial';
-          cardCtx.fillStyle = '#4CAF50';
-          cardCtx.fillText('Тел: ' + (client.phone || '-'), 20, 48);
-          
-          // Адрес
-          cardCtx.fillStyle = '#666';
-          cardCtx.fillText('Адрес: ' + (client.address || '-').substring(0, 45), 20, 68);
+          paintDeliveryRow(function (ctx, w, h) {
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.strokeStyle = '#eee';
+            ctx.beginPath();
+            ctx.moveTo(0, h - 0.5);
+            ctx.lineTo(w, h - 0.5);
+            ctx.stroke();
+            ctx.fillStyle = '#888';
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(String(i + 1), 4, 15);
+            ctx.fillStyle = '#222';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText(String(client.name || 'Без имени').substring(0, 26), 28, 15);
+            ctx.fillStyle = '#2e7d32';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'right';
+            ctx.fillText(client.total.toLocaleString(), w - 22, 15);
+            ctx.strokeStyle = '#bbb';
+            ctx.strokeRect(w - 16, 4, 11, 11);
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#777';
+            ctx.font = '11px Arial';
+            const meta = [
+              client.phone || '',
+              String(client.address || '').substring(0, 34),
+              showDays ? client.days.join(', ') : ''
+            ].filter(Boolean).join('   ');
+            ctx.fillText(meta.substring(0, 78), 28, 32);
+          }, 640, 42, 10.5);
+        }
 
-          if (showDays) {
-            cardCtx.fillStyle = '#1565c0';
-            cardCtx.font = '12px Arial';
-            cardCtx.textAlign = 'left';
-            cardCtx.fillText('Дата: ' + client.days.join(', ').substring(0, 42), 20, 88);
-          }
-          
-          // Пустой чекбокс
-          cardCtx.strokeStyle = '#999';
-          cardCtx.lineWidth = 2;
-          cardCtx.strokeRect(560, 55, 20, 20);
-          cardCtx.font = '10px Arial';
-          cardCtx.fillStyle = '#999';
-          cardCtx.textAlign = 'right';
-          cardCtx.fillText('собрано', 555, 68);
-          
-          const cardImage = cardCanvas.toDataURL('image/png');
-          const cardPdfH = Math.round(cardH * 25 / 90);
-          doc.addImage(cardImage, 'PNG', 10, yPosition, 190, cardPdfH);
-          yPosition += cardPdfH + 2;
-        }
-        
-        // Итого внизу
-        if (yPosition > 260) {
-          doc.addPage();
-          yPosition = 10;
-        }
-        
-        const totalCanvas = document.createElement('canvas');
-        const totalCtx = totalCanvas.getContext('2d');
-        totalCanvas.width = 600 * scale;
-        totalCanvas.height = 50 * scale;
-        totalCtx.scale(scale, scale);
-        
-        totalCtx.fillStyle = '#ffeb3b';
-        totalCtx.fillRect(0, 0, 600, 50);
-        totalCtx.strokeStyle = '#333';
-        totalCtx.lineWidth = 3;
-        totalCtx.strokeRect(0, 0, 600, 50);
-        
-        totalCtx.fillStyle = '#333';
-        totalCtx.font = 'bold 22px Arial';
-        totalCtx.textAlign = 'center';
-        totalCtx.fillText('ВСЕГО К СБОРУ: ' + _deliveryGrandTotal.toLocaleString() + ' сом', 300, 33);
-        
-        const totalImage = totalCanvas.toDataURL('image/png');
-        doc.addImage(totalImage, 'PNG', 10, yPosition, 190, 14);
+        paintDeliveryRow(function (ctx, w, h) {
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = '#ccc';
+          ctx.beginPath();
+          ctx.moveTo(0, 1);
+          ctx.lineTo(w, 1);
+          ctx.stroke();
+          ctx.fillStyle = '#222';
+          ctx.font = 'bold 13px Arial';
+          ctx.textAlign = 'left';
+          ctx.fillText('Всего к сбору', 4, 22);
+          ctx.textAlign = 'right';
+          ctx.fillText(_deliveryGrandTotal.toLocaleString() + ' сом', w - 4, 22);
+        }, 640, 32, 8);
         
         // Генерируем PDF blob и сразу скачиваем — не ждём Telegram
         const pdfBlob = doc.output('blob');

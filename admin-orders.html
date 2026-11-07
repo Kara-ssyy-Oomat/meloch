@@ -1327,91 +1327,93 @@ async function downloadGoingOrdersPdf() {
   try {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
-    const scale = 1.5;
-    let y = 5;
+    const scale = 2;
+    let y = 8;
+    const pdfX = 14;
+    const pdfW = 182;
 
-    function paint(draw, w, h, pdfW, pdfH) {
+    function paint(draw, w, h, pdfH) {
       const canvas = document.createElement('canvas');
       canvas.width = w * scale;
       canvas.height = h * scale;
       const ctx = canvas.getContext('2d');
       ctx.scale(scale, scale);
       draw(ctx, w, h);
-      if (y + pdfH > 285) {
+      if (y + pdfH > 288) {
         doc.addPage();
-        y = 10;
+        y = 8;
       }
-      doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, y, pdfW, pdfH);
-      y += pdfH + 2;
+      doc.addImage(canvas.toDataURL('image/png'), 'PNG', pdfX, y, pdfW, pdfH);
+      y += pdfH + 0.6;
     }
 
     paint(function (ctx, w, h) {
-      ctx.fillStyle = '#4CAF50';
-      ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = '#fff';
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 26px Arial';
-      ctx.fillText('СПИСОК ДОСТАВКИ', w / 2, 28);
-      ctx.font = '14px Arial';
-      ctx.fillText(agentName ? ('[ ' + agentName + ' ]') : '', w / 2, 50);
-      ctx.fillText(dayLabels.join(', '), w / 2, 70);
-    }, 600, 86, 190, 24);
-
-    paint(function (ctx, w, h) {
-      ctx.fillStyle = '#e8f5e9';
       ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = '#4CAF50';
-      ctx.strokeRect(0, 0, w, h);
-      ctx.fillStyle = '#2e7d32';
-      ctx.font = 'bold 14px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('Клиентов: ' + clients.length + '  |  Итого: ' + grand.toLocaleString() + ' сом', w / 2, 26);
-    }, 600, 40, 190, 12);
+      ctx.strokeStyle = '#d9d9d9';
+      ctx.beginPath();
+      ctx.moveTo(0, h - 1);
+      ctx.lineTo(w, h - 1);
+      ctx.stroke();
+      ctx.fillStyle = '#222';
+      ctx.font = 'bold 15px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText('Список доставки', 4, 18);
+      ctx.fillStyle = '#666';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'right';
+      const headRight = [agentName, dayLabels.join(', ')].filter(Boolean).join('  ·  ');
+      ctx.fillText(headRight.substring(0, 48), w - 4, 17);
+      ctx.textAlign = 'left';
+      ctx.fillText(clients.length + ' клиент.   ' + grand.toLocaleString() + ' сом', 4, 36);
+    }, 640, 46, 11);
 
     clients.forEach(function (client, index) {
       paint(function (ctx, w, h) {
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, w, h);
-        ctx.strokeStyle = '#e0e0e0';
-        ctx.strokeRect(0, 0, w, h);
-        ctx.fillStyle = '#4CAF50';
-        ctx.fillRect(0, 0, 6, h);
+        ctx.strokeStyle = '#eee';
         ctx.beginPath();
-        ctx.arc(30, 22, 14, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(String(index + 1), 30, 27);
-        ctx.fillStyle = '#4CAF50';
-        ctx.font = 'bold 18px Arial';
-        ctx.textAlign = 'right';
-        ctx.fillText(client.total.toLocaleString() + ' сом', w - 12, 28);
-        ctx.fillStyle = '#333';
-        ctx.font = 'bold 15px Arial';
+        ctx.moveTo(0, h - 0.5);
+        ctx.lineTo(w, h - 0.5);
+        ctx.stroke();
+        ctx.fillStyle = '#888';
+        ctx.font = '11px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(String(client.name || '').substring(0, 32), 55, 28);
-        ctx.font = '13px Arial';
-        ctx.fillStyle = '#4CAF50';
-        ctx.fillText('Тел: ' + (client.phone || '-'), 20, 52);
-        ctx.fillStyle = '#666';
-        ctx.fillText('Адрес: ' + String(client.address || '-').substring(0, 46), 20, 72);
-        ctx.fillStyle = '#1565c0';
-        ctx.fillText('Дата: ' + client.dayLabels.join(', '), 20, 92);
-      }, 600, 108, 190, 30);
+        ctx.fillText(String(index + 1), 4, 15);
+        ctx.fillStyle = '#222';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText(String(client.name || 'Без имени').substring(0, 26), 28, 15);
+        ctx.fillStyle = '#2e7d32';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'right';
+        ctx.fillText(client.total.toLocaleString(), w - 22, 15);
+        ctx.strokeStyle = '#bbb';
+        ctx.strokeRect(w - 16, 4, 11, 11);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#777';
+        ctx.font = '11px Arial';
+        const meta = [client.phone || '', String(client.address || '').substring(0, 34), client.dayLabels.join(', ')]
+          .filter(Boolean).join('   ');
+        ctx.fillText(meta.substring(0, 78), 28, 32);
+      }, 640, 42, 10.5);
     });
 
     paint(function (ctx, w, h) {
-      ctx.fillStyle = '#ffeb3b';
+      ctx.fillStyle = '#fff';
       ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(0, 0, w, h);
-      ctx.fillStyle = '#333';
-      ctx.font = 'bold 20px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('ВСЕГО К СБОРУ: ' + grand.toLocaleString() + ' сом', w / 2, 32);
-    }, 600, 50, 190, 14);
+      ctx.strokeStyle = '#ccc';
+      ctx.beginPath();
+      ctx.moveTo(0, 1);
+      ctx.lineTo(w, 1);
+      ctx.stroke();
+      ctx.fillStyle = '#222';
+      ctx.font = 'bold 13px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText('Всего к сбору', 4, 22);
+      ctx.textAlign = 'right';
+      ctx.fillText(grand.toLocaleString() + ' сом', w - 4, 22);
+    }, 640, 32, 8);
 
     const blob = doc.output('blob');
     const fileDate = dayLabels.join('_').replace(/\./g, '-') || 'list';
