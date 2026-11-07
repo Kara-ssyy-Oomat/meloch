@@ -109,6 +109,30 @@
       cursor: pointer;
       font-weight: 600;
     }
+
+    .range-btns {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      width: 100%;
+    }
+
+    .range-btn {
+      padding: 7px 10px;
+      border: 1px solid #c8e6c9;
+      background: #f1f8f4;
+      color: #2e7d32;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .range-btn.active {
+      background: #4CAF50;
+      color: white;
+      border-color: #4CAF50;
+    }
     
     .agent-select {
       padding: 10px 15px;
@@ -226,6 +250,69 @@
       color: #666;
       cursor: pointer;
     }
+
+    .checkbox-going {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: #e3f2fd;
+      border-radius: 8px;
+    }
+
+    .checkbox-going input {
+      width: 22px;
+      height: 22px;
+      cursor: pointer;
+    }
+
+    .checkbox-going label {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0d47a1;
+      cursor: pointer;
+    }
+
+    .client-card.is-picked {
+      border-left-color: #1565c0;
+      background: #f5faff;
+    }
+
+    .pick-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 15px;
+      background: #e3f2fd;
+      color: #0d47a1;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .pick-bar button {
+      border: none;
+      background: transparent;
+      color: #1565c0;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .pick-bar button.pick-done {
+      background: #2e7d32;
+      color: #fff;
+      border-radius: 8px;
+      padding: 7px 12px;
+    }
+
+    .pick-hint {
+      width: 100%;
+      font-size: 12px;
+      color: #1565c0;
+      line-height: 1.35;
+    }
     
     .empty-state {
       text-align: center;
@@ -270,7 +357,7 @@
         font-size: 12px;
       }
       
-      .header, .filters, .total-summary, .bottom-nav, #bottomNavBar, .print-btn, .checkbox-collected {
+      .header, .filters, .total-summary, .bottom-nav, #bottomNavBar, .print-btn, .checkbox-collected, .checkbox-going, .pick-bar {
         display: none !important;
       }
       
@@ -355,6 +442,13 @@
         <option value="own">Наши клиенты</option>
       </select>
       <button class="load-btn" onclick="loadDeliveryList()">Загрузить</button>
+      <div class="range-btns">
+        <button type="button" class="range-btn" data-days="1" onclick="setDeliveryRange(1)">Сегодня</button>
+        <button type="button" class="range-btn" data-days="2" onclick="setDeliveryRange(2)">+ вчера</button>
+        <button type="button" class="range-btn" data-days="3" onclick="setDeliveryRange(3)">3 дня</button>
+        <button type="button" class="range-btn" data-days="4" onclick="setDeliveryRange(4)">4 дня</button>
+      </div>
+      <div class="pick-hint">Отметьте «Уходит» только у тех заказов, которые едут. Можно пройти понедельник, вторник и среду — пометка не сбросится. В PDF попадут только отмеченные.</div>
     </div>
   </div>
   
@@ -362,6 +456,14 @@
     <span id="clientsCount">0 клиентов</span>
     <span id="ordersCount">0 заказов</span>
     <span id="totalSum">0 сом</span>
+  </div>
+
+  <div class="pick-bar" id="pickBar">
+    <span>В PDF: <span id="pickCount">0</span> · <span id="pickOrders">0</span> · <span id="pickSum">0 сом</span></span>
+    <span style="display:flex; gap:8px;">
+      <button type="button" onclick="clearDeliveryPicks()">Снять</button>
+      <button type="button" class="pick-done" onclick="finishDeliveryPicks()">Готов</button>
+    </span>
   </div>
   
   <div class="client-list" id="clientList">
@@ -521,7 +623,66 @@
       loadDeliveryList();
     });
     
+    function localDateInputValue(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + day;
+    }
+
+    function parseLocalDate(value) {
+      const parts = String(value || '').split('-');
+      if (parts.length !== 3) return null;
+      const y = Number(parts[0]);
+      const m = Number(parts[1]);
+      const day = Number(parts[2]);
+      if (!y || !m || !day) return null;
+      return new Date(y, m - 1, day);
+    }
+
+    function orderTimeMs(order) {
+      const v = order && (order.timestamp || order.createdAt || order.date) || 0;
+      if (v && typeof v.toDate === 'function') return v.toDate().getTime();
+      if (v && typeof v.seconds === 'number') return v.seconds * 1000;
+      const n = Number(v);
+      if (!n) return 0;
+      return n < 1e12 ? n * 1000 : n;
+    }
+
+    function orderDayInfo(ms) {
+      if (!ms) return null;
+      const d = new Date(ms);
+      if (isNaN(d.getTime())) return null;
+      return {
+        key: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
+        label: String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0')
+      };
+    }
+
+    function setDeliveryRange(days) {
+      const count = Math.max(1, Number(days) || 1);
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - (count - 1));
+      document.getElementById('dateFrom').value = localDateInputValue(start);
+      document.getElementById('dateTo').value = localDateInputValue(end);
+      loadDeliveryList();
+    }
+
+    function markRangeButtons() {
+      const from = (document.getElementById('dateFrom') || {}).value || '';
+      const to = (document.getElementById('dateTo') || {}).value || '';
+      const today = localDateInputValue(new Date());
+      document.querySelectorAll('.range-btn').forEach(function (btn) {
+        const count = Number(btn.dataset.days);
+        const start = new Date();
+        start.setDate(start.getDate() - (count - 1));
+        btn.classList.toggle('active', from === localDateInputValue(start) && to === today);
+      });
+    }
+
     async function loadDeliveryList() {
+      const seq = ++_deliveryLoadSeq;
       const dateFromInput = document.getElementById('dateFrom').value;
       const dateToInput = document.getElementById('dateTo').value || dateFromInput;
       let agentFilter = document.getElementById('agentFilter').value;
@@ -536,9 +697,18 @@
         return;
       }
       
-      const startDate = new Date(dateFromInput);
+      let startDate = parseLocalDate(dateFromInput);
+      let endDate = parseLocalDate(dateToInput);
+      if (!startDate || !endDate) {
+        Swal.fire('Ошибка', 'Выберите дату', 'error');
+        return;
+      }
+      if (endDate < startDate) {
+        const swap = startDate;
+        startDate = endDate;
+        endDate = swap;
+      }
       startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(dateToInput);
       endDate.setHours(23, 59, 59, 999);
       
       const startTimestamp = startDate.getTime();
@@ -552,11 +722,12 @@
       `;
       
       try {
-        // Загружаем заказы за выбранный день
+        // Заказы за выбранные дни: сегодня и, если задан период, вчера и более ранние
         const snapshot = await db.collection('orders')
           .where('timestamp', '>=', startTimestamp)
           .where('timestamp', '<=', endTimestamp)
           .get();
+        if (seq !== _deliveryLoadSeq) return;
         
         const orders = [];
         snapshot.forEach(doc => {
@@ -609,11 +780,14 @@
               phone: phone,
               address: order.address || 'Адрес не указан',
               orders: [],
-              total: 0
+              total: 0,
+              dayMap: {}
             };
           }
           clientsMap[phone].orders.push(order);
           clientsMap[phone].total += order.total || 0;
+          const dayInfo = orderDayInfo(orderTimeMs(order));
+          if (dayInfo) clientsMap[phone].dayMap[dayInfo.key] = dayInfo.label;
           // Обновляем адрес на самый свежий
           if (order.address) {
             clientsMap[phone].address = order.address;
@@ -621,6 +795,13 @@
         });
         
         const clients = Object.values(clientsMap);
+        clients.forEach(function (client) {
+          client.days = Object.keys(client.dayMap || {}).sort().map(function (key) {
+            return client.dayMap[key];
+          });
+        });
+        const multiDay = dateFromInput !== (dateToInput || dateFromInput);
+        _deliveryMultiDay = multiDay;
         
         // Обновляем статистику
         const totalClients = clients.length;
@@ -638,6 +819,22 @@
           agentNameForPdf = selectedAgent ? (selectedAgent.name || selectedAgent.phone) : '';
         }
         
+        // Пометки «Уходит» со страницы заказов сохраняются в заказе и подхватываются здесь.
+        orders.forEach(function (order) {
+          if (order.deliveryGoing === true && order.id && !_deliveryPicked[order.id]) {
+            _deliveryPicked[order.id] = {
+              id: order.id,
+              name: order.clientName || order.name || 'Без имени',
+              phone: order.phone || '',
+              address: order.address || '',
+              total: Number(order.total) || 0,
+              timestamp: orderTimeMs(order),
+              items: order.items || [],
+              agentName: agentNameForPdf || order.partner || order.referredBy || ''
+            };
+          }
+        });
+
         // Сохраняем в глобальные переменные для PDF
         _deliveryClients = clients;
         _deliveryGrandTotal = grandTotal;
@@ -660,6 +857,7 @@
         }
         document.getElementById('printDate').textContent = dateForPrint;
         _deliveryDate = dateForPrint;
+        markRangeButtons();
         
         // Рендерим список
         if (clients.length === 0) {
@@ -669,24 +867,32 @@
               <div>Нет заказов за ${dateForPrint}</div>
             </div>
           `;
+          updatePickBar();
           return;
         }
         
         let html = '';
         clients.forEach((client, index) => {
-          const itemsList = client.orders.flatMap(o => o.items || [])
-            .map(item => `${item.title} x${item.qty}`)
-            .slice(0, 5)
-            .join(', ');
+          const itemRows = client.orders.flatMap(o => {
+            const day = orderDayInfo(orderTimeMs(o));
+            const prefix = multiDay && day ? (day.label + ' ') : '';
+            return (o.items || []).map(item => `${prefix}${item.title} x${item.qty}`);
+          });
+          const itemsList = itemRows.slice(0, multiDay ? 8 : 5).join(', ');
           
-          const moreItems = client.orders.flatMap(o => o.items || []).length > 5 ? '...' : '';
+          const moreItems = itemRows.length > (multiDay ? 8 : 5) ? '...' : '';
+          const daysLine = multiDay && client.days && client.days.length
+            ? `<div class="client-info"><span class="client-info-icon">🗓</span><span>${client.days.join(', ')}</span></div>`
+            : '';
           
           // Проверяем, собраны ли деньги (если хотя бы один заказ отмечен)
           const isCollected = client.orders.some(o => o.moneyCollected === true);
-          const cardStyle = isCollected ? 'opacity:0.5; border-left-color:#28a745;' : '';
+          const orderIds = client.orders.map(o => o.id).filter(Boolean);
+          const isPicked = orderIds.length > 0 && orderIds.every(id => _deliveryPicked[id]);
+          const cardStyle = isCollected ? 'opacity:0.5;' : '';
           
           html += `
-            <div class="client-card" id="client-${index}" style="${cardStyle}">
+            <div class="client-card${isPicked ? ' is-picked' : ''}" id="client-${index}" style="${cardStyle}">
               <div class="client-header">
                 <div class="client-number">${index + 1}</div>
                 <div class="client-total">${client.total.toLocaleString()} сом</div>
@@ -703,11 +909,17 @@
                 <span class="client-info-icon">📍</span>
                 <span>${client.address}</span>
               </div>
+              ${daysLine}
               
               <div class="order-items">
                 <strong>Товары:</strong> ${itemsList}${moreItems}
               </div>
               
+              <div class="checkbox-going">
+                <input type="checkbox" class="pick-going" id="going-${index}" ${isPicked ? 'checked' : ''} onchange="toggleDeliveryPick(${index}, this.checked)">
+                <label for="going-${index}">🚚 Уходит — попадёт в PDF</label>
+              </div>
+
               <div class="checkbox-collected">
                 <input type="checkbox" id="collected-${index}" ${isCollected ? 'checked' : ''} onchange="markCollected(${index}, this.checked)">
                 <label for="collected-${index}">✅ Деньги собраны</label>
@@ -717,6 +929,7 @@
         });
         
         document.getElementById('clientList').innerHTML = html;
+        updatePickBar();
         
       } catch (error) {
         console.error('Ошибка загрузки:', error);
@@ -737,13 +950,8 @@
       
       // Обновляем визуально
       if (card) {
-        if (collected) {
-          card.style.opacity = '0.5';
-          card.style.borderLeftColor = '#28a745';
-        } else {
-          card.style.opacity = '1';
-          card.style.borderLeftColor = '#4CAF50';
-        }
+        card.style.opacity = collected ? '0.5' : '1';
+        card.style.borderLeftColor = '';
       }
       
       // Сохраняем в Firebase для каждого заказа этого клиента
@@ -773,7 +981,7 @@
         if (checkbox) checkbox.checked = !collected;
         if (card) {
           card.style.opacity = collected ? '1' : '0.5';
-          card.style.borderLeftColor = collected ? '#4CAF50' : '#28a745';
+          card.style.borderLeftColor = '';
         }
       }
     }
@@ -783,19 +991,249 @@
     let _deliveryDate = '';
     let _deliveryGrandTotal = 0;
     let _deliveryAgentName = ''; // Название выбранного агента
-    
-    // ==================== ГЕНЕРАЦИЯ PDF И ОТПРАВКА В TELEGRAM ====================
-    async function sendPdfToTelegram() {
-      if (_deliveryClients.length === 0) {
-        Swal.fire('Ошибка', 'Нет данных для отправки. Сначала загрузите список.', 'warning');
+    let _deliveryMultiDay = false;
+    let _deliveryLoadSeq = 0;
+    let _deliveryFileDate = '';
+    const _deliveryPicked = {};
+
+    function buildPickedDelivery() {
+      const orders = Object.keys(_deliveryPicked).map(function (id) { return _deliveryPicked[id]; });
+      const clientsMap = {};
+      orders.forEach(function (order) {
+        const phone = order.phone || 'unknown';
+        if (!clientsMap[phone]) {
+          clientsMap[phone] = {
+            name: order.name || 'Без имени',
+            phone: phone,
+            address: order.address || 'Адрес не указан',
+            orders: [],
+            total: 0,
+            dayMap: {}
+          };
+        }
+        clientsMap[phone].orders.push(order);
+        clientsMap[phone].total += Number(order.total) || 0;
+        const dayInfo = orderDayInfo(order.timestamp);
+        if (dayInfo) clientsMap[phone].dayMap[dayInfo.key] = dayInfo.label;
+        if (order.address) clientsMap[phone].address = order.address;
+      });
+      const clients = Object.values(clientsMap);
+      clients.forEach(function (client) {
+        client.days = Object.keys(client.dayMap || {}).sort().map(function (key) {
+          return client.dayMap[key];
+        });
+      });
+      const dayKeys = {};
+      orders.forEach(function (order) {
+        const dayInfo = orderDayInfo(order.timestamp);
+        if (dayInfo) dayKeys[dayInfo.key] = dayInfo.label;
+      });
+      const labels = Object.keys(dayKeys).sort().map(function (key) { return dayKeys[key]; });
+      const agents = {};
+      orders.forEach(function (order) {
+        if (order.agentName) agents[order.agentName] = true;
+      });
+      const agentNames = Object.keys(agents);
+      return {
+        clients: clients,
+        total: clients.reduce(function (sum, client) { return sum + client.total; }, 0),
+        agentName: agentNames.length ? agentNames.join(', ') : _deliveryAgentName,
+        multi: labels.length > 1,
+        dateLabel: labels.length ? labels.join(', ') : _deliveryDate,
+        fileDate: labels.length ? labels.join('_').replace(/\./g, '-') : ''
+      };
+    }
+
+    function updatePickBar() {
+      const built = buildPickedDelivery();
+      const bar = document.getElementById('pickBar');
+      if (!bar) return;
+      if (!built.clients.length) {
+        bar.style.display = 'none';
         return;
       }
+      bar.style.display = 'flex';
+      document.getElementById('pickCount').textContent = built.clients.length + ' клиент(ов)';
+      document.getElementById('pickOrders').textContent = Object.keys(_deliveryPicked).length + ' заказ(ов)';
+      document.getElementById('pickSum').textContent = built.total.toLocaleString() + ' сом';
+    }
+
+    function toggleDeliveryPick(index, checked) {
+      const client = _deliveryClients[index];
+      const card = document.getElementById('client-' + index);
+      if (!client) return;
+      client.orders.forEach(function (order) {
+        if (!order.id) return;
+        if (checked) {
+          _deliveryPicked[order.id] = {
+            id: order.id,
+            name: client.name,
+            phone: client.phone,
+            address: order.address || client.address,
+            total: Number(order.total) || 0,
+            timestamp: orderTimeMs(order),
+            items: order.items || [],
+            agentName: _deliveryAgentName || ''
+          };
+        } else {
+          delete _deliveryPicked[order.id];
+        }
+      });
+      if (card) card.classList.toggle('is-picked', !!checked);
+      client.orders.forEach(function (order) {
+        if (!order.id || typeof db === 'undefined' || !db) return;
+        order.deliveryGoing = !!checked;
+        db.collection('orders').doc(order.id).update({
+          deliveryGoing: !!checked,
+          deliveryGoingAt: checked ? Date.now() : null
+        }).catch(function (err) {
+          console.warn('deliveryGoing', err && err.message);
+        });
+      });
+      updatePickBar();
+    }
+
+    async function releasePickedDeliveryMarks() {
+      const ids = Object.keys(_deliveryPicked);
+      if (typeof db !== 'undefined' && db) {
+        for (let i = 0; i < ids.length; i += 400) {
+          const slice = ids.slice(i, i + 400);
+          const batch = db.batch();
+          slice.forEach(function (id) {
+            batch.update(db.collection('orders').doc(id), {
+              deliveryGoing: false,
+              deliveryGoingAt: null,
+              deliveryListPrintedAt: Date.now()
+            });
+          });
+          await batch.commit();
+        }
+      }
+      ids.forEach(function (id) { delete _deliveryPicked[id]; });
+      document.querySelectorAll('.client-card.is-picked').forEach(function (el) {
+        el.classList.remove('is-picked');
+      });
+      document.querySelectorAll('.pick-going').forEach(function (el) { el.checked = false; });
+      updatePickBar();
+    }
+
+    async function clearDeliveryPicks() {
+      if (!Object.keys(_deliveryPicked).length) return;
+      const ask = await Swal.fire({
+        icon: 'warning',
+        title: 'Снять все галочки?',
+        text: 'Пометки «Уходит» будут сняты. Случайно нажатая кнопка их не вернёт.',
+        showCancelButton: true,
+        confirmButtonText: 'Да, снять',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#c62828'
+      });
+      if (!ask.isConfirmed) return;
+      try {
+        await releasePickedDeliveryMarks();
+        Swal.fire({ icon: 'success', title: 'Галочки сняты', timer: 1400, showConfirmButton: false });
+      } catch (error) {
+        console.warn('clearDeliveryPicks', error);
+        Swal.fire('Ошибка', 'Не удалось снять пометки', 'error');
+      }
+    }
+
+    async function finishDeliveryPicks() {
+      if (!Object.keys(_deliveryPicked).length) {
+        Swal.fire({ icon: 'info', title: 'Нет отмеченных заказов', text: 'Сначала поставьте «Уходит» на заказы этого списка.' });
+        return;
+      }
+      const ask = await Swal.fire({
+        icon: 'warning',
+        title: 'Список готов?',
+        html: 'Галочки будут сняты.<br>Уже скачанный PDF не изменится.<br>Следующий PDF начнётся только с новых отметок.',
+        showCancelButton: true,
+        confirmButtonText: 'Да, готов',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#2e7d32'
+      });
+      if (!ask.isConfirmed) return;
+      try {
+        await releasePickedDeliveryMarks();
+        Swal.fire({ icon: 'success', title: 'Список закрыт', text: 'Галочки сняты. Можно отмечать заказы для следующего PDF.', timer: 2200, showConfirmButton: false });
+      } catch (error) {
+        console.warn('finishDeliveryPicks', error);
+        Swal.fire('Ошибка', 'Не удалось закрыть список', 'error');
+      }
+    }
+    
+    // ==================== ГЕНЕРАЦИЯ PDF И ОТПРАВКА В TELEGRAM ====================
+    // Файл всегда скачивается в браузер. Telegram — отдельно и с таймаутом:
+    // прокси сейчас отвечает 401 (App Check выключен в браузере, на сервере включён),
+    // и без скачивания окно «Создание PDF...» зависало до ошибки или навсегда.
+    function downloadBlob(blob, fileName) {
+      try {
+        if (!blob) return false;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName || 'file.pdf';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () {
+          try { document.body.removeChild(a); } catch (e) {}
+          try { URL.revokeObjectURL(url); } catch (e) {}
+        }, 1500);
+        return true;
+      } catch (e) {
+        console.error('downloadBlob error:', e);
+        return false;
+      }
+    }
+
+    function showDeliveryPdfStatus(icon, title, text) {
+      if (Swal.isVisible()) {
+        Swal.hideLoading();
+        Swal.update({
+          icon: icon,
+          title: title,
+          text: text,
+          showConfirmButton: true
+        });
+        return;
+      }
+      Swal.fire({ icon: icon, title: title, text: text });
+    }
+
+    async function sendPdfToTelegram() {
+      const picked = buildPickedDelivery();
+      if (!picked.clients.length) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Сначала отметьте заказы',
+          text: 'Поставьте «Уходит» на те заказы, которые едут. Можно отметить разные дни — пометка сохранится. В PDF попадут только они.'
+        });
+        return;
+      }
+
+      const backup = {
+        clients: _deliveryClients,
+        total: _deliveryGrandTotal,
+        date: _deliveryDate,
+        agent: _deliveryAgentName,
+        multi: _deliveryMultiDay,
+        fileDate: _deliveryFileDate
+      };
+      _deliveryClients = picked.clients;
+      _deliveryGrandTotal = picked.total;
+      _deliveryDate = picked.dateLabel;
+      _deliveryAgentName = picked.agentName;
+      _deliveryMultiDay = picked.multi;
+      _deliveryFileDate = picked.fileDate;
       
       Swal.fire({
         title: 'Создание PDF...',
         allowOutsideClick: false,
+        showConfirmButton: false,
         didOpen: () => { Swal.showLoading(); }
       });
+      await new Promise(function (r) { setTimeout(r, 30); });
       
       try {
         const { jsPDF } = window.jspdf;
@@ -857,22 +1295,24 @@
             yPosition = 10;
           }
           
+          const showDays = _deliveryMultiDay && client.days && client.days.length;
+          const cardH = showDays ? 108 : 90;
           const cardCanvas = document.createElement('canvas');
           const cardCtx = cardCanvas.getContext('2d');
           cardCanvas.width = 600 * scale;
-          cardCanvas.height = 90 * scale;
+          cardCanvas.height = cardH * scale;
           cardCtx.scale(scale, scale);
           
           // Фон карточки
           cardCtx.fillStyle = 'white';
-          cardCtx.fillRect(0, 0, 600, 90);
+          cardCtx.fillRect(0, 0, 600, cardH);
           cardCtx.strokeStyle = '#e0e0e0';
           cardCtx.lineWidth = 1;
-          cardCtx.strokeRect(0, 0, 600, 90);
+          cardCtx.strokeRect(0, 0, 600, cardH);
           
           // Зелёная полоска слева
           cardCtx.fillStyle = '#4CAF50';
-          cardCtx.fillRect(0, 0, 6, 90);
+          cardCtx.fillRect(0, 0, 6, cardH);
           
           // Номер
           cardCtx.beginPath();
@@ -904,6 +1344,13 @@
           // Адрес
           cardCtx.fillStyle = '#666';
           cardCtx.fillText('Адрес: ' + (client.address || '-').substring(0, 45), 20, 68);
+
+          if (showDays) {
+            cardCtx.fillStyle = '#1565c0';
+            cardCtx.font = '12px Arial';
+            cardCtx.textAlign = 'left';
+            cardCtx.fillText('Дата: ' + client.days.join(', ').substring(0, 42), 20, 88);
+          }
           
           // Пустой чекбокс
           cardCtx.strokeStyle = '#999';
@@ -915,8 +1362,9 @@
           cardCtx.fillText('собрано', 555, 68);
           
           const cardImage = cardCanvas.toDataURL('image/png');
-          doc.addImage(cardImage, 'PNG', 10, yPosition, 190, 25);
-          yPosition += 27;
+          const cardPdfH = Math.round(cardH * 25 / 90);
+          doc.addImage(cardImage, 'PNG', 10, yPosition, 190, cardPdfH);
+          yPosition += cardPdfH + 2;
         }
         
         // Итого внизу
@@ -945,41 +1393,68 @@
         const totalImage = totalCanvas.toDataURL('image/png');
         doc.addImage(totalImage, 'PNG', 10, yPosition, 190, 14);
         
-        // Генерируем PDF blob
+        // Генерируем PDF blob и сразу скачиваем — не ждём Telegram
         const pdfBlob = doc.output('blob');
         
         const chatId = '5567924440';
-        const dateForFile = document.getElementById('dateFrom').value.replace(/-/g, '_') + (document.getElementById('dateTo').value && document.getElementById('dateTo').value !== document.getElementById('dateFrom').value ? '_' + document.getElementById('dateTo').value.replace(/-/g, '_') : '');
-        const agentSuffix = _deliveryAgentName ? ('_' + _deliveryAgentName.replace(/\s+/g, '_')) : '';
+        const fromVal = (document.getElementById('dateFrom') || {}).value || '';
+        const toVal = (document.getElementById('dateTo') || {}).value || '';
+        const dateForFile = _deliveryFileDate || (fromVal.replace(/-/g, '_') + (toVal && toVal !== fromVal ? '_' + toVal.replace(/-/g, '_') : ''));
+        const agentSuffix = _deliveryAgentName ? ('_' + String(_deliveryAgentName).replace(/[\\/:*?"<>|\s]+/g, '_')) : '';
+        const fileName = 'Dostavka_' + (dateForFile || 'list') + agentSuffix + '.pdf';
 
-        let result = { ok: false };
-        try {
-          result = await tgSendDocument({
-            chat_id: chatId,
-            blob: pdfBlob,
-            file_name: 'Dostavka_' + dateForFile + agentSuffix + '.pdf',
-            file_mime: 'application/pdf',
-            caption: 'Список доставки' + (_deliveryAgentName ? ' [' + _deliveryAgentName + ']' : '') + '\nДата: ' + _deliveryDate + '\nКлиентов: ' + _deliveryClients.length + '\nИтого: ' + _deliveryGrandTotal.toLocaleString() + ' сом'
-          });
-        } catch (err) {
-          result = { ok: false, description: (err && err.message) || 'unknown' };
+        const downloaded = downloadBlob(pdfBlob, fileName);
+
+        let tgOk = false;
+        let tgError = '';
+        if (typeof tgSendDocument === 'function') {
+          if (Swal.isVisible()) Swal.update({ title: 'Отправка в Telegram...' });
+          try {
+            const result = await Promise.race([
+              tgSendDocument({
+                chat_id: chatId,
+                blob: pdfBlob,
+                file_name: fileName,
+                file_mime: 'application/pdf',
+                caption: 'Список доставки' + (_deliveryAgentName ? ' [' + _deliveryAgentName + ']' : '') + '\nДата: ' + _deliveryDate + '\nКлиентов: ' + _deliveryClients.length + '\nИтого: ' + _deliveryGrandTotal.toLocaleString() + ' сом'
+              }),
+              new Promise(function (_, reject) {
+                setTimeout(function () { reject(new Error('Таймаут отправки в Telegram')); }, 15000);
+              })
+            ]);
+            tgOk = !!(result && result.ok);
+            if (!tgOk) tgError = (result && (result.description || result.error)) || 'Ошибка отправки';
+          } catch (err) {
+            tgError = (err && err.message) || 'Ошибка отправки';
+          }
+        } else {
+          tgError = 'Telegram недоступен';
         }
 
-        if (result.ok) {
-          Swal.fire({
-            icon: 'success',
-            title: 'PDF отправлен!',
-            text: 'Список доставки отправлен в Telegram',
-            timer: 2000,
-            showConfirmButton: false
-          });
+        if (/app check|missing_app_check|invalid_app_check/i.test(tgError)) {
+          tgError = 'сервер отклонил запрос (App Check)';
+        }
+
+        if (downloaded && tgOk) {
+          showDeliveryPdfStatus('success', 'PDF скачан и отправлен', 'Файл в папке «Загрузки» и отправлен в Telegram. Галочки оставлены — закройте список кнопкой «Готов», когда он больше не нужен.');
+        } else if (downloaded) {
+          showDeliveryPdfStatus('success', 'PDF скачан', 'Файл в папке «Загрузки». Галочки оставлены. Когда список больше не нужен, нажмите «Готов».');
+        } else if (tgOk) {
+          showDeliveryPdfStatus('success', 'PDF отправлен', 'Список доставки отправлен в Telegram. Скачать файл в браузер не удалось.');
         } else {
-          throw new Error(result.description || 'Ошибка отправки');
+          throw new Error(tgError || 'Не удалось скачать PDF');
         }
         
       } catch (error) {
         console.error('Ошибка:', error);
-        Swal.fire('Ошибка', 'Не удалось отправить PDF: ' + error.message, 'error');
+        showDeliveryPdfStatus('error', 'Ошибка', 'Не удалось создать PDF: ' + ((error && error.message) || error));
+      } finally {
+        _deliveryClients = backup.clients;
+        _deliveryGrandTotal = backup.total;
+        _deliveryDate = backup.date;
+        _deliveryAgentName = backup.agent;
+        _deliveryMultiDay = backup.multi;
+        _deliveryFileDate = backup.fileDate;
       }
     }
   </script>
