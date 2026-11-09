@@ -27,8 +27,10 @@
         }
       } catch (e) { role = 'guest'; }
       window.__kerbenProfitRole = role;
+      window.__profitUnlocked = false;
       var html = document.documentElement;
       html.classList.add('profit-boot');
+      html.classList.add('profit-locked');
       if (role === 'admin') html.classList.add('profit-admin');
       else if (role === 'korean' || role === 'appliances') html.classList.add('profit-manager');
       else html.classList.add('profit-denied');
@@ -95,8 +97,53 @@
       opacity: 0.9;
     }
     html.profit-denied .main-container,
+    html.profit-locked .main-container,
     html:not(.profit-admin):not(.profit-manager) .main-container {
       display: none !important;
+    }
+    #profitLock {
+      display: none;
+      min-height: 100vh;
+      align-items: center;
+      justify-content: center;
+      background: #f5f5f5;
+      padding: 24px;
+    }
+    html.profit-locked:not(.profit-denied) #profitLock { display: flex !important; }
+    html.profit-denied #profitLock { display: none !important; }
+    .profit-lock-card {
+      width: 100%;
+      max-width: 380px;
+      background: #fff;
+      border-radius: 16px;
+      padding: 22px 18px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.08);
+    }
+    .profit-lock-card h2 { font-size: 20px; color: #1a1a1a; margin-bottom: 8px; }
+    .profit-lock-card p { font-size: 14px; color: #666; line-height: 1.45; margin-bottom: 14px; }
+    .profit-lock-card input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      margin-bottom: 10px;
+    }
+    .profit-lock-card button {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: 10px;
+      background: #28a745;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .profit-lock-card .lock-error { color: #c62828; font-size: 13px; min-height: 18px; margin-bottom: 8px; }
+    .profit-lock-card .lock-back {
+      margin-top: 12px;
+      background: #fff;
+      color: #555;
+      border: 1px solid #ddd;
     }
     html.profit-manager #tabAgents,
     html.profit-manager #tabExpenses,
@@ -471,6 +518,25 @@
 </head>
 <body>
 
+<div id="profitLock">
+  <div class="profit-lock-card">
+    <h2 id="profitLockTitle">Пароль на отчёт</h2>
+    <p id="profitLockText">Прибыль откроется только после пароля. Как только выйдете с этой страницы, отчёт снова закроется.</p>
+    <div id="profitLockEnter">
+      <input type="password" id="profitLockPassword" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Пароль" enterkeyhint="go">
+      <div class="lock-error" id="profitLockError"></div>
+      <button type="button" id="profitLockOpen" onclick="submitProfitPassword()">Открыть</button>
+    </div>
+    <div id="profitLockCreate" style="display:none;">
+      <input type="password" id="profitLockNew" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Новый пароль">
+      <input type="password" id="profitLockNew2" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Повторите пароль">
+      <div class="lock-error" id="profitLockCreateError"></div>
+      <button type="button" onclick="saveProfitPassword()">Сохранить и открыть</button>
+    </div>
+    <button type="button" class="lock-back" onclick="window.location.href='profile.html'">Назад в профиль</button>
+  </div>
+</div>
+
 <div id="profitAccessDenied">
   <div style="font-size:48px; margin-bottom:12px;">🔒</div>
   <div style="font-size:20px; font-weight:700; color:#333; margin-bottom:8px;">Доступ запрещён</div>
@@ -501,6 +567,7 @@
         </div>
       </div>
     </div>
+    <button class="back-btn" id="profitChangePassBtn" onclick="changeProfitPassword()" title="Сменить пароль" style="display:none; font-size:13px; width:auto; padding:0 10px;">Пароль</button>
     <button class="back-btn" onclick="window.location.href='profile.html'">←</button>
   </div>
   
@@ -1199,6 +1266,7 @@ function _invalidateProfitPageCache() {
 // «🔄 Обновить» обязан перечитать заказы из базы. Без сброса кэша отчёт
 // до 30 минут показывал старые суммы после удаления или отмены заказа.
 async function refreshProfitReport(which) {
+  if (!window.__profitUnlocked) return;
   _invalidateProfitPageCache();
   if (which === 'products') {
     await loadProfitReport();
@@ -1211,36 +1279,256 @@ async function refreshProfitReport(which) {
   }
 }
 
-// При загрузке страницы
-document.addEventListener('DOMContentLoaded', async function() {
-  console.log('📈 Загрузка страницы отчёта по прибыли...');
-  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') {
-    document.documentElement.classList.add('profit-denied');
-    document.documentElement.classList.remove('profit-admin', 'profit-manager');
+// Пароль живёт только в памяти этой страницы. В localStorage его нет,
+// поэтому возврат из профиля снова показывает замок.
+var _profitGate = null;
+var _profitLockFails = 0;
+
+function _bytesToB64(bytes) {
+  var s = '';
+  for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function _b64ToBytes(b64) {
+  var s = atob(b64);
+  var out = new Uint8Array(s.length);
+  for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+function _sameText(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+async function _hashProfitPassword(password, saltBytes) {
+  var salt = saltBytes || crypto.getRandomValues(new Uint8Array(16));
+  var key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  var bits = await crypto.subtle.deriveBits({
+    name: 'PBKDF2', hash: 'SHA-256', salt: salt, iterations: 120000
+  }, key, 256);
+  return { salt: _bytesToB64(salt), hash: _bytesToB64(new Uint8Array(bits)), iter: 120000 };
+}
+function _waitAuthUser(wantAdmin, timeoutMs) {
+  return new Promise(function (resolve) {
+    var done = false;
+    var unsub = function () {};
+    var timer = setTimeout(function () {
+      if (done) return;
+      done = true;
+      try { unsub(); } catch (e) {}
+      resolve(firebase.auth().currentUser || null);
+    }, timeoutMs);
+    unsub = firebase.auth().onAuthStateChanged(function (user) {
+      if (done || !user) return;
+      if (wantAdmin && user.email !== 'admin@kerben.local') return;
+      done = true;
+      clearTimeout(timer);
+      try { unsub(); } catch (e) {}
+      resolve(user);
+    });
+  });
+}
+function wipeProfitNumbers() {
+  document.querySelectorAll('.stat-card .value').forEach(function (el) { el.textContent = '—'; });
+  ['profitReportBody', 'orderProfitReportBody', 'expensesReportBody'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+  var agents = document.getElementById('agentsProfitReportContent');
+  if (agents) agents.innerHTML = '';
+}
+function lockProfitPage() {
+  window.__profitUnlocked = false;
+  document.documentElement.classList.add('profit-locked');
+  wipeProfitNumbers();
+  var pass = document.getElementById('profitLockPassword');
+  if (pass) pass.value = '';
+}
+function _showProfitLockMode(mode, message) {
+  var enter = document.getElementById('profitLockEnter');
+  var create = document.getElementById('profitLockCreate');
+  var title = document.getElementById('profitLockTitle');
+  var text = document.getElementById('profitLockText');
+  if (enter) enter.style.display = mode === 'enter' ? 'block' : 'none';
+  if (create) create.style.display = mode === 'create' ? 'block' : 'none';
+  if (mode === 'create') {
+    if (title) title.textContent = 'Задайте пароль';
+    if (text) text.textContent = 'Этот пароль только для прибыли. Он не совпадает с паролем профиля. После выхода со страницы отчёт снова закроется.';
+  } else if (mode === 'wait') {
+    if (title) title.textContent = 'Пароль ещё не задан';
+    if (text) text.textContent = message || 'Пароль на отчёт задаёт администратор.';
+  } else {
+    if (title) title.textContent = 'Пароль на отчёт';
+    if (text) text.textContent = 'Прибыль откроется только после пароля. Как только выйдете с этой страницы, отчёт снова закроется.';
+  }
+}
+async function initProfitPasswordGate() {
+  lockProfitPage();
+  var err = document.getElementById('profitLockError');
+  if (err) err.textContent = 'Проверка пароля...';
+  try {
+    await _waitAuthUser(false, 4000);
+    var snap = await db.collection('profitGate').doc('main').get();
+    _profitGate = snap.exists ? (snap.data() || null) : null;
+  } catch (e) {
+    console.error('[profit-lock]', e);
+    if (err) err.textContent = 'Не удалось проверить пароль. Проверьте интернет и откройте страницу ещё раз.';
     return;
   }
-  applyManagerUiLimits();
-  
-  // Показываем индикатор загрузки
-  document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#999;">⏳ Загрузка данных...</td></tr>';
-  
+  if (err) err.textContent = '';
+  if (_profitGate && _profitGate.hash && _profitGate.salt) {
+    _showProfitLockMode('enter');
+    var pass = document.getElementById('profitLockPassword');
+    if (pass) pass.focus();
+    return;
+  }
+  if (userRole === 'admin') _showProfitLockMode('create');
+  else _showProfitLockMode('wait');
+}
+async function _storeProfitGate(password) {
+  await _waitAuthUser(true, 8000);
+  var user = firebase.auth().currentUser;
+  if (!user || user.email !== 'admin@kerben.local') {
+    throw new Error('Войдите в профиль администратора и откройте отчёт ещё раз.');
+  }
+  var packed = await _hashProfitPassword(password);
+  await db.collection('profitGate').doc('main').set({
+    salt: packed.salt,
+    hash: packed.hash,
+    iter: packed.iter,
+    updatedAt: Date.now()
+  });
+  _profitGate = packed;
+}
+async function submitProfitPassword() {
+  var input = document.getElementById('profitLockPassword');
+  var err = document.getElementById('profitLockError');
+  var password = input ? input.value : '';
+  if (!_profitGate || !_profitGate.hash) {
+    if (err) err.textContent = 'Пароль ещё не задан.';
+    return;
+  }
+  if (!password) {
+    if (err) err.textContent = 'Введите пароль.';
+    return;
+  }
+  if (_profitLockFails >= 5) {
+    if (err) err.textContent = 'Слишком много попыток. Подождите немного.';
+    return;
+  }
+  var btn = document.getElementById('profitLockOpen');
+  if (btn) btn.disabled = true;
   try {
-    // Загружаем товары — нужны для категорий и закупочных цен
+    var packed = await _hashProfitPassword(password, _b64ToBytes(_profitGate.salt));
+    if (!_sameText(packed.hash, _profitGate.hash)) {
+      _profitLockFails++;
+      if (err) err.textContent = 'Неверный пароль.';
+      if (input) { input.value = ''; input.focus(); }
+      return;
+    }
+    _profitLockFails = 0;
+    if (err) err.textContent = '';
+    if (input) input.value = '';
+    await openProfitReport();
+  } catch (e) {
+    if (err) err.textContent = 'Не удалось проверить пароль.';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+async function saveProfitPassword() {
+  var a = (document.getElementById('profitLockNew') || {}).value || '';
+  var b = (document.getElementById('profitLockNew2') || {}).value || '';
+  var err = document.getElementById('profitLockCreateError');
+  if (a.length < 4) {
+    if (err) err.textContent = 'Пароль должен быть не короче 4 символов.';
+    return;
+  }
+  if (a !== b) {
+    if (err) err.textContent = 'Пароли не совпадают.';
+    return;
+  }
+  if (err) err.textContent = 'Сохранение...';
+  try {
+    await _storeProfitGate(a);
+    document.getElementById('profitLockNew').value = '';
+    document.getElementById('profitLockNew2').value = '';
+    if (err) err.textContent = '';
+    await openProfitReport();
+  } catch (e) {
+    if (err) err.textContent = (e && e.message) ? e.message : 'Не удалось сохранить пароль.';
+  }
+}
+async function changeProfitPassword() {
+  if (userRole !== 'admin' || !window.__profitUnlocked) return;
+  const ask = await Swal.fire({
+    title: 'Сменить пароль отчёта',
+    html: '<input id="profitOldPass" type="password" class="swal2-input" placeholder="Старый пароль" autocomplete="off">' +
+          '<input id="profitNewPass" type="password" class="swal2-input" placeholder="Новый пароль" autocomplete="off">',
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Сохранить',
+    cancelButtonText: 'Отмена',
+    preConfirm: function () {
+      return {
+        oldPass: (document.getElementById('profitOldPass') || {}).value || '',
+        newPass: (document.getElementById('profitNewPass') || {}).value || ''
+      };
+    }
+  });
+  if (!ask.isConfirmed || !ask.value) return;
+  if (!_profitGate || !_profitGate.salt) return;
+  if (ask.value.newPass.length < 4) {
+    Swal.fire('Короткий пароль', 'Нужно хотя бы 4 символа.', 'warning');
+    return;
+  }
+  var oldPacked = await _hashProfitPassword(ask.value.oldPass, _b64ToBytes(_profitGate.salt));
+  if (!_sameText(oldPacked.hash, _profitGate.hash)) {
+    Swal.fire('Неверный пароль', 'Старый пароль не подошёл.', 'error');
+    return;
+  }
+  try {
+    await _storeProfitGate(ask.value.newPass);
+    Swal.fire({ icon: 'success', title: 'Пароль изменён', timer: 1400, showConfirmButton: false });
+  } catch (e) {
+    Swal.fire('Не сохранилось', (e && e.message) || 'Попробуйте ещё раз.', 'error');
+  }
+}
+async function openProfitReport() {
+  window.__profitUnlocked = true;
+  document.documentElement.classList.remove('profit-locked');
+  var changeBtn = document.getElementById('profitChangePassBtn');
+  if (changeBtn) changeBtn.style.display = userRole === 'admin' ? 'flex' : 'none';
+  document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#999;">⏳ Загрузка данных...</td></tr>';
+  try {
     await loadProducts();
     allProducts = Array.isArray(products) ? products.slice() : [];
     products = applyManagerProductFilter(allProducts);
-    
-    // Загружаем категории
     loadCategories();
-    
-    // Загружаем данные для текущей вкладки
     await loadProfitReport();
-    
-    console.log('✅ Страница загружена успешно');
   } catch (error) {
     console.error('❌ Ошибка загрузки:', error);
     document.getElementById('profitReportBody').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#dc3545;">❌ Ошибка загрузки: ' + error.message + '</td></tr>';
   }
+}
+
+window.addEventListener('pagehide', lockProfitPage);
+window.addEventListener('pageshow', function (event) {
+  if (event.persisted) lockProfitPage();
+});
+
+// При загрузке страницы отчёт не читается, пока не введён пароль.
+document.addEventListener('DOMContentLoaded', function() {
+  var pass = document.getElementById('profitLockPassword');
+  if (pass) pass.addEventListener('keydown', function (e) { if (e.key === 'Enter') submitProfitPassword(); });
+  if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') {
+    document.documentElement.classList.add('profit-denied');
+    document.documentElement.classList.remove('profit-admin', 'profit-manager', 'profit-locked');
+    return;
+  }
+  applyManagerUiLimits();
+  initProfitPasswordGate();
 });
 
 // ОПТИМИЗАЦИЯ COSTS: используем общий кэш товаров (из product-loader.js, 1 час).
@@ -1402,6 +1690,7 @@ function aggregateProductSales(orders, startDate, endDate) {
 }
 
 async function loadProfitReport() {
+  if (!window.__profitUnlocked) return;
   if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
 
   const dateFilter = document.getElementById('productsDateFilter').value;
@@ -1809,6 +2098,7 @@ function _orderMatchesClientSearch(order, rawQuery) {
 }
 
 async function loadOrderProfitReport() {
+  if (!window.__profitUnlocked) return;
   if (userRole !== 'admin' && userRole !== 'korean' && userRole !== 'appliances') return;
   const dateFilter = document.getElementById('orderDateFilter').value;
   const sortBy = document.getElementById('orderSortFilter').value;
@@ -1937,6 +2227,7 @@ async function loadOrderProfitReport() {
 
 // ============ ОТЧЁТ ПО АГЕНТАМ ============
 async function loadAgentsProfitReport() {
+  if (!window.__profitUnlocked) return;
   if (isCategoryManager()) return;
   const dateFilter = document.getElementById('agentsDateFilter').value;
   const sortBy = document.getElementById('agentsSortFilter').value;
@@ -2134,6 +2425,7 @@ function updateCustomDaysCount() {
 }
 
 async function loadExpensesReport() {
+  if (!window.__profitUnlocked) return;
   if (isCategoryManager()) return;
   const dateFilter = document.getElementById('expenseDateFilter').value;
   

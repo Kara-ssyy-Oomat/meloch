@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.54.0-stock-delta-writes'; // Остатки пишутся разницей, а не числом из устаревшего кэша
+const CACHE_VERSION = 'kerben-v4.55.0-profit-lock'; // Отчёт по прибыли закрыт паролем до ввода
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

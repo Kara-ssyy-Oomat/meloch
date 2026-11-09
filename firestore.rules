@@ -977,6 +977,27 @@ service cloud.firestore {
     }
 
     // =========================================================
+    //     ПАРОЛЬ НА ОТЧЁТ ПО ПРИБЫЛИ
+    // =========================================================
+    // Хранится только соль и хеш. Сам пароль в базу не пишется.
+    // Читать хеш может залогиненный (страница сравнивает ввод).
+    // Задать или сменить пароль может только админ Firebase.
+    match /profitGate/{id} {
+      allow read: if isAuthed();
+      allow create, update: if isAdminUser()
+        && reasonableDocSize()
+        && request.resource.data.keys().hasOnly(['salt', 'hash', 'iter', 'updatedAt'])
+        && strOk('salt', 200)
+        && strOk('hash', 200)
+        && request.resource.data.salt is string
+        && request.resource.data.hash is string
+        && request.resource.data.iter is number
+        && request.resource.data.iter >= 10000
+        && request.resource.data.iter <= 500000;
+      allow delete: if false;
+    }
+
+    // =========================================================
     //     ПРИХОДНЫЕ ЦЕНЫ И ПЕРЕРАСЧЁТ ПРИБЫЛИ (admin-cost-prices)
     // =========================================================
     // История изменения приходных цен — только запись новых документов:
