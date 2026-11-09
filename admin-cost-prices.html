@@ -317,6 +317,9 @@
       .prow .newwrap { grid-area: n; }
       .prow .diff { grid-area: d; font-size: 12px; }
       .prow .retail::before { content: 'Продажа: '; }
+      .sale-list .prow .cur { display: block; grid-area: r; text-align: left; font-size: 12px; }
+      .sale-list .prow .cur::before { content: 'Сейчас: '; }
+      .sale-list .prow .retail { display: none; }
       .stat .value { font-size: 17px; }
     }
   </style>
@@ -334,13 +337,14 @@
   <div class="header">
     <div>
       <h2>🏷️ Массовое изменение цен</h2>
-      <p>Приходные цены и перерасчёт прибыли</p>
+      <p>Приходные цены, цены продажи и перерасчёт прибыли</p>
     </div>
     <button class="back-btn" onclick="window.location.href='profile.html'">←</button>
   </div>
 
   <div class="tabs">
     <button id="tabBtn-prices" class="active" onclick="switchTab('prices')">💵 Приходные цены</button>
+    <button id="tabBtn-sale" onclick="switchTab('sale')">🏷️ Цены продажи</button>
     <button id="tabBtn-recalc" onclick="switchTab('recalc')">🔁 Перерасчёт прибыли</button>
     <button id="tabBtn-history" onclick="switchTab('history')">📜 История</button>
   </div>
@@ -440,6 +444,94 @@
       </div>
     </div>
 
+    <!-- ================= ЦЕНЫ ПРОДАЖИ ================= -->
+    <div class="tab-panel" id="panel-sale">
+      <div class="info-box">
+        Меняется <b>только текущая цена продажи</b> на сайте. Приходная цена, партии закупки и уже оформленные заказы не меняются.
+        Новая цена видна покупателям сразу, на весь остаток, который сейчас на сайте.
+        Если у товара есть приход, который ждёт конца старой цены, после продажи этого остатка на сайт выйдет цена того прихода.
+      </div>
+      <div class="card">
+        <div class="card-title">1. Выберите товары</div>
+        <div class="row">
+          <div class="field">
+            <label>Категория</label>
+            <select id="sCategory" onchange="renderSaleProducts()">
+              <option value="">Все товары</option>
+            </select>
+          </div>
+          <div class="field" style="flex:2;">
+            <label>Поиск</label>
+            <input type="text" id="sSearch" placeholder="🔍 Название товара" autocomplete="off" oninput="onSaleSearchInput()">
+          </div>
+          <div class="field">
+            <label>Сортировка</label>
+            <select id="sSort" onchange="renderSaleProducts()">
+              <option value="site">Как на сайте</option>
+              <option value="name">По названию</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Показать</label>
+            <select id="sShow" onchange="renderSaleProducts()">
+              <option value="all">Все по фильтру</option>
+              <option value="selected">Только выбранные</option>
+              <option value="changed">Только с новой ценой</option>
+            </select>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="btn btn-gray" onclick="selectVisibleSale(true)">☑️ Выбрать все показанные</button>
+          <button class="btn btn-gray" onclick="selectVisibleSale(false)">⬜ Снять с показанных</button>
+          <button class="btn btn-gray" onclick="clearSaleSelection()">✖ Снять весь выбор</button>
+          <span class="count" id="sSelCount">Выбрано: 0</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">2. Массовое изменение выбранных</div>
+        <div class="row">
+          <div class="field" style="flex:2;">
+            <label>Действие</label>
+            <select id="sBulkOp" onchange="onSaleBulkOpChange()">
+              <option value="inc_amount">➕ Увеличить на сумму (сом)</option>
+              <option value="dec_amount">➖ Уменьшить на сумму (сом)</option>
+              <option value="inc_percent">📈 Увеличить на процент</option>
+              <option value="dec_percent">📉 Уменьшить на процент</option>
+              <option value="set">✏️ Установить одну цену всем</option>
+            </select>
+          </div>
+          <div class="field">
+            <label id="sBulkValueLabel">Сумма, сом</label>
+            <input type="number" id="sBulkValue" min="0" step="0.01" inputmode="decimal" placeholder="0">
+          </div>
+          <div class="field">
+            <label>Округление</label>
+            <select id="sBulkRound">
+              <option value="0.01">До 2 знаков</option>
+              <option value="1">До целых сом</option>
+            </select>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="btn btn-primary" id="sBulkApplyBtn" onclick="applySaleBulk()">Применить к выбранным</button>
+          <button class="btn btn-gray" onclick="resetSaleDrafts()">↺ Сбросить новые цены</button>
+        </div>
+        <div style="font-size:12px; color:#888; margin-top:8px;">
+          Новую цену можно ввести вручную в колонке «Новая продажа». Она сохранится только после «Проверить и сохранить».
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Товары</div>
+        <div class="plist sale-list" id="saleProductList">
+          <div class="empty">Загрузка товаров...</div>
+        </div>
+      </div>
+      <div class="savebar">
+        <div class="summary" id="sSaveSummary">Нет изменений</div>
+        <button class="btn btn-green" id="sPreviewBtn" onclick="previewAndSaveSale()" disabled>👁️ Проверить и сохранить</button>
+      </div>
+    </div>
+
     <!-- ================= ПЕРЕРАСЧЁТ ПРИБЫЛИ ================= -->
     <div class="tab-panel" id="panel-recalc">
       <div class="info-box warn-box">
@@ -498,6 +590,10 @@
         <div id="priceHistoryList"><div class="empty">Загрузка...</div></div>
       </div>
       <div class="card">
+        <div class="card-title">🏷️ Изменения цен продажи</div>
+        <div id="saleHistoryList"><div class="empty">Загрузка...</div></div>
+      </div>
+      <div class="card">
         <div class="card-title">🔁 Перерасчёты прибыли</div>
         <div id="recalcHistoryList"><div class="empty">Загрузка...</div></div>
       </div>
@@ -533,11 +629,15 @@ var products = [];
 var productsById = new Map();
 var selected = new Set();
 var drafts = new Map(); // id -> новая приходная цена (ещё не сохранена)
+var saleSelected = new Set();
+var saleDrafts = new Map(); // id -> новая цена продажи (ещё не сохранена)
+var saleHistory = [];
 var costHistory = [];   // последние изменения приходных цен
 var recalcHistory = []; // последние перерасчёты
 var recalcBusy = false;
 var saveBusy = false;
 var searchTimer = null;
+var saleSearchTimer = null;
 
 // ============ УТИЛИТЫ ============
 function escapeHtml(text) {
@@ -649,6 +749,7 @@ async function loadProducts() {
     productsById = new Map(products.map(function (p) { return [p.id, p]; }));
     fillCategories();
     renderProducts();
+    renderSaleProducts();
   } catch (err) {
     document.getElementById('productList').innerHTML =
       '<div class="empty" style="color:#c62828;">Ошибка загрузки товаров: ' + escapeHtml(err.message) + '</div>';
@@ -664,18 +765,26 @@ function fillCategories() {
     counts[c] = (counts[c] || 0) + 1;
   });
   var cats = Object.keys(counts).sort(function (a, b) { return a.localeCompare(b, 'ru'); });
-  select.innerHTML = '<option value="">Все товары (' + products.length + ')</option>' + cats.map(function (c) {
+  var options = '<option value="">Все товары (' + products.length + ')</option>' + cats.map(function (c) {
     return '<option value="' + escapeHtml(c) + '">' + escapeHtml(c === 'все' ? 'Без категории («все»)' : c) + ' (' + counts[c] + ')</option>';
   }).join('');
+  select.innerHTML = options;
   select.value = counts[prev] ? prev : '';
+  var saleSelect = document.getElementById('sCategory');
+  if (saleSelect) {
+    var salePrev = saleSelect.value;
+    saleSelect.innerHTML = options;
+    saleSelect.value = counts[salePrev] ? salePrev : '';
+  }
 }
 
 // ============ ВКЛАДКИ ============
 function switchTab(tab) {
-  ['prices', 'recalc', 'history'].forEach(function (t) {
+  ['prices', 'sale', 'recalc', 'history'].forEach(function (t) {
     document.getElementById('tabBtn-' + t).classList.toggle('active', t === tab);
     document.getElementById('panel-' + t).classList.toggle('active', t === tab);
   });
+  if (tab === 'sale' && products.length) renderSaleProducts();
   if (tab === 'history') loadHistory(false);
   window.scrollTo(0, 0);
 }
@@ -1179,17 +1288,349 @@ function syncSharedProductsCache(items, now) {
   } catch (e) {}
 }
 
-async function bumpProductsRevision(items) {
+async function bumpProductsRevision(items, by) {
   try {
     await db.collection('settings').doc('productsRevision').set({
       updatedAt: Date.now(),
-      by: 'массовое изменение приходных цен',
+      by: by || 'массовое изменение приходных цен',
       source: 'admin-cost-prices',
       changedCount: items.length,
       changedIds: items.length <= 20 ? items.map(function (i) { return i.id; }) : []
     }, { merge: true });
   } catch (e) {
     console.warn('[cost-prices] не удалось обновить productsRevision:', e);
+  }
+}
+
+// ============ ЦЕНЫ ПРОДАЖИ ============
+function onSaleSearchInput() {
+  clearTimeout(saleSearchTimer);
+  saleSearchTimer = setTimeout(renderSaleProducts, 200);
+}
+
+function getVisibleSaleProducts() {
+  var catEl = document.getElementById('sCategory');
+  var showEl = document.getElementById('sShow');
+  var searchEl = document.getElementById('sSearch');
+  var sortEl = document.getElementById('sSort');
+  if (!catEl || !showEl || !searchEl || !sortEl) return [];
+  var cat = catEl.value;
+  var show = showEl.value;
+  var words = searchEl.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  var mode = sortEl.value;
+  return products.filter(function (p) {
+    if (cat && (p.category || 'все').toLowerCase() !== cat) return false;
+    if (show === 'selected' && !saleSelected.has(p.id)) return false;
+    if (show === 'changed' && !saleDrafts.has(p.id)) return false;
+    if (words.length) {
+      var t = productTitle(p).toLowerCase();
+      for (var i = 0; i < words.length; i++) if (t.indexOf(words[i]) === -1) return false;
+    }
+    return true;
+  }).sort(function (a, b) {
+    if (mode === 'name') return productTitle(a).localeCompare(productTitle(b), 'ru') || siteOrderCompare(a, b);
+    return siteOrderCompare(a, b);
+  });
+}
+
+function saleDiffHtml(p) {
+  if (!saleDrafts.has(p.id)) return '<span class="c-gray">—</span>';
+  var d = round2(saleDrafts.get(p.id) - num(p.price));
+  return '<span class="' + colorClass(d) + '">' + (d > 0 ? '+' : '') + money(d) + '</span>';
+}
+
+function saleRowHtml(p) {
+  var cur = num(p.price);
+  var isSel = saleSelected.has(p.id);
+  var hasDraft = saleDrafts.has(p.id);
+  var draft = hasDraft ? saleDrafts.get(p.id) : '';
+  var cls = 'prow' + (hasDraft && isSel ? ' changed' : '') + (hasDraft && !isSel ? ' unselected-draft' : '');
+  var waiting = (typeof CostLayers !== 'undefined' && CostLayers.cleanHolds) ? CostLayers.cleanHolds(p.saleHolds).length : 0;
+  return '<div class="' + cls + '" id="srow-' + p.id + '">' +
+    '<div class="cb"><input type="checkbox" ' + (isSel ? 'checked' : '') + ' onchange="toggleSaleSelect(\'' + p.id + '\', this.checked)"></div>' +
+    photoHtml(p) +
+    '<div class="title"><b title="' + escapeHtml(productTitle(p)) + '">' + escapeHtml(productTitle(p)) + '</b>' +
+      '<small>' + escapeHtml(p.category || 'все') + ' • приход: ' + money(p.costPrice) +
+      (waiting ? ' • ждёт другая цена' : '') + '</small></div>' +
+    '<div class="num retail">' + money(p.costPrice) + '</div>' +
+    '<div class="num cur">' + money(cur) + '</div>' +
+    '<div class="newwrap"><input class="newcost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="' + round2(cur) + '" value="' + (hasDraft ? draft : '') + '" oninput="onSaleDraftInput(\'' + p.id + '\', this.value)"></div>' +
+    '<div class="num diff" id="sdiff-' + p.id + '">' + saleDiffHtml(p) + '</div>' +
+  '</div>';
+}
+
+function renderSaleProducts() {
+  var list = document.getElementById('saleProductList');
+  if (!list) return;
+  var visible = getVisibleSaleProducts();
+  if (!products.length) {
+    list.innerHTML = '<div class="empty">Товаров нет</div>';
+    updateSaleCounters();
+    return;
+  }
+  if (!visible.length) {
+    list.innerHTML = '<div class="empty">Нет товаров по фильтру</div>';
+    updateSaleCounters();
+    return;
+  }
+  list.innerHTML = '<div class="prow head"><div></div><div></div><div>Товар</div><div class="num">Приход</div>' +
+    '<div class="num">Продажа сейчас</div><div class="num">Новая продажа</div><div class="num">Разница</div></div>' +
+    visible.map(saleRowHtml).join('');
+  updateSaleCounters();
+}
+
+function refreshSaleRow(id) {
+  var p = productsById.get(id);
+  var row = document.getElementById('srow-' + id);
+  if (!p || !row) return;
+  var isSel = saleSelected.has(id);
+  var hasDraft = saleDrafts.has(id);
+  row.classList.toggle('changed', hasDraft && isSel);
+  row.classList.toggle('unselected-draft', hasDraft && !isSel);
+  row.querySelector('input[type="checkbox"]').checked = isSel;
+  document.getElementById('sdiff-' + id).innerHTML = saleDiffHtml(p);
+}
+
+function toggleSaleSelect(id, on) {
+  if (on) saleSelected.add(id); else saleSelected.delete(id);
+  refreshSaleRow(id);
+  updateSaleCounters();
+}
+
+function selectVisibleSale(on) {
+  getVisibleSaleProducts().forEach(function (p) {
+    if (on) saleSelected.add(p.id); else saleSelected.delete(p.id);
+  });
+  renderSaleProducts();
+}
+
+function clearSaleSelection() {
+  saleSelected.clear();
+  renderSaleProducts();
+}
+
+function onSaleDraftInput(id, raw) {
+  var p = productsById.get(id);
+  if (!p) return;
+  var v = String(raw).trim();
+  if (v === '') saleDrafts.delete(id);
+  else {
+    var n = parseFloat(v.replace(',', '.'));
+    if (!isFinite(n) || n < 0) return;
+    if (round2(n) === round2(p.price)) saleDrafts.delete(id);
+    else saleDrafts.set(id, round2(n));
+    saleSelected.add(id);
+  }
+  refreshSaleRow(id);
+  updateSaleCounters();
+}
+
+function getPendingSaleChanges() {
+  var out = [];
+  saleDrafts.forEach(function (newPrice, id) {
+    if (!saleSelected.has(id)) return;
+    var p = productsById.get(id);
+    if (!p) return;
+    if (round2(newPrice) === round2(p.price)) return;
+    out.push({ p: p, oldPrice: round2(p.price), newPrice: round2(newPrice) });
+  });
+  return out;
+}
+
+function updateSaleCounters() {
+  var count = document.getElementById('sSelCount');
+  var applyBtn = document.getElementById('sBulkApplyBtn');
+  var sum = document.getElementById('sSaveSummary');
+  var preview = document.getElementById('sPreviewBtn');
+  if (!count || !applyBtn || !sum || !preview) return;
+  count.textContent = 'Выбрано: ' + saleSelected.size;
+  applyBtn.textContent = 'Применить к выбранным (' + saleSelected.size + ')';
+  var changes = getPendingSaleChanges();
+  if (!changes.length) sum.innerHTML = 'Нет изменений';
+  else {
+    var up = changes.filter(function (c) { return c.newPrice > c.oldPrice; }).length;
+    sum.innerHTML = 'Новая цена продажи у <b>' + changes.length + '</b> товар(ов): ↑ ' + up + ', ↓ ' + (changes.length - up);
+  }
+  preview.disabled = !changes.length || saveBusy;
+}
+
+function onSaleBulkOpChange() {
+  var op = document.getElementById('sBulkOp').value;
+  document.getElementById('sBulkValueLabel').textContent =
+    (op === 'inc_percent' || op === 'dec_percent') ? 'Процент, %' : (op === 'set' ? 'Новая цена, сом' : 'Сумма, сом');
+}
+
+function applySaleBulk() {
+  var op = document.getElementById('sBulkOp').value;
+  var value = parseFloat(String(document.getElementById('sBulkValue').value).replace(',', '.'));
+  var step = parseFloat(document.getElementById('sBulkRound').value) || 0.01;
+  if (!saleSelected.size) {
+    Swal.fire('Не выбраны товары', 'Отметьте товары в списке или нажмите «Выбрать все показанные».', 'info');
+    return;
+  }
+  if (!isFinite(value) || value < 0) {
+    Swal.fire('Укажите значение', 'Введите сумму или процент (0 или больше).', 'warning');
+    return;
+  }
+  if (op === 'dec_percent' && value > 100) {
+    Swal.fire('Слишком большой процент', 'Уменьшить больше чем на 100% нельзя.', 'warning');
+    return;
+  }
+  var applied = 0, skippedZero = 0, clamped = 0;
+  saleSelected.forEach(function (id) {
+    var p = productsById.get(id);
+    if (!p) return;
+    var cur = num(p.price);
+    if (cur <= 0 && op !== 'set' && op !== 'inc_amount') { skippedZero++; return; }
+    var v = calcBulkValue(cur, op, value, step);
+    if (v < 0) { v = 0; clamped++; }
+    if (round2(v) === round2(cur)) saleDrafts.delete(id);
+    else saleDrafts.set(id, round2(v));
+    applied++;
+  });
+  renderSaleProducts();
+  var notes = [];
+  if (skippedZero) notes.push('⚠️ ' + skippedZero + ' товар(ов) без цены продажи пропущено — задайте им цену вручную.');
+  if (clamped) notes.push('⚠️ У ' + clamped + ' товар(ов) цена ушла бы в минус — поставлено 0.');
+  Swal.fire({
+    icon: notes.length ? 'warning' : 'success',
+    title: 'Новые цены подставлены',
+    html: 'Рассчитано для <b>' + applied + '</b> товар(ов). Это ещё не сохранено.' +
+      (notes.length ? '<br><br>' + notes.join('<br>') : ''),
+    timer: notes.length ? undefined : 2200
+  });
+}
+
+function resetSaleDrafts() {
+  saleDrafts.clear();
+  renderSaleProducts();
+}
+
+async function previewAndSaveSale() {
+  if (saveBusy) return;
+  var changes = getPendingSaleChanges();
+  if (!changes.length) return;
+  var belowCost = changes.filter(function (c) { return num(c.p.costPrice) > 0 && c.newPrice <= num(c.p.costPrice); });
+  var waiting = changes.filter(function (c) {
+    return typeof CostLayers !== 'undefined' && CostLayers.cleanHolds && CostLayers.cleanHolds(c.p.saleHolds).length;
+  });
+  var rows = changes.map(function (c) {
+    var d = round2(c.newPrice - c.oldPrice);
+    var warn = num(c.p.costPrice) > 0 && c.newPrice <= num(c.p.costPrice);
+    return '<tr' + (warn ? ' style="background:#ffebee;"' : '') + '>' +
+      '<td class="name">' + escapeHtml(productTitle(c.p)) + (warn ? ' ⚠️' : '') + '</td>' +
+      '<td>' + money(c.p.costPrice) + '</td>' +
+      '<td>' + money(c.oldPrice) + '</td>' +
+      '<td><b>' + money(c.newPrice) + '</b></td>' +
+      '<td class="' + colorClass(d) + '">' + (d > 0 ? '+' : '') + money(d) + '</td></tr>';
+  }).join('');
+  var html = '<div style="text-align:left; font-size:14px; margin-bottom:10px;">Цена продажи изменится у <b>' + changes.length +
+    '</b> товар(ов) и сразу будет видна на сайте. Приходная цена и старые заказы не меняются.</div>' +
+    (belowCost.length ? '<div style="text-align:left; color:#c62828; font-size:13px; margin-bottom:10px;">⚠️ У ' + belowCost.length +
+      ' товар(ов) новая продажа не выше закупки.</div>' : '') +
+    (waiting.length ? '<div style="text-align:left; color:#e65100; font-size:13px; margin-bottom:10px;">У ' + waiting.length +
+      ' товар(ов) есть приход с другой ценой. Он выйдет на сайт, когда текущий остаток закончится.</div>' : '') +
+    '<div class="table-wrap" style="max-height:45vh; overflow-y:auto;"><table class="rep"><thead><tr>' +
+    '<th>Товар</th><th>Приход</th><th>Было</th><th>Станет</th><th>Разница</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  var res = await Swal.fire({
+    title: 'Проверьте новые цены продажи',
+    html: html,
+    width: 820,
+    input: 'text',
+    inputPlaceholder: 'Комментарий (необязательно)',
+    showCancelButton: true,
+    confirmButtonText: '✅ Подтвердить и сохранить',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#2e7d32'
+  });
+  if (!res.isConfirmed) return;
+  await saveSaleChanges(changes, (res.value || '').trim());
+}
+
+async function saveSaleChanges(changes, comment) {
+  if (!(await requireAdminSession())) return;
+  saveBusy = true;
+  var btn = document.getElementById('sPreviewBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Сохранение...';
+  try {
+    var ids = changes.map(function (c) { return c.p.id; });
+    var fresh = await fetchFreshCosts(ids);
+    var now = Date.now();
+    var items = [];
+    changes.forEach(function (c) {
+      var data = fresh.get(c.p.id);
+      if (!data) return;
+      var oldPrice = round2(data.price);
+      if (oldPrice === c.newPrice) return;
+      items.push({
+        id: c.p.id,
+        title: productTitle(data),
+        category: data.category || 'все',
+        costPrice: round2(data.costPrice),
+        oldPrice: oldPrice,
+        newPrice: c.newPrice
+      });
+    });
+    if (!items.length) {
+      Swal.fire('Нечего сохранять', 'Цены продажи в базе уже совпадают с новыми.', 'info');
+      return;
+    }
+    var op = document.getElementById('sBulkOp').value;
+    var value = parseFloat(String(document.getElementById('sBulkValue').value).replace(',', '.'));
+    var histRef = db.collection('salePriceHistory').doc();
+    await histRef.set({
+      createdAt: now,
+      createdAtServer: firebase.firestore.FieldValue.serverTimestamp(),
+      operation: op,
+      value: isFinite(value) ? value : null,
+      comment: comment || '',
+      count: items.length,
+      items: items
+    });
+    for (var i = 0; i < items.length; i += BATCH_LIMIT) {
+      var batch = db.batch();
+      items.slice(i, i + BATCH_LIMIT).forEach(function (it) {
+        batch.update(db.collection('products').doc(it.id), {
+          price: it.newPrice,
+          priceUpdatedAt: now
+        });
+      });
+      await batch.commit();
+    }
+    items.forEach(function (it) {
+      var p = productsById.get(it.id);
+      if (p) p.price = it.newPrice;
+      saleDrafts.delete(it.id);
+    });
+    try {
+      var map = {};
+      items.forEach(function (it) { map[it.id] = it.newPrice; });
+      var cached = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
+      if (Array.isArray(cached) && cached.length) {
+        cached.forEach(function (c) { if (map.hasOwnProperty(c.id)) c.price = map[c.id]; });
+        localStorage.setItem('cachedProducts', JSON.stringify(cached));
+      }
+    } catch (e) {}
+    await bumpProductsRevision(items, 'массовое изменение цен продажи');
+    renderProducts();
+    renderSaleProducts();
+    await loadHistory(true);
+    Swal.fire({
+      icon: 'success',
+      title: 'Цены продажи сохранены',
+      html: 'Обновлено <b>' + items.length + '</b> товар(ов). На сайте уже новая цена. Старые заказы не изменились.',
+      timer: 2800,
+      showConfirmButton: false
+    });
+  } catch (err) {
+    console.error('Ошибка сохранения цен продажи:', err);
+    Swal.fire('Ошибка', 'Не удалось сохранить: ' + err.message, 'error');
+  } finally {
+    saveBusy = false;
+    if (btn) btn.textContent = '👁️ Проверить и сохранить';
+    updateSaleCounters();
+    updateCounters();
   }
 }
 
@@ -1629,17 +2070,22 @@ async function loadHistory(force) {
     var msg = '<div class="empty">История доступна после входа администратора (сессия восстанавливается автоматически — обновите через несколько секунд).</div>';
     document.getElementById('priceHistoryList').innerHTML = msg;
     document.getElementById('recalcHistoryList').innerHTML = msg;
+    var saleBox = document.getElementById('saleHistoryList');
+    if (saleBox) saleBox.innerHTML = msg;
     return;
   }
   try {
     var res = await Promise.all([
       db.collection('costPriceHistory').orderBy('createdAt', 'desc').limit(50).get(),
-      db.collection('profitRecalculations').orderBy('createdAt', 'desc').limit(50).get()
+      db.collection('profitRecalculations').orderBy('createdAt', 'desc').limit(50).get(),
+      db.collection('salePriceHistory').orderBy('createdAt', 'desc').limit(50).get()
     ]);
     costHistory = [];
     res[0].forEach(function (doc) { costHistory.push(Object.assign({ id: doc.id }, doc.data())); });
     recalcHistory = [];
     res[1].forEach(function (doc) { recalcHistory.push(Object.assign({ id: doc.id }, doc.data())); });
+    saleHistory = [];
+    res[2].forEach(function (doc) { saleHistory.push(Object.assign({ id: doc.id }, doc.data())); });
     historyLoadedAt = Date.now();
     fillBasisSelect();
     renderHistory();
@@ -1648,6 +2094,8 @@ async function loadHistory(force) {
     var e = '<div class="empty" style="color:#c62828;">Ошибка загрузки: ' + escapeHtml(err.message) + '</div>';
     document.getElementById('priceHistoryList').innerHTML = e;
     document.getElementById('recalcHistoryList').innerHTML = e;
+    var saleErr = document.getElementById('saleHistoryList');
+    if (saleErr) saleErr.innerHTML = e;
   }
 }
 
@@ -1670,6 +2118,17 @@ function renderHistory() {
       '<button class="btn btn-gray" onclick="showPriceChange(\'' + h.id + '\')">👁️ Старые и новые цены</button>' +
     '</div>';
   }).join('') : '<div class="empty">Изменений приходных цен пока не было</div>';
+
+  var sh = document.getElementById('saleHistoryList');
+  if (sh) {
+    sh.innerHTML = saleHistory.length ? saleHistory.map(function (h) {
+      return '<div class="hist-item">' +
+        '<div><b>' + formatDateTime(h.createdAt) + '</b> — ' + (h.count || 0) + ' товар(ов)' +
+          '<div class="meta">Действие: ' + escapeHtml(opLabel(h.operation, h.value)) + (h.comment ? ' • ' + escapeHtml(h.comment) : '') + '</div></div>' +
+        '<button class="btn btn-gray" onclick="showSaleChange(\'' + h.id + '\')">👁️ Старые и новые цены</button>' +
+      '</div>';
+    }).join('') : '<div class="empty">Изменений цен продажи пока не было</div>';
+  }
 
   var rh = document.getElementById('recalcHistoryList');
   rh.innerHTML = recalcHistory.length ? recalcHistory.map(function (r) {
@@ -1705,6 +2164,26 @@ function showPriceChange(id) {
       escapeHtml(opLabel(h.operation, h.value)) + (h.comment ? ' • ' + escapeHtml(h.comment) : '') + '</div>' +
       '<div class="table-wrap" style="max-height:55vh; overflow-y:auto;"><table class="rep"><thead><tr>' +
       '<th>Товар</th><th>Продажа</th><th>Старая приходная</th><th>Новая приходная</th><th>Разница</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>',
+    width: 820,
+    showCloseButton: true,
+    confirmButtonText: 'Закрыть'
+  });
+}
+
+function showSaleChange(id) {
+  var h = saleHistory.find(function (x) { return x.id === id; });
+  if (!h) return;
+  var rows = (h.items || []).map(function (it) {
+    var d = round2(it.newPrice - it.oldPrice);
+    return '<tr><td class="name">' + escapeHtml(it.title) + '</td>' +
+      '<td>' + money(it.costPrice) + '</td><td>' + money(it.oldPrice) + '</td><td><b>' + money(it.newPrice) + '</b></td>' +
+      '<td class="' + colorClass(d) + '">' + (d > 0 ? '+' : '') + money(d) + '</td></tr>';
+  }).join('');
+  Swal.fire({
+    title: 'Цены продажи от ' + formatDateTime(h.createdAt),
+    html: '<div class="table-wrap" style="max-height:55vh; overflow-y:auto;"><table class="rep"><thead><tr>' +
+      '<th>Товар</th><th>Приход</th><th>Было</th><th>Стало</th><th>Разница</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>',
     width: 820,
     showCloseButton: true,
