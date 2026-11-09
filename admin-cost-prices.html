@@ -258,14 +258,14 @@
     .prow input.newcost:focus { outline: none; border-color: #3f51b5; }
     .prow.changed input.newcost { border-color: #7cb342; background: #fff; font-weight: 700; }
     .sale-list { overflow-x: auto; }
-    .sale-list .prow {
+    #saleProductList .prow {
       grid-template-columns: 34px 52px minmax(120px, 1fr) 72px 96px 116px 72px 116px;
       min-width: 860px;
     }
-    .sale-list .in-label { display: none; }
-    .sale-list .mini { display: block; text-align: right; font-size: 11px; margin-top: 2px; min-height: 14px; }
-    .sale-list .prow.changed input.newcost { border-color: #ddd; font-weight: 400; }
-    .sale-list input.newcost.dirty { border-color: #7cb342 !important; font-weight: 700; }
+    #saleProductList .in-label { display: none; }
+    #saleProductList .mini { display: block; text-align: right; font-size: 11px; margin-top: 2px; min-height: 14px; }
+    #saleProductList .prow.changed input.newcost { border-color: #ddd; font-weight: 400; }
+    #saleProductList input.newcost.dirty { border-color: #7cb342 !important; font-weight: 700; }
 
     .savebar {
       position: sticky;
@@ -326,17 +326,17 @@
       .prow .newwrap { grid-area: n; }
       .prow .diff { grid-area: d; font-size: 12px; }
       .prow .retail::before { content: 'Продажа: '; }
-      .sale-list .prow {
+      #saleProductList .prow {
         min-width: 0;
         grid-template-columns: 30px 44px 1fr 1fr;
         grid-template-areas: "c p t t" "c p n o";
       }
-      .sale-list .prow .retail,
-      .sale-list .prow .cur,
-      .sale-list .prow .optnow { display: none; }
-      .sale-list .prow .newwrap.sale-in { grid-area: n; }
-      .sale-list .prow .newwrap.opt-in { grid-area: o; }
-      .sale-list .in-label { display: block; font-size: 10px; color: #888; font-weight: 600; margin-bottom: 2px; }
+      #saleProductList .prow .retail,
+      #saleProductList .prow .cur,
+      #saleProductList .prow .optnow { display: none; }
+      #saleProductList .prow .newwrap.sale-in { grid-area: n; }
+      #saleProductList .prow .newwrap.opt-in { grid-area: o; }
+      #saleProductList .in-label { display: block; font-size: 10px; color: #888; font-weight: 600; margin-bottom: 2px; }
       .stat .value { font-size: 17px; }
     }
   </style>
