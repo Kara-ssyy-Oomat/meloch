@@ -88,9 +88,9 @@ service cloud.firestore {
     //    settings/private и т.п. — то есть НИКАКИХ финансов, оборота,
     //    выручки, продаж, отчётов, статистики, данных клиентов.
     //  • Видят: products (для управления остатками).
-    //  • Могут менять в products ТОЛЬКО поле stock/warehouseStock
-    //    (и метаданные lastStockChangeBy/At). Цены, названия, фото
-    //    и любые другие поля — читать нельзя менять.
+    //  • Могут менять в products остаток, партии закупки (costLayers,
+    //    costPrice), цену продажи нового прихода и очередь saleHolds.
+    //    Название, фото, описание и прочие поля — нельзя.
     //  • Заблокированный (status='blocked') / отклонённый (rejected)
     //    / ещё не одобренный (pending) — не может ничего менять,
     //    даже stock. Проверка через документ warehouseManagers/{uid}.
@@ -113,12 +113,39 @@ service cloud.firestore {
     }
 
     // Изменения в товаре, которые разрешены управляющему складом.
-    // Только stock, warehouseStock и служебные метки времени/автора.
+    // Остаток, партии закупки, цена нового прихода и очередь партий,
+    // которые ещё не вышли на сайт. Название и фото сюда не входят.
     function wmOnlyChangesStockFields() {
       return request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['stock', 'warehouseStock',
+                       'costLayers', 'costPrice', 'price', 'optPrice', 'saleHolds',
                        'lastStockChangeBy', 'lastStockChangeAt',
                        'lastStockChangeByUid', 'updatedAt']);
+    }
+
+    function wmFieldChanged(field) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([field]);
+    }
+
+    function wmNumIfChanged(field) {
+      return !wmFieldChanged(field)
+          || (request.resource.data[field] is number
+              && request.resource.data[field] >= 0
+              && request.resource.data[field] <= 100000000);
+    }
+
+    function wmListIfChanged(field, maxSize) {
+      return !wmFieldChanged(field)
+          || (request.resource.data[field] is list
+              && request.resource.data[field].size() <= maxSize);
+    }
+
+    function wmReceiptFieldsOk() {
+      return wmNumIfChanged('costPrice')
+          && wmNumIfChanged('price')
+          && wmNumIfChanged('optPrice')
+          && wmListIfChanged('costLayers', 400)
+          && wmListIfChanged('saleHolds', 40);
     }
 
     // Остатки меняют только админ, управляющий складом и Cloud Functions
@@ -226,7 +253,7 @@ service cloud.firestore {
     // автоматически логинит каждого анонимно перед первым запросом.
     // DELETE — ТОЛЬКО админ.
     // Управляющий складом (isApprovedWarehouseManager) — может менять
-    // ТОЛЬКО stock/warehouseStock (см. wmOnlyChangesStockFields).
+    // остаток, партии закупки и очередь прихода (см. wmOnlyChangesStockFields).
     // Заблокированный или неодобренный wm — не сможет обновить ничего.
     match /products/{id} {
       allow read: if isAuthed();
@@ -272,7 +299,8 @@ service cloud.firestore {
         //    а рассинхрон с реальностью админ увидит в отчёте склада.
         (isApprovedWarehouseManager()
           && wmOnlyChangesStockFields()
-          && wmStockValueOk())
+          && wmStockValueOk()
+          && wmReceiptFieldsOk())
       );
       allow delete: if isAdminUser();
     }
@@ -773,7 +801,12 @@ service cloud.firestore {
         (isApprovedWarehouseManager()
           && request.resource.data.keys().hasAll(['type', 'direction', 'qty',
               'productId', 'sourceRole', 'createdByUid'])
-          && request.resource.data.type == 'adjustment'
+          && (
+            request.resource.data.type == 'adjustment'
+            || (request.resource.data.type == 'receipt'
+                && request.resource.data.held == true
+                && request.resource.data.direction == 'in')
+          )
           && request.resource.data.direction in ['in', 'out']
           && request.resource.data.qty is number
           && request.resource.data.qty > 0

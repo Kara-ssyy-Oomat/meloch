@@ -932,3 +932,90 @@ exports.manualDeductOrderStock = functions
     };
   });
 
+// ============================================================================
+//     ИСТОРИЯ ОСТАТКОВ ДЛЯ УПРАВЛЯЮЩЕГО СКЛАДОМ
+// ----------------------------------------------------------------------------
+// Управляющий видит, как менялся остаток: приход, списание, продажа,
+// возврат, перемещение. Имена клиентов, телефоны, адреса и номера
+// заказов в ответ не попадают — правила склада это закрывают, а
+// коллекцию warehouseMovements он читать напрямую не может.
+// ============================================================================
+function _movementAt(data) {
+  if (data && typeof data.createdAtMs === 'number' && isFinite(data.createdAtMs)) {
+    return data.createdAtMs;
+  }
+  if (data && data.createdAt && typeof data.createdAt.toMillis === 'function') {
+    return data.createdAt.toMillis();
+  }
+  return 0;
+}
+
+function _stockHistoryNote(data) {
+  const type = data && data.type;
+  if (data && data.held === true) return 'Ждёт, пока старый остаток не кончится';
+  if (type === 'sale') return 'Продажа';
+  if (type === 'return') return 'Возврат на склад';
+  if (type === 'transfer') return '';
+  const raw = String((data && data.note) || '');
+  if (/заказ|клиент|телефон|адрес|\+?\d{9,}/i.test(raw)) {
+    if (type === 'receipt') return 'Приход';
+    if (type === 'adjustment') return data.direction === 'out' ? 'Списание' : 'Приход';
+    return '';
+  }
+  return raw.slice(0, 160);
+}
+
+async function _assertStockHistoryReader(context) {
+  if (!context.auth || !context.auth.uid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Нужен вход');
+  }
+  const email = (context.auth.token && context.auth.token.email) || '';
+  if (email === 'admin@kerben.local') return;
+  if (!/^wm_.*@kerben-warehouse\.local$/.test(email)) {
+    throw new functions.https.HttpsError('permission-denied', 'Нет доступа');
+  }
+  const snap = await db.collection('warehouseManagers').doc(context.auth.uid).get();
+  const status = snap.exists ? (snap.data() || {}).status : '';
+  if (status !== 'approved') {
+    throw new functions.https.HttpsError('permission-denied', 'Заявка не одобрена');
+  }
+}
+
+exports.listWarehouseStockHistory = functions
+  .runWith({ timeoutSeconds: 60, memory: '256MB' })
+  .https.onCall(async (data, context) => {
+    await _assertStockHistoryReader(context);
+    const daysRaw = Number(data && data.days);
+    const days = Math.min(90, Math.max(1, isFinite(daysRaw) ? daysRaw : 7));
+    const since = admin.firestore.Timestamp.fromMillis(Date.now() - days * 24 * 60 * 60 * 1000);
+    const snap = await db.collection('warehouseMovements')
+      .where('createdAt', '>=', since)
+      .orderBy('createdAt', 'desc')
+      .limit(500)
+      .get();
+    const items = snap.docs.map((doc) => {
+      const row = doc.data() || {};
+      const type = ['sale', 'receipt', 'transfer', 'return', 'adjustment'].indexOf(row.type) >= 0
+        ? row.type : 'adjustment';
+      const direction = row.direction === 'in' ? 'in' : 'out';
+      const actor = (type === 'adjustment' || type === 'receipt')
+        ? String(row.createdByName || '').slice(0, 80) : '';
+      return {
+        id: doc.id,
+        title: String(row.productTitle || '').slice(0, 200),
+        type: type,
+        direction: direction,
+        qty: Math.max(0, Math.floor(Number(row.qty) || 0)),
+        warehouse: String(row.warehouseName || '').slice(0, 80),
+        fromWarehouse: String(row.fromWarehouseName || '').slice(0, 80),
+        toWarehouse: String(row.toWarehouseName || '').slice(0, 80),
+        note: _stockHistoryNote(row),
+        actor: actor,
+        held: row.held === true,
+        cancelled: row.cancelled === true,
+        at: _movementAt(row)
+      };
+    });
+    return { items: items, days: days };
+  });
+

@@ -9,6 +9,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-functions-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
     // Не включать IndexedDB-persistence и анонимный вход:
@@ -86,7 +87,7 @@
       gap: 8px;
       align-items: center;
     }
-    .wm-receipt-open, .wm-logout, .wm-back-shop {
+    .wm-receipt-open, .wm-history-open, .wm-logout, .wm-back-shop {
       background: rgba(255,255,255,0.15);
       color: #fff;
       border: none;
@@ -98,8 +99,21 @@
       text-decoration: none;
       display: inline-block;
     }
-    .wm-logout:active, .wm-back-shop:active, .wm-receipt-open:active { background: rgba(255,255,255,0.3); }
+    .wm-logout:active, .wm-back-shop:active, .wm-receipt-open:active, .wm-history-open:active { background: rgba(255,255,255,0.3); }
     .wm-receipt-open { background: #2e7d32; }
+    .wm-history-open { background: #1565c0; }
+    .wm-hist-chip {
+      border: 1px solid #ddd;
+      background: #fff;
+      color: #555;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .wm-hist-chip.active { background: #1a237e; color: #fff; border-color: #1a237e; }
 
     /* ====== ЛОГИН ====== */
     .login-wrap {
@@ -653,6 +667,7 @@
         <div class="sub" id="wmHeaderSub">—</div>
       </div>
       <div class="wm-header-actions">
+        <button class="wm-history-open" type="button" onclick="openWmHistory()">История</button>
         <button class="wm-receipt-open" type="button" onclick="openNewReceipt()">📥 Приход</button>
         <button class="wm-logout" onclick="wmLogout()">Выйти</button>
       </div>
@@ -709,6 +724,38 @@
         <div style="font-weight:700; margin-bottom:8px;">К приёму</div>
         <div id="wmReceiptLines" style="font-size:13px; color:#888;">Пока пусто</div>
         <button type="button" onclick="acceptWmReceipt()" style="margin-top:12px; width:100%; background:#2e7d32; color:#fff; border:none; border-radius:10px; padding:14px; font-size:16px; font-weight:700; cursor:pointer;">Принять приход</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="wmHistory" style="display:none; position:fixed; inset:0; z-index:400; background:#f5f5f5; overflow:auto;">
+    <div style="background:#1a237e; color:#fff; padding:16px; display:flex; align-items:center; gap:10px; position:sticky; top:0; z-index:2;">
+      <button type="button" onclick="closeWmHistory()" style="background:transparent; color:#fff; border:none; font-size:20px; cursor:pointer;">←</button>
+      <div style="flex:1;">
+        <div style="font-weight:700;">История остатков</div>
+        <div style="font-size:12px; opacity:0.85;">Приход, списание, продажа и возврат. Без клиентов и заказов.</div>
+      </div>
+      <button type="button" onclick="loadWmHistory()" style="background:rgba(255,255,255,0.15); color:#fff; border:none; border-radius:8px; padding:8px 12px; font-weight:600; cursor:pointer;">Обновить</button>
+    </div>
+    <div style="padding:12px;">
+      <div id="wmHistFilters" style="display:flex; gap:6px; overflow:auto; padding-bottom:10px;">
+        <button type="button" class="wm-hist-chip active" data-filter="all" onclick="setWmHistoryFilter('all')">Все</button>
+        <button type="button" class="wm-hist-chip" data-filter="in" onclick="setWmHistoryFilter('in')">Приход</button>
+        <button type="button" class="wm-hist-chip" data-filter="out" onclick="setWmHistoryFilter('out')">Списание</button>
+        <button type="button" class="wm-hist-chip" data-filter="sale" onclick="setWmHistoryFilter('sale')">Продажи</button>
+        <button type="button" class="wm-hist-chip" data-filter="return" onclick="setWmHistoryFilter('return')">Возврат</button>
+        <button type="button" class="wm-hist-chip" data-filter="transfer" onclick="setWmHistoryFilter('transfer')">Перемещение</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <input type="text" id="wmHistSearch" placeholder="Товар" oninput="renderWmHistory()" autocomplete="off" style="flex:1; padding:12px; border:1px solid #ddd; border-radius:8px; font-size:16px;">
+        <select id="wmHistDays" onchange="loadWmHistory()" style="padding:12px; border:1px solid #ddd; border-radius:8px; background:#fff;">
+          <option value="1">Сегодня</option>
+          <option value="7" selected>Неделя</option>
+          <option value="30">Месяц</option>
+        </select>
+      </div>
+      <div id="wmHistList" style="background:#fff; border-radius:12px; padding:8px 12px;">
+        <div style="color:#888; padding:16px 4px;">Откройте историю, чтобы загрузить движения.</div>
       </div>
     </div>
   </div>
@@ -1500,6 +1547,121 @@ function openNewReceipt() {
 }
 function closeNewReceipt() {
   document.getElementById('wmReceipt').style.display = 'none';
+}
+
+let _wmHistory = [];
+let _wmHistoryFilter = 'all';
+let _wmHistoryLoading = false;
+
+function wmFunctions() {
+  try {
+    return firebase.app('kerben-wm').functions('us-central1');
+  } catch (e) {
+    return firebase.app().functions('us-central1');
+  }
+}
+
+function openWmHistory() {
+  document.getElementById('wmHistory').style.display = 'block';
+  if (!_wmHistory.length) loadWmHistory();
+}
+function closeWmHistory() {
+  document.getElementById('wmHistory').style.display = 'none';
+}
+function setWmHistoryFilter(filter) {
+  _wmHistoryFilter = filter || 'all';
+  document.querySelectorAll('#wmHistFilters .wm-hist-chip').forEach(function (btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-filter') === _wmHistoryFilter);
+  });
+  renderWmHistory();
+}
+function wmHistoryMatches(row) {
+  if (_wmHistoryFilter === 'sale') return row.type === 'sale';
+  if (_wmHistoryFilter === 'return') return row.type === 'return';
+  if (_wmHistoryFilter === 'transfer') return row.type === 'transfer';
+  if (_wmHistoryFilter === 'in') {
+    return row.type === 'receipt' || (row.type === 'adjustment' && row.direction === 'in');
+  }
+  if (_wmHistoryFilter === 'out') return row.type === 'adjustment' && row.direction === 'out';
+  return true;
+}
+async function loadWmHistory() {
+  if (_wmHistoryLoading) return;
+  _wmHistoryLoading = true;
+  const box = document.getElementById('wmHistList');
+  box.innerHTML = '<div style="color:#666; padding:16px 4px;">Загрузка...</div>';
+  const days = parseInt((document.getElementById('wmHistDays') || {}).value, 10) || 7;
+  try {
+    const callable = wmFunctions().httpsCallable('listWarehouseStockHistory');
+    const res = await callable({ days: days });
+    _wmHistory = (res && res.data && Array.isArray(res.data.items)) ? res.data.items : [];
+    renderWmHistory();
+  } catch (err) {
+    console.error('[wm-history]', err);
+    const code = err && err.code ? String(err.code) : '';
+    const msg = (code.indexOf('permission-denied') >= 0 || code.indexOf('unauthenticated') >= 0)
+      ? 'Нет доступа к истории. Войдите заново.'
+      : 'Не удалось загрузить историю. Проверьте интернет и откройте ещё раз.';
+    box.innerHTML = '<div style="color:#c62828; padding:16px 4px;">' + escapeHtml(msg) + '</div>';
+  }
+  _wmHistoryLoading = false;
+}
+function renderWmHistory() {
+  const box = document.getElementById('wmHistList');
+  if (!box) return;
+  const q = String((document.getElementById('wmHistSearch') || {}).value || '').toLowerCase().replace(/ё/g, 'е').trim();
+  const rows = _wmHistory.filter(function (row) {
+    if (!wmHistoryMatches(row)) return false;
+    if (!q) return true;
+    const hay = (String(row.title || '') + ' ' + String(row.warehouse || '')).toLowerCase().replace(/ё/g, 'е');
+    return hay.indexOf(q) >= 0;
+  });
+  if (!rows.length) {
+    box.innerHTML = '<div style="color:#888; padding:16px 4px;">' +
+      (_wmHistory.length ? 'В этом фильтре пусто.' : 'За этот срок движений нет.') + '</div>';
+    return;
+  }
+  let html = '';
+  let currentDate = '';
+  rows.forEach(function (row) {
+    const d = row.at ? new Date(row.at) : null;
+    const date = d ? d.toLocaleDateString('ru-RU') : '';
+    const time = d ? d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+    if (date !== currentDate) {
+      currentDate = date;
+      html += '<div style="font-weight:700; color:#666; padding:12px 0 6px; font-size:13px; border-bottom:1px solid #eee;">' + escapeHtml(date || 'Без даты') + '</div>';
+    }
+    let label = 'Движение';
+    let color = '#666';
+    if (row.held) { label = 'Приход ждёт'; color = '#e65100'; }
+    else if (row.type === 'sale') { label = 'Продажа'; color = '#e65100'; }
+    else if (row.type === 'return') { label = 'Возврат'; color = '#6a1b9a'; }
+    else if (row.type === 'transfer') {
+      label = (row.fromWarehouse || 'Склад') + ' → ' + (row.toWarehouse || 'склад');
+      color = '#1565c0';
+    } else if (row.type === 'receipt' || row.direction === 'in') {
+      label = 'Приход' + (row.warehouse ? ': ' + row.warehouse : '');
+      color = '#2e7d32';
+    } else {
+      label = 'Списание' + (row.warehouse ? ': ' + row.warehouse : '');
+      color = '#c62828';
+    }
+    const sign = row.held ? '' : (row.direction === 'in' ? '+' : '−');
+    const qtyColor = row.held ? '#e65100' : (row.direction === 'in' ? '#2e7d32' : '#c62828');
+    const strike = row.cancelled ? 'opacity:0.5; text-decoration:line-through;' : '';
+    const extra = row.cancelled ? 'Отменено' : (row.note || '');
+    const actor = row.actor ? ' · ' + row.actor : '';
+    html += '<div style="display:flex; gap:10px; align-items:flex-start; padding:12px 0; border-bottom:1px solid #f3f3f3; ' + strike + '">' +
+      '<div style="flex:1; min-width:0;">' +
+        '<div style="font-weight:600; font-size:14px;">' + escapeHtml(row.title || 'Без названия') + '</div>' +
+        '<div style="font-size:12px; font-weight:600; color:' + color + ';">' + escapeHtml(label) + '</div>' +
+        (extra ? '<div style="font-size:12px; color:#777; margin-top:2px;">' + escapeHtml(extra) + escapeHtml(actor) + '</div>' : (actor ? '<div style="font-size:12px; color:#777; margin-top:2px;">' + escapeHtml(actor.slice(3)) + '</div>' : '')) +
+        '<div style="font-size:11px; color:#999; margin-top:2px;">' + escapeHtml(time) + '</div>' +
+      '</div>' +
+      '<div style="font-size:18px; font-weight:700; color:' + qtyColor + '; min-width:52px; text-align:right;">' + sign + escapeHtml(String(row.qty || 0)) + '</div>' +
+    '</div>';
+  });
+  box.innerHTML = html;
 }
 function searchWmReceipt() {
   const raw = (document.getElementById('wmReceiptSearch').value || '').toLowerCase().replace(/ё/g, 'е').trim();
