@@ -1322,7 +1322,7 @@ function _waitAuthUser(wantAdmin, timeoutMs) {
     }, timeoutMs);
     unsub = firebase.auth().onAuthStateChanged(function (user) {
       if (done || !user) return;
-      if (wantAdmin && user.email !== 'admin@kerben.local') return;
+      if (wantAdmin && String(user.email || '').toLowerCase() !== 'admin@kerben.local') return;
       done = true;
       clearTimeout(timer);
       try { unsub(); } catch (e) {}
@@ -1369,13 +1369,20 @@ async function initProfitPasswordGate() {
   var err = document.getElementById('profitLockError');
   if (err) err.textContent = 'Проверка пароля...';
   try {
-    await _waitAuthUser(false, 4000);
+    if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth(10000);
+    else await _waitAuthUser(false, 10000);
     var snap = await db.collection('profitGate').doc('main').get();
     _profitGate = snap.exists ? (snap.data() || null) : null;
   } catch (e) {
-    console.error('[profit-lock]', e);
-    if (err) err.textContent = 'Не удалось проверить пароль. Проверьте интернет и откройте страницу ещё раз.';
-    return;
+    try {
+      await _waitAuthUser(false, 8000);
+      var snapRetry = await db.collection('profitGate').doc('main').get();
+      _profitGate = snapRetry.exists ? (snapRetry.data() || null) : null;
+    } catch (e2) {
+      console.error('[profit-lock]', e2);
+      if (err) err.textContent = 'Не удалось проверить пароль. Проверьте интернет и откройте страницу ещё раз.';
+      return;
+    }
   }
   if (err) err.textContent = '';
   if (_profitGate && _profitGate.hash && _profitGate.salt) {
@@ -1397,7 +1404,7 @@ async function _storeProfitGate(password) {
   }
   await _waitAuthUser(true, 20000);
   var user = firebase.auth().currentUser;
-  if (!user || user.email !== 'admin@kerben.local') {
+  if (!user || String(user.email || '').toLowerCase() !== 'admin@kerben.local') {
     throw new Error('Войдите в профиль администратора и откройте отчёт ещё раз.');
   }
   var packed = await _hashProfitPassword(password);
