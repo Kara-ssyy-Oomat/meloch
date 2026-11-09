@@ -257,6 +257,15 @@
     }
     .prow input.newcost:focus { outline: none; border-color: #3f51b5; }
     .prow.changed input.newcost { border-color: #7cb342; background: #fff; font-weight: 700; }
+    .sale-list { overflow-x: auto; }
+    .sale-list .prow {
+      grid-template-columns: 34px 52px minmax(120px, 1fr) 72px 96px 116px 72px 116px;
+      min-width: 860px;
+    }
+    .sale-list .in-label { display: none; }
+    .sale-list .mini { display: block; text-align: right; font-size: 11px; margin-top: 2px; min-height: 14px; }
+    .sale-list .prow.changed input.newcost { border-color: #ddd; font-weight: 400; }
+    .sale-list input.newcost.dirty { border-color: #7cb342 !important; font-weight: 700; }
 
     .savebar {
       position: sticky;
@@ -317,9 +326,17 @@
       .prow .newwrap { grid-area: n; }
       .prow .diff { grid-area: d; font-size: 12px; }
       .prow .retail::before { content: 'Продажа: '; }
-      .sale-list .prow .cur { display: block; grid-area: r; text-align: left; font-size: 12px; }
-      .sale-list .prow .cur::before { content: 'Сейчас: '; }
-      .sale-list .prow .retail { display: none; }
+      .sale-list .prow {
+        min-width: 0;
+        grid-template-columns: 30px 44px 1fr 1fr;
+        grid-template-areas: "c p t t" "c p n o";
+      }
+      .sale-list .prow .retail,
+      .sale-list .prow .cur,
+      .sale-list .prow .optnow { display: none; }
+      .sale-list .prow .newwrap.sale-in { grid-area: n; }
+      .sale-list .prow .newwrap.opt-in { grid-area: o; }
+      .sale-list .in-label { display: block; font-size: 10px; color: #888; font-weight: 600; margin-bottom: 2px; }
       .stat .value { font-size: 17px; }
     }
   </style>
@@ -448,9 +465,10 @@
     <!-- ================= ЦЕНЫ ПРОДАЖИ ================= -->
     <div class="tab-panel" id="panel-sale">
       <div class="info-box">
-        Меняется <b>только текущая цена продажи</b> на сайте. Приходная цена, партии закупки и уже оформленные заказы не меняются.
-        Новая цена видна покупателям сразу, на весь остаток, который сейчас на сайте.
-        Если у товара есть приход, который ждёт конца старой цены, после продажи этого остатка на сайт выйдет цена того прихода.
+        Рядом два поля: <b>новая розничная цена</b> и <b>новый опт</b>. Можно изменить одну из них или обе.
+        Приходная цена, партии закупки и уже оформленные заказы не меняются.
+        Новые цены видны сразу, на весь остаток, который сейчас на сайте.
+        Если у товара есть приход, который ждёт конца старой цены продажи, после продажи этого остатка на сайт выйдет цена того прихода.
       </div>
       <div class="card">
         <div class="card-title">1. Выберите товары</div>
@@ -491,6 +509,14 @@
       <div class="card">
         <div class="card-title">2. Массовое изменение выбранных</div>
         <div class="row">
+          <div class="field">
+            <label>К какой цене</label>
+            <select id="sBulkTarget">
+              <option value="price">Розница</option>
+              <option value="opt">Опт</option>
+              <option value="both">Розница и опт</option>
+            </select>
+          </div>
           <div class="field" style="flex:2;">
             <label>Действие</label>
             <select id="sBulkOp" onchange="onSaleBulkOpChange()">
@@ -518,7 +544,7 @@
           <button class="btn btn-gray" onclick="resetSaleDrafts()">↺ Сбросить новые цены</button>
         </div>
         <div style="font-size:12px; color:#888; margin-top:8px;">
-          Новую цену можно ввести вручную в колонке «Новая продажа». Она сохранится только после «Проверить и сохранить».
+          Новую розницу и новый опт можно ввести вручную в соседних колонках. Сохранится только после «Проверить и сохранить».
         </div>
       </div>
       <div class="card">
@@ -723,6 +749,7 @@ var selected = new Set();
 var drafts = new Map(); // id -> новая приходная цена (ещё не сохранена)
 var saleSelected = new Set();
 var saleDrafts = new Map(); // id -> новая цена продажи (ещё не сохранена)
+var saleOptDrafts = new Map(); // id -> новый опт на вкладке цен продажи
 var saleHistory = [];
 var optSelected = new Set();
 var optDrafts = new Map();
@@ -1425,7 +1452,7 @@ function getVisibleSaleProducts() {
   return products.filter(function (p) {
     if (cat && (p.category || 'все').toLowerCase() !== cat) return false;
     if (show === 'selected' && !saleSelected.has(p.id)) return false;
-    if (show === 'changed' && !saleDrafts.has(p.id)) return false;
+    if (show === 'changed' && !saleDrafts.has(p.id) && !saleOptDrafts.has(p.id)) return false;
     if (words.length) {
       var t = productTitle(p).toLowerCase();
       for (var i = 0; i < words.length; i++) if (t.indexOf(words[i]) === -1) return false;
@@ -1437,17 +1464,21 @@ function getVisibleSaleProducts() {
   });
 }
 
-function saleDiffHtml(p) {
-  if (!saleDrafts.has(p.id)) return '<span class="c-gray">—</span>';
-  var d = round2(saleDrafts.get(p.id) - num(p.price));
+function saleMini(has, next, cur) {
+  if (!has) return '';
+  var d = round2(next - cur);
   return '<span class="' + colorClass(d) + '">' + (d > 0 ? '+' : '') + money(d) + '</span>';
 }
 
 function saleRowHtml(p) {
   var cur = num(p.price);
+  var opt = num(p.optPrice);
   var isSel = saleSelected.has(p.id);
-  var hasDraft = saleDrafts.has(p.id);
-  var draft = hasDraft ? saleDrafts.get(p.id) : '';
+  var hasSale = saleDrafts.has(p.id);
+  var hasOpt = saleOptDrafts.has(p.id);
+  var hasDraft = hasSale || hasOpt;
+  var draft = hasSale ? saleDrafts.get(p.id) : '';
+  var optDraft = hasOpt ? saleOptDrafts.get(p.id) : '';
   var cls = 'prow' + (hasDraft && isSel ? ' changed' : '') + (hasDraft && !isSel ? ' unselected-draft' : '');
   var waiting = (typeof CostLayers !== 'undefined' && CostLayers.cleanHolds) ? CostLayers.cleanHolds(p.saleHolds).length : 0;
   return '<div class="' + cls + '" id="srow-' + p.id + '">' +
@@ -1458,8 +1489,13 @@ function saleRowHtml(p) {
       (waiting ? ' • ждёт другая цена' : '') + '</small></div>' +
     '<div class="num retail">' + money(p.costPrice) + '</div>' +
     '<div class="num cur">' + money(cur) + '</div>' +
-    '<div class="newwrap"><input class="newcost" type="number" min="0" step="0.01" inputmode="decimal" placeholder="' + round2(cur) + '" value="' + (hasDraft ? draft : '') + '" oninput="onSaleDraftInput(\'' + p.id + '\', this.value)"></div>' +
-    '<div class="num diff" id="sdiff-' + p.id + '">' + saleDiffHtml(p) + '</div>' +
+    '<div class="newwrap sale-in"><span class="in-label">Новая продажа</span>' +
+      '<input class="newcost' + (hasSale ? ' dirty' : '') + '" type="number" min="0" step="0.01" inputmode="decimal" placeholder="' + round2(cur) + '" value="' + draft + '" oninput="onSaleDraftInput(\'' + p.id + '\', this.value)">' +
+      '<span class="mini" id="sdiff-' + p.id + '">' + saleMini(hasSale, draft, cur) + '</span></div>' +
+    '<div class="num optnow">' + money(opt) + '</div>' +
+    '<div class="newwrap opt-in"><span class="in-label">Новый опт</span>' +
+      '<input class="newcost' + (hasOpt ? ' dirty' : '') + '" type="number" min="0" step="0.01" inputmode="decimal" placeholder="' + round2(opt) + '" value="' + optDraft + '" oninput="onSaleOptDraftInput(\'' + p.id + '\', this.value)">' +
+      '<span class="mini" id="sopt-' + p.id + '">' + saleMini(hasOpt, optDraft, opt) + '</span></div>' +
   '</div>';
 }
 
@@ -1478,7 +1514,8 @@ function renderSaleProducts() {
     return;
   }
   list.innerHTML = '<div class="prow head"><div></div><div></div><div>Товар</div><div class="num">Приход</div>' +
-    '<div class="num">Продажа сейчас</div><div class="num">Новая продажа</div><div class="num">Разница</div></div>' +
+    '<div class="num">Продажа сейчас</div><div class="num">Новая продажа</div>' +
+    '<div class="num">Опт сейчас</div><div class="num">Новый опт</div></div>' +
     visible.map(saleRowHtml).join('');
   updateSaleCounters();
 }
@@ -1488,11 +1525,20 @@ function refreshSaleRow(id) {
   var row = document.getElementById('srow-' + id);
   if (!p || !row) return;
   var isSel = saleSelected.has(id);
-  var hasDraft = saleDrafts.has(id);
+  var hasSale = saleDrafts.has(id);
+  var hasOpt = saleOptDrafts.has(id);
+  var hasDraft = hasSale || hasOpt;
   row.classList.toggle('changed', hasDraft && isSel);
   row.classList.toggle('unselected-draft', hasDraft && !isSel);
   row.querySelector('input[type="checkbox"]').checked = isSel;
-  document.getElementById('sdiff-' + id).innerHTML = saleDiffHtml(p);
+  var saleInput = row.querySelector('.sale-in input');
+  var optInput = row.querySelector('.opt-in input');
+  if (saleInput) saleInput.classList.toggle('dirty', hasSale);
+  if (optInput) optInput.classList.toggle('dirty', hasOpt);
+  var saleMiniEl = document.getElementById('sdiff-' + id);
+  var optMiniEl = document.getElementById('sopt-' + id);
+  if (saleMiniEl) saleMiniEl.innerHTML = saleMini(hasSale, hasSale ? saleDrafts.get(id) : 0, num(p.price));
+  if (optMiniEl) optMiniEl.innerHTML = saleMini(hasOpt, hasOpt ? saleOptDrafts.get(id) : 0, num(p.optPrice));
 }
 
 function toggleSaleSelect(id, on) {
@@ -1529,14 +1575,49 @@ function onSaleDraftInput(id, raw) {
   updateSaleCounters();
 }
 
+function onSaleOptDraftInput(id, raw) {
+  var p = productsById.get(id);
+  if (!p) return;
+  var v = String(raw).trim();
+  if (v === '') saleOptDrafts.delete(id);
+  else {
+    var n = parseFloat(v.replace(',', '.'));
+    if (!isFinite(n) || n < 0) return;
+    if (round2(n) === round2(p.optPrice)) saleOptDrafts.delete(id);
+    else saleOptDrafts.set(id, round2(n));
+    saleSelected.add(id);
+  }
+  refreshSaleRow(id);
+  updateSaleCounters();
+}
+
 function getPendingSaleChanges() {
+  var ids = new Set();
+  saleDrafts.forEach(function (_, id) { if (saleSelected.has(id)) ids.add(id); });
+  saleOptDrafts.forEach(function (_, id) { if (saleSelected.has(id)) ids.add(id); });
   var out = [];
-  saleDrafts.forEach(function (newPrice, id) {
-    if (!saleSelected.has(id)) return;
+  ids.forEach(function (id) {
     var p = productsById.get(id);
     if (!p) return;
-    if (round2(newPrice) === round2(p.price)) return;
-    out.push({ p: p, oldPrice: round2(p.price), newPrice: round2(newPrice) });
+    var item = { p: p };
+    var changed = false;
+    if (saleDrafts.has(id)) {
+      var np = round2(saleDrafts.get(id));
+      if (np !== round2(p.price)) {
+        item.oldPrice = round2(p.price);
+        item.newPrice = np;
+        changed = true;
+      }
+    }
+    if (saleOptDrafts.has(id)) {
+      var no = round2(saleOptDrafts.get(id));
+      if (no !== round2(p.optPrice)) {
+        item.oldOpt = round2(p.optPrice);
+        item.newOpt = no;
+        changed = true;
+      }
+    }
+    if (changed) out.push(item);
   });
   return out;
 }
@@ -1552,8 +1633,9 @@ function updateSaleCounters() {
   var changes = getPendingSaleChanges();
   if (!changes.length) sum.innerHTML = 'Нет изменений';
   else {
-    var up = changes.filter(function (c) { return c.newPrice > c.oldPrice; }).length;
-    sum.innerHTML = 'Новая цена продажи у <b>' + changes.length + '</b> товар(ов): ↑ ' + up + ', ↓ ' + (changes.length - up);
+    var saleN = changes.filter(function (c) { return c.newPrice != null; }).length;
+    var optN = changes.filter(function (c) { return c.newOpt != null; }).length;
+    sum.innerHTML = 'К сохранению: розница <b>' + saleN + '</b>, опт <b>' + optN + '</b>';
   }
   preview.disabled = !changes.length || saveBusy;
 }
@@ -1580,26 +1662,31 @@ function applySaleBulk() {
     Swal.fire('Слишком большой процент', 'Уменьшить больше чем на 100% нельзя.', 'warning');
     return;
   }
+  var targetEl = document.getElementById('sBulkTarget');
+  var target = targetEl ? targetEl.value : 'price';
   var applied = 0, skippedZero = 0, clamped = 0;
-  saleSelected.forEach(function (id) {
-    var p = productsById.get(id);
-    if (!p) return;
-    var cur = num(p.price);
+  function putDraft(map, cur, id) {
     if (cur <= 0 && op !== 'set' && op !== 'inc_amount') { skippedZero++; return; }
     var v = calcBulkValue(cur, op, value, step);
     if (v < 0) { v = 0; clamped++; }
-    if (round2(v) === round2(cur)) saleDrafts.delete(id);
-    else saleDrafts.set(id, round2(v));
+    if (round2(v) === round2(cur)) map.delete(id);
+    else map.set(id, round2(v));
     applied++;
+  }
+  saleSelected.forEach(function (id) {
+    var p = productsById.get(id);
+    if (!p) return;
+    if (target !== 'opt') putDraft(saleDrafts, num(p.price), id);
+    if (target !== 'price') putDraft(saleOptDrafts, num(p.optPrice), id);
   });
   renderSaleProducts();
   var notes = [];
-  if (skippedZero) notes.push('⚠️ ' + skippedZero + ' товар(ов) без цены продажи пропущено — задайте им цену вручную.');
+  if (skippedZero) notes.push('⚠️ ' + skippedZero + ' цен без значения пропущено — задайте их через «Установить одну цену всем» или вручную.');
   if (clamped) notes.push('⚠️ У ' + clamped + ' товар(ов) цена ушла бы в минус — поставлено 0.');
   Swal.fire({
     icon: notes.length ? 'warning' : 'success',
     title: 'Новые цены подставлены',
-    html: 'Рассчитано для <b>' + applied + '</b> товар(ов). Это ещё не сохранено.' +
+    html: 'Подставлено цен: <b>' + applied + '</b>. Это ещё не сохранено.' +
       (notes.length ? '<br><br>' + notes.join('<br>') : ''),
     timer: notes.length ? undefined : 2200
   });
@@ -1607,6 +1694,7 @@ function applySaleBulk() {
 
 function resetSaleDrafts() {
   saleDrafts.clear();
+  saleOptDrafts.clear();
   renderSaleProducts();
 }
 
@@ -1614,30 +1702,49 @@ async function previewAndSaveSale() {
   if (saveBusy) return;
   var changes = getPendingSaleChanges();
   if (!changes.length) return;
-  var belowCost = changes.filter(function (c) { return num(c.p.costPrice) > 0 && c.newPrice <= num(c.p.costPrice); });
+  var belowCost = changes.filter(function (c) {
+    return c.newPrice != null && num(c.p.costPrice) > 0 && c.newPrice <= num(c.p.costPrice);
+  });
+  var optAbove = changes.filter(function (c) {
+    if (c.newOpt == null) return false;
+    var sale = c.newPrice != null ? c.newPrice : num(c.p.price);
+    return sale > 0 && c.newOpt > sale;
+  });
+  var optBelow = changes.filter(function (c) {
+    return c.newOpt != null && num(c.p.costPrice) > 0 && c.newOpt > 0 && c.newOpt <= num(c.p.costPrice);
+  });
   var waiting = changes.filter(function (c) {
-    return typeof CostLayers !== 'undefined' && CostLayers.cleanHolds && CostLayers.cleanHolds(c.p.saleHolds).length;
+    return c.newPrice != null && typeof CostLayers !== 'undefined' && CostLayers.cleanHolds && CostLayers.cleanHolds(c.p.saleHolds).length;
   });
   var rows = changes.map(function (c) {
-    var d = round2(c.newPrice - c.oldPrice);
-    var warn = num(c.p.costPrice) > 0 && c.newPrice <= num(c.p.costPrice);
+    var saleNow = c.newPrice != null ? c.newPrice : num(c.p.price);
+    var warn = (c.newPrice != null && num(c.p.costPrice) > 0 && c.newPrice <= num(c.p.costPrice)) ||
+      (c.newOpt != null && saleNow > 0 && c.newOpt > saleNow) ||
+      (c.newOpt != null && num(c.p.costPrice) > 0 && c.newOpt > 0 && c.newOpt <= num(c.p.costPrice));
+    var saleCell = c.newPrice == null ? money(c.p.price) : '<b>' + money(c.newPrice) + '</b>';
+    var optCell = c.newOpt == null ? money(c.p.optPrice) : '<b>' + money(c.newOpt) + '</b>';
     return '<tr' + (warn ? ' style="background:#ffebee;"' : '') + '>' +
       '<td class="name">' + escapeHtml(productTitle(c.p)) + (warn ? ' ⚠️' : '') + '</td>' +
       '<td>' + money(c.p.costPrice) + '</td>' +
-      '<td>' + money(c.oldPrice) + '</td>' +
-      '<td><b>' + money(c.newPrice) + '</b></td>' +
-      '<td class="' + colorClass(d) + '">' + (d > 0 ? '+' : '') + money(d) + '</td></tr>';
+      '<td>' + saleCell + '</td>' +
+      '<td>' + optCell + '</td></tr>';
   }).join('');
-  var html = '<div style="text-align:left; font-size:14px; margin-bottom:10px;">Цена продажи изменится у <b>' + changes.length +
-    '</b> товар(ов) и сразу будет видна на сайте. Приходная цена и старые заказы не меняются.</div>' +
+  var saleN = changes.filter(function (c) { return c.newPrice != null; }).length;
+  var optN = changes.filter(function (c) { return c.newOpt != null; }).length;
+  var html = '<div style="text-align:left; font-size:14px; margin-bottom:10px;">Розница изменится у <b>' + saleN +
+    '</b>, опт у <b>' + optN + '</b>. Приходная цена и старые заказы не меняются.</div>' +
     (belowCost.length ? '<div style="text-align:left; color:#c62828; font-size:13px; margin-bottom:10px;">⚠️ У ' + belowCost.length +
       ' товар(ов) новая продажа не выше закупки.</div>' : '') +
+    (optAbove.length ? '<div style="text-align:left; color:#c62828; font-size:13px; margin-bottom:10px;">⚠️ У ' + optAbove.length +
+      ' товар(ов) новый опт выше розницы.</div>' : '') +
+    (optBelow.length ? '<div style="text-align:left; color:#c62828; font-size:13px; margin-bottom:10px;">⚠️ У ' + optBelow.length +
+      ' товар(ов) новый опт не выше закупки.</div>' : '') +
     (waiting.length ? '<div style="text-align:left; color:#e65100; font-size:13px; margin-bottom:10px;">У ' + waiting.length +
       ' товар(ов) есть приход с другой ценой. Он выйдет на сайт, когда текущий остаток закончится.</div>' : '') +
     '<div class="table-wrap" style="max-height:45vh; overflow-y:auto;"><table class="rep"><thead><tr>' +
-    '<th>Товар</th><th>Приход</th><th>Было</th><th>Станет</th><th>Разница</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    '<th>Товар</th><th>Приход</th><th>Розница</th><th>Опт</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   var res = await Swal.fire({
-    title: 'Проверьте новые цены продажи',
+    title: 'Проверьте розницу и опт',
     html: html,
     width: 820,
     input: 'text',
@@ -1665,65 +1772,109 @@ async function saveSaleChanges(changes, comment) {
     changes.forEach(function (c) {
       var data = fresh.get(c.p.id);
       if (!data) return;
-      var oldPrice = round2(data.price);
-      if (oldPrice === c.newPrice) return;
-      items.push({
+      var item = {
         id: c.p.id,
         title: productTitle(data),
         category: data.category || 'все',
         costPrice: round2(data.costPrice),
-        oldPrice: oldPrice,
-        newPrice: c.newPrice
-      });
+        price: round2(data.price)
+      };
+      var changed = false;
+      if (c.newPrice != null && round2(data.price) !== c.newPrice) {
+        item.oldPrice = round2(data.price);
+        item.newPrice = c.newPrice;
+        item.price = c.newPrice;
+        changed = true;
+      }
+      if (c.newOpt != null && round2(data.optPrice) !== c.newOpt) {
+        item.oldOpt = round2(data.optPrice);
+        item.newOpt = c.newOpt;
+        changed = true;
+      }
+      if (changed) items.push(item);
     });
     if (!items.length) {
-      Swal.fire('Нечего сохранять', 'Цены продажи в базе уже совпадают с новыми.', 'info');
+      Swal.fire('Нечего сохранять', 'Цены в базе уже совпадают с новыми.', 'info');
       return;
     }
     var op = document.getElementById('sBulkOp').value;
     var value = parseFloat(String(document.getElementById('sBulkValue').value).replace(',', '.'));
-    var histRef = db.collection('salePriceHistory').doc();
-    await histRef.set({
-      createdAt: now,
-      createdAtServer: firebase.firestore.FieldValue.serverTimestamp(),
-      operation: op,
-      value: isFinite(value) ? value : null,
-      comment: comment || '',
-      count: items.length,
-      items: items
-    });
+    var saleItems = items.filter(function (it) { return it.newPrice != null; });
+    var optItems = items.filter(function (it) { return it.newOpt != null; });
+    if (saleItems.length) {
+      await db.collection('salePriceHistory').doc().set({
+        createdAt: now,
+        createdAtServer: firebase.firestore.FieldValue.serverTimestamp(),
+        operation: op,
+        value: isFinite(value) ? value : null,
+        comment: comment || '',
+        count: saleItems.length,
+        items: saleItems.map(function (it) {
+          return { id: it.id, title: it.title, category: it.category, costPrice: it.costPrice, oldPrice: it.oldPrice, newPrice: it.newPrice };
+        })
+      });
+    }
+    if (optItems.length) {
+      await db.collection('optPriceHistory').doc().set({
+        createdAt: now,
+        createdAtServer: firebase.firestore.FieldValue.serverTimestamp(),
+        operation: op,
+        value: isFinite(value) ? value : null,
+        comment: comment || '',
+        count: optItems.length,
+        items: optItems.map(function (it) {
+          return { id: it.id, title: it.title, category: it.category, price: it.price, costPrice: it.costPrice, oldOpt: it.oldOpt, newOpt: it.newOpt };
+        })
+      });
+    }
     for (var i = 0; i < items.length; i += BATCH_LIMIT) {
       var batch = db.batch();
       items.slice(i, i + BATCH_LIMIT).forEach(function (it) {
-        batch.update(db.collection('products').doc(it.id), {
-          price: it.newPrice,
-          priceUpdatedAt: now
-        });
+        var patch = {};
+        if (it.newPrice != null) {
+          patch.price = it.newPrice;
+          patch.priceUpdatedAt = now;
+        }
+        if (it.newOpt != null) {
+          patch.optPrice = it.newOpt;
+          patch.optPriceUpdatedAt = now;
+        }
+        batch.update(db.collection('products').doc(it.id), patch);
       });
       await batch.commit();
     }
     items.forEach(function (it) {
       var p = productsById.get(it.id);
-      if (p) p.price = it.newPrice;
+      if (p && it.newPrice != null) p.price = it.newPrice;
+      if (p && it.newOpt != null) p.optPrice = it.newOpt;
       saleDrafts.delete(it.id);
+      saleOptDrafts.delete(it.id);
     });
     try {
-      var map = {};
-      items.forEach(function (it) { map[it.id] = it.newPrice; });
+      var priceMap = {};
+      var optMap = {};
+      items.forEach(function (it) {
+        if (it.newPrice != null) priceMap[it.id] = it.newPrice;
+        if (it.newOpt != null) optMap[it.id] = it.newOpt;
+      });
       var cached = JSON.parse(localStorage.getItem('cachedProducts') || '[]');
       if (Array.isArray(cached) && cached.length) {
-        cached.forEach(function (c) { if (map.hasOwnProperty(c.id)) c.price = map[c.id]; });
+        cached.forEach(function (c) {
+          if (priceMap.hasOwnProperty(c.id)) c.price = priceMap[c.id];
+          if (optMap.hasOwnProperty(c.id)) c.optPrice = optMap[c.id];
+        });
         localStorage.setItem('cachedProducts', JSON.stringify(cached));
       }
     } catch (e) {}
-    await bumpProductsRevision(items, 'массовое изменение цен продажи');
+    await bumpProductsRevision(items, saleItems.length && optItems.length ? 'массовое изменение розницы и опта' : (optItems.length ? 'массовое изменение оптовых цен' : 'массовое изменение цен продажи'));
     renderProducts();
     renderSaleProducts();
+    renderOptProducts();
     await loadHistory(true);
     Swal.fire({
       icon: 'success',
-      title: 'Цены продажи сохранены',
-      html: 'Обновлено <b>' + items.length + '</b> товар(ов). На сайте уже новая цена. Старые заказы не изменились.',
+      title: 'Цены сохранены',
+      html: 'Розница: <b>' + saleItems.length + '</b>, опт: <b>' + optItems.length + '</b>. Закупка и старые заказы не изменились.',
       timer: 2800,
       showConfirmButton: false
     });
