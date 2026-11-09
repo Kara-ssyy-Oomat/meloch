@@ -1013,6 +1013,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // История массового изменения оптовых цен. Заказы не переписываются.
+    match /optPriceHistory/{id} {
+      allow read, create: if isAdminUser();
+      allow update, delete: if false;
+    }
+
     // Отчёты перерасчёта. update нужен для статуса (active/cancelled)
     // и пометки replacedBy; удалять нельзя — по ним сравнивают до/после.
     match /profitRecalculations/{id} {
