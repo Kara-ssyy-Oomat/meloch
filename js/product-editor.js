@@ -35,6 +35,18 @@ function _editEsc(value) {
     .replace(/"/g, '&quot;');
 }
 
+function _editLayerHint(p) {
+  if (!p || typeof CostLayers === 'undefined') return '';
+  const layers = CostLayers.clean(p.costLayers);
+  if (!layers.length) return '';
+  const differs = layers.length > 1
+    || CostLayers.round2(layers[0].cost) !== CostLayers.round2(p.costPrice);
+  if (!differs) return '';
+  return '<div style="font-size:12px; color:#e65100; margin:-4px 0 12px; line-height:1.4;">Партии: '
+    + _editEsc(CostLayers.format(layers))
+    + '. Сначала продаётся более ранняя.</div>';
+}
+
 function _editAwaitWithTimeout(promise, ms) {
   return Promise.race([
     Promise.resolve(promise).catch(function () { return _EDIT_TIMED_OUT; }),
@@ -155,6 +167,7 @@ async function openEditProductModal(productId) {
         <input type="number" id="editPrice" value="${p.price||0}" style="width:100%; padding:10px; border:1px solid #e53935; border-radius:8px; font-size:16px; font-weight:700; color:#e53935; box-sizing:border-box;">
       </div>
     </div>
+    ${_editLayerHint(p)}
     
     <!-- Остаток на главном складе -->
     ${_editPrimaryWhId ? (() => {
@@ -345,7 +358,7 @@ async function saveEditProductModal() {
   const category = document.getElementById('editCategory').value;
   const description = document.getElementById('editDescription').value.trim();
   const costPrice = parseFloat(document.getElementById('editCostPrice').value) || 0;
-  const price = parseFloat(document.getElementById('editPrice').value) || 0;
+  let price = parseFloat(document.getElementById('editPrice').value) || 0;
   const stockVal = document.getElementById('editStock').value.trim();
   const stock = stockVal === '' ? null : parseInt(stockVal);
   const minQty = parseInt(document.getElementById('editMinQty').value) || 1;
@@ -384,6 +397,45 @@ async function saveEditProductModal() {
         : 'Список складов не загрузился, поэтому менять остаток нельзя: число потерялось бы при следующем заказе.<br>Обновите страницу и попробуйте снова.'
     });
     return;
+  }
+
+  // Смена закупки без нового количества: старый остаток не переоцениваем,
+  // пока сами не скажут. Новая цифра станет ценой следующего прихода.
+  let revalueStock = false;
+  const oldCostRounded = (typeof CostLayers !== 'undefined')
+    ? CostLayers.round2(p.costPrice) : (parseFloat(p.costPrice) || 0);
+  const nextCostRounded = (typeof CostLayers !== 'undefined')
+    ? CostLayers.round2(costPrice) : costPrice;
+  const onHand = (typeof CostLayers !== 'undefined')
+    ? CostLayers.stockOf(p)
+    : (typeof p.stock === 'number' ? Math.max(0, Math.floor(p.stock)) : 0);
+  // Новый приход с другой закупкой: продажа поднимается на ту же разницу,
+  // если в карточке её ещё не меняли вручную.
+  const stockUp = stockChanged && stock !== null && (_editShownStock == null || stock > _editShownStock);
+  const oldSale = (typeof CostLayers !== 'undefined')
+    ? CostLayers.round2(p.price) : (parseFloat(p.price) || 0);
+  if (typeof CostLayers !== 'undefined' && stockUp && nextCostRounded !== oldCostRounded && CostLayers.round2(price) === oldSale) {
+    price = CostLayers.raisedSale(oldSale, oldCostRounded, nextCostRounded);
+  }
+  if (!stockChanged && nextCostRounded !== oldCostRounded && onHand > 0 && typeof CostLayers !== 'undefined') {
+    const have = CostLayers.format(CostLayers.ensure(p));
+    const choice = await Swal.fire({
+      icon: 'question',
+      title: 'Старый остаток ещё есть',
+      html: 'На складе ещё <b>' + onHand + '</b> шт'
+        + (have ? ' (' + have + ')' : ' по <b>' + oldCostRounded + '</b> сом')
+        + '.<br>Новая приходная: <b>' + nextCostRounded + '</b> сом.'
+        + '<br><br>Если это цена новой поставки — то, что уже лежит, продастся по старой цене.',
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: 'Старые оставить по старой цене',
+      denyButtonText: 'Переоценить весь остаток',
+      cancelButtonText: 'Отмена',
+      confirmButtonColor: '#2e7d32',
+      denyButtonColor: '#e65100'
+    });
+    if (!choice.isConfirmed && !choice.isDenied) return;
+    revalueStock = choice.isDenied === true;
   }
 
   try {
@@ -429,11 +481,26 @@ async function saveEditProductModal() {
     if (!stockChanged) {
       // Остаток не трогали — не пишем его: число в форме могло устареть,
       // и сохранение цены откатывало бы продажи и приходы.
-      await db.collection('products').doc(currentEditProductId).update(updateData);
+      if (nextCostRounded !== oldCostRounded && typeof CostLayers !== 'undefined') {
+        const productRef = db.collection('products').doc(currentEditProductId);
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(productRef);
+          const data = (snap.exists && snap.data()) || {};
+          updateData.costLayers = revalueStock
+            ? CostLayers.repriceAll(data, costPrice)
+            : CostLayers.ensure(data);
+          tx.update(productRef, updateData);
+        });
+        p.costLayers = updateData.costLayers;
+      } else {
+        await db.collection('products').doc(currentEditProductId).update(updateData);
+      }
     } else if (stock === null) {
       updateData.stock = firebase.firestore.FieldValue.delete();
       updateData.warehouseStock = firebase.firestore.FieldValue.delete();
+      updateData.costLayers = firebase.firestore.FieldValue.delete();
       delete p.stock;
+      delete p.costLayers;
       p.warehouseStock = null;
       await db.collection('products').doc(currentEditProductId).update(updateData);
       _editShownStock = null;
@@ -450,6 +517,8 @@ async function saveEditProductModal() {
         if (freshHasWs && !targetWh) {
           throw new Error('остаток этого товара уже ведётся по складам. Обновите страницу и выберите склад.');
         }
+        const stockBefore = (typeof data.stock === 'number' && isFinite(data.stock))
+          ? Math.max(0, Math.floor(data.stock)) : 0;
         if (targetWh) {
           const base = freshHasWs ? Math.max(0, Math.floor(Number(freshWs[targetWh]) || 0)) : freshFlat;
           freshWs[targetWh] = Math.max(0, base + delta);
@@ -459,11 +528,16 @@ async function saveEditProductModal() {
           delete updateData.warehouseStock;
           updateData.stock = Math.max(0, freshFlat + delta);
         }
+        if (typeof CostLayers !== 'undefined' && typeof updateData.stock === 'number') {
+          const actualDelta = updateData.stock - stockBefore;
+          updateData.costLayers = CostLayers.applyDelta(data, stockBefore, actualDelta, costPrice).layers;
+        }
         tx.update(productRef, updateData);
       });
       // Разница уже записана: повторное «Сохранить» не должно её повторить.
       _editShownStock = stock;
       p.stock = updateData.stock;
+      if (updateData.costLayers) p.costLayers = updateData.costLayers;
       if (updateData.warehouseStock) p.warehouseStock = updateData.warehouseStock;
     }
     
@@ -472,7 +546,7 @@ async function saveEditProductModal() {
     if (typeof registerLocalProductEdit === 'function') {
       const editedFields = {
         title: p.title, category: p.category, description: p.description,
-        costPrice: p.costPrice, price: p.price, minQty: p.minQty,
+        costPrice: p.costPrice, costLayers: p.costLayers, price: p.price, minQty: p.minQty,
         useQtyButtons: p.useQtyButtons, roundQty: p.roundQty, isPack: p.isPack,
         packQty: p.packQty, packsPerBox: p.packsPerBox, unitsPerBox: p.unitsPerBox,
         showPricePerUnit: p.showPricePerUnit, showPackInfo: p.showPackInfo,

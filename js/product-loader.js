@@ -612,6 +612,8 @@ function persistProductsToLocalCache(list, options) {
       // это сжигало миллионы reads. Теперь кэш живёт 15 минут «свежим»,
       // поэтому админ-поля обязаны переживать localStorage-сериализацию.
       costPrice: p.costPrice,
+      costLayers: p.costLayers || null,
+      saleHolds: p.saleHolds || null,
       packsPerBox: p.packsPerBox,
       roundQty: p.roundQty,
       sellerName: p.sellerName,

@@ -1082,6 +1082,14 @@ function _findCostAdjustment(order, item, index) {
 
 // Себестоимость позиции за единицу: из перерасчёта (если включён),
 // иначе зафиксированная в заказе, иначе из каталога.
+function _costBreakdownHtml(item, qty) {
+  const parts = item && item.costBreakdown;
+  if (!Array.isArray(parts) || parts.length < 2) return '';
+  const sum = parts.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+  if (sum !== qty) return '';
+  return '<div style="font-size:11px; color:#666;">' + parts.map(l => (l.qty + ' шт по ' + l.cost)).join(', ') + '</div>';
+}
+
 function getItemCostPrice(order, item, index) {
   const adjusted = _findCostAdjustment(order, item, index);
   if (adjusted !== null) return adjusted;
@@ -1091,6 +1099,48 @@ function getItemCostPrice(order, item, index) {
     if (product && product.costPrice) costPrice = parseFloat(product.costPrice) || 0;
   }
   return costPrice;
+}
+
+// Одна позиция заказа может списать две партии: 5 шт по 10 и 5 шт по 14.
+// Считаем каждую партию своей ценой. Средняя закупка тут не используется:
+// округление «11 сом × 10» иногда даёт лишнюю копейку.
+function itemSaleSlices(order, item, index) {
+  const qty = Math.max(0, Math.round(parseFloat(item && (item.qty || item.quantity)) || 0));
+  const price = parseFloat(item && item.price) || 0;
+  const adjusted = _findCostAdjustment(order, item, index);
+  if (adjusted !== null || !item) {
+    return [{ qty: qty || 1, price, cost: adjusted || 0 }];
+  }
+  const parts = Array.isArray(item.costBreakdown) ? item.costBreakdown : [];
+  const covered = parts.reduce((s, l) => s + Math.max(0, Math.round(Number(l && l.qty) || 0)), 0);
+  if (parts.length > 1 && qty > 0 && covered === qty) {
+    return parts.map(l => ({
+      qty: Math.max(0, Math.round(Number(l.qty) || 0)),
+      price,
+      cost: parseFloat(l.cost) || 0,
+      known: true
+    })).filter(s => s.qty > 0);
+  }
+  const cost = getItemCostPrice(order, item, index);
+  return [{ qty: qty || 1, price, cost, known: cost > 0 }];
+}
+
+function itemMoney(order, item, index) {
+  const slices = itemSaleSlices(order, item, index);
+  let sale = 0, cost = 0, profit = 0, priced = false;
+  slices.forEach(s => {
+    const lineSale = s.price * s.qty;
+    sale += lineSale;
+    // known — цена партии известна, даже если она 0.
+    // Иначе нулевая партия выпадала из прибыли, а продажа оставалась.
+    if (s.known) {
+      const lineCost = s.cost * s.qty;
+      cost += lineCost;
+      profit += lineSale - lineCost;
+      priced = true;
+    }
+  });
+  return { sale, cost, profit, priced };
 }
 
 async function _getOrdersCached() {
@@ -1311,10 +1361,8 @@ function aggregateProductSales(orders, startDate, endDate) {
       const qty = parseFloat(item.qty || item.quantity) || 0;
       if (qty <= 0) return;
 
-      const salePrice = parseFloat(item.price) || 0;
       const product = findProductAnywhere(item.id);
-
-      const costPrice = getItemCostPrice(order, item, itemIndex);
+      const money = itemMoney(order, item, itemIndex);
 
       // Позиции без id группируем по названию, иначе они слиплись бы в одну
       const key = item.id || ('title:' + String(item.title || '').trim().toLowerCase());
@@ -1339,10 +1387,10 @@ function aggregateProductSales(orders, startDate, endDate) {
       }
 
       row.qtySold += qty;
-      row.revenue += salePrice * qty;
-      if (costPrice > 0) {
-        row.cost += costPrice * qty;
-        row.profit += (salePrice - costPrice) * qty;
+      row.revenue += money.sale;
+      if (money.priced) {
+        row.cost += money.cost;
+        row.profit += money.profit;
       } else {
         // Без закупочной цены прибыль по позиции посчитать нельзя
         row.qtyWithoutCost += qty;
@@ -1660,18 +1708,19 @@ function openOrderProfitDetail(index) {
     .map((item, itemIndex) => ({ item, itemIndex }))
     .filter(entry => itemMatchesOwnerFilter(entry.item));
   let sumSale = 0, sumCost = 0, sumProfit = 0;
-  const rows = items.map(({ item, itemIndex }) => {
-    const qty = item.qty || item.quantity || 1;
-    const costPrice = getItemCostPrice(order, item, itemIndex);
-    const price = parseFloat(item.price) || 0;
-    const sale = price * qty;
-    const cost = costPrice * qty;
-    const profit = costPrice > 0 ? sale - cost : 0;
-    sumSale += sale;
-    sumCost += cost;
-    sumProfit += profit;
-    return { item, qty, price, costPrice, sale, cost, profit };
-  }).sort((a, b) => b.profit - a.profit);
+  const rows = [];
+  items.forEach(({ item, itemIndex }) => {
+    itemSaleSlices(order, item, itemIndex).forEach(s => {
+      const sale = s.price * s.qty;
+      const cost = s.cost * s.qty;
+      const profit = s.known ? sale - cost : 0;
+      sumSale += sale;
+      if (s.known) sumCost += cost;
+      sumProfit += profit;
+      rows.push({ item, qty: s.qty, price: s.price, costPrice: s.cost, sale, cost, profit });
+    });
+  });
+  rows.sort((a, b) => b.profit - a.profit);
 
   const date = order.orderDate || new Date(order.timestamp || 0);
   document.getElementById('orderProfitDetailTitle').textContent = '👤 ' + (order.name || 'Аноним');
@@ -1798,18 +1847,12 @@ async function loadOrderProfitReport() {
       items.forEach((item, itemIndex) => {
         if (!itemMatchesOwnerFilter(item)) return;
         managerItemCount += 1;
-        const qty = item.qty || item.quantity || 1;
+        const money = itemMoney(order, item, itemIndex);
+        totalSale += money.sale;
         
-        const costPrice = getItemCostPrice(order, item, itemIndex);
-        
-        const salePrice = parseFloat(item.price) || 0;
-        
-        totalSale += salePrice * qty;
-        
-        if (costPrice > 0) {
-          // Есть закупочная цена - считаем прибыль
-          totalCost += costPrice * qty;
-          totalProfit += (salePrice - costPrice) * qty;
+        if (money.priced) {
+          totalCost += money.cost;
+          totalProfit += money.profit;
         } else {
           // Нет закупочной цены - прибыль 0 для этого товара
           itemsWithoutCost++;
@@ -1982,16 +2025,14 @@ async function loadAgentsProfitReport() {
         const ownerMode = getOwnerProfitMode();
         items.forEach((item, itemIndex) => {
           if (!itemMatchesOwnerFilter(item)) return;
-          const qty = item.qty || item.quantity || 1;
-          const salePrice = parseFloat(item.price) || 0;
-          const costPrice = getItemCostPrice(data, item, itemIndex);
+          const money = itemMoney(data, item, itemIndex);
           
           // Если total не было или фильтр режет товары менеджеров — считаем по позициям
           if (!data.total || ownerMode !== 'all') {
-            orderSale += salePrice * qty;
+            orderSale += money.sale;
           }
-          if (costPrice > 0) {
-            orderProfit += (salePrice - costPrice) * qty;
+          if (money.priced) {
+            orderProfit += money.profit;
           }
         });
         if (data.total && ownerMode === 'all') {
@@ -2272,15 +2313,10 @@ async function loadExpensesReport() {
         const items = data.items || data.cart || [];
         items.forEach((item, itemIndex) => {
           if (!itemMatchesOwnerFilter(item)) return;
-          const qty = item.qty || item.quantity || 1;
-          const sale = (parseFloat(item.price) || 0) * qty;
-          
-          const costPrice = getItemCostPrice(data, item, itemIndex);
-          
-          const cost = costPrice * qty;
-          // Прибыль только если есть закупочная цена
-          if (costPrice > 0) {
-            periodProfit += sale - cost;
+          const money = itemMoney(data, item, itemIndex);
+          // Прибыль только если есть закупочная цена. Партии считаются отдельно.
+          if (money.priced) {
+            periodProfit += money.profit;
           }
         });
       }

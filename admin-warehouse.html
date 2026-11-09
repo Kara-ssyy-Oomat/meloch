@@ -15,6 +15,7 @@
   <script src="js/bot-blocker.js?v=2"></script>
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
+  <script src="js/cost-layers.js?v=3"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -184,6 +185,7 @@
     .btn-edit { background: #fff3e0; color: #e65100; }
     .btn-delete { background: #fce4ec; color: #c62828; }
     .btn-transfer { background: #e8f5e9; color: #2e7d32; }
+    .btn-receipt { background: #e8f5e9; color: #1b5e20; }
     .btn-pause-wh { background: #fff8e1; color: #f57f17; }
     .btn-pause-wh.paused { background: #4CAF50; color: #fff; }
     .warehouse-card.wh-paused { opacity: 0.7; border: 2px dashed #f57f17; }
@@ -859,6 +861,7 @@
   <!-- Табы -->
   <div class="tabs" id="tabsContainer">
     <button class="tab-btn active" data-tab="warehouses" onclick="switchTab('warehouses')">📦 Склады</button>
+    <button class="tab-btn" data-tab="receipt" onclick="switchTab('receipt')">📥 Приход</button>
     <button class="tab-btn" data-tab="products" onclick="switchTab('products')">🏷️ Товары</button>
     <button class="tab-btn" data-tab="movements" onclick="switchTab('movements')">🔄 Движения</button>
     <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts')" style="position:relative;">🔔 Уведомления<span id="alertsBadge" style="display:none; position:absolute; top:-4px; right:-4px; background:#e53935; color:#fff; min-width:18px; height:18px; padding:0 5px; border-radius:9px; font-size:11px; line-height:18px; font-weight:700;">0</span></button>
@@ -892,6 +895,27 @@
         </div>
       </div>
     </details>
+  </div>
+
+  <!-- Таб: Новый приход с новой ценой -->
+  <div id="tab-receipt" class="content tab-content" style="display:none; padding-bottom:100px;">
+    <div style="background:#fff; border-radius:12px; padding:14px; margin-bottom:12px;">
+      <div style="font-weight:700; font-size:16px; margin-bottom:6px;">Новый приход</div>
+      <div style="font-size:13px; color:#555; line-height:1.45;">Если цена продажи другая, новая партия на сайт не попадает, пока старый остаток не продастся по старой цене. Потом она появляется сама, уже с новой ценой. Если цена продажи та же и меняется только закупка — остаток добавляется сразу.</div>
+    </div>
+    <div style="background:#fff; border-radius:12px; padding:14px; margin-bottom:12px;">
+      <label style="display:block; font-weight:600; margin-bottom:6px;">Склад</label>
+      <select id="receiptWarehouse" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; font-size:15px; margin-bottom:12px;"></select>
+      <label style="display:block; font-weight:600; margin-bottom:6px;">Товар</label>
+      <input type="text" id="receiptSearch" placeholder="Найдите товар по названию" oninput="searchReceiptProducts()" autocomplete="off" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; font-size:15px; box-sizing:border-box;">
+      <div id="receiptSearchList" style="max-height:220px; overflow:auto; margin-top:8px;"></div>
+      <div id="receiptEditor" style="display:none; margin-top:14px; padding-top:12px; border-top:1px solid #eee;"></div>
+    </div>
+    <div id="receiptLinesBox" style="background:#fff; border-radius:12px; padding:14px;">
+      <div style="font-weight:700; margin-bottom:8px;">К приёму</div>
+      <div id="receiptLines" style="font-size:13px; color:#888;">Пока пусто. Найдите товар и укажите, сколько пришло.</div>
+      <button type="button" id="receiptSaveBtn" onclick="saveNewReceipt()" style="margin-top:12px; width:100%; background:#2e7d32; color:#fff; border:none; border-radius:10px; padding:14px; font-size:16px; font-weight:700; cursor:pointer;">Принять приход</button>
+    </div>
   </div>
 
   <!-- Таб 2: Товары по складам -->
@@ -1093,6 +1117,7 @@
             <input type="number" id="stockQtyVal" min="0" placeholder="0" oninput="filterStockProducts()" style="width:50px; padding:4px 6px; border:1px solid #ddd; border-radius:6px; font-size:13px; text-align:center;">
           </div>
         </div>
+        <div style="font-size:12px; color:#666; padding:0 0 8px;">Новая партия с другой ценой — вкладка <b>Приход</b>.</div>
         <div id="stockProductsList" style="max-height: 55vh; overflow-y: auto; -webkit-overflow-scrolling: touch;"></div>
       </div>
       <div class="modal-footer">
@@ -1909,7 +1934,7 @@ function updateStats() {
       if (p.stock <= lowStockThreshold) lowStockCount++;
     }
     if (qty > 0) {
-      totalCost += qty * (p.costPrice || 0);
+      totalCost += (typeof CostLayers !== 'undefined') ? CostLayers.valueOf(p, qty) : qty * (p.costPrice || 0);
       totalRetail += qty * (p.price || 0);
       totalWholesale += qty * (p.optPrice || p.price || 0);
     }
@@ -1977,10 +2002,14 @@ function switchTab(tab) {
     el.style.display = 'none';
   });
   document.getElementById('tab-' + tab).style.display = 'block';
+  const addWhBtn = document.querySelector('.add-warehouse-btn');
+  if (addWhBtn) addWhBtn.style.display = tab === 'receipt' ? 'none' : '';
   
   if (tab === 'products') {
     renderWarehouseFilter();
     renderProductsStock();
+  } else if (tab === 'receipt') {
+    fillReceiptWarehouses();
   } else if (tab === 'movements') {
     loadMovements(true);
   } else if (tab === 'alerts') {
@@ -2018,7 +2047,7 @@ function renderWarehouses() {
         productCount++;
         totalStock += qty;
         totalSellValue += qty * (p.price || 0);
-        totalCostValue += qty * (p.costPrice || 0);
+        totalCostValue += (typeof CostLayers !== 'undefined') ? CostLayers.valueOf(p, qty) : qty * (p.costPrice || 0);
       }
     });
     
@@ -2057,6 +2086,7 @@ function renderWarehouses() {
         <div class="warehouse-actions">
           <button class="btn-pause-wh${ownPaused ? ' paused' : ''}" onclick="toggleSingleWarehousePause('${wh.id}')">${ownPaused ? '▶ Вкл' : '⏸ Пауза'}</button>
           <button class="btn-primary-wh ${wh.id === primaryWarehouseId ? 'active' : ''}" onclick="setPrimaryWarehouse('${wh.id}')">${wh.id === primaryWarehouseId ? '⭐ Главный' : '☆ Сделать главным'}</button>
+          <button class="btn-receipt" onclick="openReceiptForWarehouse('${wh.id}')">📥 Приход</button>
           <button class="btn-view" onclick="openStockModal('${wh.id}')">📋 Остатки</button>
           <button class="btn-transfer" onclick="openTransferModal('${wh.id}')">🔄 Перемещение</button>
           <button class="btn-edit" onclick="editWarehouse('${wh.id}')">✏️</button>
@@ -2067,6 +2097,7 @@ function renderWarehouses() {
   });
   
   container.innerHTML = html;
+  fillReceiptWarehouses();
 }
 
 // ==================== CRUD СКЛАДОВ ====================
@@ -2465,6 +2496,294 @@ function stockMovement(productId, direction) {
   if (moveInput) moveInput.value = '1';
 }
 
+// ==================== НОВЫЙ ПРИХОД ====================
+let receiptLines = [];
+let receiptPickId = '';
+
+function fillReceiptWarehouses() {
+  const sel = document.getElementById('receiptWarehouse');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = warehouses.map(w => `<option value="${esc(w.id)}">${esc(w.name) || 'Склад'}</option>`).join('');
+  if (cur && warehouses.some(w => w.id === cur)) sel.value = cur;
+  else if (primaryWarehouseId) sel.value = primaryWarehouseId;
+}
+
+function openReceiptForWarehouse(warehouseId) {
+  switchTab('receipt');
+  const sel = document.getElementById('receiptWarehouse');
+  if (sel && warehouseId) sel.value = warehouseId;
+  const search = document.getElementById('receiptSearch');
+  if (search) search.focus();
+}
+
+function searchReceiptProducts() {
+  const raw = (document.getElementById('receiptSearch').value || '').toLowerCase().replace(/ё/g, 'е').trim();
+  const list = document.getElementById('receiptSearchList');
+  if (!raw) { list.innerHTML = ''; return; }
+  const found = products.filter(p => (p.title || '').toLowerCase().replace(/ё/g, 'е').includes(raw)).slice(0, 12);
+  if (!found.length) {
+    list.innerHTML = '<div style="padding:10px; color:#999;">Ничего не найдено</div>';
+    return;
+  }
+  list.innerHTML = found.map(p => {
+    const qty = (typeof CostLayers !== 'undefined') ? CostLayers.stockOf(p) : (p.stock || 0);
+    return `<button type="button" data-pid="${esc(p.id)}" style="display:flex; justify-content:space-between; gap:8px; width:100%; text-align:left; padding:10px 8px; border:none; border-bottom:1px solid #f0f0f0; background:#fff; cursor:pointer; font-size:14px;">
+      <span>${esc(p.title) || 'Без названия'}</span>
+      <span style="color:#888; white-space:nowrap;">${qty} шт</span>
+    </button>`;
+  }).join('');
+}
+
+function selectReceiptProduct(productId) {
+  const p = products.find(x => x.id === productId);
+  if (!p) return;
+  receiptPickId = productId;
+  const existing = receiptLines.find(l => l.productId === productId);
+  const oldQty = (typeof CostLayers !== 'undefined') ? CostLayers.stockOf(p) : Math.max(0, Math.floor(Number(p.stock) || 0));
+  const oldCost = (typeof CostLayers !== 'undefined') ? CostLayers.round2(p.costPrice) : (parseFloat(p.costPrice) || 0);
+  const oldSale = (typeof CostLayers !== 'undefined') ? CostLayers.round2(p.price) : (parseFloat(p.price) || 0);
+  const opt = (typeof CostLayers !== 'undefined') ? CostLayers.round2(p.optPrice) : (parseFloat(p.optPrice) || 0);
+  const cost = existing ? existing.cost : oldCost;
+  const sale = existing ? existing.sale : oldSale;
+  const qty = existing ? existing.addQty : '';
+  const have = (p.costLayers && typeof CostLayers !== 'undefined' && CostLayers.format)
+    ? CostLayers.format(p.costLayers)
+    : (oldQty + ' шт по ' + oldCost);
+  const box = document.getElementById('receiptEditor');
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="font-weight:700; margin-bottom:4px;">${esc(p.title)}</div>
+    <div style="font-size:12px; color:#e65100; margin-bottom:10px;">Сейчас на складе: ${esc(have)}. Продажа ${oldSale}${opt > 0 ? ', опт ' + opt : ''}. Другая цена продажи выйдет на сайт, когда эти штуки закончатся.</div>
+    <label style="display:block; font-size:12px; color:#666;">Сколько пришло, шт</label>
+    <input id="rcpQty" type="number" min="1" step="1" value="${qty}" placeholder="Например 20" style="width:100%; margin:4px 0 10px; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box;">
+    <label style="display:block; font-size:12px; color:#666;">Новая приходная</label>
+    <input id="rcpCost" type="number" min="0" step="0.01" value="${cost}" data-old-cost="${oldCost}" data-old-sale="${oldSale}" data-old-opt="${opt}" style="width:100%; margin:4px 0 10px; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box;">
+    <label style="display:block; font-size:12px; color:#666;">Новая цена продажи <span id="rcpSaleHint" style="color:#999;">сейчас ${oldSale}</span></label>
+    <input id="rcpSale" type="number" min="0" step="0.01" value="${sale}" style="width:100%; margin:4px 0 10px; padding:10px; font-size:16px; border:1px solid #e53935; border-radius:8px; box-sizing:border-box;">
+    ${opt > 0 ? `<label style="display:block; font-size:12px; color:#666;">Новая оптовая <span style="color:#999;">сейчас ${opt}</span></label>
+    <input id="rcpOpt" type="number" min="0" step="0.01" value="${existing && existing.opt != null ? existing.opt : opt}" style="width:100%; margin:4px 0 10px; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:8px; box-sizing:border-box;">` : ''}
+    <button type="button" onclick="addReceiptLine()" style="width:100%; background:#1a237e; color:#fff; border:none; border-radius:8px; padding:12px; font-weight:700; cursor:pointer;">Добавить в приход</button>
+  `;
+  const costEl = document.getElementById('rcpCost');
+  const saleEl = document.getElementById('rcpSale');
+  const optEl = document.getElementById('rcpOpt');
+  if (saleEl) saleEl.addEventListener('input', function () { saleEl.dataset.touched = '1'; });
+  if (optEl) optEl.addEventListener('input', function () { optEl.dataset.touched = '1'; });
+  if (costEl) costEl.addEventListener('input', function () {
+    const next = parseFloat(costEl.value);
+    if (!isFinite(next) || typeof CostLayers === 'undefined') return;
+    const oldC = parseFloat(costEl.dataset.oldCost) || 0;
+    if (saleEl && saleEl.dataset.touched !== '1') saleEl.value = CostLayers.raisedSale(costEl.dataset.oldSale, oldC, next);
+    if (optEl && optEl.dataset.touched !== '1') optEl.value = CostLayers.raisedSale(costEl.dataset.oldOpt, oldC, next);
+    const hint = document.getElementById('rcpSaleHint');
+    const diff = CostLayers.round2(next - oldC);
+    if (hint) hint.textContent = diff === 0 ? 'без изменения' : (diff > 0 ? 'плюс ' + diff : 'минус ' + Math.abs(diff));
+  });
+  document.getElementById('receiptSearchList').innerHTML = '';
+}
+
+function addReceiptLine() {
+  const p = products.find(x => x.id === receiptPickId);
+  if (!p) return;
+  const qty = Math.round(parseFloat(document.getElementById('rcpQty').value));
+  const cost = parseFloat(document.getElementById('rcpCost').value);
+  const sale = parseFloat(document.getElementById('rcpSale').value);
+  const optEl = document.getElementById('rcpOpt');
+  const opt = optEl ? parseFloat(optEl.value) : null;
+  if (!qty || qty <= 0) { Swal.fire('Сколько пришло?', 'Введите количество больше нуля', 'info'); return; }
+  if (!isFinite(cost) || cost < 0 || !isFinite(sale) || sale < 0 || (optEl && (!isFinite(opt) || opt < 0))) {
+    Swal.fire('Проверьте цены', 'Закупка и продажа должны быть 0 или больше', 'info');
+    return;
+  }
+  const line = {
+    productId: p.id,
+    title: p.title || '',
+    addQty: qty,
+    cost: CostLayers.round2(cost),
+    sale: CostLayers.round2(sale),
+    opt: optEl ? CostLayers.round2(opt) : null
+  };
+  const idx = receiptLines.findIndex(l => l.productId === p.id);
+  if (idx >= 0) receiptLines[idx] = line;
+  else receiptLines.push(line);
+  renderReceiptLines();
+  document.getElementById('receiptEditor').style.display = 'none';
+  document.getElementById('receiptSearch').value = '';
+  receiptPickId = '';
+}
+
+function removeReceiptLine(productId) {
+  receiptLines = receiptLines.filter(l => l.productId !== productId);
+  renderReceiptLines();
+}
+
+function receiptLineWaits(line) {
+  const p = products.find(x => x.id === line.productId);
+  if (!p || typeof CostLayers === 'undefined') return false;
+  return CostLayers.receiptWaits(CostLayers.stockOf(p), p.price, line.sale);
+}
+
+function renderReceiptLines() {
+  const box = document.getElementById('receiptLines');
+  if (!receiptLines.length) {
+    box.innerHTML = 'Пока пусто. Найдите товар и укажите, сколько пришло.';
+    box.style.color = '#888';
+    return;
+  }
+  box.style.color = '#333';
+  box.innerHTML = receiptLines.map(l => `
+    <div style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start; padding:8px 0; border-bottom:1px solid #f0f0f0;">
+      <div>
+        <div style="font-weight:600;">${esc(l.title)}</div>
+        <div style="font-size:12px; color:#555;">+${l.addQty} шт · закупка ${l.cost} · продажа ${l.sale}${l.opt != null ? ' · опт ' + l.opt : ''}${receiptLineWaits(l) ? ' · подождёт старый остаток' : ' · сразу на сайт'}</div>
+      </div>
+      <button type="button" data-remove="${esc(l.productId)}" style="border:none; background:#fce4ec; color:#c62828; border-radius:6px; padding:6px 8px; cursor:pointer;">Убрать</button>
+    </div>
+  `).join('');
+}
+
+document.getElementById('receiptSearchList').addEventListener('click', function (e) {
+  const btn = e.target.closest('[data-pid]');
+  if (btn) selectReceiptProduct(btn.getAttribute('data-pid'));
+});
+document.getElementById('receiptLines').addEventListener('click', function (e) {
+  const btn = e.target.closest('[data-remove]');
+  if (btn) removeReceiptLine(btn.getAttribute('data-remove'));
+});
+
+async function saveNewReceipt() {
+  const warehouseId = document.getElementById('receiptWarehouse').value;
+  const wh = warehouses.find(w => w.id === warehouseId);
+  if (!warehouseId || !wh) { Swal.fire('Выберите склад', '', 'info'); return; }
+  if (!receiptLines.length) { Swal.fire('Список пуст', 'Добавьте хотя бы один товар', 'info'); return; }
+  const preview = receiptLines.map(l => esc(l.title) + ': +' + l.addQty + ' шт, закупка ' + l.cost + ', продажа ' + l.sale).join('<br>');
+  const result = await Swal.fire({
+    title: 'Принять приход?',
+    html: 'Склад «' + esc(wh.name) + '»<br><br>' + preview,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Принять',
+    cancelButtonText: 'Назад',
+    confirmButtonColor: '#2e7d32'
+  });
+  if (!result.isConfirmed) return;
+
+  const lines = receiptLines.slice();
+  const savedIds = [];
+  let waited = 0;
+  try {
+    Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    for (const line of lines) {
+      const productRef = db.collection('products').doc(line.productId);
+      const localProduct = products.find(p => p.id === line.productId);
+      let lineWaited = false;
+      await db.runTransaction(async (tx) => {
+        lineWaited = false;
+        const snap = await tx.get(productRef);
+        if (!snap.exists) return;
+        const product = snap.data() || {};
+        const ws = { ...(product.warehouseStock || {}) };
+        if (Object.keys(ws).length === 0 && typeof product.stock === 'number' && product.stock > 0) {
+          ws[primaryWarehouseId || warehouseId] = Math.max(0, Math.floor(product.stock));
+        }
+        const oldQty = Math.max(0, Math.floor(Number(ws[warehouseId]) || 0));
+        const visible = Object.values(ws).reduce((sum, v) => sum + Math.max(0, Math.floor(Number(v) || 0)), 0);
+        const primaryWh = warehouses.find(w => w.id === primaryWarehouseId);
+        const siteVisible = (!warehousePaused && primaryWarehouseId && !(primaryWh && primaryWh.paused))
+          ? CostLayers.siteQty({ warehouseStock: ws, stock: visible }, primaryWarehouseId)
+          : visible;
+        const working = Object.assign({}, product, { warehouseStock: ws, stock: visible });
+        if (CostLayers.receiptWaits(siteVisible, product.price, line.sale)) {
+          const holds = CostLayers.cleanHolds(product.saleHolds);
+          holds.push({
+            qty: line.addQty,
+            cost: line.cost,
+            sale: line.sale,
+            opt: line.opt,
+            warehouseId: warehouseId
+          });
+          tx.update(productRef, { saleHolds: holds });
+          lineWaited = true;
+          tx.set(db.collection('warehouseMovements').doc(), {
+            productId: line.productId,
+            productTitle: (localProduct && localProduct.title) || product.title || line.title,
+            warehouseId,
+            warehouseName: wh.name || '',
+            type: 'receipt',
+            qty: line.addQty,
+            direction: 'in',
+            oldQty,
+            newQty: oldQty,
+            held: true,
+            saleHold: { qty: line.addQty, cost: line.cost, sale: line.sale, opt: line.opt, warehouseId: warehouseId },
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            note: 'Ждёт: на сайт после старой цены продажи'
+          });
+          return;
+        }
+        const savedQty = oldQty + line.addQty;
+        ws[warehouseId] = savedQty;
+        const totalStock = Object.values(ws).reduce((sum, v) => sum + Math.max(0, Math.floor(Number(v) || 0)), 0);
+        const updateData = {
+          warehouseStock: ws,
+          stock: totalStock,
+          costPrice: CostLayers.round2(line.cost),
+          price: CostLayers.round2(line.sale)
+        };
+        if (line.opt != null) updateData.optPrice = CostLayers.round2(line.opt);
+        const applied = CostLayers.applyDelta(working, visible, line.addQty, line.cost);
+        updateData.costLayers = applied.layers;
+        if (product.blocked === true && totalStock > 0) updateData.blocked = false;
+        tx.update(productRef, updateData);
+        tx.set(db.collection('warehouseMovements').doc(), {
+          productId: line.productId,
+          productTitle: (localProduct && localProduct.title) || product.title || line.title,
+          warehouseId,
+          warehouseName: wh.name || '',
+          type: 'receipt',
+          qty: line.addQty,
+          direction: 'in',
+          oldQty,
+          newQty: savedQty,
+          costAdded: applied.costAdded,
+          costTaken: applied.costTaken,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          note: 'Новый приход'
+        });
+      });
+      if (lineWaited) waited++;
+      savedIds.push(line.productId);
+    }
+    receiptLines = [];
+    renderReceiptLines();
+    try {
+      await db.collection('settings').doc('productsRevision').set({
+        updatedAt: Date.now(),
+        by: 'склад: приход',
+        source: 'admin-warehouse',
+        changedCount: savedIds.length,
+        changedIds: savedIds.length <= 20 ? savedIds : []
+      }, { merge: true });
+    } catch (e) {}
+    Swal.fire({
+      icon: 'success',
+      title: 'Приход принят',
+      html: 'Товаров: ' + savedIds.length + (waited ? '<br>Ждут старый остаток: ' + waited : ''),
+      timer: 2200,
+      showConfirmButton: false
+    });
+    await Promise.all([loadProducts(), loadMovements()]);
+    updateStats();
+    renderWarehouses();
+  } catch (e) {
+    console.error('Ошибка прихода:', e);
+    receiptLines = receiptLines.filter(l => savedIds.indexOf(l.productId) < 0);
+    renderReceiptLines();
+    Swal.fire('Ошибка', 'Не удалось сохранить: ' + e.message, 'error');
+  }
+}
+
 async function saveStockChanges() {
   const changedIds = Object.keys(stockChanges);
   if (changedIds.length === 0) {
@@ -2485,6 +2804,35 @@ async function saveStockChanges() {
   });
   
   if (!result.isConfirmed) return;
+
+  // Приход поверх непроданного остатка: новая цена только на новую партию.
+  let receiptPrices = {};
+  if (typeof CostLayers !== 'undefined') {
+    const rows = [];
+    changedIds.forEach(productId => {
+      const base = stockChangeBase.hasOwnProperty(productId) ? stockChangeBase[productId] : 0;
+      const addQty = stockChanges[productId] - base;
+      if (addQty <= 0) return;
+      const p = products.find(x => x.id === productId);
+      if (!p) return;
+      const oldQty = CostLayers.stockOf(p);
+      if (oldQty <= 0) return;
+      rows.push({
+        id: productId,
+        title: p.title || '',
+        addQty: addQty,
+        oldQty: oldQty,
+        oldCost: p.costPrice || 0,
+        salePrice: p.price || 0,
+        optPrice: p.optPrice || 0,
+        layers: p.costLayers
+      });
+    });
+    if (rows.length) {
+      receiptPrices = await CostLayers.askReceiptPrices(rows);
+      if (!receiptPrices) return;
+    }
+  }
   
   const savedIds = [];
   try {
@@ -2520,10 +2868,68 @@ async function saveStockChanges() {
         savedQty = Math.max(0, oldQty + (newQty - base));
         diff = savedQty - oldQty;
 
+        const visibleNow = (!warehousePaused && primaryWarehouseId)
+          ? CostLayers.siteQty({ warehouseStock: ws, stock: 0 }, primaryWarehouseId)
+          : Object.values(ws).reduce((sum, v) => sum + (Number(v) || 0), 0);
+        const receiptEarly = Object.prototype.hasOwnProperty.call(receiptPrices, productId)
+          ? receiptPrices[productId] : null;
+        if (diff > 0 && receiptEarly && typeof receiptEarly === 'object' && typeof CostLayers !== 'undefined'
+            && CostLayers.receiptWaits(visibleNow, product.price, receiptEarly.sale)) {
+          const holds = CostLayers.cleanHolds(product.saleHolds);
+          holds.push({
+            qty: diff,
+            cost: CostLayers.round2(receiptEarly.cost),
+            sale: CostLayers.round2(receiptEarly.sale),
+            opt: receiptEarly.opt == null ? null : CostLayers.round2(receiptEarly.opt),
+            warehouseId: warehouseId
+          });
+          tx.update(productRef, { saleHolds: holds });
+          tx.set(db.collection('warehouseMovements').doc(), {
+            productId,
+            productTitle: (localProduct && localProduct.title) || product.title || '',
+            warehouseId,
+            warehouseName: wh ? wh.name : '',
+            type: 'receipt',
+            qty: diff,
+            direction: 'in',
+            oldQty,
+            newQty: oldQty,
+            held: true,
+            saleHold: holds[holds.length - 1],
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            note: 'Ждёт: на сайт после старой цены продажи'
+          });
+          return;
+        }
+
         ws[warehouseId] = savedQty;
         const totalStock = Object.values(ws).reduce((sum, v) => sum + (Number(v) || 0), 0);
 
         const updateData = { warehouseStock: ws, stock: totalStock };
+        let costAdded = [];
+        let costTaken = [];
+        if (diff !== 0 && typeof CostLayers !== 'undefined') {
+          const stockBefore = Math.max(0, totalStock - diff);
+          const receipt = Object.prototype.hasOwnProperty.call(receiptPrices, productId)
+            ? receiptPrices[productId] : null;
+          const receiptCost = receipt && typeof receipt === 'object' ? receipt.cost : receipt;
+          const applied = CostLayers.applyDelta(product, stockBefore, diff, receiptCost);
+          updateData.costLayers = applied.layers;
+          costAdded = applied.costAdded;
+          costTaken = applied.costTaken;
+          if (diff > 0 && receiptCost != null) updateData.costPrice = CostLayers.round2(receiptCost);
+          if (diff > 0 && receipt && typeof receipt === 'object') {
+            if (receipt.sale != null) updateData.price = CostLayers.round2(receipt.sale);
+            if (receipt.opt != null) updateData.optPrice = CostLayers.round2(receipt.opt);
+          }
+        }
+        if (typeof CostLayers !== 'undefined' && updateData.stock === 0) {
+          const released = CostLayers.releaseWaiting(Object.assign({}, product, updateData));
+          if (released) {
+            delete released.released;
+            Object.assign(updateData, released);
+          }
+        }
 
         if (product.blocked === true && totalStock > 0) {
           updateData.blocked = false;
@@ -2545,6 +2951,8 @@ async function saveStockChanges() {
             direction: diff > 0 ? 'in' : 'out',
             oldQty,
             newQty: savedQty,
+            costAdded,
+            costTaken,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             note: diff > 0 ? 'Приход на склад' : 'Корректировка остатка'
           });
@@ -3314,7 +3722,21 @@ async function undoSelectedMovements() {
           const hasFlatStock = typeof product.stock === 'number';
           let flatStock = hasFlatStock ? Math.max(0, Math.floor(product.stock)) : 0;
 
+          let holdsLeft = (typeof CostLayers !== 'undefined') ? CostLayers.cleanHolds(product.saleHolds) : [];
           for (const mov of movs) {
+            if (mov.held && typeof CostLayers !== 'undefined') {
+              const want = mov.saleHold || {};
+              for (let i = holdsLeft.length - 1; i >= 0; i--) {
+                const h = holdsLeft[i];
+                if (h.qty === Math.max(0, Math.floor(Number(mov.qty) || 0))
+                    && h.sale === CostLayers.round2(want.sale)
+                    && h.cost === CostLayers.round2(want.cost)) {
+                  holdsLeft.splice(i, 1);
+                  break;
+                }
+              }
+              continue;
+            }
             let m = mov;
             if (isFlat) {
               if (m.type === 'transfer' || !m.warehouseId) continue;
@@ -3346,12 +3768,35 @@ async function undoSelectedMovements() {
               }
             }
           }
+          const stockPatch = {};
           if (isFlat) {
-            if (hasFlatStock) tx.update(productRef, { stock: flatStock });
+            if (hasFlatStock) stockPatch.stock = flatStock;
           } else {
-            const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
-            tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+            stockPatch.warehouseStock = ws;
+            stockPatch.stock = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
           }
+          if (typeof CostLayers !== 'undefined' && typeof stockPatch.stock === 'number') {
+            const startQty = (typeof product.stock === 'number' && isFinite(product.stock))
+              ? Math.max(0, Math.floor(product.stock)) : 0;
+            let running = startQty;
+            let layers = CostLayers.align(product.costLayers, startQty, product.costPrice);
+            for (const mov of movs) {
+              if (mov.held || mov.type === 'transfer') continue;
+              const q = Math.max(0, Math.floor(Number(mov.qty) || 0));
+              const before = running;
+              if (mov.direction === 'in') running = Math.max(0, running - q);
+              else running += q;
+              layers = CostLayers.reverseMovement(
+                { costLayers: layers, costPrice: product.costPrice },
+                before, running, mov
+              );
+            }
+            stockPatch.costLayers = CostLayers.align(layers, stockPatch.stock, product.costPrice);
+          }
+          if (typeof CostLayers !== 'undefined' && holdsLeft.length !== CostLayers.cleanHolds(product.saleHolds).length) {
+            stockPatch.saleHolds = holdsLeft;
+          }
+          if (Object.keys(stockPatch).length) tx.update(productRef, stockPatch);
 
           // Помечаем оригинал(ы) как отменённые и пишем обратные записи
           for (const m of movs) {

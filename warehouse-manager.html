@@ -19,6 +19,7 @@
   <script src="js/firebase-config.js?v=4"></script>
   <script src="js/auth.js?v=3"></script>
   <script src="js/wm-reauth.js?v=3"></script>
+  <script src="js/cost-layers.js?v=3"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { -webkit-tap-highlight-color: transparent; }
@@ -85,7 +86,7 @@
       gap: 8px;
       align-items: center;
     }
-    .wm-logout, .wm-back-shop {
+    .wm-receipt-open, .wm-logout, .wm-back-shop {
       background: rgba(255,255,255,0.15);
       color: #fff;
       border: none;
@@ -97,7 +98,8 @@
       text-decoration: none;
       display: inline-block;
     }
-    .wm-logout:active, .wm-back-shop:active { background: rgba(255,255,255,0.3); }
+    .wm-logout:active, .wm-back-shop:active, .wm-receipt-open:active { background: rgba(255,255,255,0.3); }
+    .wm-receipt-open { background: #2e7d32; }
 
     /* ====== ЛОГИН ====== */
     .login-wrap {
@@ -651,6 +653,7 @@
         <div class="sub" id="wmHeaderSub">—</div>
       </div>
       <div class="wm-header-actions">
+        <button class="wm-receipt-open" type="button" onclick="openNewReceipt()">📥 Приход</button>
         <button class="wm-logout" onclick="wmLogout()">Выйти</button>
       </div>
     </div>
@@ -690,6 +693,26 @@
   </div>
 
   <!-- Плашка «Сохранить/Отмена» появляется, когда есть несохранённые изменения -->
+  <div id="wmReceipt" style="display:none; position:fixed; inset:0; z-index:200; background:#f5f5f5; overflow:auto;">
+    <div style="background:#1a237e; color:#fff; padding:16px; display:flex; align-items:center; gap:10px;">
+      <button type="button" onclick="closeNewReceipt()" style="background:transparent; color:#fff; border:none; font-size:20px; cursor:pointer;">←</button>
+      <div>
+        <div style="font-weight:700;">Новый приход</div>
+        <div style="font-size:12px; opacity:0.85;">Другая цена продажи выйдет на сайт, когда старый остаток закончится.</div>
+      </div>
+    </div>
+    <div style="padding:14px;">
+      <input type="text" id="wmReceiptSearch" placeholder="Найдите товар" oninput="searchWmReceipt()" autocomplete="off" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; font-size:16px; box-sizing:border-box;">
+      <div id="wmReceiptSearchList" style="background:#fff; border-radius:8px; margin-top:8px; max-height:220px; overflow:auto;"></div>
+      <div id="wmReceiptEditor" style="display:none; background:#fff; border-radius:12px; padding:14px; margin-top:12px;"></div>
+      <div style="background:#fff; border-radius:12px; padding:14px; margin-top:12px;">
+        <div style="font-weight:700; margin-bottom:8px;">К приёму</div>
+        <div id="wmReceiptLines" style="font-size:13px; color:#888;">Пока пусто</div>
+        <button type="button" onclick="acceptWmReceipt()" style="margin-top:12px; width:100%; background:#2e7d32; color:#fff; border:none; border-radius:10px; padding:14px; font-size:16px; font-weight:700; cursor:pointer;">Принять приход</button>
+      </div>
+    </div>
+  </div>
+
   <div class="wm-batch-bar" id="wmBatchBar">
     <div class="info" id="wmBatchInfo">Изменено: <b>0</b> товаров</div>
     <button type="button" class="wm-batch-cancel" id="wmBatchCancelBtn" onclick="cancelBatch()">Отмена</button>
@@ -1464,9 +1487,206 @@ async function cancelBatch() {
   toast('Изменения отменены');
 }
 
+let wmReceiptLines = [];
+let wmReceiptPickId = '';
+
+function openNewReceipt() {
+  if (_pendingBatch.size > 0) {
+    Swal.fire('Сначала остатки', 'Сохраните или отмените несохранённые плюс и минус, потом откройте приход.', 'info');
+    return;
+  }
+  document.getElementById('wmReceipt').style.display = 'block';
+  document.getElementById('wmReceiptSearch').focus();
+}
+function closeNewReceipt() {
+  document.getElementById('wmReceipt').style.display = 'none';
+}
+function searchWmReceipt() {
+  const raw = (document.getElementById('wmReceiptSearch').value || '').toLowerCase().replace(/ё/g, 'е').trim();
+  const list = document.getElementById('wmReceiptSearchList');
+  if (!raw) { list.innerHTML = ''; return; }
+  const found = _wmProducts.filter(function (p) {
+    return String(p.title || p.name || '').toLowerCase().replace(/ё/g, 'е').indexOf(raw) >= 0;
+  }).slice(0, 12);
+  if (!found.length) {
+    list.innerHTML = '<div style="padding:10px;color:#999;">Ничего не найдено</div>';
+    return;
+  }
+  list.innerHTML = found.map(function (p) {
+    const qty = (typeof CostLayers !== 'undefined') ? CostLayers.stockOf(p) : (p.stock || 0);
+    return '<button type="button" data-pid="' + escapeHtml(p.id) + '" style="display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:10px;border:none;border-bottom:1px solid #f0f0f0;background:#fff;cursor:pointer;font-size:14px;"><span>' + escapeHtml(p.title || p.name || '') + '</span><span style="color:#888;">' + qty + ' шт</span></button>';
+  }).join('');
+}
+function selectWmReceiptProduct(productId) {
+  const p = _wmProducts.find(function (x) { return x.id === productId; });
+  if (!p) return;
+  wmReceiptPickId = productId;
+  const existing = wmReceiptLines.find(function (l) { return l.productId === productId; });
+  const oldQty = (typeof CostLayers !== 'undefined') ? CostLayers.stockOf(p) : Math.max(0, Math.floor(Number(p.stock) || 0));
+  const oldCost = (typeof CostLayers !== 'undefined') ? CostLayers.round2(p.costPrice) : (parseFloat(p.costPrice) || 0);
+  const oldSale = (typeof CostLayers !== 'undefined') ? CostLayers.round2(p.price) : (parseFloat(p.price) || 0);
+  const opt = (typeof CostLayers !== 'undefined') ? CostLayers.round2(p.optPrice) : (parseFloat(p.optPrice) || 0);
+  const cost = existing ? existing.cost : oldCost;
+  const sale = existing ? existing.sale : oldSale;
+  const box = document.getElementById('wmReceiptEditor');
+  box.style.display = 'block';
+  box.innerHTML =
+    '<div style="font-weight:700;margin-bottom:4px;">' + escapeHtml(p.title || p.name || '') + '</div>' +
+    '<div style="font-size:12px;color:#e65100;margin-bottom:10px;">Сейчас ' + oldQty + ' шт по ' + oldCost + '. Продажа ' + oldSale + (opt > 0 ? ', опт ' + opt : '') + '</div>' +
+    '<label style="font-size:12px;color:#666;">Сколько пришло, шт</label>' +
+    '<input id="wmRcpQty" type="number" min="1" step="1" value="' + (existing ? existing.addQty : '') + '" placeholder="Например 20" style="width:100%;margin:4px 0 10px;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">' +
+    '<label style="font-size:12px;color:#666;">Новая приходная</label>' +
+    '<input id="wmRcpCost" type="number" min="0" step="0.01" value="' + cost + '" data-old-cost="' + oldCost + '" data-old-sale="' + oldSale + '" data-old-opt="' + opt + '" style="width:100%;margin:4px 0 10px;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">' +
+    '<label style="font-size:12px;color:#666;">Новая цена продажи <span id="wmRcpSaleHint" style="color:#999;">сейчас ' + oldSale + '</span></label>' +
+    '<input id="wmRcpSale" type="number" min="0" step="0.01" value="' + sale + '" style="width:100%;margin:4px 0 10px;padding:10px;font-size:16px;border:1px solid #e53935;border-radius:8px;box-sizing:border-box;">' +
+    (opt > 0
+      ? '<label style="font-size:12px;color:#666;">Новая оптовая</label><input id="wmRcpOpt" type="number" min="0" step="0.01" value="' + (existing && existing.opt != null ? existing.opt : opt) + '" style="width:100%;margin:4px 0 10px;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;">'
+      : '') +
+    '<button type="button" onclick="addWmReceiptLine()" style="width:100%;background:#1a237e;color:#fff;border:none;border-radius:8px;padding:12px;font-weight:700;cursor:pointer;">Добавить в приход</button>';
+  const costEl = document.getElementById('wmRcpCost');
+  const saleEl = document.getElementById('wmRcpSale');
+  const optEl = document.getElementById('wmRcpOpt');
+  if (saleEl) saleEl.addEventListener('input', function () { saleEl.dataset.touched = '1'; });
+  if (optEl) optEl.addEventListener('input', function () { optEl.dataset.touched = '1'; });
+  if (costEl) costEl.addEventListener('input', function () {
+    const next = parseFloat(costEl.value);
+    if (!isFinite(next) || typeof CostLayers === 'undefined') return;
+    const oldC = parseFloat(costEl.dataset.oldCost) || 0;
+    if (saleEl && saleEl.dataset.touched !== '1') saleEl.value = CostLayers.raisedSale(costEl.dataset.oldSale, oldC, next);
+    if (optEl && optEl.dataset.touched !== '1') optEl.value = CostLayers.raisedSale(costEl.dataset.oldOpt, oldC, next);
+    const hint = document.getElementById('wmRcpSaleHint');
+    const diff = CostLayers.round2(next - oldC);
+    if (hint) hint.textContent = diff === 0 ? 'без изменения' : (diff > 0 ? 'плюс ' + diff : 'минус ' + Math.abs(diff));
+  });
+  document.getElementById('wmReceiptSearchList').innerHTML = '';
+}
+function addWmReceiptLine() {
+  const p = _wmProducts.find(function (x) { return x.id === wmReceiptPickId; });
+  if (!p || typeof CostLayers === 'undefined') return;
+  const qty = Math.round(parseFloat(document.getElementById('wmRcpQty').value));
+  const cost = parseFloat(document.getElementById('wmRcpCost').value);
+  const sale = parseFloat(document.getElementById('wmRcpSale').value);
+  const optEl = document.getElementById('wmRcpOpt');
+  const opt = optEl ? parseFloat(optEl.value) : null;
+  if (!qty || qty <= 0) { Swal.fire('Сколько пришло?', 'Введите количество больше нуля', 'info'); return; }
+  if (!isFinite(cost) || cost < 0 || !isFinite(sale) || sale < 0 || (optEl && (!isFinite(opt) || opt < 0))) {
+    Swal.fire('Проверьте цены', 'Закупка и продажа должны быть 0 или больше', 'info');
+    return;
+  }
+  const line = {
+    productId: p.id,
+    title: String(p.title || p.name || ''),
+    image: String(p.image || p.imageUrl || ''),
+    oldQty: CostLayers.stockOf(p),
+    addQty: qty,
+    cost: CostLayers.round2(cost),
+    sale: CostLayers.round2(sale),
+    opt: optEl ? CostLayers.round2(opt) : null
+  };
+  const idx = wmReceiptLines.findIndex(function (l) { return l.productId === p.id; });
+  if (idx >= 0) wmReceiptLines[idx] = line;
+  else wmReceiptLines.push(line);
+  renderWmReceiptLines();
+  document.getElementById('wmReceiptEditor').style.display = 'none';
+  document.getElementById('wmReceiptSearch').value = '';
+  wmReceiptPickId = '';
+}
+function renderWmReceiptLines() {
+  const box = document.getElementById('wmReceiptLines');
+  if (!wmReceiptLines.length) {
+    box.innerHTML = 'Пока пусто';
+    box.style.color = '#888';
+    return;
+  }
+  box.style.color = '#333';
+  box.innerHTML = wmReceiptLines.map(function (l) {
+    return '<div style="display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #f0f0f0;"><div><div style="font-weight:600;">' + escapeHtml(l.title) + '</div><div style="font-size:12px;color:#555;">+' + l.addQty + ' шт · закупка ' + l.cost + ' · продажа ' + l.sale + (l.opt != null ? ' · опт ' + l.opt : '') + '</div></div><button type="button" data-remove="' + escapeHtml(l.productId) + '" style="border:none;background:#fce4ec;color:#c62828;border-radius:6px;padding:6px 8px;cursor:pointer;">Убрать</button></div>';
+  }).join('');
+}
+async function acceptWmReceipt() {
+  if (!wmReceiptLines.length) { Swal.fire('Список пуст', 'Добавьте хотя бы один товар', 'info'); return; }
+  if (_pendingBatch.size > 0) {
+    Swal.fire('Сначала остатки', 'Сохраните или отмените несохранённые плюс и минус.', 'info');
+    return;
+  }
+  const preview = wmReceiptLines.map(function (l) {
+    return escapeHtml(l.title) + ': +' + l.addQty + ' шт, закупка ' + l.cost + ', продажа ' + l.sale;
+  }).join('<br>');
+  const result = await Swal.fire({
+    title: 'Принять приход?',
+    html: preview,
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Принять',
+    cancelButtonText: 'Назад',
+    confirmButtonColor: '#2e7d32'
+  });
+  if (!result.isConfirmed) return;
+  wmReceiptLines.forEach(function (l) {
+    _pendingBatch.set(l.productId, {
+      delta: l.addQty,
+      oldStock: l.oldQty,
+      newStock: l.oldQty + l.addQty,
+      title: l.title,
+      image: l.image,
+      receiptCost: l.cost,
+      salePrice: l.sale,
+      optPrice: l.opt
+    });
+  });
+  wmReceiptLines = [];
+  renderWmReceiptLines();
+  closeNewReceipt();
+  updateBatchBar();
+  await saveAllPendingChanges();
+}
+document.getElementById('wmReceiptSearchList').addEventListener('click', function (e) {
+  const btn = e.target.closest('[data-pid]');
+  if (btn) selectWmReceiptProduct(btn.getAttribute('data-pid'));
+});
+document.getElementById('wmReceiptLines').addEventListener('click', function (e) {
+  const btn = e.target.closest('[data-remove]');
+  if (!btn) return;
+  wmReceiptLines = wmReceiptLines.filter(function (l) { return l.productId !== btn.getAttribute('data-remove'); });
+  renderWmReceiptLines();
+});
+
 async function saveAllPendingChanges() {
   if (_pendingBatch.size === 0) return;
   if (_isSaving) return;
+
+  if (typeof CostLayers !== 'undefined') {
+    const rows = [];
+    _pendingBatch.forEach(function (change, productId) {
+      if (change.delta <= 0 || change.receiptCost != null) return;
+      const product = _wmProducts.find(function (p) { return p.id === productId; });
+      const oldQty = product ? CostLayers.stockOf(product) : 0;
+      if (oldQty <= 0) return;
+      rows.push({
+        id: productId,
+        title: change.title,
+        addQty: change.delta,
+        oldQty: oldQty,
+        oldCost: product ? product.costPrice : 0,
+        salePrice: product ? product.price : 0,
+        optPrice: product ? product.optPrice : 0,
+        layers: product ? product.costLayers : null
+      });
+    });
+    if (rows.length) {
+      const prices = await CostLayers.askReceiptPrices(rows);
+      if (!prices) return;
+      _pendingBatch.forEach(function (change, id) {
+        if (Object.prototype.hasOwnProperty.call(prices, id)) {
+          var rec = prices[id];
+          change.receiptCost = rec && typeof rec === 'object' ? rec.cost : rec;
+          change.salePrice = rec && typeof rec === 'object' ? rec.sale : null;
+          change.optPrice = rec && typeof rec === 'object' ? rec.opt : null;
+        }
+      });
+    }
+  }
+
   _isSaving = true;
 
   const saveBtn = document.getElementById('wmBatchSaveBtn');
@@ -1506,7 +1726,10 @@ async function saveAllPendingChanges() {
     const movRef = wmDb.collection('warehouseMovements').doc();
     let realOld = 0;
     let realNew = 0;
+    let heldBack = false;
     let warehouseUsed = _primaryWarehouseId || '__flat';
+    let savedLayers = null;
+    let savedCost = null;
 
     try {
       await wmDb.runTransaction(async function (tx) {
@@ -1520,6 +1743,74 @@ async function saveAllPendingChanges() {
           lastStockChangeByUid: changerUid,
           lastStockChangeAt: Date.now()
         };
+        const visibleNow = (typeof CostLayers !== 'undefined')
+          ? CostLayers.siteQty(data, _primaryWarehouseId || '')
+          : ((typeof data.stock === 'number' && isFinite(data.stock)) ? Math.max(0, Math.floor(data.stock)) : 0);
+        const waitSale = change.delta > 0 && change.salePrice != null && typeof CostLayers !== 'undefined'
+          && CostLayers.receiptWaits(visibleNow, data.price, change.salePrice);
+        if (waitSale) {
+          const holds = CostLayers.cleanHolds(data.saleHolds);
+          holds.push({
+            qty: change.delta,
+            cost: CostLayers.round2(change.receiptCost),
+            sale: CostLayers.round2(change.salePrice),
+            opt: change.optPrice == null ? null : CostLayers.round2(change.optPrice),
+            warehouseId: _primaryWarehouseId || ''
+          });
+          patch.saleHolds = holds;
+          realOld = visibleNow;
+          realNew = visibleNow;
+          heldBack = true;
+          warehouseUsed = _primaryWarehouseId || '__flat';
+          savedLayers = null;
+          savedCost = null;
+          tx.update(productRef, patch);
+          tx.set(logRef, {
+            productId: productId,
+            productTitle: change.title,
+            productImage: change.image,
+            warehouseId: warehouseUsed,
+            oldStock: realOld,
+            newStock: realNew,
+            delta: 0,
+            held: true,
+            heldQty: change.delta,
+            saleHold: holds[holds.length - 1],
+            changedByUid: changerUid,
+            changedByEmail: changerEmail,
+            changedByName: changerName,
+            role: 'warehouseManager',
+            at: Date.now(),
+            reverted: false,
+            movementId: movRef.id,
+            costAdded: [],
+            costTaken: []
+          });
+          tx.set(movRef, {
+            productId: productId,
+            productTitle: change.title,
+            warehouseId: warehouseUsed === '__flat' ? '' : warehouseUsed,
+            warehouseName: warehouseUsed === _primaryWarehouseId ? _primaryWarehouseName : '',
+            type: 'receipt',
+            qty: change.delta,
+            direction: 'in',
+            oldQty: realOld,
+            newQty: realNew,
+            held: true,
+            saleHold: holds[holds.length - 1],
+            note: 'Ждёт: на сайт после старой цены продажи',
+            sourceLogId: logRef.id,
+            sourceRole: 'warehouseManager',
+            costAdded: [],
+            costTaken: [],
+            createdByUid: changerUid,
+            createdByEmail: changerEmail,
+            createdByName: changerName,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            createdAtMs: Date.now()
+          });
+          return;
+        }
 
         if (_primaryWarehouseId) {
           const cur = (ws && typeof ws === 'object')
@@ -1556,6 +1847,58 @@ async function saveAllPendingChanges() {
           realOld = cur; realNew = next;
           warehouseUsed = '__flat';
         }
+        if (typeof CostLayers !== 'undefined' && typeof patch.stock === 'number') {
+          const stockBefore = (typeof data.stock === 'number' && isFinite(data.stock))
+            ? Math.max(0, Math.floor(data.stock))
+            : CostLayers.stockOf(data);
+          const actualDelta = patch.stock - stockBefore;
+          const applied = CostLayers.applyDelta(data, stockBefore, actualDelta, change.receiptCost);
+          patch.costLayers = applied.layers;
+          patch._costAdded = applied.costAdded;
+          patch._costTaken = applied.costTaken;
+          if (actualDelta > 0 && change.receiptCost != null) {
+            patch.costPrice = CostLayers.round2(change.receiptCost);
+          }
+          if (actualDelta > 0 && change.salePrice != null) {
+            patch.price = CostLayers.round2(change.salePrice);
+          }
+          if (actualDelta > 0 && change.optPrice != null) {
+            patch.optPrice = CostLayers.round2(change.optPrice);
+          }
+          const wsNow = Object.assign({}, ws || {});
+          if (warehouseUsed && warehouseUsed !== '__flat') wsNow[warehouseUsed] = realNew;
+          const siteLeft = _primaryWarehouseId
+            ? Math.max(0, Math.floor(Number(wsNow[_primaryWarehouseId]) || 0))
+            : patch.stock;
+          if (siteLeft === 0) {
+            const released = CostLayers.releaseWaiting({
+              stock: patch.stock,
+              warehouseStock: wsNow,
+              costLayers: patch.costLayers || data.costLayers,
+              costPrice: data.costPrice,
+              saleHolds: data.saleHolds
+            }, 0);
+            if (released) {
+              Object.keys(patch).forEach(function (k) {
+                if (k.indexOf('warehouseStock.') === 0) delete patch[k];
+              });
+              if (released.warehouseStock) patch.warehouseStock = released.warehouseStock;
+              patch.stock = released.stock;
+              patch.costLayers = released.costLayers;
+              patch.costPrice = released.costPrice;
+              patch.price = released.price;
+              if (released.optPrice != null) patch.optPrice = released.optPrice;
+              patch.saleHolds = released.saleHolds;
+              realNew = released.stock;
+            }
+          }
+        }
+        const costAdded = patch._costAdded || [];
+        const costTaken = patch._costTaken || [];
+        delete patch._costAdded;
+        delete patch._costTaken;
+        savedLayers = patch.costLayers || null;
+        savedCost = patch.costPrice != null ? patch.costPrice : null;
         tx.update(productRef, patch);
         tx.set(logRef, {
           productId: productId,
@@ -1571,7 +1914,9 @@ async function saveAllPendingChanges() {
           role: 'warehouseManager',
           at: Date.now(),
           reverted: false,
-          movementId: movRef.id
+          movementId: movRef.id,
+          costAdded: costAdded,
+          costTaken: costTaken
         });
 
         // Запись в warehouseMovements. Мы используем тот же формат, что и
@@ -1595,6 +1940,8 @@ async function saveAllPendingChanges() {
           note: 'Управляющий: ' + changerName,
           sourceLogId: logRef.id,
           sourceRole: 'warehouseManager',
+          costAdded: costAdded,
+          costTaken: costTaken,
           createdByUid: changerUid,
           createdByEmail: changerEmail,
           createdByName: changerName,
@@ -1606,11 +1953,28 @@ async function saveAllPendingChanges() {
       // Обновляем локальный кэш товара, чтобы UI показывал реальное значение
       const product = _wmProducts.find(function (p) { return p.id === productId; });
       if (product) {
-        if (warehouseUsed === '__flat') {
+        if (heldBack && typeof CostLayers !== 'undefined') {
+          const holds = CostLayers.cleanHolds(product.saleHolds);
+          holds.push({
+            qty: change.delta,
+            cost: CostLayers.round2(change.receiptCost),
+            sale: CostLayers.round2(change.salePrice),
+            opt: change.optPrice == null ? null : CostLayers.round2(change.optPrice),
+            warehouseId: warehouseUsed === '__flat' ? '' : warehouseUsed
+          });
+          product.saleHolds = holds;
+        } else if (warehouseUsed === '__flat') {
           product.stock = realNew;
         } else {
           product.warehouseStock = Object.assign({}, product.warehouseStock || {}, { [warehouseUsed]: realNew });
+          product.stock = Object.values(product.warehouseStock).reduce(function (s, v) {
+            return s + Math.max(0, Math.floor(Number(v) || 0));
+          }, 0);
         }
+        if (savedLayers) product.costLayers = savedLayers;
+        if (savedCost != null) product.costPrice = savedCost;
+        if (!heldBack && change.salePrice != null) product.price = change.salePrice;
+        if (!heldBack && change.optPrice != null) product.optPrice = change.optPrice;
       }
       succeeded++;
     } catch (err) {

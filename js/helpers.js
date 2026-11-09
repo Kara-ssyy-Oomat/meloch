@@ -262,12 +262,25 @@ async function updateProductCostPrice(productId, newCostPrice) {
       return;
     }
     
-    // Обновляем локально
+    // Новая цифра — цена следующего прихода. То, что уже лежит, остаётся
+    // своей партией и продаётся первым.
     const product = products.find(p => p.id === productId);
-    if (product) product.costPrice = costPrice;
-    
-    // Сохраняем в Firebase в фоне
-    await db.collection('products').doc(productId).update({ costPrice: costPrice });
+    const productRef = db.collection('products').doc(productId);
+    let layers = null;
+    if (typeof CostLayers !== 'undefined') {
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(productRef);
+        const data = (snap.exists && snap.data()) || {};
+        layers = CostLayers.ensure(data);
+        tx.update(productRef, { costPrice: costPrice, costLayers: layers });
+      });
+    } else {
+      await productRef.update({ costPrice: costPrice });
+    }
+    if (product) {
+      product.costPrice = costPrice;
+      if (layers) product.costLayers = layers;
+    }
   } catch (error) {
     console.error('Ошибка при обновлении цены закупки:', error);
     Swal.fire('Ошибка', 'Не удалось обновить цену закупки', 'error');

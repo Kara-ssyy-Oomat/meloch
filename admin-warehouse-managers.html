@@ -18,6 +18,7 @@
   <script src="js/firebase-config.js?v=4"></script>
   <script src="js/auth.js?v=3"></script>
   <script src="js/admin-reauth.js?v=3"></script>
+  <script src="js/cost-layers.js?v=3"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -924,6 +925,32 @@ async function undoLogEntry(logId, btn) {
       }
 
       const data = pDoc.data() || {};
+      if (entry.held && typeof CostLayers !== 'undefined') {
+        const holds = CostLayers.cleanHolds(data.saleHolds);
+        const want = entry.saleHold || {};
+        for (let i = holds.length - 1; i >= 0; i--) {
+          if (holds[i].qty === Math.max(0, Math.floor(Number(entry.heldQty || entry.saleHold && entry.saleHold.qty) || 0))
+              && holds[i].sale === CostLayers.round2(want.sale)) {
+            holds.splice(i, 1);
+            break;
+          }
+        }
+        tx.update(productRef, { saleHolds: holds });
+        tx.update(logRef, {
+          reverted: true,
+          revertedAt: Date.now(),
+          revertedBy: firebase.auth().currentUser ? firebase.auth().currentUser.email : 'admin',
+          revertedStockAfter: data.stock || 0
+        });
+        if (movRef) {
+          tx.update(movRef, {
+            cancelled: true,
+            cancelledAt: firebase.firestore.FieldValue.serverTimestamp(),
+            cancelledAtMs: Date.now()
+          });
+        }
+        return;
+      }
       const patch = {
         lastStockChangeBy: 'админ (откат)',
         lastStockChangeByUid: firebase.auth().currentUser ? firebase.auth().currentUser.uid : null,
@@ -943,6 +970,15 @@ async function undoLogEntry(logId, btn) {
         const wsAfter = Object.assign({}, ws, { [entry.warehouseId]: next });
         patch.stock = Object.values(wsAfter).reduce((s, v) => s + Math.max(0, Math.floor(Number(v) || 0)), 0);
         restoredValue = next;
+      }
+      if (typeof CostLayers !== 'undefined' && typeof patch.stock === 'number') {
+        const before = (typeof data.stock === 'number' && isFinite(data.stock))
+          ? Math.max(0, Math.floor(data.stock)) : 0;
+        patch.costLayers = CostLayers.reverseMovement(data, before, patch.stock, {
+          direction: entry.delta > 0 ? 'in' : 'out',
+          costAdded: entry.costAdded || [],
+          costTaken: entry.costTaken || []
+        });
       }
       tx.update(productRef, patch);
       tx.update(logRef, {

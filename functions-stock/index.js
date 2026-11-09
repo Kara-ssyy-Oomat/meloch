@@ -7,6 +7,7 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
+const CostLayers = require('./cost-layers');
 
 // ===================================================================
 //         СКЛАД: ГАРАНТИРОВАННОЕ СПИСАНИЕ ПРИ ЗАКАЗЕ
@@ -180,9 +181,21 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
       if (actualDeduct <= 0) {
         return { deductions: null, shortage: need, productExists: true, reason: 'out_of_stock' };
       }
-      tx.update(productRef, {
-        stock: admin.firestore.FieldValue.increment(-actualDeduct)
-      });
+      const appliedFlat = CostLayers.applyDelta(product, available, -actualDeduct, product.costPrice);
+      const flatPatch = {
+        stock: available - actualDeduct,
+        costLayers: appliedFlat.layers
+      };
+      let releasedHold = null;
+      if (flatPatch.stock === 0) {
+        const released = CostLayers.releaseWaiting(Object.assign({}, product, flatPatch));
+        if (released) {
+          releasedHold = released.released;
+          delete released.released;
+          Object.assign(flatPatch, released);
+        }
+      }
+      tx.update(productRef, flatPatch);
       // Одна запись движения без разбивки по складам.
       // ID детерминирован → повторный запуск не создаст дубль.
       if (meta.orderId) {
@@ -209,7 +222,10 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
         shortage,
         productExists: true,
         reason: shortage > 0 ? 'partial_stock' : 'ok',
-        actualDeduct
+        actualDeduct,
+        costTaken: appliedFlat.costTaken,
+        costAvg: appliedFlat.avg,
+        releasedHold: releasedHold
       };
     }
 
@@ -253,10 +269,26 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
     }
 
     const newTotal = Object.values(updatedWs).reduce((s, v) => s + (Number(v) || 0), 0);
-    tx.update(productRef, {
+    const totalDeductedNow = Object.values(itemDeductions).reduce((s, v) => s + (Number(v) || 0), 0);
+    const appliedWh = CostLayers.applyDelta(product, newTotal + totalDeductedNow, -totalDeductedNow, product.costPrice);
+    const whPatch = {
       warehouseStock: updatedWs,
-      stock: newTotal
-    });
+      stock: newTotal,
+      costLayers: appliedWh.layers
+    };
+    let releasedHoldWh = null;
+    const siteLeft = (primaryActive && primaryId)
+      ? Math.max(0, Math.floor(Number(updatedWs[primaryId]) || 0))
+      : newTotal;
+    if (siteLeft === 0) {
+      const released = CostLayers.releaseWaiting(Object.assign({}, product, whPatch), siteLeft);
+      if (released) {
+        releasedHoldWh = released.released;
+        delete released.released;
+        Object.assign(whPatch, released);
+      }
+    }
+    tx.update(productRef, whPatch);
 
     // Запись истории — по одной строке на каждый склад.
     // Детерминированный ID = защита от дублей при retry.
@@ -288,6 +320,9 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
       shortage,
       productExists: true,
       actualDeduct: totalDeducted,
+      costTaken: appliedWh.costTaken,
+      costAvg: appliedWh.avg,
+      releasedHold: releasedHoldWh,
       reason: shortage > 0 ? (totalDeducted === 0 ? 'out_of_stock' : 'partial_stock') : 'ok'
     };
   });
@@ -296,12 +331,14 @@ async function _deductOneProduct(productId, needQty, ctx, meta) {
 /**
  * Вернуть товар на склад (если заказ отменили пока шло списание).
  */
-async function _returnDeductions(warehouseDeductions) {
+async function _returnDeductions(warehouseDeductions, costAllocations) {
   if (!warehouseDeductions || typeof warehouseDeductions !== 'object') return;
+  const allocs = (costAllocations && typeof costAllocations === 'object') ? costAllocations : {};
   const entries = Object.entries(warehouseDeductions);
   for (const [productId, byWh] of entries) {
     if (!byWh || typeof byWh !== 'object') continue;
     const productRef = db.collection('products').doc(productId);
+    const taken = Array.isArray(allocs[productId]) ? allocs[productId] : [];
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(productRef);
       if (!snap.exists) return;
@@ -315,10 +352,23 @@ async function _returnDeductions(warehouseDeductions) {
         returned += q;
       }
       if (returned <= 0) return;
-      if (product.warehouseStock && typeof product.warehouseStock === 'object'
-          && Object.keys(product.warehouseStock).length > 0) {
+      const hasWarehouse = product.warehouseStock && typeof product.warehouseStock === 'object'
+          && Object.keys(product.warehouseStock).length > 0;
+      if (hasWarehouse) {
+        const before = CostLayers.stockOf(product);
         const newTotal = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
-        tx.update(productRef, { warehouseStock: ws, stock: newTotal });
+        tx.update(productRef, {
+          warehouseStock: ws,
+          stock: newTotal,
+          costLayers: CostLayers.withRestore(product, before, newTotal, taken)
+        });
+      } else if (typeof product.stock === 'number') {
+        const before = Math.max(0, Math.floor(product.stock));
+        const next = before + returned;
+        tx.update(productRef, {
+          stock: next,
+          costLayers: CostLayers.withRestore(product, before, next, taken)
+        });
       } else {
         tx.update(productRef, {
           stock: admin.firestore.FieldValue.increment(returned)
@@ -403,6 +453,7 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
   const CONCURRENCY = 5;
   const queue = items.filter(i => i && i.id && !processedIds.has(i.id));
   const results = new Map(); // itemId -> { deductions, shortage, reason, productTitle }
+  const costByProduct = {}; // id -> { avg, taken } партии, списанные этим заказом
 
   async function worker() {
     while (queue.length > 0) {
@@ -423,6 +474,7 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
       }
     }
   }
+  let releasedSale = false;
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker()));
 
   // Собираем batch-обновление, чтобы не делать N update() последовательно
@@ -442,6 +494,7 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     processedIds.add(item.id);
 
     const { deductions, shortage, reason, productTitle, requested, actualDeduct } = res;
+    if (res.releasedHold) releasedSale = true;
 
     // Что-то реально ушло со склада (в warehouseStock ИЛИ общий stock)?
     const deductedFromWarehouse = deductions && Object.keys(deductions).length > 0;
@@ -457,6 +510,10 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
       anyDeducted = true;
       deductedIds.add(item.id);
       newDeducted.push(item.id);
+      if (Array.isArray(res.costTaken) && res.costTaken.length) {
+        costByProduct[item.id] = { avg: res.costAvg || 0, taken: res.costTaken };
+        batchUpdate['costAllocations.' + item.id] = res.costTaken;
+      }
     }
 
     if (shortage > 0 && !shortageIds.has(item.id)) {
@@ -475,6 +532,16 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
   // Прогресс сохраняем ДО выхода с ошибкой: иначе retry не знает, какие
   // товары уже списаны, и списывает их повторно. Без catch — если прогресс
   // не записался, retry обязан начаться заново, а не идти дальше.
+  if (releasedSale) {
+    try {
+      await db.collection('settings').doc('productsRevision').set({
+        updatedAt: Date.now(),
+        by: 'склад: новая цена продажи',
+        source: 'functions-stock'
+      }, { merge: true });
+    } catch (e) {}
+  }
+
   if (newProcessed.length > 0 || newDeducted.length > 0 || Object.keys(batchUpdate).length > 0) {
     const upd = Object.assign({}, batchUpdate);
     if (newProcessed.length > 0) {
@@ -483,6 +550,22 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     if (newDeducted.length > 0) {
       upd.stockDeductedProductIds = admin.firestore.FieldValue.arrayUnion(...newDeducted);
       upd.stockDeducted = true;
+    }
+    if (Object.keys(costByProduct).length > 0) {
+      try {
+        const freshOrder = await orderRef.get();
+        const prevItems = (freshOrder.exists && Array.isArray(freshOrder.data().items))
+          ? freshOrder.data().items : [];
+        upd.items = prevItems.map((item) => {
+          if (!item || !costByProduct[item.id]) return item;
+          const c = costByProduct[item.id];
+          const next = Object.assign({}, item, { costBreakdown: c.taken });
+          if (c.avg > 0) next.costPrice = c.avg;
+          return next;
+        });
+      } catch (e) {
+        console.warn('[StockDeduct] не записали партии в заказ:', e.message);
+      }
     }
     await orderRef.update(upd);
   }
@@ -544,16 +627,33 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
 
   if (needReturn) {
     console.log(`[StockDeduct] ${orderId}: заказ отменён во время списания — возвращаем`);
-    await _returnDeductions(warehouseDeductions);
-    // Товары без warehouseDeductions (только increment stock)
+    const allocForReturn = Object.assign(
+      {},
+      (orderData && orderData.costAllocations && typeof orderData.costAllocations === 'object')
+        ? orderData.costAllocations : {},
+      Object.keys(costByProduct).reduce((m, id) => { m[id] = costByProduct[id].taken; return m; }, {})
+    );
+    await _returnDeductions(warehouseDeductions, allocForReturn);
+    // Товары без warehouseDeductions (только общий stock)
     for (const item of items) {
       if (!item || !item.id || !deductedIds.has(item.id)) continue;
       if (warehouseDeductions[item.id]) continue;
       const qty = Math.max(0, Math.floor(item.qty || 0));
       if (qty <= 0) continue;
       try {
-        await db.collection('products').doc(item.id).update({
-          stock: admin.firestore.FieldValue.increment(qty)
+        const productRef = db.collection('products').doc(item.id);
+        const taken = Array.isArray(allocForReturn[item.id]) ? allocForReturn[item.id] : [];
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(productRef);
+          if (!snap.exists) return;
+          const product = snap.data() || {};
+          if (typeof product.stock !== 'number') return;
+          const before = Math.max(0, Math.floor(product.stock));
+          const next = before + qty;
+          tx.update(productRef, {
+            stock: next,
+            costLayers: CostLayers.withRestore(product, before, next, taken)
+          });
         });
       } catch (e) {
         console.warn(`[StockDeduct] return increment ${item.id}:`, e.message);
@@ -561,6 +661,7 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     }
     await orderRef.update({
       warehouseDeductions: {},
+      costAllocations: {},
       stockDeducted: false,
       stockDeductionStatus: 'skipped_cancelled'
     }).catch(() => {});

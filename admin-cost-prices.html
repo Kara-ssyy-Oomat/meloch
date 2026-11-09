@@ -15,6 +15,7 @@
   <script src="js/bot-blocker.js?v=2"></script>
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
+  <script src="js/cost-layers.js?v=3"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -351,6 +352,7 @@
       <div class="info-box">
         Меняется <b>только приходная (закупочная) цена</b>. Розничные и оптовые цены, заказы и история продаж не меняются.
         Старые приходные цены сохраняются в истории изменений.
+        Здесь цена применяется ко всему остатку. Если пришла новая партия, а старая ещё не продана — оприходуйте её на складе: старые штуки останутся по своей цене.
       </div>
 
       <div class="card">
@@ -1071,13 +1073,17 @@ async function saveCostChanges(changes, comment) {
       if (!data) return;
       var oldCost = round2(data.costPrice);
       if (oldCost === c.newCost) return;
+      var onHand = (typeof CostLayers !== 'undefined')
+        ? CostLayers.stockOf(data)
+        : (typeof data.stock === 'number' ? Math.max(0, Math.floor(data.stock)) : 0);
       items.push({
         id: c.p.id,
         title: productTitle(data),
         category: data.category || 'все',
         price: round2(data.price),
         oldCost: oldCost,
-        newCost: c.newCost
+        newCost: c.newCost,
+        onHand: onHand
       });
     });
     if (!items.length) {
@@ -1102,11 +1108,13 @@ async function saveCostChanges(changes, comment) {
     for (var i = 0; i < items.length; i += BATCH_LIMIT) {
       var batch = db.batch();
       items.slice(i, i + BATCH_LIMIT).forEach(function (it) {
-        batch.update(db.collection('products').doc(it.id), {
+        var layerPatch = {
           costPrice: it.newCost,
           costPriceUpdatedAt: now,
           lastCostChangeId: histRef.id
-        });
+        };
+        if (it.onHand > 0) layerPatch.costLayers = [{ qty: it.onHand, cost: it.newCost }];
+        batch.update(db.collection('products').doc(it.id), layerPatch);
       });
       await batch.commit();
     }
@@ -1161,6 +1169,9 @@ function syncSharedProductsCache(items, now) {
         if (map.hasOwnProperty(c.id)) {
           c.costPrice = map[c.id];
           c.costPriceUpdatedAt = now;
+          if (typeof c.stock === 'number' && c.stock > 0) {
+            c.costLayers = [{ qty: Math.max(0, Math.floor(c.stock)), cost: map[c.id] }];
+          }
         }
       });
       localStorage.setItem('cachedProducts', JSON.stringify(cached));

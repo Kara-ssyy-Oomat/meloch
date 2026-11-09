@@ -858,6 +858,7 @@ document.getElementById('addProductBtn').addEventListener('click', async functio
       roundQty,
       unitsPerBox,
       ...(stock !== null ? { stock } : {}),
+      ...(stock > 0 ? { costLayers: [{ qty: stock, cost: Math.round(costPrice * 100) / 100 }] } : {}),
       image: imageUrl,
       extraImages: extraImages.length > 0 ? extraImages : [],
       order: maxOrder + 1,
