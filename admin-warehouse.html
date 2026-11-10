@@ -16,6 +16,7 @@
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
   <script src="js/cost-layers.js?v=3"></script>
+  <script src="js/box-units.js?v=1"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { 
@@ -276,6 +277,78 @@
     .product-stock-total .total-label {
       font-size: 10px;
       color: #999;
+    }
+
+    .stock-report-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .stock-report-bar select {
+      padding: 8px 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fff;
+      color: #333;
+      max-width: 100%;
+    }
+    .stock-hide-zero {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+    }
+    #exportStockPdfBtn {
+      margin-left: auto;
+      background: #1a237e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #exportStockPdfBtn:disabled {
+      background: #9fa8da;
+      cursor: wait;
+    }
+    .stock-report-summary {
+      font-size: 13px;
+      color: #333;
+      background: #fff;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      line-height: 1.4;
+    }
+    .stock-category-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      margin: 14px 0 6px;
+      padding: 8px 10px;
+      background: #e8eaf6;
+      border-radius: 8px;
+      color: #1a237e;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .stock-category-head span {
+      font-weight: 600;
+      font-size: 12px;
+      color: #3949ab;
+      white-space: nowrap;
+    }
+    @media (max-width: 520px) {
+      #exportStockPdfBtn { margin-left: 0; width: 100%; }
     }
 
     /* Поиск */
@@ -923,6 +996,16 @@
     <div class="search-bar" style="padding:0 0 12px;">
       <input type="text" class="search-input" id="productSearch" placeholder="🔍 Поиск товара..." oninput="filterProducts()" autocomplete="off" name="product-search-nofill">
     </div>
+    <div class="stock-report-bar">
+      <select id="productsCategoryFilter" onchange="filterProducts()">
+        <option value="">Все категории</option>
+      </select>
+      <label class="stock-hide-zero">
+        <input type="checkbox" id="productsHideZero" onchange="filterProducts()"> Только с остатком
+      </label>
+      <button type="button" id="exportStockPdfBtn" onclick="exportStockToPDF()">📄 Скачать PDF</button>
+    </div>
+    <div id="productsStockSummary" class="stock-report-summary">Загрузка остатков…</div>
     <div class="filter-row" id="warehouseFilter"></div>
     <div id="productsStockList" class="loader">
       <div class="spinner"></div>
@@ -3249,60 +3332,155 @@ function filterProducts() {
   renderProductsStock();
 }
 
-function renderProductsStock() {
-  const container = document.getElementById('productsStockList');
-  const searchQuery = (document.getElementById('productSearch').value || '').toLowerCase().trim();
-  
+function productCategoryName(product) {
+  return (product && product.category ? String(product.category) : '').trim() || 'Без категории';
+}
+
+function ruNoun(n, one, few, many) {
+  const nAbs = Math.abs(Math.floor(Number(n) || 0)) % 100;
+  const n1 = nAbs % 10;
+  if (nAbs > 10 && nAbs < 20) return many;
+  if (n1 === 1) return one;
+  if (n1 > 1 && n1 < 5) return few;
+  return many;
+}
+
+function formatStockQty(n) {
+  const v = Math.round(Number(n) || 0);
+  return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function getFilteredStockProducts() {
+  const searchEl = document.getElementById('productSearch');
+  const catEl = document.getElementById('productsCategoryFilter');
+  const hideEl = document.getElementById('productsHideZero');
+  const searchQuery = ((searchEl && searchEl.value) || '').toLowerCase().trim();
+  const categoryFilter = catEl ? catEl.value : '';
+  const hideZero = !!(hideEl && hideEl.checked);
+
   let filtered = products.filter(p => !p.blocked);
-  
-  // Поиск
+
   if (searchQuery) {
-    filtered = filtered.filter(p => 
+    filtered = filtered.filter(p =>
       (p.title || '').toLowerCase().includes(searchQuery) ||
       (p.category || '').toLowerCase().includes(searchQuery)
     );
   }
-  
-  // Фильтр по складу
+
+  if (categoryFilter) {
+    filtered = filtered.filter(p => productCategoryName(p) === categoryFilter);
+  }
+
   if (selectedWarehouseFilter !== 'all') {
     filtered = filtered.filter(p => {
       const ws = p.warehouseStock || {};
       return (ws[selectedWarehouseFilter] || 0) > 0;
     });
   }
-  
-  // Сортировка: по общему остатку (от меньшего к большему), потом по названию
+
+  if (hideZero) {
+    filtered = filtered.filter(p => getProductTotalStock(p) > 0);
+  }
+
   filtered.sort((a, b) => {
+    const catA = productCategoryName(a);
+    const catB = productCategoryName(b);
+    if (catA === 'Без категории' && catB !== 'Без категории') return 1;
+    if (catB === 'Без категории' && catA !== 'Без категории') return -1;
+    const catCmp = catA.localeCompare(catB, 'ru');
+    if (catCmp !== 0) return catCmp;
     const aTotal = getProductTotalStock(a);
     const bTotal = getProductTotalStock(b);
     if (aTotal === 0 && bTotal > 0) return 1;
     if (aTotal > 0 && bTotal === 0) return -1;
-    return (a.title || '').localeCompare(b.title || '');
+    return (a.title || '').localeCompare(b.title || '', 'ru');
   });
-  
+
+  return filtered;
+}
+
+function groupStockByCategory(list) {
+  const groups = [];
+  const index = new Map();
+  list.forEach(p => {
+    const name = productCategoryName(p);
+    let group = index.get(name);
+    if (!group) {
+      group = { name: name, items: [] };
+      index.set(name, group);
+      groups.push(group);
+    }
+    group.items.push(p);
+  });
+  return groups;
+}
+
+function fillProductsCategoryFilter() {
+  const select = document.getElementById('productsCategoryFilter');
+  if (!select) return;
+  const current = select.value;
+  const seen = new Set();
+  products.forEach(p => {
+    if (p.blocked) return;
+    seen.add(productCategoryName(p));
+  });
+  const cats = Array.from(seen).sort((a, b) => {
+    if (a === 'Без категории') return 1;
+    if (b === 'Без категории') return -1;
+    return a.localeCompare(b, 'ru');
+  });
+  select.innerHTML = '<option value="">Все категории</option>' +
+    cats.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
+  if (current && cats.indexOf(current) !== -1) select.value = current;
+}
+
+function renderProductsStock() {
+  const container = document.getElementById('productsStockList');
+  fillProductsCategoryFilter();
+  const filtered = getFilteredStockProducts();
+  const groups = groupStockByCategory(filtered);
+  const totalPieces = filtered.reduce((sum, p) => sum + getProductTotalStock(p), 0);
+  const summary = document.getElementById('productsStockSummary');
+
+  if (summary) {
+    const wh = selectedWarehouseFilter === 'all'
+      ? 'Все склады'
+      : (((warehouses.find(w => w.id === selectedWarehouseFilter) || {}).name) || 'Склад');
+    summary.textContent = wh
+      + ' · ' + groups.length + ' ' + ruNoun(groups.length, 'категория', 'категории', 'категорий')
+      + ' · ' + filtered.length + ' ' + ruNoun(filtered.length, 'товар', 'товара', 'товаров')
+      + ' · ' + formatStockQty(totalPieces) + ' шт';
+  }
+
+  if (!container) return;
+
   if (filtered.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><p>Товары не найдены</p></div>';
     return;
   }
-  
+
   let html = '';
-  filtered.forEach(p => {
-    const ws = p.warehouseStock || {};
-    const totalStock = getProductTotalStock(p);
-    
-    // Индикатор остатка
-    let indicatorClass = 'green';
-    if (totalStock <= 0) indicatorClass = 'red';
-    else if (totalStock <= lowStockThreshold) indicatorClass = 'yellow';
-    
-    // Бейджи по складам
-    let badgesHtml = '';
-    warehouses.forEach(wh => {
-      const qty = ws[wh.id] || 0;
-      badgesHtml += `<span class="product-warehouse-badge ${qty === 0 ? 'zero' : ''}">${esc(wh.name)}: ${qty}</span>`;
-    });
-    
-    html += `
+  groups.forEach(group => {
+    const pieces = group.items.reduce((sum, p) => sum + getProductTotalStock(p), 0);
+    html += '<div class="stock-category-head">' + esc(group.name)
+      + '<span>' + group.items.length + ' ' + ruNoun(group.items.length, 'товар', 'товара', 'товаров')
+      + ' · ' + formatStockQty(pieces) + ' шт</span></div>';
+
+    group.items.forEach(p => {
+      const ws = p.warehouseStock || {};
+      const totalStock = getProductTotalStock(p);
+
+      let indicatorClass = 'green';
+      if (totalStock <= 0) indicatorClass = 'red';
+      else if (totalStock <= lowStockThreshold) indicatorClass = 'yellow';
+
+      let badgesHtml = '';
+      warehouses.forEach(wh => {
+        const qty = ws[wh.id] || 0;
+        badgesHtml += '<span class="product-warehouse-badge ' + (qty === 0 ? 'zero' : '') + '">' + esc(wh.name) + ': ' + qty + '</span>';
+      });
+
+      html += `
       <div class="product-stock-card" onclick="editProductStock('${esc(p.id)}')">
         <img src="${p.image || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Ctext y=%2218%22 font-size=%2218%22%3E📦%3C/text%3E%3C/svg%3E'}" alt="${esc(p.title)}" loading="lazy">
         <div class="product-stock-info">
@@ -3316,8 +3494,9 @@ function renderProductsStock() {
         </div>
       </div>
     `;
+    });
   });
-  
+
   container.innerHTML = html;
 }
 
@@ -3326,6 +3505,519 @@ function getProductTotalStock(product) {
   const whTotal = Object.values(ws).reduce((sum, v) => sum + (v || 0), 0);
   if (whTotal > 0) return whTotal;
   return typeof product.stock === 'number' ? product.stock : 0;
+}
+
+// Остаток, который есть в поле stock, но не разложен по складам.
+function unassignedStockQty(product) {
+  const ws = product.warehouseStock || {};
+  const sum = Object.values(ws).reduce((s, v) => s + (Number(v) || 0), 0);
+  if (sum > 0) return 0;
+  return typeof product.stock === 'number' && product.stock > 0 ? product.stock : 0;
+}
+
+// ==================== PDF ОСТАТКОВ ПО КАТЕГОРИЯМ ====================
+// jsPDF не рисует кириллицу своими шрифтами, поэтому страницы
+// собираются на canvas (как PDF продаж в отчёте по прибыли).
+
+let _stockPdfLoading = null;
+function ensureStockJsPdf() {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+  if (!_stockPdfLoading) {
+    _stockPdfLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = () => resolve();
+      s.onerror = () => { _stockPdfLoading = null; reject(new Error('Не удалось загрузить библиотеку PDF')); };
+      document.head.appendChild(s);
+    });
+  }
+  return _stockPdfLoading;
+}
+
+function stockPdfFitText(ctx, text, maxWidth) {
+  let s = String(text == null ? '' : text);
+  if (ctx.measureText(s).width <= maxWidth) return s;
+  while (s.length > 1 && ctx.measureText(s + '…').width > maxWidth) s = s.slice(0, -1);
+  return s + '…';
+}
+
+function stockPdfWrap(ctx, text, maxWidth, maxLines) {
+  const words = String(text == null ? '' : text).trim().split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  words.forEach(word => {
+    const candidate = line ? line + ' ' + word : word;
+    if (!line || ctx.measureText(candidate).width <= maxWidth) {
+      line = candidate;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  });
+  if (line) lines.push(line);
+  if (!lines.length) lines.push('');
+  const clipped = lines.slice(0, maxLines).map(part => stockPdfFitText(ctx, part, maxWidth));
+  if (lines.length > maxLines && clipped.length) {
+    clipped[clipped.length - 1] = stockPdfFitText(ctx, clipped[clipped.length - 1] + '…', maxWidth);
+  }
+  return clipped;
+}
+
+function stockPdfColumns(asBoxes) {
+  const single = selectedWarehouseFilter !== 'all'
+    ? (warehouses.find(w => w.id === selectedWarehouseFilter) || null)
+    : null;
+  const whWidth = asBoxes ? 124 : 100;
+  const totalWidth = asBoxes ? 116 : 80;
+  // В коробках подпись длиннее («3 кор» и «+5 шт»), поэтому колонок меньше.
+  const maxWarehouses = asBoxes ? 2 : 4;
+  const cols = [];
+  if (single) {
+    cols.push({ key: 'here', label: 'На складе', width: asBoxes ? 130 : 110 });
+    cols.push({ key: 'total', label: 'Всего', width: totalWidth });
+  } else if (warehouses.length > 0 && warehouses.length <= maxWarehouses) {
+    warehouses.forEach(w => cols.push({ key: 'wh:' + w.id, label: w.name || 'Склад', width: whWidth }));
+    cols.push({ key: 'total', label: 'Всего', width: totalWidth });
+  } else {
+    cols.push({ key: 'total', label: 'Всего', width: asBoxes ? 130 : 90 });
+  }
+  let x = 780 - 36;
+  for (let i = cols.length - 1; i >= 0; i--) {
+    cols[i].right = x;
+    x -= cols[i].width;
+  }
+  return {
+    cols: cols,
+    nameRight: x - 10,
+    single: single,
+    perWarehouse: !single && cols.some(col => col.key.indexOf('wh:') === 0)
+  };
+}
+
+function stockPdfCellQty(product, col, single) {
+  if (col.key === 'total') return getProductTotalStock(product);
+  if (col.key === 'here' && single) return (product.warehouseStock || {})[single.id] || 0;
+  if (col.key.indexOf('wh:') === 0) return (product.warehouseStock || {})[col.key.slice(3)] || 0;
+  return 0;
+}
+
+// Как в PDF заказа: целые коробки и остаток. Пустое «штук в коробке»
+// считается так же, как в заказе (getBoxUnits). 0 — коробки выключены.
+function stockQtyLabel(product, qty, asBoxes) {
+  const n = Math.round(Number(qty) || 0);
+  if (n <= 0) return { line1: '0', line2: '' };
+  if (!asBoxes) return { line1: formatStockQty(n), line2: '' };
+  const unitsPerBox = (typeof getBoxUnits === 'function')
+    ? getBoxUnits(product && product.unitsPerBox)
+    : 0;
+  const unitLabel = product && product.isPack ? 'пач' : 'шт';
+  if (!(unitsPerBox > 0)) return { line1: formatStockQty(n) + ' ' + unitLabel, line2: '' };
+  const boxCount = Math.floor(n / unitsPerBox);
+  const remaining = n % unitsPerBox;
+  if (boxCount > 0 && remaining === 0) {
+    return { line1: boxCount + ' кор', line2: '(' + unitsPerBox + ' ' + unitLabel + ')' };
+  }
+  if (boxCount > 0) {
+    return { line1: boxCount + ' кор', line2: '+' + remaining + ' ' + unitLabel };
+  }
+  return { line1: formatStockQty(n) + ' ' + unitLabel, line2: '' };
+}
+
+function stockPdfSubtitle(product, layout, asBoxes) {
+  const loose = unassignedStockQty(product);
+  if (layout.single || layout.perWarehouse) {
+    return loose > 0 ? 'не разнесено по складам' : '';
+  }
+  const parts = [];
+  warehouses.forEach(wh => {
+    const qty = (product.warehouseStock || {})[wh.id] || 0;
+    if (qty > 0) {
+      const label = stockQtyLabel(product, qty, asBoxes);
+      parts.push((wh.name || 'Склад') + ' ' + label.line1 + (label.line2 ? ' ' + label.line2 : ''));
+    }
+  });
+  if (loose > 0) {
+    const label = stockQtyLabel(product, loose, asBoxes);
+    parts.push('не разнесено ' + label.line1 + (label.line2 ? ' ' + label.line2 : ''));
+  }
+  return parts.join(' · ');
+}
+
+function stockPdfImageUrl(product) {
+  const img = product && product.image;
+  if (typeof img === 'string') return img;
+  if (img && typeof img === 'object' && typeof img.url === 'string') return img.url;
+  if (product && Array.isArray(product.images) && product.images.length) {
+    const first = product.images[0];
+    if (typeof first === 'string') return first;
+    if (first && typeof first.url === 'string') return first.url;
+  }
+  return '';
+}
+
+function stockPdfSmallUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  try {
+    if (url.includes('cloudinary.com') && url.includes('/upload/')) {
+      const clean = url.replace(/\/upload\/[a-z][a-z0-9_,]+\//, '/upload/');
+      return clean.replace('/upload/', '/upload/w_200,q_70,f_jpg/');
+    }
+  } catch (e) {}
+  return url;
+}
+
+function stockPdfLoadImage(url, timeoutMs) {
+  return new Promise(resolve => {
+    if (!url || typeof url !== 'string' || url.indexOf('http') !== 0) return resolve(null);
+    let done = false;
+    const timer = setTimeout(() => { if (!done) { done = true; resolve(null); } }, timeoutMs || 8000);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        const max = 160;
+        const scale = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
+        const w = Math.max(1, Math.round((img.width || 1) * scale));
+        const h = Math.max(1, Math.round((img.height || 1) * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.62));
+      } catch (e) {
+        resolve(null);
+      }
+    };
+    img.onerror = () => { if (!done) { done = true; clearTimeout(timer); resolve(null); } };
+    img.src = url;
+  });
+}
+
+async function stockPdfLoadPhoto(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== 'string' || imageUrl.indexOf('http') !== 0) return null;
+  let result = await stockPdfLoadImage(stockPdfSmallUrl(imageUrl), 8000);
+  if (result) return result;
+  result = await stockPdfLoadImage('https://wsrv.nl/?url=' + encodeURIComponent(imageUrl) + '&w=200&q=70&output=jpg', 8000);
+  if (result) return result;
+  return stockPdfLoadImage(imageUrl, 8000);
+}
+
+async function stockPdfLoadPhotos(list, onProgress) {
+  const photos = new Array(list.length).fill(null);
+  let next = 0;
+  let done = 0;
+  async function worker() {
+    while (next < list.length) {
+      const i = next++;
+      photos[i] = await stockPdfLoadPhoto(stockPdfImageUrl(list[i]));
+      onProgress(++done);
+    }
+  }
+  const workers = Math.min(6, list.length);
+  await Promise.all(Array.from({ length: workers }, worker));
+  return photos;
+}
+
+function stockPdfDataUrlToImage(dataUrl) {
+  return new Promise(resolve => {
+    if (!dataUrl) return resolve(null);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
+async function exportStockToPDF() {
+  const rows = getFilteredStockProducts();
+  if (!rows.length) {
+    Swal.fire('Нечего выгружать', 'По текущим фильтрам товаров нет. Снимите поиск или категорию.', 'info');
+    return;
+  }
+
+  const choice = await Swal.fire({
+    title: 'Скачать остатки',
+    html: 'В PDF будут маленькие фото, как в заказе.<br>Как показать количество?',
+    showCancelButton: true,
+    showDenyButton: true,
+    confirmButtonText: '📦 Коробками',
+    denyButtonText: '🔢 Штуками',
+    cancelButtonText: 'Отмена',
+    confirmButtonColor: '#2e7d32',
+    denyButtonColor: '#1a237e'
+  });
+  if (!choice.isConfirmed && !choice.isDenied) return;
+  const asBoxes = choice.isConfirmed;
+
+  if (rows.length > 80) {
+    const go = await Swal.fire({
+      title: 'Товаров много',
+      html: 'В PDF попадёт <b>' + rows.length + '</b> товаров с фото.<br>Файл будет большим и готовиться дольше.<br><br>Можно сузить список категорией или включить «Только с остатком».',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Всё равно создать',
+      cancelButtonText: 'Отмена',
+      confirmButtonColor: '#1a237e'
+    });
+    if (!go.isConfirmed) return;
+  }
+
+  const btn = document.getElementById('exportStockPdfBtn');
+  if (btn) btn.disabled = true;
+
+  try {
+    await new Promise(resolve => {
+      Swal.fire({
+        title: 'Готовим PDF',
+        html: 'Загрузка библиотеки...',
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+          resolve();
+        }
+      });
+    });
+
+    await ensureStockJsPdf();
+
+    Swal.update({ html: 'Фото 0/' + rows.length + '...' });
+    const photoData = await stockPdfLoadPhotos(rows, function (done) {
+      Swal.update({ html: 'Фото ' + done + '/' + rows.length + '...' });
+    });
+    const photoById = {};
+    for (let i = 0; i < rows.length; i++) {
+      photoById[rows[i].id] = await stockPdfDataUrlToImage(photoData[i]);
+    }
+
+    const groups = groupStockByCategory(rows);
+    const layout = stockPdfColumns(asBoxes);
+    const totalPieces = rows.reduce((sum, p) => sum + getProductTotalStock(p), 0);
+    const catFilter = (document.getElementById('productsCategoryFilter') || {}).value || '';
+    const whLabel = layout.single ? (layout.single.name || 'Склад') : 'Все склады';
+    const catLabel = catFilter || 'Все категории';
+    const modeLabel = asBoxes ? 'коробки' : 'штуки';
+    const now = new Date();
+    const dateLabel = now.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const PAGE_W = 780;
+    const PAGE_H = 1100;
+    const SCALE = 2;
+    const PHOTO = 58;
+    const NAME_LEFT = 36 + PHOTO + 12;
+    const measure = document.createElement('canvas').getContext('2d');
+
+    function rowHeight(product) {
+      measure.font = '600 15px Arial';
+      const lines = stockPdfWrap(measure, product.title || 'Без названия', Math.max(80, layout.nameRight - NAME_LEFT), 2);
+      const sub = stockPdfSubtitle(product, layout, asBoxes);
+      const tall = lines.length > 1 || sub || asBoxes;
+      return { lines: lines, sub: sub, h: tall ? 88 : 74 };
+    }
+
+    const items = [];
+    groups.forEach(group => {
+      const pieces = group.items.reduce((sum, p) => sum + getProductTotalStock(p), 0);
+      items.push({
+        type: 'cat',
+        h: 36,
+        name: group.name,
+        meta: group.items.length + ' ' + ruNoun(group.items.length, 'товар', 'товара', 'товаров') + ' · ' + formatStockQty(pieces) + ' шт'
+      });
+      group.items.forEach(product => {
+        const measured = rowHeight(product);
+        items.push({ type: 'row', h: measured.h, product: product, lines: measured.lines, sub: measured.sub });
+      });
+    });
+
+    const FIRST_TOP = 184;
+    const NEXT_TOP = 78;
+    const BOTTOM = 1062;
+    const pages = [];
+    let page = [];
+    let y = FIRST_TOP;
+    items.forEach(item => {
+      const minWithRow = item.type === 'cat' ? item.h + 74 : item.h;
+      if (page.length && y + minWithRow > BOTTOM) {
+        pages.push(page);
+        page = [];
+        y = NEXT_TOP;
+      }
+      page.push(item);
+      y += item.h;
+    });
+    if (page.length) pages.push(page);
+    if (!pages.length) pages.push([]);
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
+    function drawColumnHeader(ctx, top) {
+      ctx.fillStyle = '#f5f5f5';
+      ctx.fillRect(28, top, PAGE_W - 56, 26);
+      ctx.fillStyle = '#666';
+      ctx.font = '600 12px Arial';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Товар', NAME_LEFT, top + 13);
+      ctx.textAlign = 'right';
+      layout.cols.forEach(col => {
+        ctx.fillText(stockPdfFitText(ctx, col.label, col.width - 8), col.right, top + 13);
+      });
+      return top + 26;
+    }
+
+    for (let pi = 0; pi < pages.length; pi++) {
+      if (pi > 0) doc.addPage();
+      Swal.update({ html: 'Страница ' + (pi + 1) + ' из ' + pages.length });
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = PAGE_W * SCALE;
+      canvas.height = PAGE_H * SCALE;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(SCALE, SCALE);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+
+      let y;
+      if (pi === 0) {
+        ctx.fillStyle = '#1a237e';
+        ctx.fillRect(0, 0, PAGE_W, 150);
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = '700 32px Arial';
+        ctx.fillText('ОСТАТКИ ТОВАРОВ', PAGE_W / 2, 48);
+        ctx.font = '18px Arial';
+        ctx.fillText(whLabel + '  ·  ' + catLabel + '  ·  ' + modeLabel, PAGE_W / 2, 82);
+        ctx.font = '700 20px Arial';
+        ctx.fillText(
+          groups.length + ' ' + ruNoun(groups.length, 'категория', 'категории', 'категорий')
+          + '  ·  ' + rows.length + ' ' + ruNoun(rows.length, 'товар', 'товара', 'товаров')
+          + '  ·  ' + formatStockQty(totalPieces) + ' шт',
+          PAGE_W / 2, 116
+        );
+        ctx.font = '14px Arial';
+        ctx.fillText(dateLabel, PAGE_W / 2, 140);
+        y = drawColumnHeader(ctx, 158);
+      } else {
+        ctx.fillStyle = '#1a237e';
+        ctx.fillRect(0, 0, PAGE_W, 44);
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.font = '700 16px Arial';
+        ctx.fillText('Остатки · ' + whLabel + ' · ' + modeLabel, 36, 22);
+        ctx.textAlign = 'right';
+        ctx.font = '14px Arial';
+        ctx.fillText(formatStockQty(totalPieces) + ' шт', PAGE_W - 36, 22);
+        y = drawColumnHeader(ctx, 52);
+      }
+
+      pages[pi].forEach(item => {
+        if (item.type === 'cat') {
+          ctx.fillStyle = '#e8eaf6';
+          ctx.fillRect(28, y + 4, PAGE_W - 56, item.h - 6);
+          ctx.textBaseline = 'middle';
+          ctx.font = '600 13px Arial';
+          const metaW = ctx.measureText(item.meta).width;
+          ctx.fillStyle = '#1a237e';
+          ctx.textAlign = 'left';
+          ctx.font = '700 15px Arial';
+          const name = stockPdfFitText(ctx, item.name, PAGE_W - 80 - metaW);
+          ctx.fillText(name, 36, y + item.h / 2);
+          ctx.textAlign = 'right';
+          ctx.font = '600 13px Arial';
+          ctx.fillStyle = '#3949ab';
+          ctx.fillText(item.meta, PAGE_W - 36, y + item.h / 2);
+        } else {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(28, y, PAGE_W - 56, item.h);
+          ctx.strokeStyle = '#eeeeee';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(28, y + item.h - 0.5);
+          ctx.lineTo(PAGE_W - 28, y + item.h - 0.5);
+          ctx.stroke();
+
+          const photoX = 36;
+          const photoY = y + (item.h - PHOTO) / 2;
+          ctx.fillStyle = '#f3f3f3';
+          ctx.fillRect(photoX, photoY, PHOTO, PHOTO);
+          const photo = photoById[item.product.id];
+          if (photo) {
+            const aspect = photo.width / photo.height;
+            let pw = PHOTO;
+            let ph = PHOTO;
+            if (aspect >= 1) ph = PHOTO / aspect;
+            else pw = PHOTO * aspect;
+            ctx.drawImage(photo, photoX + (PHOTO - pw) / 2, photoY + (PHOTO - ph) / 2, pw, ph);
+          } else {
+            ctx.fillStyle = '#999';
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('нет фото', photoX + PHOTO / 2, photoY + PHOTO / 2);
+          }
+
+          ctx.fillStyle = '#222';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.font = '600 15px Arial';
+          const nameMax = Math.max(80, layout.nameRight - NAME_LEFT);
+          const lines = item.lines || stockPdfWrap(ctx, item.product.title || 'Без названия', nameMax, 2);
+          const textTop = item.sub ? y + 24 : y + item.h / 2 - (lines.length - 1) * 9;
+          lines.forEach((line, li) => ctx.fillText(line, NAME_LEFT, textTop + li * 18));
+          if (item.sub) {
+            ctx.fillStyle = '#888';
+            ctx.font = '12px Arial';
+            ctx.fillText(stockPdfFitText(ctx, item.sub, nameMax), NAME_LEFT, y + item.h - 14);
+          }
+
+          ctx.textAlign = 'right';
+          layout.cols.forEach(col => {
+            const qty = stockPdfCellQty(item.product, col, layout.single);
+            const label = stockQtyLabel(item.product, qty, asBoxes);
+            const mainColor = qty > 0 ? '#1a237e' : (col.key === 'total' ? '#c62828' : '#bdbdbd');
+            ctx.fillStyle = mainColor;
+            if (label.line2) {
+              ctx.font = '700 14px Arial';
+              ctx.fillText(stockPdfFitText(ctx, label.line1, col.width - 8), col.right, y + 32);
+              ctx.font = '11px Arial';
+              ctx.fillStyle = qty > 0 ? '#555' : mainColor;
+              ctx.fillText(stockPdfFitText(ctx, label.line2, col.width - 8), col.right, y + 52);
+            } else {
+              ctx.font = '700 16px Arial';
+              ctx.fillText(stockPdfFitText(ctx, label.line1, col.width - 8), col.right, y + item.h / 2);
+            }
+          });
+        }
+        y += item.h;
+      });
+
+      ctx.fillStyle = '#999';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText((pi + 1) + ' / ' + pages.length, PAGE_W - 36, PAGE_H - 18);
+
+      doc.addImage(canvas.toDataURL('image/jpeg', 0.82), 'JPEG', 0, 0, 210, 297);
+    }
+
+    const clean = s => String(s || '').replace(/[^\wА-Яа-яЁё.-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '') || 'все';
+    const stamp = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+    doc.save('Остатки_' + clean(modeLabel) + '_' + clean(whLabel) + '_' + clean(catLabel) + '_' + stamp + '.pdf');
+    Swal.close();
+  } catch (error) {
+    console.error('Ошибка PDF остатков:', error);
+    Swal.fire('Ошибка', 'Не удалось создать PDF: ' + (error && error.message ? error.message : error), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // Быстрое редактирование остатков товара по складам
