@@ -677,8 +677,17 @@
             }
           }
           
-          // excludedFromAgent — админ вручную исключил заказ из прибыли агента
-          if (agentId && order.excludedFromAgent !== true) {
+          // excludedFromAgent — админ вручную исключил заказ из прибыли агента.
+          // У обычного агента заказ из корзины всё равно даёт 2%.
+          var countThisOrder = false;
+          if (agentId) {
+            if (order.excludedFromAgent !== true) countThisOrder = true;
+            else if (order.orderKind === 'agent_purchase') {
+              var buyerAgent = allAgents.find(function (a) { return a.id === agentId; });
+              if (buyerAgent && buyerAgent.markupAllowed !== true) countThisOrder = true;
+            }
+          }
+          if (countThisOrder) {
             if (!ordersByAgent[agentId]) {
               ordersByAgent[agentId] = { count: 0, total: 0 };
             }
@@ -1222,7 +1231,12 @@
         // Те же правила, что и в карточке агента: удалённые, отменённые и
         // исключённые вручную заказы комиссию не дают
         const orders = Array.from(ordersMap.values())
-          .filter(o => orderCountsForStats(o) && o.excludedFromAgent !== true);
+          .filter(function (o) {
+            if (!orderCountsForStats(o)) return false;
+            if (o.excludedFromAgent !== true) return true;
+            var buyer = allAgents.find(function (a) { return a.id === agentId; });
+            return o.orderKind === 'agent_purchase' && buyer && buyer.markupAllowed !== true;
+          });
         orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         
         if (orders.length === 0) {

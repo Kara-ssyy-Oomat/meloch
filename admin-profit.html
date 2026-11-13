@@ -2304,8 +2304,7 @@ async function loadAgentsProfitReport() {
       // Пропускаем отменённые и удалённые заказы — не считаем прибыль агенту
       if (data.deleted) return;
       if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
-      // Админ вручную исключил заказ из прибыли агента — агент его тоже не видит
-      if (data.excludedFromAgent === true) return;
+      if (data.orderKind === 'agent_sale') return;
       
       // Ищем агента по разным полям: partner, agentId, referredBy
       let agent = null;
@@ -2331,6 +2330,10 @@ async function loadAgentsProfitReport() {
       }
       
       if (agent) {
+        if (data.excludedFromAgent === true) {
+          var ordinaryCartOrder = data.orderKind === 'agent_purchase' && !agent.markupAllowed;
+          if (!ordinaryCartOrder) return;
+        }
         agent.orders++;
         
         const items = data.items || data.cart || [];

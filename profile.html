@@ -2295,6 +2295,14 @@
           }
         }
 
+        let markupApproved = false;
+        if (agentData.id) {
+          try {
+            const agentSnap = await db.collection('agents').doc(agentData.id).get();
+            markupApproved = !!(agentSnap.exists && agentSnap.data().markupAllowed === true);
+          } catch (e) {}
+        }
+
         const snapshots = await Promise.all(queries);
         const dedupe = new Map();
         let gotAny = false;
@@ -2308,16 +2316,20 @@
               const buyerName = String(data.placedByAgentName || '').trim();
               const iAmBuyer = (agentData.id && buyerId === String(agentData.id))
                 || (agentData.name && buyerName === String(agentData.name).trim());
-              if (iAmBuyer) return;
-              const partnerName = String(data.partner || '').trim();
-              const referredName = String(data.referredBy || '').trim();
-              const myName = String(agentData.name || '').trim();
-              const myId = String(agentData.id || '');
-              const iAmReferrer = (partnerName && (partnerName === myName || partnerName === myId))
-                || (referredName && (referredName === myName || referredName === myId));
-              if (!iAmReferrer) return;
-            }
-            if (data.excludedFromAgent === true) return;
+              if (iAmBuyer && !markupApproved) {
+                // Обычный агент получает 2% и с этого заказа.
+              } else if (iAmBuyer) {
+                return;
+              } else {
+                const partnerName = String(data.partner || '').trim();
+                const referredName = String(data.referredBy || '').trim();
+                const myName = String(agentData.name || '').trim();
+                const myId = String(agentData.id || '');
+                const iAmReferrer = (partnerName && (partnerName === myName || partnerName === myId))
+                  || (referredName && (referredName === myName || referredName === myId));
+                if (!iAmReferrer) return;
+              }
+            } else if (data.excludedFromAgent === true) return;
             // Удалённый админом заказ (мягкое удаление) прибыль не приносит
             if (data.deleted === true) return;
             const st = data.status;
@@ -2340,13 +2352,6 @@
 
         let totalSum = 0;
         dedupe.forEach(function(data) { totalSum += data.total || 0; });
-        let markupApproved = false;
-        if (agentData.id) {
-          try {
-            const agentSnap = await db.collection('agents').doc(agentData.id).get();
-            markupApproved = !!(agentSnap.exists && agentSnap.data().markupAllowed === true);
-          } catch (e) {}
-        }
         const profit = markupApproved ? 0 : Math.round(totalSum * 0.02);
 
         // Обновляем UI

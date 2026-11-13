@@ -2214,6 +2214,12 @@
           return;
         }
         currentAgent = await _resolveAgentRecord(currentAgent) || currentAgent;
+        if (currentAgent && currentAgent.id) {
+          try {
+            var markupSnap = await db.collection('agents').doc(currentAgent.id).get();
+            agentMarkupApproved = !!(markupSnap.exists && markupSnap.data() && markupSnap.data().markupAllowed === true);
+          } catch (e) {}
+        }
 
         const listEl = document.getElementById('ordersList');
         if (listEl && (!allOrders || allOrders.length === 0)) {
@@ -2282,7 +2288,10 @@
           if (data.orderKind === 'agent_purchase') {
             var buyerId = String(data.agentId || data.placedByAgentId || '');
             var buyerName = String(data.placedByAgentName || '').trim();
-            if ((buyerId && ids[buyerId]) || (buyerName && names[buyerName])) return false;
+            var iAmBuyer = (buyerId && ids[buyerId]) || (buyerName && names[buyerName]);
+            // У агента без наценки заказ из корзины тоже даёт 2%.
+            if (iAmBuyer && !agentMarkupApproved) return true;
+            if (iAmBuyer) return false;
             var partnerName = String(data.partner || '').trim();
             var referredName = String(data.referredBy || '').trim();
             return !!((partnerName && (names[partnerName] || ids[partnerName]))
