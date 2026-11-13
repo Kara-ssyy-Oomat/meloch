@@ -344,10 +344,21 @@ function renderProductsCore() {
   //   • null → безлимит (склад на паузе целиком) — показываем
   //   • 0    → нет в наличии — скрываем при флаге
   //   • >0   → есть в наличии — показываем
-  if (!isEditorMode && tradeMode() === 'sell' && window.KerbenAgentTrade && KerbenAgentTrade.saleLine) {
-    filtered = filtered.filter(p => {
-      const line = KerbenAgentTrade.saleLine(p.id);
-      return line && line.qty > 0;
+  if (!isEditorMode && tradeMode() === 'sell' && window.KerbenAgentTrade && KerbenAgentTrade.stockItems) {
+    const owned = KerbenAgentTrade.stockItems();
+    const byId = {};
+    products.forEach(p => { if (p && p.id) byId[p.id] = p; });
+    filtered = owned.map(item => {
+      const found = byId[item.id];
+      if (found && !found.blocked) return found;
+      return {
+        id: item.id,
+        title: item.title,
+        price: item.buyPrice,
+        image: item.image || '',
+        category: 'все',
+        stock: item.qty
+      };
     });
   } else if (!isEditorMode
       && typeof hideOutOfStockForClients !== 'undefined'
@@ -377,8 +388,9 @@ function renderProductsCore() {
   // Для категорийных менеджеров: в режиме «все» показываем все их категории
   const _isCategoryManager = (userRole === 'korean' || userRole === 'appliances');
   if (currentCategory === 'все') {
-    if (!_isCategoryManager) {
-      // Обычный режим: в разделе "Все товары" показываем товары с категорией "все" или без категории
+    if (!_isCategoryManager && tradeMode() !== 'sell') {
+      // Обычный режим: в разделе "Все товары" показываем товары с категорией "все" или без категории.
+      // В продаже агента здесь все купленные товары, из любой категории.
       filtered = filtered.filter(p => !p.category || p.category.toLowerCase() === 'все');
     }
     // Для менеджеров — не фильтруем дополнительно, уже отфильтровано по роли

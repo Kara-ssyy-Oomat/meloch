@@ -609,6 +609,14 @@
     mode: function () { return active ? tab : ''; },
     agent: function () { return agent; },
     saleLine: saleLine,
-    refreshSell: function () { if (active && tab === 'sell') renderSell(); }
+    stockItems: function () {
+      return inventory.filter(function (item) { return item && item.qty > 0; });
+    },
+    refreshSell: function () {
+      if (!(active && tab === 'sell')) return;
+      loadInventory().then(function () {
+        if (typeof renderProductsNow === 'function') renderProductsNow();
+      }).catch(function () {});
+    }
   };
 })(window);
