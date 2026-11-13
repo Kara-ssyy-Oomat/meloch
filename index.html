@@ -101,7 +101,7 @@
     // КРИТИЧНО: Принудительно разблокируем прокрутку при загрузке
     // Принудительная очистка кэшей при обновлении версии
     (function() {
-      var APP_VERSION = 'v4.56.3';
+      var APP_VERSION = 'v4.56.4';
       var lastVersion = localStorage.getItem('app_version');
       if (lastVersion !== APP_VERSION) {
         console.log('[Update] Обнаружена новая версия: ' + lastVersion + ' → ' + APP_VERSION);
@@ -689,6 +689,23 @@ document.addEventListener('DOMContentLoaded', function() {
   <!-- Сетка карточек товаров -->
   <div id="productTable" class="product-grid"></div>
   <script>
+    // На главной не показываем пояснение про наценку, даже если его вставит старая копия скрипта.
+    (function () {
+      function stripMarkupNote(node) {
+        if (!node || node.nodeType !== 1) return;
+        if (node.id && node.id.indexOf('kerbenMarkupBanner') === 0) node.remove();
+      }
+      var watch = new MutationObserver(function (list) {
+        for (var i = 0; i < list.length; i++) {
+          var added = list[i].addedNodes;
+          for (var j = 0; j < added.length; j++) stripMarkupNote(added[j]);
+        }
+      });
+      watch.observe(document.documentElement, { childList: true, subtree: true });
+      stripMarkupNote(document.getElementById('kerbenMarkupBanner-productTable'));
+    })();
+  </script>
+  <script>
     // Применяем размер карточек из настроек
     (function() {
       var s = localStorage.getItem('cardSize') || 'small';
@@ -938,7 +955,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <!-- КРИТИЧНЫЕ модули: загружаем сразу (нужны для отображения товаров) -->
   <script src="js/app-check.js?v=2"></script>
   <script src="js/firebase-config.js?v=6"></script>
-  <script src="js/agent-markup.js?v=3"></script>
+  <script src="js/agent-markup.js?v=4"></script>
   <script src="js/firestore-guard.js?v=1"></script>
   <script src="js/bot-blocker.js?v=2"></script>
   <script src="js/background-pause.js?v=4"></script>

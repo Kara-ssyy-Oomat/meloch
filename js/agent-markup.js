@@ -109,7 +109,7 @@
     var ids = ['productTable', 'cartContent'];
     for (var i = 0; i < ids.length; i++) {
       var banner = document.getElementById('kerbenMarkupBanner-' + ids[i]);
-      if (banner) banner.style.display = 'none';
+      if (banner) banner.remove();
     }
   }
 

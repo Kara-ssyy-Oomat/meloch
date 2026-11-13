@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.56.3-agent-markup'; // Наценка видна на главной, процент клиенту не показывается
+const CACHE_VERSION = 'kerben-v4.56.4-agent-markup'; // С главной убрана жёлтая строка про наценку
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений
