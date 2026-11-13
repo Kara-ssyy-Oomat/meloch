@@ -1450,12 +1450,14 @@
         try {
           var saved = JSON.parse(localStorage.getItem('currentAgent') || 'null');
           if (saved && saved.phone) phones.push(saved.phone);
+          if (saved && saved.phone2) phones.push(saved.phone2);
           if (saved && saved.id) ids.push(saved.id);
         } catch (e) {}
         var idbAg = await _idbGet('currentAgent', 800);
         try {
           var ag2 = idbAg ? JSON.parse(idbAg) : null;
           if (ag2 && ag2.phone) phones.push(ag2.phone);
+          if (ag2 && ag2.phone2) phones.push(ag2.phone2);
           if (ag2 && ag2.id) ids.push(ag2.id);
         } catch (e) {}
       }
@@ -1477,7 +1479,9 @@
       }
       var preferred = candidates.filter(function (c) {
         if (wantedIds.indexOf(c.id) !== -1) return true;
-        return wantedPhones.some(function (p) { return _phonesMatch(p, c.phone); });
+        return wantedPhones.some(function (p) {
+          return _phonesMatch(p, c.phone) || _phonesMatch(p, c.phone2);
+        });
       });
       var best = await _pickBestAgent(preferred.length ? preferred : candidates);
       if (!best) return null;
@@ -1607,7 +1611,7 @@
           }
         } catch (e) {}
       }
-      var found = await _findAgentsByPhones(agent.phone ? [agent.phone] : []);
+      var found = await _findAgentsByPhones([agent.phone, agent.phone2].filter(Boolean));
       if (found.length) {
         var best = await _pickBestAgent(found);
         var resolved = _publicAgent(best);
@@ -1644,11 +1648,12 @@
 
     async function loadAgentFromStorage() {
       try {
-        var params = { id: '', phone: '', name: '' };
+        var params = { id: '', phone: '', phone2: '', name: '' };
         try {
           var sp = new URLSearchParams(location.search || '');
           params.id = sp.get('id') || '';
           params.phone = sp.get('phone') || '';
+          params.phone2 = sp.get('phone2') || '';
           params.name = sp.get('name') || '';
         } catch (e) {}
         var fromProfile = !!(params.id || params.phone);
@@ -1707,15 +1712,15 @@
 
         var resolved = null;
         for (var attempt = 0; attempt < 3; attempt++) {
-          if (params.id) resolved = await _agentById(params.id);
-          if (!resolved) {
-            resolved = await _resolveLoggedInAgent({
-              phones: [params.phone, saved && saved.phone].filter(Boolean),
-              ids: [params.id, saved && saved.id].filter(Boolean),
-              includeCustomer: true,
-              includeSavedAgent: true
-            });
-          }
+          // Сначала ищем по телефону и выбираем карточку, где есть заказы.
+          // Иначе профиль открывает пустого двойника, и прибыль выглядит пустой.
+          resolved = await _resolveLoggedInAgent({
+            phones: [params.phone, params.phone2, saved && saved.phone, saved && saved.phone2].filter(Boolean),
+            ids: [params.id, saved && saved.id].filter(Boolean),
+            includeCustomer: true,
+            includeSavedAgent: true
+          });
+          if (!resolved && params.id) resolved = await _agentById(params.id);
           if (resolved) break;
           // База ответила и агента с таким номером нет — повторять нечего.
           if (_lastReadOk) break;
@@ -2542,7 +2547,7 @@
       
       renderOrders();
       updateStats();
-      drawChart();
+      try { drawChart(); } catch (e) { console.warn('[Profit] график:', e && e.message); }
     }
     
     // Отрисовка заказов

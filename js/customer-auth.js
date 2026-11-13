@@ -1290,17 +1290,23 @@ function openFavoritesFromProfile() {
 
 // Открыть прибыль агента из профиля
 function openAgentProfitFromProfile() {
-  // Закрываем профиль
   const profileModal = document.getElementById('profileFullscreenModal');
   if (profileModal) profileModal.remove();
-  
-  // Открываем окно прибыли агента
-  if (typeof openAgentProfitModal === 'function') {
-    openAgentProfitModal();
-  } else if (typeof openAgentModal === 'function') {
-    // Если агент не авторизован, откроется окно входа
-    openAgentModal();
+  var q = new URLSearchParams();
+  try {
+    var agent = JSON.parse(localStorage.getItem('currentAgent') || 'null');
+    if (agent && agent.phone) q.set('phone', agent.phone);
+    if (agent && agent.phone2) q.set('phone2', agent.phone2);
+    if (agent && agent.id) q.set('id', agent.id);
+    if (agent && agent.name) q.set('name', agent.name);
+  } catch (e) {}
+  if (!q.get('phone')) {
+    try {
+      var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+      if (cd && cd.phone) q.set('phone', cd.phone);
+    } catch (e) {}
   }
+  window.location.href = 'agent-profit.html' + (q.toString() ? '?' + q.toString() : '');
 }
 
 // Открыть окно входа для админа из профиля

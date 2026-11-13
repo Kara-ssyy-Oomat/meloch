@@ -723,6 +723,7 @@
       // Телефон самого агента важнее телефона входа: на одном устройстве
       // мог входить другой человек, и страница брала бы чужого агента.
       if (agent && agent.phone) q.set('phone', agent.phone);
+      if (agent && agent.phone2) q.set('phone2', agent.phone2);
       if (agent && agent.id) q.set('id', agent.id);
       if (agent && agent.name) q.set('name', agent.name);
       if (!q.get('phone')) {
@@ -1080,7 +1081,8 @@
                       localStorage.setItem('currentAgent', idbRaw);
                       const a = JSON.parse(idbRaw);
                       const ap = normalizePhone(a && a.phone);
-                      if (ap && ap === normalizedPhone && !isAgent) {
+                      const ap2 = normalizePhone(a && a.phone2);
+                      if (((ap && ap === normalizedPhone) || (ap2 && ap2 === normalizedPhone)) && !isAgent) {
                         isAgent = true;
                         sessionStorage.setItem('isAgent_' + normalizedPhone, 'true');
                         console.log('[Agent] ✅ Восстановлен из IndexedDB:', a.name);
@@ -1097,7 +1099,8 @@
               if (agentRaw) {
                 const agent = JSON.parse(agentRaw);
                 const agentPhone = normalizePhone(agent && agent.phone);
-                if (agentPhone && agentPhone === normalizedPhone) {
+                const agentPhone2 = normalizePhone(agent && agent.phone2);
+                if ((agentPhone && agentPhone === normalizedPhone) || (agentPhone2 && agentPhone2 === normalizedPhone)) {
                   isAgent = true;
                   sessionStorage.setItem('isAgent_' + normalizedPhone, 'true');
                 }
