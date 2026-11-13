@@ -26,36 +26,25 @@
     return Math.round(Number(n) * 100) / 100;
   }
 
-  function phoneTail(phone) {
-    var d = String(phone || '').replace(/\D/g, '');
-    if (d.indexOf('996') === 0) d = d.substring(3);
-    if (d.charAt(0) === '0') d = d.substring(1);
-    return d.slice(-9);
-  }
-
-  // Сессия именно этого агента: тот же вход, что и у существующего профиля.
+  // Сессия агента — вход в кабинет «Моя прибыль». Отдельный вход покупателя не нужен:
+  // агент открывает каталог со своей страницы, и currentAgent уже записан.
   function readAgent() {
     try {
       var raw = localStorage.getItem('currentAgent');
       if (!raw) return null;
       var agent = JSON.parse(raw);
       if (!(agent && agent.name && (agent.id || agent.phone))) return null;
-      var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
-      if (!cd || !cd.phone) return null;
-      if (agent.phone && phoneTail(cd.phone) !== phoneTail(agent.phone)) return null;
       return agent;
     } catch (e) {
       return null;
     }
   }
 
-  // Админ и редактор всегда видят цену KERBEN, без наценки.
+  // Пока открыт редактор товара, на экране цена KERBEN, чтобы она не сохранилась в базу.
   function isStaffView() {
     try {
       if (typeof isEditorMode !== 'undefined' && isEditorMode) return true;
-      if (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'seller')) return true;
-      var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
-      if (cd && cd.isAdmin === true) return true;
+      if (typeof userRole !== 'undefined' && userRole === 'seller') return true;
     } catch (e) {}
     return false;
   }
