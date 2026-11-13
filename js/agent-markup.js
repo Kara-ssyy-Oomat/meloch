@@ -40,11 +40,11 @@
     }
   }
 
-  // Пока открыт редактор товара, на экране цена KERBEN, чтобы она не сохранилась в базу.
+  // Только открытый редактор товара показывает цену KERBEN, чтобы она не сохранилась в базу.
+  // Обычный просмотр каталога, даже если на телефоне есть вход продавца, остаётся с наценкой.
   function isStaffView() {
     try {
       if (typeof isEditorMode !== 'undefined' && isEditorMode) return true;
-      if (typeof userRole !== 'undefined' && userRole === 'seller') return true;
     } catch (e) {}
     return false;
   }
@@ -104,36 +104,12 @@
     return item;
   }
 
-  function formatPlain(n) {
-    var x = round2(n);
-    if (!isFinite(x)) return '0';
-    if (Math.abs(x - Math.round(x)) < 0.001) return String(Math.round(x));
-    return x.toFixed(2);
-  }
-
   function updateBanner() {
-    var text = '';
-    if (isActive()) {
-      text = 'Цены в вашем профиле агента: наценка +' + formatPlain(state.percent) +
-        '%. В базе KERBEN и на главном сайте для остальных покупателей цена не меняется.';
-    }
+    // Процент и цена без наценки на экране не пишутся: клиент рядом с агентом видит только цену продажи.
     var ids = ['productTable', 'cartContent'];
     for (var i = 0; i < ids.length; i++) {
-      var host = document.getElementById(ids[i]);
-      if (!host || !host.parentNode) continue;
       var banner = document.getElementById('kerbenMarkupBanner-' + ids[i]);
-      if (!text) {
-        if (banner) banner.style.display = 'none';
-        continue;
-      }
-      if (!banner) {
-        banner = document.createElement('div');
-        banner.id = 'kerbenMarkupBanner-' + ids[i];
-        banner.style.cssText = 'margin:8px 12px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;color:#6d4c00;font-size:13px;font-weight:600;line-height:1.4;';
-        host.parentNode.insertBefore(banner, host);
-      }
-      banner.style.display = 'block';
-      banner.textContent = text;
+      if (banner) banner.style.display = 'none';
     }
   }
 
@@ -148,13 +124,20 @@
     return [state.agentId || '', state.allowed ? 1 : 0, state.enabled ? 1 : 0, state.percent, isActive() ? 1 : 0].join('|');
   }
 
+  var loadAttempts = 0;
+
   async function refresh() {
     var before = snapshot();
     var agent = readAgent();
-    if (!agent || !agent.id || typeof db === 'undefined' || !db) {
+    if (!agent || !agent.id) {
+      loadAttempts = 0;
       state = { loaded: true, agentId: null, allowed: false, enabled: false, percent: 0 };
       if (snapshot() !== before) rerender();
       else updateBanner();
+      return state;
+    }
+    if (typeof db === 'undefined' || !db) {
+      scheduleRefresh(800);
       return state;
     }
     try {
@@ -173,8 +156,12 @@
         enabled: data.markupEnabled === true,
         percent: round2(pct)
       };
+      loadAttempts = 0;
     } catch (e) {
       console.warn('[Markup] не удалось прочитать наценку агента:', e && e.message);
+      loadAttempts += 1;
+      if (loadAttempts < 8) scheduleRefresh(1200);
+      return state;
     }
     if (snapshot() !== before) rerender();
     else updateBanner();
@@ -202,24 +189,25 @@
   }
 
   var refreshTimer = null;
-  function scheduleRefresh() {
+  function scheduleRefresh(delay) {
     if (refreshTimer) clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(function () { refresh(); }, 400);
+    refreshTimer = setTimeout(function () { refresh(); }, delay == null ? 400 : delay);
   }
 
   function boot() {
-    scheduleRefresh();
+    scheduleRefresh(400);
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) scheduleRefresh();
+      if (!document.hidden) scheduleRefresh(200);
     });
-    window.addEventListener('pageshow', scheduleRefresh);
+    window.addEventListener('pageshow', function () { scheduleRefresh(200); });
     var lastKey = '';
     setInterval(function () {
       var agent = readAgent();
       var key = agent ? String(agent.id || '') : '';
-      if (key !== lastKey) {
+      var pending = !!(key && (!state.loaded || state.agentId !== key));
+      if (key !== lastKey || pending) {
         lastKey = key;
-        scheduleRefresh();
+        scheduleRefresh(pending ? 300 : 200);
       }
     }, 2000);
   }

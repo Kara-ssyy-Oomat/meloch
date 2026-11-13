@@ -25,7 +25,7 @@ function showProductDetailModal(productId) {
       <div style="text-align:center;">
         <img loading="eager" src="${product.image || ''}" alt="${product.title || ''}" style="max-width:100%; max-height:300px; border-radius:12px; margin-bottom:15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
         <div style="background:linear-gradient(135deg, #fff3e0, #ffe0b2); padding:15px; border-radius:10px; margin-top:10px;">
-          <div style="font-size:24px; font-weight:bold; color:#e65100; margin-bottom:10px;">${product.price || 0} сом</div>
+          <div style="font-size:24px; font-weight:bold; color:#e65100; margin-bottom:10px;">${(typeof viewMoney === 'function' ? viewMoney(product.price || 0) : (product.price || 0))} сом</div>
           <div style="font-size:15px; color:#5d4037; line-height:1.6; text-align:left;">${product.description || 'Описание отсутствует'}</div>
         </div>
       </div>
