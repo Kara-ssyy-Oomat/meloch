@@ -2166,12 +2166,20 @@
           console.warn('[Profit] clientAgents:', e && e.message);
         }
 
+        function _ownSale(data) {
+          if (!data || data.orderKind !== 'agent_sale') return false;
+          var aid = data.agentId ? String(data.agentId) : '';
+          var pid = data.placedByAgentId ? String(data.placedByAgentId) : '';
+          return !!((aid && ids[aid]) || (pid && ids[pid]));
+        }
+
         function _keepOrder(data) {
-          if (!data || data.excludedFromAgent === true) return false;
-          // Удалённый админом заказ (мягкое удаление) прибыль не приносит
+          if (!data) return false;
           if (data.deleted === true) return false;
           var st = data.status;
           if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
+          if (data.orderKind === 'agent_sale') return _ownSale(data);
+          if (data.excludedFromAgent === true) return false;
           return true;
         }
 
@@ -2500,6 +2508,7 @@
               <div class="order-client">
                 <div class="order-client-name">
                   ${order.name || 'Клиент'}
+                  ${order.orderKind === 'agent_sale' ? '<span style="background:#2e7d32; color:white; padding:2px 6px; border-radius:4px; font-size:10px; margin-left:8px;">Ваша продажа</span>' : ''}
                   ${isRecent ? '<span style="background:#ff5722; color:white; padding:2px 6px; border-radius:4px; font-size:10px; margin-left:8px;">🆕 НОВЫЙ</span>' : ''}
                 </div>
                 <div class="order-client-phone">📱 ${order.phone || ''}</div>
@@ -2516,7 +2525,7 @@
               </div>
               <div class="order-actions">
                 ${itemsCount > 0 ? `<button class="order-btn purple" onclick="openOrderItemsModal('${order.id}')">📦 Товары (${totalQty} шт)</button>` : ''}
-                ${agentMarkupApproved ? '' : `<div class="order-profit">+${profit.toLocaleString()} сом</div>`}
+                ${order.orderKind === 'agent_sale' || agentMarkupApproved ? '' : `<div class="order-profit">+${profit.toLocaleString()} сом</div>`}
               </div>
             </div>
           </div>
@@ -2780,15 +2789,17 @@
       let totalOrders = 0;
       const uniqueClients = new Set();
       
+      let commissionBase = 0;
       filteredOrders.forEach(order => {
         // Отменённые заказы не считаются в прибыль
         if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
         totalSum += order.total || 0;
         totalOrders++;
         if (order.phone) uniqueClients.add(order.phone);
+        if (order.orderKind !== 'agent_sale') commissionBase += order.total || 0;
       });
       
-      const totalProfit = agentCommission(totalSum);
+      const totalProfit = agentCommission(commissionBase);
       
       // Загружаем выплаты
       let totalPaid = 0;
@@ -2828,6 +2839,7 @@
       filteredOrders.forEach(order => {
         // Отменённые заказы не считаются в графике
         if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
+        if (order.orderKind === 'agent_sale') return;
         const timestamp = order.timestamp || order.createdAt || order.date;
         if (!timestamp) return;
         
