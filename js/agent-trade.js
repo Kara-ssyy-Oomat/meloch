@@ -107,8 +107,7 @@
     catalogLoaded = true;
   }
 
-  async function loadInventory() {
-    var snap = await db().collection('agentInventory').doc(agent.id).collection('items').get();
+  function readInventorySnap(snap) {
     inventory = [];
     snap.forEach(function (doc) {
       var data = doc.data() || {};
@@ -122,6 +121,28 @@
       });
     });
     inventory.sort(function (a, b) { return a.title.localeCompare(b.title, 'ru'); });
+  }
+
+  async function loadInventory() {
+    var snap = await db().collection('agentInventory').doc(agent.id).collection('items').get();
+    readInventorySnap(snap);
+  }
+
+  var inventoryUnsub = null;
+  function watchInventory(on) {
+    if (inventoryUnsub) {
+      inventoryUnsub();
+      inventoryUnsub = null;
+    }
+    if (!on || !agent || !agent.id) return;
+    inventoryUnsub = db().collection('agentInventory').doc(String(agent.id)).collection('items')
+      .onSnapshot(function (snap) {
+        readInventorySnap(snap);
+        if (!(active && tab === 'sell')) return;
+        var hasGoods = inventory.some(function (item) { return item.qty > 0; });
+        showNote(hasGoods ? '' : 'В продаже пока ничего нет. Сначала купите товар в разделе «Покупка».');
+        if (typeof renderProductsNow === 'function') renderProductsNow();
+      }, function () {});
   }
 
   async function renderBuy() {
@@ -582,7 +603,9 @@
       try { await loadInventory(); } catch (e) {}
       var hasGoods = inventory.some(function (item) { return item.qty > 0; });
       showNote(hasGoods ? '' : 'В продаже пока ничего нет. Сначала купите товар в разделе «Покупка».');
+      watchInventory(true);
     } else {
+      watchInventory(false);
       showNote('');
     }
     setFormMode(next);
@@ -597,6 +620,7 @@
 
   function close() {
     active = false;
+    watchInventory(false);
     try {
       sessionStorage.removeItem('kerbenTradeMode');
       localStorage.removeItem('kerbenTradeMode');

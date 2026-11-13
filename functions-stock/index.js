@@ -1225,6 +1225,120 @@ async function _assertStockHistoryReader(context) {
   }
 }
 
+function _creditMap(src) {
+  const map = {};
+  if (!src || typeof src !== 'object') return map;
+  Object.keys(src).forEach((id) => {
+    const n = Math.max(0, Math.floor(Number(src[id]) || 0));
+    if (id && n > 0) map[String(id)] = n;
+  });
+  return map;
+}
+
+function _purchaseStockHeld(order) {
+  if (!order || order.deleted === true || _isCancelledStatus(order.status)) return false;
+  if (order.stockDeducted === true) return true;
+  const st = order.stockDeductionStatus;
+  return st === 'done' || st === 'done_with_shortage';
+}
+
+// Сколько этой покупки ещё должно лежать в продаже агента.
+function _targetPurchaseQty(order) {
+  if (!order || order.orderKind !== 'agent_purchase' || order.agentInventoryApplied !== true) return {};
+  if (order.deleted === true || _isCancelledStatus(order.status)) return {};
+  const map = {};
+  _aggregateItems(order.items).forEach((item) => {
+    if (item && item.id && item.qty > 0) map[String(item.id)] = item.qty;
+  });
+  return map;
+}
+
+// Покупка агента: продажа показывает только то, что осталось в заказе.
+// Отмена, удаление заказа и удаление строки убирают товар из продажи.
+// Уменьшение количества уменьшает остаток, увеличение — добавляет.
+async function _syncAgentPurchaseInventory(orderId, after, before) {
+  const seed = after || before;
+  if (!seed || seed.orderKind !== 'agent_purchase' || seed.agentInventoryApplied !== true) return;
+  const agentId = String(seed.agentId || seed.placedByAgentId || '');
+  if (!agentId) return;
+  const orderRef = db.collection('orders').doc(orderId);
+  const reversalRef = db.collection('agentInventoryReversals').doc(orderId);
+
+  await db.runTransaction(async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    const reversalSnap = await tx.get(reversalRef);
+    const live = orderSnap.exists ? (orderSnap.data() || {}) : null;
+    if (!live && reversalSnap.exists) return;
+    const credited = _creditMap(live ? live.agentInventoryCredit : (before && before.agentInventoryCredit));
+    const held = live ? _purchaseStockHeld(live) : false;
+    const rawTarget = live ? _targetPurchaseQty(live) : {};
+    const ids = Array.from(new Set(Object.keys(credited).concat(Object.keys(rawTarget))));
+    const target = {};
+    let changed = false;
+    ids.forEach((id) => {
+      const from = credited[id] || 0;
+      let to = rawTarget[id] || 0;
+      if (to > from && !held) to = from;
+      if (to > 0) target[id] = to;
+      if (to !== from) changed = true;
+    });
+    if (!changed) return;
+
+    const refs = ids.map((id) => _agentInventoryRef(agentId, id));
+    const snaps = [];
+    for (let i = 0; i < refs.length; i++) snaps.push(await tx.get(refs[i]));
+
+    const items = live && Array.isArray(live.items) ? live.items : [];
+    ids.forEach((id, i) => {
+      const from = credited[id] || 0;
+      const to = target[id] || 0;
+      if (from === to) return;
+      const snap = snaps[i];
+      const prev = snap.exists ? (snap.data() || {}) : {};
+      const have = Math.max(0, Math.floor(Number(prev.qty) || 0));
+      const next = Math.max(0, have + (to - from));
+      if (!snap.exists && next <= 0) return;
+      const line = items.find((item) => item && String(item.id) === id) || {};
+      const patch = {
+        productId: id,
+        qty: next,
+        updatedAt: Date.now()
+      };
+      if (!snap.exists) {
+        patch.title = line.title || '';
+        patch.image = line.image || null;
+        patch.buyPrice = Number(line.price) || 0;
+        patch.markupPercent = 0;
+      }
+      tx.set(refs[i], patch, { merge: true });
+    });
+    if (orderSnap.exists) {
+      tx.set(orderRef, { agentInventoryCredit: target }, { merge: true });
+    } else {
+      tx.set(reversalRef, { at: Date.now() });
+    }
+  });
+}
+
+// Правка заказа агента в админке меняет его окно продажи.
+exports.syncAgentPurchaseInventory = functions
+  .runWith({ failurePolicy: true, timeoutSeconds: 60, memory: '256MB' })
+  .firestore
+  .document('orders/{orderId}')
+  .onWrite(async (change, context) => {
+    const before = change.before.exists ? (change.before.data() || {}) : null;
+    const after = change.after.exists ? (change.after.data() || {}) : null;
+    const seed = after || before;
+    if (!seed || seed.orderKind !== 'agent_purchase' || seed.agentInventoryApplied !== true) return null;
+    try {
+      await _syncAgentPurchaseInventory(context.params.orderId, after, before);
+    } catch (e) {
+      console.error('[AgentStockSync]', context.params.orderId, e && e.message);
+      throw e;
+    }
+    return null;
+  });
+
 exports.listWarehouseStockHistory = functions
   .runWith({ timeoutSeconds: 60, memory: '256MB' })
   .https.onCall(async (data, context) => {
