@@ -93,7 +93,8 @@ async function _claimOrderForStockDeduction(orderRef) {
         || d.stockDeductionStatus === 'shortage'
         || d.stockDeductionStatus === 'skipped'
         || d.stockDeductionStatus === 'skipped_cancelled'
-        || d.stockDeductionStatus === 'skipped_unfulfilled') {
+        || d.stockDeductionStatus === 'skipped_unfulfilled'
+        || d.stockDeductionStatus === 'skipped_agent_sale') {
       return 'skip';
     }
 
@@ -383,8 +384,164 @@ async function _returnDeductions(warehouseDeductions, costAllocations) {
  * Бросает ошибку при сбое — Firebase / scheduler повторит.
  * Идемпотентна по товарам: уже списанные позиции не трогаем повторно.
  */
+function _agentInventoryRef(agentId, productId) {
+  return db.collection('agentInventory').doc(String(agentId)).collection('items').doc(String(productId));
+}
+
+// Покупка агента: в остаток попадает только то количество, которое реально
+// списано со склада KERBEN. Повторный запуск не прибавляет второй раз.
+async function creditAgentPurchase(orderId, orderData, items, deductedIds, shortages) {
+  const agentId = String((orderData && (orderData.agentId || orderData.placedByAgentId)) || '');
+  if (!agentId) return;
+  const orderRef = db.collection('orders').doc(orderId);
+  const shortageById = {};
+  (Array.isArray(shortages) ? shortages : []).forEach((s) => {
+    if (s && s.productId) shortageById[s.productId] = s;
+  });
+  const byId = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    if (!item || !item.id || !deductedIds || !deductedIds.has(item.id)) return;
+    const id = String(item.id);
+    const prev = byId.get(id) || {
+      id, qty: 0, title: item.title || '', image: item.image || null, buyPrice: Number(item.price) || 0
+    };
+    if (!prev.title && item.title) prev.title = item.title;
+    if (!prev.image && item.image) prev.image = item.image;
+    if (!(prev.buyPrice > 0) && Number(item.price) > 0) prev.buyPrice = Number(item.price);
+    byId.set(id, prev);
+  });
+  const credits = [];
+  byId.forEach((row) => {
+    const sh = shortageById[row.id];
+    const requested = Math.max(0, Math.floor(Number(
+      (Array.isArray(items) ? items : []).reduce((sum, item) => {
+        return item && String(item.id) === row.id ? sum + (Number(item.qty) || 0) : sum;
+      }, 0)
+    )));
+    const qty = sh
+      ? Math.max(0, Math.floor(Number(sh.deducted) || 0))
+      : requested;
+    if (qty <= 0) return;
+    row.qty = qty;
+    credits.push(row);
+  });
+  await db.runTransaction(async (tx) => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists) return;
+    if (orderSnap.data().agentInventoryApplied === true) return;
+    const refs = credits.map((c) => _agentInventoryRef(agentId, c.id));
+    const snaps = [];
+    for (let i = 0; i < refs.length; i++) snaps.push(await tx.get(refs[i]));
+    snaps.forEach((snap, i) => {
+      const c = credits[i];
+      const prev = snap.exists ? (snap.data() || {}) : {};
+      const prevQty = Math.max(0, Math.floor(Number(prev.qty) || 0));
+      tx.set(refs[i], {
+        productId: c.id,
+        title: c.title || prev.title || '',
+        image: c.image || prev.image || null,
+        buyPrice: c.buyPrice,
+        qty: prevQty + c.qty,
+        markupPercent: (typeof prev.markupPercent === 'number') ? prev.markupPercent : 0,
+        updatedAt: Date.now()
+      }, { merge: true });
+    });
+    tx.set(orderRef, { agentInventoryApplied: true }, { merge: true });
+  });
+}
+
+// Продажа агента: списывается только его остаток. Склад KERBEN не читается на запись.
+async function settleAgentSale(orderId, orderData) {
+  const orderRef = db.collection('orders').doc(orderId);
+  const agentId = String((orderData && (orderData.agentId || orderData.placedByAgentId)) || '');
+  const rawItems = Array.isArray(orderData && orderData.items) ? orderData.items : [];
+  const items = _aggregateItems(rawItems);
+  if (!agentId || !items.length) {
+    await orderRef.set({
+      stockDeducted: false,
+      stockDeductionStatus: 'skipped_agent_sale',
+      stockDeductionError: 'agent_sale_without_agent',
+      agentSaleRejected: true,
+      status: 'cancelled',
+      stockDeductionFinishedAt: Date.now()
+    }, { merge: true });
+    return;
+  }
+  try {
+    await db.runTransaction(async (tx) => {
+      const orderSnap = await tx.get(orderRef);
+      if (!orderSnap.exists) return;
+      const od = orderSnap.data() || {};
+      if (od.agentInventoryApplied === true) return;
+      const refs = items.map((item) => _agentInventoryRef(agentId, item.id));
+      const snaps = [];
+      for (let i = 0; i < refs.length; i++) snaps.push(await tx.get(refs[i]));
+      const next = [];
+      let total = 0;
+      const priced = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const snap = snaps[i];
+        const prev = snap.exists ? (snap.data() || {}) : {};
+        const have = Math.max(0, Math.floor(Number(prev.qty) || 0));
+        const need = Math.max(0, Math.floor(Number(item.qty) || 0));
+        if (need <= 0) continue;
+        if (need > have) {
+          const err = new Error('Недостаточно остатка агента: ' + (item.title || prev.title || item.id));
+          err.agentStock = true;
+          throw err;
+        }
+        const pct = Number(prev.markupPercent);
+        const percent = isFinite(pct) && pct > 0 ? Math.min(pct, 500) : 0;
+        const buy = Number(prev.buyPrice) || 0;
+        const sale = Math.round(buy * (100 + percent) / 100);
+        next.push({ ref: refs[i], qty: have - need });
+        total += sale * need;
+        priced.push({
+          id: item.id,
+          title: prev.title || item.title || '',
+          image: prev.image || null,
+          qty: need,
+          price: sale,
+          basePrice: buy,
+          markupPercent: percent
+        });
+      }
+      next.forEach((row) => {
+        tx.update(row.ref, { qty: row.qty, updatedAt: Date.now() });
+      });
+      tx.set(orderRef, {
+        items: priced,
+        total: total,
+        agentInventoryApplied: true,
+        stockDeducted: false,
+        stockDeductionStatus: 'skipped_agent_sale',
+        stockDeductionFinishedAt: Date.now(),
+        agentSaleRejected: false
+      }, { merge: true });
+    });
+  } catch (e) {
+    if (e && e.agentStock) {
+      await orderRef.set({
+        status: 'cancelled',
+        agentSaleRejected: true,
+        stockDeducted: false,
+        stockDeductionStatus: 'skipped_agent_sale',
+        stockDeductionError: String(e.message || e).slice(0, 300),
+        stockDeductionFinishedAt: Date.now()
+      }, { merge: true });
+      return;
+    }
+    throw e;
+  }
+}
+
 async function processOrderStockDeduction(orderId, orderDataHint) {
   const orderRef = db.collection('orders').doc(orderId);
+  if (orderDataHint && orderDataHint.orderKind === 'agent_sale') {
+    await settleAgentSale(orderId, orderDataHint);
+    return;
+  }
   const claim = await _claimOrderForStockDeduction(orderRef);
   if (claim === 'skip' || claim === 'busy') {
     console.log(`[StockDeduct] ${orderId}: ${claim}`);
@@ -667,6 +824,12 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     }).catch(() => {});
   }
 
+  if (!needReturn && orderData && orderData.orderKind === 'agent_purchase') {
+    const fresh = await orderRef.get();
+    const freshItems = (fresh.exists && Array.isArray(fresh.data().items)) ? fresh.data().items : items;
+    await creditAgentPurchase(orderId, orderData, freshItems, deductedIds, shortages);
+  }
+
   console.log(`[StockDeduct] ${orderId}: ${anyDeducted ? 'done' : 'skipped'} (${items.length} позиций)`);
 }
 
@@ -711,7 +874,8 @@ exports.deductStockOnOrderCreate = functions
         || data.stockDeductionStatus === 'shortage'
         || data.stockDeductionStatus === 'skipped'
         || data.stockDeductionStatus === 'skipped_cancelled'
-        || data.stockDeductionStatus === 'skipped_unfulfilled') {
+        || data.stockDeductionStatus === 'skipped_unfulfilled'
+        || data.stockDeductionStatus === 'skipped_agent_sale') {
       return null;
     }
 
@@ -778,6 +942,11 @@ exports.manualDeductOrderStock = functions
       throw new functions.https.HttpsError('not-found', 'Заказ не найден');
     }
     const order = snap.data() || {};
+
+    if (order.orderKind === 'agent_sale') {
+      throw new functions.https.HttpsError('failed-precondition',
+        'Продажа агента списывается только с его остатка, не со склада KERBEN');
+    }
 
     // Защита от списания отменённого заказа
     if (_isCancelledStatus(order.status)) {

@@ -779,6 +779,9 @@ function orderBaseUnit(product, item) {
 
 async function repriceAgentOrder(order) {
   if (!order) return null;
+  // Покупка агента идёт по цене KERBEN, продажа — по его остатку.
+  // Каталожная наценка эти заказы не пересчитывает.
+  if (order.orderKind === 'agent_purchase' || order.orderKind === 'agent_sale') return null;
   let agentId = order.placedByAgentId || order.agentId
     || (order.placedByAgent && order.placedByAgent.id) || null;
   if (!agentId) {

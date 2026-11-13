@@ -933,7 +933,7 @@
         <h1>💰 Моя прибыль</h1>
         <div class="header-subtitle" id="agentName">Агент: ---</div>
         <!-- Метка версии: если её не видно, устройство держит старую копию -->
-        <div class="header-subtitle" style="font-size:11px; opacity:0.75;">версия 4.56</div>
+        <div class="header-subtitle" style="font-size:11px; opacity:0.75;">версия 4.57</div>
       </div>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
@@ -1054,6 +1054,7 @@
       </div>
 
       <div id="markupSection" style="background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);"></div>
+      <div id="agentTradeSection" style="display:none;margin-bottom:20px;"></div>
       
       <!-- График -->
       <div class="chart-container">
@@ -1189,6 +1190,7 @@
   <script>window.KERBEN_BACKGROUND = { graceMs: 300000 };</script>
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
+  <script src="js/agent-trade.js?v=1"></script>
   
   <script>
     if (!firebase.apps.length) {
@@ -1776,6 +1778,7 @@
         const pct = Number(data.markupPercent);
         const percent = isFinite(pct) && pct >= 0 ? pct : 0;
         if (!allowed) {
+          if (window.KerbenAgentTrade) KerbenAgentTrade.hide();
           box.innerHTML = `
             <div style="font-weight:700;font-size:16px;margin-bottom:6px;">Наценка на товары (%)</div>
             <div style="color:#8d6e00;background:#fff8e1;border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;">
@@ -1796,6 +1799,7 @@
             <button type="button" onclick="saveAgentMarkupPercent()" style="background:#9c27b0;color:#fff;border:none;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer;">Сохранить</button>
           </div>
           <div style="margin-top:8px;font-size:13px;color:#555;">Сейчас: <b>${enabled ? 'включена' : 'выключена'}</b> · ${_markupPlain(percent)}%</div>`;
+        if (window.KerbenAgentTrade) KerbenAgentTrade.mount(currentAgent);
       } catch (e) {
         box.innerHTML = '<div style="color:#c62828;font-size:14px;">Не удалось загрузить наценку. Проверьте интернет.</div>';
       }

@@ -417,6 +417,22 @@ service cloud.firestore {
       allow delete: if isAdminUser();
     }
 
+    // Остаток агента. Количество меняет только сервер.
+    // Агент может записать только свой процент продажи.
+    match /agentInventory/{agentId} {
+      allow read: if isRegularAuthed();
+      allow write: if false;
+      match /items/{productId} {
+        allow read: if isRegularAuthed();
+        allow create, delete: if false;
+        allow update: if isRegularAuthed()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['markupPercent', 'updatedAt'])
+          && request.resource.data.markupPercent is number
+          && request.resource.data.markupPercent >= 0
+          && request.resource.data.markupPercent <= 500;
+      }
+    }
+
     // =========================================================
     //                     ФИНАНСЫ (расходы)
     // =========================================================
