@@ -68,8 +68,8 @@
     var note = document.getElementById('tradeNote');
     if (note) {
       note.textContent = tab === 'buy'
-        ? 'Покупка для своего склада по ценам KERBEN.'
-        : 'Выберите товар. Заказ покупателя принимается в форме ниже.';
+        ? 'Покупка для своего склада. Когда товары куплены, нажмите «Перейти на продажу».'
+        : 'Страница продажи. Добавьте товар в заказ и примите его в форме ниже.';
     }
     paintBar();
     if (tab === 'buy') renderBuy();
@@ -161,6 +161,7 @@
       return sum + (p ? p.price * buyCart[id] : 0);
     }, 0);
     panel.innerHTML = ''
+      + '<button type="button" id="goSellPage" style="width:100%;margin-bottom:12px;border:none;background:#2e7d32;color:#fff;border-radius:12px;padding:14px;font-weight:800;font-size:16px;cursor:pointer;">Перейти на продажу</button>'
       + '<input id="tradeBuySearch" placeholder="Поиск товара KERBEN" value="' + esc(query) + '" style="width:100%;box-sizing:border-box;padding:12px;border:2px solid #e0e0e0;border-radius:10px;margin-bottom:10px;">'
       + '<div style="max-height:420px;overflow:auto;">' + list.map(function (p) {
         var stockText = p.stock === null ? 'без учёта склада' : ('на складе KERBEN: ' + p.stock);
@@ -179,6 +180,8 @@
       + '<div style="margin-top:8px;font-weight:800;">Итого: ' + money(total) + ' сом</div>'
       + '<button type="button" id="tradeBuyConfirm" style="margin-top:10px;width:100%;border:none;background:#1565c0;color:#fff;border-radius:10px;padding:12px;font-weight:800;cursor:pointer;">Подтвердить покупку</button>'
       + '</div>';
+    var goSell = document.getElementById('goSellPage');
+    if (goSell) goSell.onclick = function () { openMode('sell'); };
     var search = document.getElementById('tradeBuySearch');
     if (search) {
       search.oninput = function () { drawBuy(search.value); };
@@ -462,8 +465,10 @@
     var title = document.getElementById('orderFormTitle');
     var submit = document.getElementById('submitOrder');
     var openCart = document.getElementById('openCartBtn');
+    var categories = document.querySelector('.category-tabs');
     if (table) table.style.display = catalogOn ? '' : 'none';
     if (searchBox) searchBox.style.display = catalogOn ? '' : 'none';
+    if (categories) categories.style.display = catalogOn ? '' : 'none';
     if (form) form.style.display = formOn ? '' : 'none';
     if (title) title.textContent = (!catalogOn && formOn) ? 'Принять заказ' : 'Оформить заказ';
     if (submit) submit.textContent = (!catalogOn && formOn) ? 'Принять заказ' : 'Отправить заказ';
@@ -483,7 +488,8 @@
       + '<button type="button" id="agentBarSell" style="flex:1;border:none;border-radius:12px;padding:14px;font-weight:800;font-size:16px;cursor:pointer;">Продажа</button>';
     document.getElementById('agentBarBuy').onclick = function () { openMode('buy'); };
     document.getElementById('agentBarSell').onclick = function () { openMode('sell'); };
-    bar.style.display = 'flex';
+    bar.style.cssText = 'display:flex;position:fixed;top:0;left:0;right:0;z-index:10000;gap:8px;padding:8px 12px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.12);';
+    document.body.style.paddingTop = '68px';
     paintBar();
   }
 
