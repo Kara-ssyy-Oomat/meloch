@@ -88,6 +88,12 @@ async function _claimOrderForStockDeduction(orderRef) {
     // ВАЖНО: stockDeducted===true сам по себе НЕ skip:
     // при частичном сбое флаг уже true, а часть товаров ещё не списана —
     // retry должен досписывать оставшиеся (по stockDeductionProcessedIds).
+    if ((d.stockDeductionStatus === 'done' || d.stockDeductionStatus === 'done_with_shortage')
+        && d.orderKind === 'agent_purchase'
+        && d.agentInventoryApplied !== true) {
+      return 'credit_only';
+    }
+
     if (d.stockDeductionStatus === 'done'
         || d.stockDeductionStatus === 'done_with_shortage'
         || d.stockDeductionStatus === 'shortage'
@@ -430,23 +436,57 @@ async function creditAgentPurchase(orderId, orderData, items, deductedIds, short
     if (!orderSnap.exists) return;
     if (orderSnap.data().agentInventoryApplied === true) return;
     const refs = credits.map((c) => _agentInventoryRef(agentId, c.id));
+    const productRefs = credits.map((c) => db.collection('products').doc(c.id));
     const snaps = [];
-    for (let i = 0; i < refs.length; i++) snaps.push(await tx.get(refs[i]));
+    const productSnaps = [];
+    for (let i = 0; i < refs.length; i++) {
+      snaps.push(await tx.get(refs[i]));
+      productSnaps.push(await tx.get(productRefs[i]));
+    }
+    const creditMap = {};
     snaps.forEach((snap, i) => {
       const c = credits[i];
       const prev = snap.exists ? (snap.data() || {}) : {};
+      const product = productSnaps[i].exists ? (productSnaps[i].data() || {}) : {};
+      const live = Number(product.price);
+      const buy = isFinite(live) && live >= 0 ? live : c.buyPrice;
       const prevQty = Math.max(0, Math.floor(Number(prev.qty) || 0));
+      const prevBuy = Number(prev.buyPrice);
+      const nextQty = prevQty + c.qty;
+      const avg = nextQty > 0
+        ? ((prevQty * (isFinite(prevBuy) ? prevBuy : buy)) + (c.qty * buy)) / nextQty
+        : buy;
+      creditMap[c.id] = c.qty;
       tx.set(refs[i], {
         productId: c.id,
-        title: c.title || prev.title || '',
-        image: c.image || prev.image || null,
-        buyPrice: c.buyPrice,
-        qty: prevQty + c.qty,
+        title: product.title || c.title || prev.title || '',
+        image: product.image || c.image || prev.image || null,
+        buyPrice: Math.round(avg * 100) / 100,
+        qty: nextQty,
         markupPercent: (typeof prev.markupPercent === 'number') ? prev.markupPercent : 0,
         updatedAt: Date.now()
       }, { merge: true });
     });
-    tx.set(orderRef, { agentInventoryApplied: true }, { merge: true });
+    const orderNow = orderSnap.data() || {};
+    const pricedOnce = {};
+    const pricedItems = (Array.isArray(orderNow.items) ? orderNow.items : []).map((item) => {
+      const id = item && item.id != null ? String(item.id) : '';
+      if (!item || !creditMap[id] || pricedOnce[id]) return Object.assign({}, item, { qty: 0 });
+      pricedOnce[id] = true;
+      const product = productSnaps[credits.findIndex((c) => c.id === id)];
+      const live = product && product.exists ? Number((product.data() || {}).price) : NaN;
+      const price = isFinite(live) && live >= 0 ? live : item.price;
+      return Object.assign({}, item, { price: price, qty: creditMap[id] });
+    });
+    const total = pricedItems.reduce((sum, item) => {
+      return sum + (Number(item && item.qty) || 0) * (Number(item && item.price) || 0);
+    }, 0);
+    tx.set(orderRef, {
+      agentInventoryApplied: true,
+      agentInventoryCredit: creditMap,
+      items: pricedItems,
+      total: Math.round(total * 100) / 100
+    }, { merge: true });
   });
 }
 
@@ -472,7 +512,8 @@ async function settleAgentSale(orderId, orderData) {
       const orderSnap = await tx.get(orderRef);
       if (!orderSnap.exists) return;
       const od = orderSnap.data() || {};
-      if (od.agentInventoryApplied === true) return;
+      if (od.agentInventoryApplied === true || od.agentSaleRejected === true) return;
+      if (od.stockDeductionStatus === 'skipped_agent_sale') return;
       const refs = items.map((item) => _agentInventoryRef(agentId, item.id));
       const snaps = [];
       for (let i = 0; i < refs.length; i++) snaps.push(await tx.get(refs[i]));
@@ -521,7 +562,7 @@ async function settleAgentSale(orderId, orderData) {
       }, { merge: true });
     });
   } catch (e) {
-    if (e && e.agentStock) {
+    if (e && (e.agentStock || /Недостаточно остатка агента/.test(String(e.message || '')))) {
       await orderRef.set({
         status: 'cancelled',
         agentSaleRejected: true,
@@ -543,6 +584,19 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     return;
   }
   const claim = await _claimOrderForStockDeduction(orderRef);
+  if (claim === 'credit_only') {
+    const fresh = await orderRef.get();
+    const live = fresh.exists ? (fresh.data() || {}) : (orderDataHint || {});
+    const deductedIds = new Set(Array.isArray(live.stockDeductedProductIds) ? live.stockDeductedProductIds : []);
+    await creditAgentPurchase(
+      orderId,
+      live,
+      Array.isArray(live.items) ? live.items : [],
+      deductedIds,
+      Array.isArray(live.stockDeductionShortages) ? live.stockDeductionShortages : []
+    );
+    return;
+  }
   if (claim === 'skip' || claim === 'busy') {
     console.log(`[StockDeduct] ${orderId}: ${claim}`);
     return;

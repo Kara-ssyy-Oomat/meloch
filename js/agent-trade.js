@@ -16,7 +16,7 @@
   }
 
   function money(n) {
-    var x = Math.round(Number(n) || 0);
+    var x = Math.round((Number(n) || 0) * 100) / 100;
     return isFinite(x) ? x : 0;
   }
 
@@ -149,7 +149,7 @@
     var text = String(query || '').toLowerCase();
     var list = catalog.filter(function (p) {
       return !text || p.title.toLowerCase().indexOf(text) !== -1;
-    }).slice(0, 40);
+    });
     var cartRows = Object.keys(buyCart).map(function (id) {
       var p = catalog.filter(function (item) { return item.id === id; })[0];
       var qty = buyCart[id];
@@ -184,6 +184,11 @@
     var search = document.getElementById('tradeBuySearch');
     if (search) {
       search.oninput = function () { drawBuy(search.value); };
+      if (query) {
+        search.focus();
+        var end = search.value.length;
+        try { search.setSelectionRange(end, end); } catch (e) {}
+      }
     }
     panel.querySelectorAll('[data-buy]').forEach(function (btn) {
       btn.onclick = function () {
@@ -203,7 +208,9 @@
     if (confirmBtn) confirmBtn.onclick = confirmBuy;
   }
 
+  var buyBusy = false;
   async function confirmBuy() {
+    if (buyBusy) return;
     var ids = Object.keys(buyCart).filter(function (id) { return buyCart[id] > 0; });
     if (!ids.length) {
       Swal.fire('Список пуст', 'Добавьте товары из каталога KERBEN', 'info');
@@ -226,9 +233,14 @@
       cancelButtonText: 'Отмена'
     });
     if (!ask.isConfirmed) return;
+    if (!agent.phone) {
+      Swal.fire('Нет телефона', 'В профиле агента не указан телефон', 'warning');
+      return;
+    }
+    buyBusy = true;
     try {
       if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth(8000);
-      await db().collection('orders').add({
+      var ref = await db().collection('orders').add({
         name: agent.name || 'Агент',
         phone: agent.phone || '',
         address: 'Склад агента',
@@ -253,13 +265,21 @@
         placedByAgentName: agent.name || '',
         excludedFromAgent: true
       });
+      var result = await waitOrder(ref.id);
+      var credited = result.agentInventoryCredit || {};
+      var got = Object.keys(credited).reduce(function (sum, id) { return sum + (Number(credited[id]) || 0); }, 0);
       buyCart = {};
       catalogLoaded = false;
-      Swal.fire('Покупка принята', 'Склад KERBEN списывается, товар переходит в ваш остаток.', 'success');
+      if (got > 0) {
+        Swal.fire('Покупка прошла', 'Со склада KERBEN списано ' + got + ' шт. Они уже в вашем остатке.', 'success');
+      } else {
+        Swal.fire('Склад не списал товар', 'Остатка KERBEN не хватило, в ваш склад ничего не добавлено.', 'warning');
+      }
       drawBuy('');
     } catch (e) {
       Swal.fire('Не удалось купить', (e && e.message) || 'Ошибка', 'error');
     }
+    buyBusy = false;
   }
 
   async function renderSell() {
@@ -286,7 +306,7 @@
         + '<div style="font-weight:800;">' + esc(item.title) + '</div>'
         + '<div style="color:#666;font-size:13px;margin:4px 0;">Куплено по ' + money(item.buyPrice) + ' сом · ваш остаток: <b>' + item.qty + '</b></div>'
         + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-        + '<input id="sellPct_' + esc(item.id) + '" type="number" min="0" max="500" step="1" value="' + money(item.markupPercent) + '" style="width:90px;padding:8px;border:1px solid #ddd;border-radius:8px;">'
+        + '<input id="sellPct_' + esc(item.id) + '" type="number" min="0" max="500" step="1" value="' + (Number(item.markupPercent) || 0) + '" style="width:90px;padding:8px;border:1px solid #ddd;border-radius:8px;">'
         + '<span>%</span>'
         + '<button type="button" data-save="' + esc(item.id) + '" style="border:none;background:#6a1b9a;color:#fff;border-radius:8px;padding:8px 10px;font-weight:700;cursor:pointer;">Сохранить %</button>'
         + '<span style="font-weight:800;color:#2e7d32;">покупатель видит ' + price + ' сом</span>'
@@ -324,7 +344,9 @@
     }
   }
 
+  var sellBusy = false;
   async function sellItem(id) {
+    if (sellBusy) return;
     var item = inventory.filter(function (row) { return row.id === id; })[0];
     if (!item || item.qty <= 0) {
       Swal.fire('Нет остатка', 'Сначала купите этот товар у KERBEN', 'info');
@@ -342,6 +364,7 @@
       return;
     }
     var price = salePrice(item.buyPrice, item.markupPercent);
+    sellBusy = true;
     try {
       if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth(8000);
       var ref = await db().collection('orders').add({
@@ -379,6 +402,7 @@
     } catch (e) {
       Swal.fire('Не удалось продать', (e && e.message) || 'Ошибка', 'error');
     }
+    sellBusy = false;
   }
 
   function waitOrder(id) {
@@ -386,7 +410,7 @@
       var timer = setTimeout(function () {
         unsub();
         reject(new Error('Сервер ещё не подтвердил остаток. Обновите раздел через несколько секунд.'));
-      }, 15000);
+      }, 25000);
       var unsub = db().collection('orders').doc(id).onSnapshot(function (snap) {
         var data = snap.data() || {};
         if (data.agentInventoryApplied === true || data.agentSaleRejected === true) {
