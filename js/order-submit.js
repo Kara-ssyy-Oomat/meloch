@@ -8,9 +8,30 @@ document.getElementById('submitOrder').onclick = async () => {
   if (_isSubmitting) return;
   _isSubmitting = true;
   const submitBtn = document.getElementById('submitOrder');
-  const name = document.getElementById('name').value.trim();
-  const phone = document.getElementById('phone').value.trim();
-  const address = document.getElementById('address').value.trim();
+  const tradeAtStart = (window.KerbenAgentTrade && KerbenAgentTrade.mode) ? KerbenAgentTrade.mode() : '';
+  const buyingNow = tradeAtStart === 'buy';
+  let name;
+  let phone;
+  let address;
+  if (buyingNow) {
+    let ownAgent = null;
+    let ownSaved = {};
+    try { ownAgent = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
+    try { ownSaved = JSON.parse(localStorage.getItem('customerData') || '{}') || {}; } catch (e) {}
+    ownAgent = ownAgent || {};
+    name = ownAgent.name || ownSaved.name || '';
+    phone = ownAgent.phone || ownSaved.phone || '';
+    address = ownSaved.address || ownAgent.address || 'Склад KERBEN';
+    if (!name || !phone) {
+      _isSubmitting = false;
+      Swal.fire('Ошибка', 'В профиле агента нет имени или телефона', 'warning');
+      return;
+    }
+  } else {
+    name = document.getElementById('name').value.trim();
+    phone = document.getElementById('phone').value.trim();
+    address = document.getElementById('address').value.trim();
+  }
   let driverName = document.getElementById('driverName').value.trim();
   let driverPhone = document.getElementById('driverPhone').value.trim();
   const referredBy = document.getElementById('referredBy').value.trim();
@@ -21,7 +42,7 @@ document.getElementById('submitOrder').onclick = async () => {
   const savedDriverPhone = savedUserData.driverPhone || '';
   
   // Если есть сохранённый водитель и текущие поля пустые или совпадают - спрашиваем подтверждение
-  if (savedDriverName || savedDriverPhone) {
+  if (!buyingNow && (savedDriverName || savedDriverPhone)) {
     const result = await Swal.fire({
       title: '🚗 Данные водителя',
       html: `
@@ -627,7 +648,7 @@ document.getElementById('submitOrder').onclick = async () => {
               }
               // Автозаполнение клиента для агента — только после server-confirmed
               try {
-                if (agentInfo && window.KerbenAgent && window.KerbenAgent.saveAgentClient) {
+                if (agentInfo && !buyingStock && window.KerbenAgent && window.KerbenAgent.saveAgentClient) {
                   window.KerbenAgent.saveAgentClient({ name: name, phone: phone, address: address });
                 }
               } catch (e) {}

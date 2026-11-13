@@ -432,6 +432,21 @@
       updateHint(count);
       if (count > 0) renderForAnyFilled();
     }).catch(function () {});
+
+    try {
+      if (window.KerbenAgentTrade && KerbenAgentTrade.mode && KerbenAgentTrade.mode() === 'buy') {
+        var buyBanner = document.getElementById('agentOrderBanner');
+        if (buyBanner) buyBanner.style.display = 'none';
+        ['name', 'phone', 'address', 'driverName', 'driverPhone', 'referredBy'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          var node = el.parentElement && el.parentElement.classList && el.parentElement.classList.contains('agent-input-wrap')
+            ? el.parentElement
+            : el;
+          node.style.display = 'none';
+        });
+      }
+    } catch (e) {}
   }
 
   // ---------- Экспорт ----------

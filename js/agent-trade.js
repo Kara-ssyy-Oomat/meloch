@@ -488,6 +488,37 @@
     if (submit) {
       submit.textContent = mode === 'sell' ? 'Принять заказ' : (mode === 'buy' ? 'Подтвердить покупку' : 'Отправить заказ');
     }
+    paintCheckout(mode);
+  }
+
+  function paintCheckout(mode) {
+    var fieldIds = ['name', 'phone', 'address', 'driverName', 'driverPhone', 'referredBy'];
+    fieldIds.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var node = el.parentElement && el.parentElement.classList && el.parentElement.classList.contains('agent-input-wrap')
+        ? el.parentElement
+        : el;
+      node.style.display = mode === 'buy' ? 'none' : '';
+    });
+    var banner = document.getElementById('agentOrderBanner');
+    if (banner) banner.style.display = mode === 'buy' ? 'none' : '';
+    var note = document.getElementById('agentSelfBuyNote');
+    if (!note && mode === 'buy') {
+      var title = document.getElementById('orderFormTitle');
+      note = document.createElement('div');
+      note.id = 'agentSelfBuyNote';
+      note.style.cssText = 'background:#e3f2fd;border-radius:10px;padding:12px;margin-bottom:10px;color:#1565c0;font-size:14px;';
+      if (title) title.insertAdjacentElement('afterend', note);
+    }
+    if (note) {
+      if (mode === 'buy' && agent) {
+        note.style.display = 'block';
+        note.textContent = 'Покупка для себя. Заказ уйдёт на ваши данные: ' + (agent.name || '') + (agent.phone ? ', ' + agent.phone : '');
+      } else {
+        note.style.display = 'none';
+      }
+    }
   }
 
   function showNote(text) {

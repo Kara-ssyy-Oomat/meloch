@@ -1242,6 +1242,24 @@
       return null;
     }
     
+    function isSelfPurchaseCart() {
+      if (!cart || !cart.length) return false;
+      if (cart.some(function (item) { return item && item.agentSale; })) return false;
+      if (cart.every(function (item) { return item && item.agentPurchase; })) return true;
+      try { return sessionStorage.getItem('kerbenTradeMode') === 'buy'; } catch (e) { return false; }
+    }
+
+    function agentOwnOrderData() {
+      const agent = getAgentInfo() || {};
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem('customerData') || '{}') || {}; } catch (e) {}
+      return {
+        name: agent.name || saved.name || '',
+        phone: agent.phone || saved.phone || '',
+        address: saved.address || agent.address || 'Склад KERBEN'
+      };
+    }
+
     function getDriverData() {
       try {
         const saved = JSON.parse(localStorage.getItem('userData') || '{}');
@@ -1346,6 +1364,7 @@
       // и (если есть) автоподсказки из ранее сохранённых клиентов.
       const isAgent = isAgentUser();
       const agentInfo = isAgent ? getAgentInfo() : null;
+      const selfBuy = isAgent && isSelfPurchaseCart();
       const agentClientsCount = isAgent ? getAgentClients().length : 0;
 
       const agentBannerHtml = agentInfo ? `
@@ -1369,8 +1388,16 @@
         <div id="swal-agent-suggest" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #ddd; border-radius:8px; max-height:240px; overflow-y:auto; z-index:9999; display:none; box-shadow:0 6px 20px rgba(0,0,0,0.15); margin-top:4px;"></div>
       ` : '';
 
-      // Если данных нет — спрашиваем через диалог
-      if (!customerInfo || !customerInfo.name || !customerInfo.phone) {
+      // Покупка для себя: окно клиента не показываем, заказ уходит на данные агента.
+      if (selfBuy) {
+        const own = agentOwnOrderData();
+        if (!own.name || !own.phone) {
+          _isSubmitting = false;
+          Swal.fire('Ошибка', 'В профиле агента нет имени или телефона', 'warning');
+          return;
+        }
+        customerInfo = { name: own.name, phone: own.phone, address: own.address };
+      } else if (!customerInfo || !customerInfo.name || !customerInfo.phone) {
         const result = await Swal.fire({
           title: isAgent ? '📋 Данные клиента' : '📋 Данные для заказа',
           html: `
@@ -1851,6 +1878,17 @@
           unfulfilledOrder: isUnfulfilledOrder || null,
           unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
         };
+        if (selfBuy) {
+          orderPayload.orderKind = 'agent_purchase';
+          orderPayload.excludedFromAgent = true;
+          orderPayload.markupAgentId = null;
+          orderPayload.markupPercent = 0;
+          if (agentInfo && agentInfo.id) {
+            orderPayload.agentId = agentInfo.id;
+            orderPayload.placedByAgentId = agentInfo.id;
+            orderPayload.placedByAgentName = agentInfo.name || '';
+          }
+        }
         if (cart.length && cart.every(function (item) { return item && item.agentSale; })) {
           var saleAgent = null;
           try { saleAgent = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
@@ -1927,7 +1965,7 @@
                   }
                   // Автозаполнение клиента для агента — тоже только
                   // после server-confirmed.
-                  if (agentInfo && typeof saveAgentClient === 'function') {
+                  if (agentInfo && !selfBuy && typeof saveAgentClient === 'function') {
                     try { saveAgentClient({ name, phone, address }); } catch (e) {}
                   }
                 } else {
