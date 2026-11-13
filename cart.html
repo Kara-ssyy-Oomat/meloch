@@ -1263,7 +1263,9 @@
 
     function isSelfPurchaseCart() {
       if (!cart || !cart.length) return false;
-      return pageTradeMode() !== 'sell';
+      if (pageTradeMode() === 'buy') return true;
+      if (pageTradeMode() === 'sell') return false;
+      return cart.every(function (item) { return item && item.agentPurchase; });
     }
 
     function agentOwnOrderData() {

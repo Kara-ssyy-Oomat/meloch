@@ -101,7 +101,7 @@
     // КРИТИЧНО: Принудительно разблокируем прокрутку при загрузке
     // Принудительная очистка кэшей при обновлении версии
     (function() {
-      var APP_VERSION = 'v4.59.2';
+      var APP_VERSION = 'v4.59.3';
       var lastVersion = localStorage.getItem('app_version');
       if (lastVersion !== APP_VERSION) {
         console.log('[Update] Обнаружена новая версия: ' + lastVersion + ' → ' + APP_VERSION);
@@ -979,7 +979,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   <script src="js/app-init.js?v=6"></script>
   <script src="js/filters.js?v=2"></script>
-  <script src="js/bottom-nav.js?v=38"></script>
+  <script src="js/bottom-nav.js?v=39"></script>
   <script src="js/scroll-buttons.js"></script>
 
   <!-- ОТЛОЖЕННЫЕ модули: defer — загружаются параллельно, выполняются после DOM -->
