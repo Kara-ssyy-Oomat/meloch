@@ -657,7 +657,13 @@
       }
       var snap = await db().collection('agents').doc(stored.id).get();
       var data = snap.exists ? (snap.data() || {}) : {};
-      if (data.markupAllowed !== true) return;
+      if (data.markupAllowed !== true) {
+        try {
+          localStorage.removeItem('kerbenTradeMode');
+          sessionStorage.removeItem('kerbenTradeMode');
+        } catch (e) {}
+        return;
+      }
       agent = {
         id: stored.id,
         name: stored.name || data.name || '',
