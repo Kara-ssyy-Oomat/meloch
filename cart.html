@@ -750,14 +750,16 @@
         // Иначе остаётся баннер «Заказ от агента», хотя клиент вышел.
         const cd = JSON.parse(localStorage.getItem('customerData') || 'null');
         if (!cd || !cd.phone) return false;
-        if (!a.phone) return true;
         const digits = function (p) {
           var d = String(p || '').replace(/\D/g, '');
           if (d.indexOf('996') === 0) d = d.substring(3);
           if (d.charAt(0) === '0') d = d.substring(1);
           return d.slice(-9);
         };
-        return digits(cd.phone) === digits(a.phone);
+        var mine = digits(cd.phone);
+        var tails = [digits(a.phone), digits(a.phone2)].filter(function (t) { return t && t.length >= 9; });
+        if (!tails.length) return true;
+        return tails.indexOf(mine) !== -1;
       } catch(e) { return false; }
     }
 
@@ -879,9 +881,12 @@
                 variants.push(n.substring(1));
               }
               for (const v of variants) {
-                const s = await db.collection('agents').where('phone', '==', v).limit(1).get();
+                let s = await db.collection('agents').where('phone', '==', v).limit(1).get();
+                if (s.empty) s = await db.collection('agents').where('phone2', '==', v).limit(1).get();
                 if (!s.empty) {
-                  agentInfo = { id: s.docs[0].id, name: s.docs[0].data().name || agentInfo.name || '', phone: s.docs[0].data().phone || phone };
+                  const data = s.docs[0].data() || {};
+                  agentInfo = { id: s.docs[0].id, name: data.name || agentInfo.name || '', phone: data.phone || phone };
+                  if (data.phone2) agentInfo.phone2 = data.phone2;
                   try { localStorage.setItem('currentAgent', JSON.stringify(agentInfo)); } catch(e) {}
                   break;
                 }

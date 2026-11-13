@@ -974,6 +974,7 @@
         <div id="registerForm" style="display:none;">
           <input type="text" id="regName" class="auth-input" placeholder="👤 Ваше имя">
           <input type="tel" id="regPhone" class="auth-input" placeholder="📱 Ваш телефон">
+          <input type="tel" id="regPhone2" class="auth-input" placeholder="📱 Второй телефон, если есть">
           <input type="password" id="regPassword" class="auth-input" placeholder="🔒 Придумайте пароль">
           <input type="password" id="regPassword2" class="auth-input" placeholder="🔒 Повторите пароль">
           <button class="auth-btn register" onclick="registerAgent()">Зарегистрироваться</button>
@@ -1053,6 +1054,7 @@
         </div>
       </div>
 
+      <div id="secondPhoneSection" style="background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);"></div>
       <div id="markupSection" style="background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);"></div>
       <div id="agentTradeSection" style="display:none;margin-bottom:20px;"></div>
       
@@ -1287,6 +1289,7 @@
         id: doc.id,
         name: String(data.name || '').trim(),
         phone: data.phone || '',
+        phone2: data.phone2 || '',
         _hasPassword: !!data.password,
         _password: data.password,
         _active: data.active
@@ -1294,7 +1297,9 @@
     }
 
     function _publicAgent(a) {
-      return { id: a.id, name: a.name, phone: a.phone };
+      var pub = { id: a.id, name: a.name, phone: a.phone || '' };
+      if (a.phone2) pub.phone2 = a.phone2;
+      return pub;
     }
 
     function _idbGet(key, ms) {
@@ -1349,17 +1354,20 @@
           if (v && variants.indexOf(v) === -1) variants.push(v);
         });
       });
+      var phoneFields = ['phone', 'phone2'];
       for (var i = 0; i < variants.length; i++) {
-        try {
-          var snap = await db.collection('agents').where('phone', '==', variants[i]).limit(10).get();
-          readOk = true;
-          snap.forEach(function (doc) {
-            if (seen[doc.id]) return;
-            seen[doc.id] = true;
-            found.push(_agentFromDoc(doc));
-          });
-        } catch (e) {
-          console.warn('[Profit] поиск агента по номеру:', e && e.message);
+        for (var f = 0; f < phoneFields.length; f++) {
+          try {
+            var snap = await db.collection('agents').where(phoneFields[f], '==', variants[i]).limit(10).get();
+            readOk = true;
+            snap.forEach(function (doc) {
+              if (seen[doc.id]) return;
+              seen[doc.id] = true;
+              found.push(_agentFromDoc(doc));
+            });
+          } catch (e) {
+            console.warn('[Profit] поиск агента по номеру:', e && e.message);
+          }
         }
       }
       if (found.length === 0 && phones && phones.length) {
@@ -1370,7 +1378,7 @@
             if (seen[doc.id]) return;
             var data = doc.data() || {};
             var match = phones.some(function (p) {
-              return _phonesMatch(p, data.phone) || _phonesMatch(p, doc.id);
+              return _phonesMatch(p, data.phone) || _phonesMatch(p, data.phone2) || _phonesMatch(p, doc.id);
             });
             if (match) {
               seen[doc.id] = true;
@@ -1666,14 +1674,21 @@
           currentAgent = {
             id: params.id || '',
             name: params.name || '',
-            phone: params.phone || ''
+            phone: params.phone || '',
+            phone2: params.phone2 || ''
           };
         }
         if (!currentAgent && saved && saved.name && (saved.id || saved.phone)) {
           if (!fromProfile || !params.phone || !saved.phone
               || _phonesMatch(params.phone, saved.phone)
+              || _phonesMatch(params.phone, saved.phone2)
               || _phonesMatch(params.phone, saved.id)) {
-            currentAgent = { id: saved.id || params.id, name: saved.name, phone: saved.phone || params.phone };
+            currentAgent = {
+              id: saved.id || params.id,
+              name: saved.name,
+              phone: saved.phone || params.phone,
+              phone2: saved.phone2 || ''
+            };
           }
         }
 
@@ -1743,11 +1758,84 @@
       _hideResolveBox();
       document.getElementById('authSection').style.display = 'none';
       document.getElementById('dashboard').classList.add('active');
-      document.getElementById('agentName').textContent = 'Агент: ' + ((currentAgent && currentAgent.name) || '');
+      var agentPhones = [currentAgent && currentAgent.phone, currentAgent && currentAgent.phone2].filter(Boolean).join(' · ');
+      document.getElementById('agentName').textContent = 'Агент: ' + ((currentAgent && currentAgent.name) || '') + (agentPhones ? ' · ' + agentPhones : '');
       document.getElementById('headerLogoutBtn').style.display = 'block';
       const rb = document.getElementById('headerRecoverBtn');
       if (rb) rb.style.display = 'inline-flex';
       loadAgentMarkupPanel();
+      loadSecondPhonePanel();
+    }
+
+    function _rememberAgent(agent) {
+      currentAgent = _publicAgent(agent);
+      try { localStorage.setItem('currentAgent', JSON.stringify(currentAgent)); } catch (e) {}
+      try {
+        if (window.PersistProfile && window.PersistProfile._saveToIDB) {
+          window.PersistProfile._saveToIDB('currentAgent', JSON.stringify(currentAgent));
+        }
+      } catch (e) {}
+    }
+
+    async function loadSecondPhonePanel() {
+      var box = document.getElementById('secondPhoneSection');
+      if (!box) return;
+      if (!currentAgent || !currentAgent.id) {
+        box.innerHTML = '';
+        return;
+      }
+      var phone2 = currentAgent.phone2 || '';
+      try {
+        var snap = await db.collection('agents').doc(currentAgent.id).get();
+        if (snap.exists) {
+          var data = snap.data() || {};
+          phone2 = data.phone2 || '';
+          currentAgent.phone = data.phone || currentAgent.phone || '';
+          if (phone2) currentAgent.phone2 = phone2;
+          else delete currentAgent.phone2;
+          _rememberAgent(currentAgent);
+          var agentPhones = [currentAgent.phone, currentAgent.phone2].filter(Boolean).join(' · ');
+          var nameEl = document.getElementById('agentName');
+          if (nameEl) nameEl.textContent = 'Агент: ' + (currentAgent.name || '') + (agentPhones ? ' · ' + agentPhones : '');
+        }
+      } catch (e) {}
+      box.innerHTML = ''
+        + '<div style="font-weight:800;margin-bottom:6px;">Два номера — один склад</div>'
+        + '<div style="color:#666;font-size:14px;line-height:1.45;margin-bottom:10px;">Второй номер входит в этот же каталог. В продаже оба номера видят остатки, которые агент купил.</div>'
+        + '<div style="font-size:14px;margin-bottom:8px;">Основной: <b>' + (currentAgent.phone || '—') + '</b></div>'
+        + '<input id="agentPhone2Input" type="tel" value="' + String(phone2).replace(/"/g, '&quot;') + '" placeholder="Второй телефон" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #ddd;border-radius:10px;margin-bottom:10px;">'
+        + '<button type="button" onclick="saveAgentSecondPhone()" style="border:none;background:#1565c0;color:#fff;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer;">Сохранить второй номер</button>';
+    }
+
+    async function saveAgentSecondPhone() {
+      if (!currentAgent || !currentAgent.id) return;
+      var input = document.getElementById('agentPhone2Input');
+      var phone2 = input ? input.value.trim() : '';
+      if (phone2 && _phonesMatch(phone2, currentAgent.phone)) {
+        Swal.fire('Один номер', 'Второй телефон должен отличаться от основного', 'warning');
+        return;
+      }
+      try {
+        Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: function () { Swal.showLoading(); } });
+        if (phone2) {
+          var taken = await _findAgentsByPhones([phone2]);
+          if (taken.some(function (a) { return a.id !== currentAgent.id; })) {
+            Swal.fire('Номер занят', 'Этот телефон уже зарегистрирован у другого агента', 'warning');
+            return;
+          }
+        }
+        var update = phone2
+          ? { phone2: phone2 }
+          : { phone2: firebase.firestore.FieldValue.delete() };
+        await db.collection('agents').doc(currentAgent.id).update(update);
+        if (phone2) currentAgent.phone2 = phone2;
+        else delete currentAgent.phone2;
+        _rememberAgent(currentAgent);
+        Swal.fire({ icon: 'success', title: phone2 ? 'Второй номер сохранён' : 'Второй номер убран', timer: 1400, showConfirmButton: false });
+        loadSecondPhonePanel();
+      } catch (e) {
+        Swal.fire('Ошибка', 'Не удалось сохранить второй номер', 'error');
+      }
     }
 
     function _markupPlain(n) {
@@ -1868,6 +1956,7 @@
     async function registerAgent() {
       const name = document.getElementById('regName').value.trim();
       const phone = document.getElementById('regPhone').value.trim();
+      const phone2 = document.getElementById('regPhone2').value.trim();
       const password = document.getElementById('regPassword').value;
       const password2 = document.getElementById('regPassword2').value;
       
@@ -1894,33 +1983,39 @@
           try { await kerbenWaitForAuth(8000); } catch (e) {}
         }
 
-        // Проверяем уникальность телефона
-        const existing = await db.collection('agents').where('phone', '==', phone).get();
-        if (!existing.empty) {
-          Swal.fire('Ошибка', 'Агент с таким телефоном уже зарегистрирован', 'warning');
+        if (phone2 && _phonesMatch(phone, phone2)) {
+          Swal.fire('Ошибка', 'Второй телефон должен отличаться от основного', 'warning');
+          return;
+        }
+        const existing = await _findAgentsByPhones([phone, phone2].filter(Boolean));
+        if (existing.length) {
+          Swal.fire('Ошибка', 'Один из этих телефонов уже зарегистрирован', 'warning');
           return;
         }
         
-        // Создаём агента
-        const agentRef = await db.collection('agents').add({
+        const agentDoc = {
           name: name,
           phone: phone,
           password: password,
           createdAt: Date.now(),
           active: true
-        });
+        };
+        if (phone2) agentDoc.phone2 = phone2;
+        const agentRef = await db.collection('agents').add(agentDoc);
         
         currentAgent = {
           id: agentRef.id,
           name: name,
           phone: phone
         };
+        if (phone2) currentAgent.phone2 = phone2;
         
         try { localStorage.setItem('currentAgent', JSON.stringify(currentAgent)); } catch (e) {}
         
         // Очищаем форму
         document.getElementById('regName').value = '';
         document.getElementById('regPhone').value = '';
+        document.getElementById('regPhone2').value = '';
         document.getElementById('regPassword').value = '';
         document.getElementById('regPassword2').value = '';
         

@@ -1216,14 +1216,16 @@
           foundAgentDocs.push(doc);
         }
         for (const variant of variants) {
-          try {
-            const snap = await db.collection('agents')
-              .where('phone', '==', variant)
-              .limit(10)
-              .get();
-            firestoreQueried = true;
-            snap.forEach(_pushAgentDoc);
-          } catch (e) { /* пробуем следующий вариант */ }
+          for (const field of ['phone', 'phone2']) {
+            try {
+              const snap = await db.collection('agents')
+                .where(field, '==', variant)
+                .limit(10)
+                .get();
+              firestoreQueried = true;
+              snap.forEach(_pushAgentDoc);
+            } catch (e) { /* пробуем следующий вариант */ }
+          }
         }
 
         // Фолбэк: если по индексу не нашли (например phone сохранён с
@@ -1243,12 +1245,15 @@
             agentsSnap.forEach(doc => {
               const agentData = doc.data() || {};
               const phoneFromField = normalizePhone(agentData.phone || '');
+              const phone2FromField = normalizePhone(agentData.phone2 || '');
               const phoneFromId = normalizePhone(doc.id || '');
               const tailField = _phoneTail(agentData.phone || '');
+              const tail2 = _phoneTail(agentData.phone2 || '');
               const tailId = _phoneTail(doc.id || '');
               if (phoneFromField === normalizedPhone
+                  || phone2FromField === normalizedPhone
                   || phoneFromId === normalizedPhone
-                  || (wantTail && wantTail.length >= 9 && (tailField === wantTail || tailId === wantTail))) {
+                  || (wantTail && wantTail.length >= 9 && (tailField === wantTail || tail2 === wantTail || tailId === wantTail))) {
                 _pushAgentDoc(doc);
               }
             });
@@ -1299,6 +1304,7 @@
             name: agentData.name || currentCustomer?.name || '',
             phone: agentData.phone || normalizedPhone
           };
+          if (agentData.phone2) savedAgent.phone2 = agentData.phone2;
           try { localStorage.setItem('currentAgent', JSON.stringify(savedAgent)); } catch (e) {}
           // Бэкап в IndexedDB (как PersistProfile для customerData):
           // на iOS Safari localStorage может очиститься через 7 дней.

@@ -397,12 +397,14 @@ service cloud.firestore {
         && reasonableDocSize()
         && strOk('name', 200)
         && strOk('phone', 30)
+        && strOk('phone2', 30)
         && strOk('email', 200)
         && agentMarkupOnCreateOk();
       allow update: if isRegularAuthed()
         && reasonableDocSize()
         && strOk('name', 200)
         && strOk('phone', 30)
+        && strOk('phone2', 30)
         && strOk('email', 200)
         && agentMarkupOnUpdateOk();
       allow delete: if isAdminUser();

@@ -815,7 +815,7 @@
       const filtered = sorted.filter(agent => {
         if (search) {
           const matchName = (agent.name || '').toLowerCase().includes(search);
-          const matchPhone = (agent.phone || '').includes(search);
+          const matchPhone = (agent.phone || '').includes(search) || (agent.phone2 || '').includes(search);
           if (!matchName && !matchPhone) return false;
         }
         
@@ -855,7 +855,7 @@
                   </span>
                   ${markupBadge(agent)}
                 </div>
-                <div class="agent-phone">📱 ${agent.phone || 'Нет телефона'}</div>
+                <div class="agent-phone">📱 ${agent.phone || 'Нет телефона'}${agent.phone2 ? '<br>📱 ' + agent.phone2 : ''}</div>
                 <div class="agent-date">📅 Регистрация: ${createdDate}</div>
               </div>
               
@@ -889,6 +889,9 @@
                 </button>
                 <button class="agent-btn purple" onclick="editAgentMarkup('${agent.id}')">
                   % Наценка
+                </button>
+                <button class="agent-btn blue" onclick="editAgentSecondPhone('${agent.id}')">
+                  📱 Второй номер
                 </button>
                 <button class="agent-btn purple" onclick="viewAgentPayouts('${agent.id}', '${(agent.name || '').replace(/'/g, "\\'")}')">
                   📜 Выплаты
@@ -998,6 +1001,10 @@
               <label style="display:block; margin-bottom:5px; font-weight:600;">Телефон:</label>
               <input id="agentPhone" class="swal2-input" placeholder="+996 XXX XXXXXX" style="width:100%; margin:0;">
             </div>
+            <div style="margin-bottom:15px;">
+              <label style="display:block; margin-bottom:5px; font-weight:600;">Второй телефон:</label>
+              <input id="agentPhone2" class="swal2-input" placeholder="Необязательно" style="width:100%; margin:0;">
+            </div>
             <div>
               <label style="display:block; margin-bottom:5px; font-weight:600;">Пароль:</label>
               <input id="agentPassword" type="password" class="swal2-input" placeholder="Пароль для входа" style="width:100%; margin:0;">
@@ -1011,6 +1018,7 @@
         preConfirm: () => {
           const name = document.getElementById('agentName').value.trim();
           const phone = document.getElementById('agentPhone').value.trim();
+          const phone2 = document.getElementById('agentPhone2').value.trim();
           const password = document.getElementById('agentPassword').value.trim();
           
           if (!name) {
@@ -1026,7 +1034,12 @@
             return false;
           }
           
-          return { name, phone, password };
+          if (phone2 && phone2 === phone) {
+            Swal.showValidationMessage('Второй телефон должен отличаться от основного');
+            return false;
+          }
+          
+          return { name, phone, phone2, password };
         }
       });
       
@@ -1040,19 +1053,25 @@
         });
         
         // Проверяем уникальность телефона
-        const existing = await db.collection('agents').where('phone', '==', formData.phone).get();
-        if (!existing.empty) {
-          Swal.fire('Ошибка', 'Агент с таким телефоном уже существует', 'error');
-          return;
+        const phones = [formData.phone, formData.phone2].filter(Boolean);
+        for (const value of phones) {
+          const byPhone = await db.collection('agents').where('phone', '==', value).limit(1).get();
+          const byPhone2 = await db.collection('agents').where('phone2', '==', value).limit(1).get();
+          if (!byPhone.empty || !byPhone2.empty) {
+            Swal.fire('Ошибка', 'Агент с таким телефоном уже существует', 'error');
+            return;
+          }
         }
         
-        await db.collection('agents').add({
+        const agentDoc = {
           name: formData.name,
           phone: formData.phone,
           password: formData.password,
           active: true,
           createdAt: Date.now()
-        });
+        };
+        if (formData.phone2) agentDoc.phone2 = formData.phone2;
+        await db.collection('agents').add(agentDoc);
         
         Swal.fire({
           icon: 'success',
@@ -1069,6 +1088,49 @@
       }
     }
     
+    async function editAgentSecondPhone(agentId) {
+      const agent = allAgents.find(a => a.id === agentId);
+      if (!agent) return;
+      const result = await Swal.fire({
+        title: 'Второй номер: ' + (agent.name || 'агент'),
+        html: `
+          <div style="text-align:left;font-size:14px;line-height:1.45;">
+            <p style="margin:0 0 12px;color:#666;">Оба номера входят в один каталог и видят одни остатки в продаже.</p>
+            <div style="margin-bottom:8px;">Основной: <b>${agent.phone || '—'}</b></div>
+            <input id="editPhone2" class="swal2-input" placeholder="Второй телефон" value="${agent.phone2 || ''}" style="width:100%;margin:0;">
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Сохранить',
+        cancelButtonText: 'Отмена',
+        preConfirm: () => (document.getElementById('editPhone2').value || '').trim()
+      });
+      if (!result.isConfirmed) return;
+      const phone2 = result.value || '';
+      if (phone2 && phone2 === (agent.phone || '')) {
+        Swal.fire('Ошибка', 'Второй телефон должен отличаться от основного', 'warning');
+        return;
+      }
+      try {
+        if (phone2) {
+          const byPhone = await db.collection('agents').where('phone', '==', phone2).limit(2).get();
+          const byPhone2 = await db.collection('agents').where('phone2', '==', phone2).limit(2).get();
+          const taken = byPhone.docs.concat(byPhone2.docs).some(d => d.id !== agentId);
+          if (taken) {
+            Swal.fire('Ошибка', 'Этот номер уже занят другим агентом', 'error');
+            return;
+          }
+        }
+        await db.collection('agents').doc(agentId).update(phone2
+          ? { phone2: phone2 }
+          : { phone2: firebase.firestore.FieldValue.delete() });
+        Swal.fire({ icon: 'success', title: 'Сохранено', timer: 1200, showConfirmButton: false });
+        await loadAllData();
+      } catch (e) {
+        Swal.fire('Ошибка', 'Не удалось сохранить второй номер', 'error');
+      }
+    }
+
     // Блокировка/разблокировка
     async function toggleAgentStatus(agentId, currentlyActive) {
       const action = currentlyActive ? 'заблокировать' : 'разблокировать';

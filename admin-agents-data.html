@@ -522,6 +522,9 @@ async function editAgent(id) {
         <label style="display:block; margin:0 0 4px; font-weight:600;">📱 Телефон</label>
         <input id="editAgentPhone" value="${escapeHtml(a.phone || '')}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:12px; box-sizing:border-box;">
 
+        <label style="display:block; margin:0 0 4px; font-weight:600;">📱 Второй телефон</label>
+        <input id="editAgentPhone2" value="${escapeHtml(a.phone2 || '')}" placeholder="Необязательно, тот же каталог и остатки" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:12px; box-sizing:border-box;">
+
         <label style="display:block; margin:0 0 4px; font-weight:600;">🔑 Пароль</label>
         <input id="editAgentPassword" type="text" placeholder="${pwd.kind === 'hash' ? 'Оставьте пустым, чтобы не менять (сейчас хеш)' : 'Оставьте пустым, чтобы не менять'}" value="${pwd.kind === 'plain' ? escapeHtml(a.password || '') : ''}" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; margin-bottom:6px; box-sizing:border-box;">
         <div style="font-size:12px; color:#666;">
@@ -539,6 +542,7 @@ async function editAgent(id) {
     preConfirm: () => {
       const name = (document.getElementById('editAgentName').value || '').trim();
       const phone = (document.getElementById('editAgentPhone').value || '').trim();
+      const phone2 = (document.getElementById('editAgentPhone2').value || '').trim();
       const password = (document.getElementById('editAgentPassword').value || '').trim();
 
       if (!name) {
@@ -549,13 +553,17 @@ async function editAgent(id) {
         Swal.showValidationMessage('Введите телефон');
         return false;
       }
-      return { name, phone, password };
+      if (phone2 && phone2 === phone) {
+        Swal.showValidationMessage('Второй телефон должен отличаться от основного');
+        return false;
+      }
+      return { name, phone, phone2, password };
     }
   });
 
   if (!result.isConfirmed || !result.value) return;
 
-  const { name, phone, password } = result.value;
+  const { name, phone, phone2, password } = result.value;
 
   try {
     Swal.fire({ title: 'Сохранение...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
@@ -563,19 +571,22 @@ async function editAgent(id) {
     if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth();
 
     // Проверяем, не занят ли новый номер другим агентом
-    if (phone !== (a.phone || '')) {
-      const dup = await db.collection('agents')
-        .where('phone', '==', phone)
-        .limit(2)
-        .get();
-      const takenByOther = dup.docs.some(d => d.id !== a.id);
+    const numbers = [phone, phone2].filter(Boolean);
+    for (const value of numbers) {
+      const byPhone = await db.collection('agents').where('phone', '==', value).limit(2).get();
+      const bySecond = await db.collection('agents').where('phone2', '==', value).limit(2).get();
+      const takenByOther = byPhone.docs.concat(bySecond.docs).some(d => d.id !== a.id);
       if (takenByOther) {
         Swal.fire('Ошибка', 'Этот номер уже занят другим агентом', 'error');
         return;
       }
     }
 
-    const update = { name, phone };
+    const update = {
+      name,
+      phone,
+      phone2: phone2 ? phone2 : firebase.firestore.FieldValue.delete()
+    };
 
     // Пароль: только если админ что-то ввёл. Сохраняем в том же формате,
     // в котором работает система авторизации агентов (agent-profit.html) —
@@ -594,6 +605,7 @@ async function editAgent(id) {
     if (idx !== -1) {
       agents[idx].name = name;
       agents[idx].phone = phone;
+      agents[idx].phone2 = phone2 || '';
       if (password) {
         agents[idx].password = password;
         agents[idx].passwordHash = null;
