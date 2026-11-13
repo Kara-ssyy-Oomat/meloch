@@ -101,7 +101,7 @@
     // КРИТИЧНО: Принудительно разблокируем прокрутку при загрузке
     // Принудительная очистка кэшей при обновлении версии
     (function() {
-      var APP_VERSION = 'v4.58.9';
+      var APP_VERSION = 'v4.59.0';
       var lastVersion = localStorage.getItem('app_version');
       if (lastVersion !== APP_VERSION) {
         console.log('[Update] Обнаружена новая версия: ' + lastVersion + ' → ' + APP_VERSION);
@@ -979,14 +979,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
   <script src="js/app-init.js?v=6"></script>
   <script src="js/filters.js?v=2"></script>
-  <script src="js/bottom-nav.js?v=36"></script>
+  <script src="js/bottom-nav.js?v=37"></script>
   <script src="js/scroll-buttons.js"></script>
 
   <!-- ОТЛОЖЕННЫЕ модули: defer — загружаются параллельно, выполняются после DOM -->
   <script defer src="js/advanced-search.js"></script>
   <script defer src="js/product-editor.js?v=8"></script>
   <script defer src="js/stock-deduct.js?v=5"></script>
-  <script defer src="js/order-submit.js?v=13"></script>
+  <script defer src="js/order-submit.js?v=14"></script>
   <script defer src="js/complaint-suggestion.js"></script>
   <script defer src="js/admin-ui.js?v=2"></script>
   <script defer src="js/image-optimizer.js"></script>

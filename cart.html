@@ -1598,8 +1598,11 @@
           for (const cartItem of cart) {
             if (cartItem.agentSale) {
               const cap = Math.max(0, Math.floor(Number(cartItem.agentStock) || 0));
-              if (cap <= 0 || (cartItem.qty || 0) > cap) {
-                problems.outOfStock.push(`${cartItem.title} (доступно ${cap} шт)`);
+              if (cap <= 0) {
+                problems.outOfStock.push(`${cartItem.title} (нет на вашем складе)`);
+              } else if ((cartItem.qty || 0) > cap) {
+                problems.outOfStock.push(`${cartItem.title} (в заказе ${cap} из ${cartItem.qty})`);
+                validCart.push({ ...cartItem, qty: cap });
               } else {
                 validCart.push(cartItem);
               }

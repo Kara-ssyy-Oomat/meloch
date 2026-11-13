@@ -535,27 +535,34 @@ async function settleAgentSale(orderId, orderData) {
         const prev = snap.exists ? (snap.data() || {}) : {};
         const have = Math.max(0, Math.floor(Number(prev.qty) || 0));
         const need = Math.max(0, Math.floor(Number(item.qty) || 0));
-        if (need <= 0) continue;
-        if (need > have) {
-          const err = new Error('Недостаточно остатка агента: ' + (item.title || prev.title || item.id));
-          err.agentStock = true;
-          throw err;
-        }
+        const take = Math.min(need, have);
+        if (need <= 0 || take <= 0) continue;
         const pct = Number(prev.markupPercent);
         const percent = isFinite(pct) && pct > 0 ? Math.min(pct, 500) : profilePercent;
         const buy = Number(prev.buyPrice) || 0;
         const sale = Math.round(buy * (100 + percent) / 100);
-        next.push({ ref: refs[i], qty: have - need });
-        total += sale * need;
+        next.push({ ref: refs[i], qty: have - take });
+        total += sale * take;
         priced.push({
           id: item.id,
           title: prev.title || item.title || '',
           image: prev.image || null,
-          qty: need,
+          qty: take,
           price: sale,
           basePrice: buy,
           markupPercent: percent
         });
+      }
+      if (!priced.length) {
+        tx.set(orderRef, {
+          status: 'cancelled',
+          agentSaleRejected: true,
+          stockDeducted: false,
+          stockDeductionStatus: 'skipped_agent_sale',
+          stockDeductionError: 'Нет остатка агента',
+          stockDeductionFinishedAt: Date.now()
+        }, { merge: true });
+        return;
       }
       next.forEach((row) => {
         tx.update(row.ref, { qty: row.qty, updatedAt: Date.now() });

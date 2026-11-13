@@ -173,16 +173,17 @@ document.getElementById('submitOrder').onclick = async () => {
     for (const cartItem of cart) {
       if (sellingOwnStock) {
         const line = window.KerbenAgentTrade.saleLine(cartItem.id);
-        if (!cartItem.agentSale || !line) {
+        if (!cartItem.agentSale || !line || line.qty <= 0) {
           outOfStockItems.push(`${cartItem.title} (нет на вашем складе)`);
           continue;
         }
-        if ((cartItem.qty || 0) > line.qty) {
-          outOfStockItems.push(`${cartItem.title} (доступно ${line.qty} шт)`);
-          continue;
+        const take = Math.min(cartItem.qty || 0, line.qty);
+        if (take < (cartItem.qty || 0)) {
+          outOfStockItems.push(`${cartItem.title} (в заказе ${take} из ${cartItem.qty}, остаток ${line.qty})`);
         }
         validCart.push({
           ...cartItem,
+          qty: take,
           title: line.title,
           price: line.salePrice,
           basePrice: line.buyPrice,
