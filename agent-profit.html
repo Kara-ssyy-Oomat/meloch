@@ -2620,6 +2620,48 @@
       _currentOrderItemsId = null;
     }
     
+    function _agentPdfPhoto(url) {
+      function tryLoad(src) {
+        return new Promise(function (resolve) {
+          if (!src) { resolve(null); return; }
+          var img = new Image();
+          img.crossOrigin = 'anonymous';
+          var done = false;
+          var timer = setTimeout(function () {
+            if (!done) { done = true; resolve(null); }
+          }, 7000);
+          img.onload = function () {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            try {
+              var max = 140;
+              var w = img.naturalWidth || max;
+              var h = img.naturalHeight || max;
+              var s = Math.min(max / w, max / h, 1);
+              var c = document.createElement('canvas');
+              c.width = Math.max(1, Math.round(w * s));
+              c.height = Math.max(1, Math.round(h * s));
+              c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+              resolve(c);
+            } catch (e) { resolve(null); }
+          };
+          img.onerror = function () {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            resolve(null);
+          };
+          img.src = src;
+        });
+      }
+      if (!url || String(url).indexOf('http') !== 0) return Promise.resolve(null);
+      return tryLoad(url).then(function (photo) {
+        if (photo) return photo;
+        return tryLoad('https://wsrv.nl/?url=' + encodeURIComponent(url) + '&w=200&h=200&fit=cover&q=80&output=jpg');
+      });
+    }
+
     // Скачать PDF со списком товаров заказа
     async function downloadOrderItemsPdf() {
       const order = allOrders.find(o => o.id === _currentOrderItemsId);
@@ -2688,7 +2730,7 @@
         thX.lineWidth = 2;
         thX.strokeRect(0, 0, 600, 35);
         thX.beginPath();
-        thX.moveTo(40, 0); thX.lineTo(40, 35);
+        thX.moveTo(78, 0); thX.lineTo(78, 35);
         thX.moveTo(310, 0); thX.lineTo(310, 35);
         thX.moveTo(390, 0); thX.lineTo(390, 35);
         thX.moveTo(490, 0); thX.lineTo(490, 35);
@@ -2696,61 +2738,92 @@
         thX.fillStyle = '#333';
         thX.font = 'bold 12px Arial';
         thX.textAlign = 'center';
-        thX.fillText('№', 20, 23);
-        thX.fillText('НАЗВАНИЕ', 175, 23);
+        thX.fillText('ФОТО', 39, 23);
+        thX.fillText('НАЗВАНИЕ', 194, 23);
         thX.fillText('КОЛ-ВО', 350, 23);
         thX.fillText('ЦЕНА', 440, 23);
         thX.fillText('СУММА', 550, 23);
         doc.addImage(thC.toDataURL('image/png'), 'PNG', 10, yPos, 190, 10);
         yPos += 10;
         
+        // === ФОТО ТОВАРОВ ===
+        const photoUrls = order.items.map(function (item) { return item.image || ''; });
+        const missing = [];
+        order.items.forEach(function (item, idx) {
+          if (!photoUrls[idx] && item.id) missing.push({ idx: idx, id: item.id });
+        });
+        for (let ci = 0; ci < missing.length; ci += 10) {
+          const chunk = missing.slice(ci, ci + 10);
+          try {
+            const snap = await db.collection('products').where(firebase.firestore.FieldPath.documentId(), 'in', chunk.map(function (row) { return row.id; })).get();
+            const found = {};
+            snap.forEach(function (docSnap) {
+              const data = docSnap.data() || {};
+              found[docSnap.id] = data.image || data.imageUrl || (data.images && data.images[0]) || '';
+            });
+            chunk.forEach(function (row) {
+              if (found[row.id]) photoUrls[row.idx] = found[row.id];
+            });
+          } catch (e) {}
+        }
+        const photos = await Promise.all(photoUrls.map(_agentPdfPhoto));
+
         // === СТРОКИ ТОВАРОВ ===
         for (let i = 0; i < order.items.length; i++) {
-          if (yPos > 265) { doc.addPage(); yPos = 10; }
+          if (yPos > 250) { doc.addPage(); yPos = 10; }
           
           const item = order.items[i];
           const itemTotal = (item.price || 0) * (item.qty || 0);
           const title = item.title || 'Товар';
+          const rowH = 78;
           
           const rC = document.createElement('canvas');
           const rX = rC.getContext('2d');
-          rC.width = 600 * scale; rC.height = 35 * scale;
+          rC.width = 600 * scale; rC.height = rowH * scale;
           rX.scale(scale, scale);
           rX.fillStyle = i % 2 === 0 ? 'white' : '#faf4fc';
-          rX.fillRect(0, 0, 600, 35);
+          rX.fillRect(0, 0, 600, rowH);
           rX.strokeStyle = '#ccc';
           rX.lineWidth = 1;
-          rX.strokeRect(0, 0, 600, 35);
+          rX.strokeRect(0, 0, 600, rowH);
           rX.beginPath();
-          rX.moveTo(40, 0); rX.lineTo(40, 35);
-          rX.moveTo(310, 0); rX.lineTo(310, 35);
-          rX.moveTo(390, 0); rX.lineTo(390, 35);
-          rX.moveTo(490, 0); rX.lineTo(490, 35);
+          rX.moveTo(78, 0); rX.lineTo(78, rowH);
+          rX.moveTo(310, 0); rX.lineTo(310, rowH);
+          rX.moveTo(390, 0); rX.lineTo(390, rowH);
+          rX.moveTo(490, 0); rX.lineTo(490, rowH);
           rX.stroke();
+
+          const photo = photos[i];
+          if (photo) {
+            const box = 62;
+            const aspect = photo.width / photo.height;
+            let dw = box;
+            let dh = box;
+            if (aspect >= 1) dh = box / aspect;
+            else dw = box * aspect;
+            rX.drawImage(photo, 8 + (box - dw) / 2, (rowH - dh) / 2, dw, dh);
+          }
           
           rX.fillStyle = '#333';
-          rX.font = '11px Arial';
-          rX.textAlign = 'center';
-          rX.fillText(String(i + 1), 20, 22);
-          
+          rX.font = '12px Arial';
           rX.textAlign = 'left';
-          if (title.length > 35) {
-            rX.fillText(title.substring(0, 35), 48, 15);
-            rX.fillText(title.substring(35, 70), 48, 28);
+          if (title.length > 28) {
+            rX.fillText(title.substring(0, 28), 86, 32);
+            rX.fillText(title.substring(28, 56), 86, 50);
           } else {
-            rX.fillText(title, 48, 22);
+            rX.fillText(title, 86, 42);
           }
           
           rX.textAlign = 'center';
           rX.font = 'bold 12px Arial';
-          rX.fillText((item.qty || 0) + ' шт', 350, 22);
+          rX.fillText((item.qty || 0) + ' шт', 350, 42);
           rX.font = '11px Arial';
-          rX.fillText((item.price || 0).toLocaleString() + ' сом', 440, 22);
+          rX.fillText((item.price || 0).toLocaleString() + ' сом', 440, 42);
           rX.font = 'bold 11px Arial';
-          rX.fillText(itemTotal.toLocaleString() + ' сом', 550, 22);
+          rX.fillText(itemTotal.toLocaleString() + ' сом', 545, 42);
           
-          doc.addImage(rC.toDataURL('image/png'), 'PNG', 10, yPos, 190, 9);
-          yPos += 9;
+          doc.addImage(rC.toDataURL('image/jpeg', 0.86), 'JPEG', 10, yPos, 190, 22);
+          yPos += 23;
         }
         
         // === ИТОГО ===
