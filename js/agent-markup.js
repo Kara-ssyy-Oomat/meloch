@@ -62,15 +62,15 @@
     if (!isActive()) return n;
     var num = Number(n);
     if (!isFinite(num)) return n;
-    return round2(num * (100 + state.percent) / 100);
+    // 45 сом + 10% = 49.50 → на экране и в заказе 50 сом.
+    return Math.round(num * (100 + state.percent) / 100);
   }
 
   function display(n) {
     if (!isActive()) return n;
     var sale = price(n);
     if (typeof sale !== 'number' || !isFinite(sale)) return n;
-    if (Math.abs(sale - Math.round(sale)) < 0.001) return Math.round(sale);
-    return sale.toFixed(2);
+    return sale;
   }
 
   // База для строки заказа: оптовая цена при достижении порога, иначе цена KERBEN.

@@ -818,7 +818,7 @@ async function repriceAgentOrder(order) {
     if (!item || !snap || !snap.exists) return item;
     priced += 1;
     const base = orderBaseUnit(snap.data() || {}, item);
-    const sale = useMarkup ? orderMoney(base * (100 + percent) / 100) : base;
+    const sale = useMarkup ? Math.round(base * (100 + percent) / 100) : base;
     const itemPercent = useMarkup ? percent : 0;
     if (Math.abs(orderMoney(item.price) - sale) > 0.001) changed = true;
     if (orderMoney(item.basePrice) !== base) changed = true;
