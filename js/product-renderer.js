@@ -105,6 +105,51 @@ function renderProducts() {
 // Мгновенный рендер без debounce — для возврата с профиля/корзины.
 // Цена на экране. Без наценки возвращает исходное значение.
 // Не записывает цену обратно в товар.
+function tradeMode() {
+  try {
+    if (window.KerbenAgentTrade && typeof KerbenAgentTrade.mode === 'function') return KerbenAgentTrade.mode() || '';
+  } catch (e) {}
+  return '';
+}
+
+function tradeStock(p) {
+  if (isEditorMode || tradeMode() !== 'sell') return getEffectiveStock(p);
+  try {
+    var line = window.KerbenAgentTrade && KerbenAgentTrade.saleLine && KerbenAgentTrade.saleLine(p.id);
+    return line ? line.qty : 0;
+  } catch (e) {}
+  return getEffectiveStock(p);
+}
+
+function tradePlain(n) {
+  if (!isEditorMode && tradeMode() === 'buy') {
+    var rounded = Math.round(Number(n) || 0);
+    return isFinite(rounded) ? rounded : 0;
+  }
+  return viewMoney(n);
+}
+
+function salePriceOnCard(product) {
+  if (!product || isEditorMode || tradeMode() !== 'sell') return null;
+  try {
+    var line = window.KerbenAgentTrade && KerbenAgentTrade.saleLine && KerbenAgentTrade.saleLine(product.id);
+    return line ? line.salePrice : null;
+  } catch (e) {}
+  return null;
+}
+
+function tradeShownPrice(p) {
+  if (!p || isEditorMode) return viewMoney(p && p.price);
+  if (tradeMode() === 'sell') {
+    try {
+      var line = window.KerbenAgentTrade && KerbenAgentTrade.saleLine && KerbenAgentTrade.saleLine(p.id);
+      if (line) return line.salePrice;
+    } catch (e) {}
+  }
+  if (tradeMode() === 'buy') return tradePlain(p.price);
+  return viewMoney(p.price);
+}
+
 function viewMoney(n) {
   try {
     if (window.KerbenMarkup && typeof KerbenMarkup.display === 'function') return KerbenMarkup.display(n);
@@ -113,6 +158,7 @@ function viewMoney(n) {
 }
 
 function viewNumber(n) {
+  if (!isEditorMode && tradeMode() === 'buy') return tradePlain(n);
   try {
     if (window.KerbenMarkup && KerbenMarkup.isActive && KerbenMarkup.isActive()) {
       return Number(KerbenMarkup.price(n)) || 0;
@@ -126,6 +172,7 @@ function viewNumber(n) {
 function shownUnit(n) {
   const num = Number(n);
   const base = isFinite(num) ? num : 0;
+  if (!isEditorMode && tradeMode() === 'buy') return Math.round(base);
   try {
     if (window.KerbenMarkup && KerbenMarkup.isActive && KerbenMarkup.isActive()) {
       return KerbenMarkup.display(base);
@@ -297,7 +344,12 @@ function renderProductsCore() {
   //   • null → безлимит (склад на паузе целиком) — показываем
   //   • 0    → нет в наличии — скрываем при флаге
   //   • >0   → есть в наличии — показываем
-  if (!isEditorMode
+  if (!isEditorMode && tradeMode() === 'sell' && window.KerbenAgentTrade && KerbenAgentTrade.saleLine) {
+    filtered = filtered.filter(p => {
+      const line = KerbenAgentTrade.saleLine(p.id);
+      return line && line.qty > 0;
+    });
+  } else if (!isEditorMode
       && typeof hideOutOfStockForClients !== 'undefined'
       && hideOutOfStockForClients === true) {
     filtered = filtered.filter(p => {
@@ -411,7 +463,7 @@ function renderProductsCore() {
     card.className = 'product-card' + (isBulkSelectMode && bulkSelectedProducts.has(p.id) ? ' bulk-selected' : '');
     card.setAttribute('data-product-id', p.id);
 
-    const stock = getEffectiveStock(p);
+    const stock = tradeStock(p);
     const hasStock = stock !== null;
     const outOfStock = stock !== null && stock <= 0;
     // Для товаров-пачек показываем "пачка" вместо "шт"
@@ -487,12 +539,12 @@ function renderProductsCore() {
           <div class="card-title"><div>${p.title||''}</div></div>
           ${packInfoHtml}
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <div class="card-price">${(viewMoney(p.price) || '0')} сом${p.isPack ? ' / пачка' : ''}</div>
-            ${p.oldPrice ? `<div class="card-oldprice">${viewMoney(p.oldPrice)} сом</div>` : ''}
+            <div class="card-price">${(tradeShownPrice(p) || '0')} сом${p.isPack ? ' / пачка' : ''}</div>
+            ${p.oldPrice && tradeMode() !== 'sell' ? `<div class="card-oldprice">${tradePlain(p.oldPrice)} сом</div>` : ''}
           </div>
           ${p.showPricePerUnit && p.isPack && p.packQty ? `<div style="font-size:12px;color:#7b1fa2;background:#f3e5f5;padding:4px 8px;border-radius:4px;margin-top:3px;">💰 1 шт = <span style="font-weight:700;color:#e53935;">${(viewNumber(p.price) / (p.packQty || 1)).toFixed(2)}</span> сом${p.optPrice ? ` | Опт: <span style="font-weight:700;color:#007bff;">${(viewNumber(p.optPrice) / (p.packQty || 1)).toFixed(2)}</span> сом/шт` : ''}</div>` : ''}
           <div class="card-opt-info" data-opt-id="${p.id}" style="font-size:12px;color:#007bff;margin-top:2px;">
-            ${p.optPrice && p.optQty ? `Опт: ${viewMoney(p.optPrice)} сом/${p.isPack ? 'пачка' : 'шт'} при ${p.optQty} ${p.isPack ? 'пачек' : 'шт'}` : ''}
+            ${tradeMode() !== 'sell' && p.optPrice && p.optQty ? `Опт: ${tradePlain(p.optPrice)} сом/${p.isPack ? 'пачка' : 'шт'} при ${p.optQty} ${p.isPack ? 'пачек' : 'шт'}` : ''}
           </div>
           ${stockHtml}
           ${(p.category === 'корейские' || p.category === 'часы' || p.category === 'электроника') && p.description ? `
@@ -658,7 +710,7 @@ function loadMoreProducts() {
     card.className = 'product-card' + (isBulkSelectMode && bulkSelectedProducts.has(p.id) ? ' bulk-selected' : '');
     card.setAttribute('data-product-id', p.id);
     
-    const stock = getEffectiveStock(p);
+    const stock = tradeStock(p);
     const hasStock = stock !== null;
     const outOfStock = stock !== null && stock <= 0;
     const unitLabel = p.isPack ? 'пачка' : 'шт';
@@ -716,11 +768,11 @@ function loadMoreProducts() {
         <div class="card-title"><div>${p.title||''}</div></div>
         ${packInfoHtml}
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <div class="card-price">${(viewMoney(p.price) || '0')} сом${p.isPack ? ' / пачка' : ''}</div>
-          ${p.oldPrice ? `<div class="card-oldprice">${viewMoney(p.oldPrice)} сом</div>` : ''}
+          <div class="card-price">${(tradeShownPrice(p) || '0')} сом${p.isPack ? ' / пачка' : ''}</div>
+          ${p.oldPrice && tradeMode() !== 'sell' ? `<div class="card-oldprice">${tradePlain(p.oldPrice)} сом</div>` : ''}
         </div>
         <div class="card-opt-info" data-opt-id="${p.id}" style="font-size:12px;color:#007bff;margin-top:2px;">
-          ${p.optPrice && p.optQty ? `Опт: ${viewMoney(p.optPrice)} сом/${p.isPack ? 'пачка' : 'шт'} при ${p.optQty} ${p.isPack ? 'пачек' : 'шт'}` : ''}
+          ${tradeMode() !== 'sell' && p.optPrice && p.optQty ? `Опт: ${tradePlain(p.optPrice)} сом/${p.isPack ? 'пачка' : 'шт'} при ${p.optQty} ${p.isPack ? 'пачек' : 'шт'}` : ''}
         </div>
         ${stockHtml}
         <div class="card-actions" style="margin-top:6px;">
@@ -854,7 +906,10 @@ function updateCardPriceNow(inputEl, productId) {
       qtyInfoEl.remove();
     }
 
-    if (optQty && optPrice && qty >= optQty) {
+    const saleFixed = salePriceOnCard(product);
+    if (saleFixed != null && priceEl) {
+      priceEl.textContent = saleFixed + ' сом' + (product.isPack ? ' / пачка' : '');
+    } else if (optQty && optPrice && qty >= optQty) {
       if (priceEl) priceEl.textContent = optPrice + ' сом';
       let old = card.querySelector('.card-oldprice');
       if (!old) {

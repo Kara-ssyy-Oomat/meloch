@@ -140,7 +140,9 @@ document.getElementById('submitOrder').onclick = async () => {
   submitBtn.textContent = 'Проверка товаров...';
 
   try {
-    const sellingOwnStock = !!(window.KerbenAgentTrade && KerbenAgentTrade.mode && KerbenAgentTrade.mode() === 'sell');
+    const tradeModeNow = (window.KerbenAgentTrade && KerbenAgentTrade.mode) ? KerbenAgentTrade.mode() : '';
+    const sellingOwnStock = tradeModeNow === 'sell';
+    const buyingStock = tradeModeNow === 'buy';
     // ВАЖНО: Проверяем все товары в корзине - существуют ли они и не заблокированы ли
     const validCart = [];
     const blockedItems = [];
@@ -464,7 +466,7 @@ document.getElementById('submitOrder').onclick = async () => {
     submitBtn.textContent = '⏳ Отправка...';
 
     let markupMeta = { active: false, percent: 0, agentId: null };
-    if (!sellingOwnStock && window.KerbenMarkup && typeof KerbenMarkup.prepareCartPrices === 'function') {
+    if (!sellingOwnStock && !buyingStock && window.KerbenMarkup && typeof KerbenMarkup.prepareCartPrices === 'function') {
       try {
         markupMeta = await KerbenMarkup.prepareCartPrices(cart) || markupMeta;
       } catch (e) {
@@ -562,6 +564,16 @@ document.getElementById('submitOrder').onclick = async () => {
       unfulfilledOrder: isUnfulfilledOrder || null,
       unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
     };
+    if (buyingStock && window.KerbenAgentTrade && KerbenAgentTrade.agent) {
+      const buyer = KerbenAgentTrade.agent() || {};
+      orderPayload.orderKind = 'agent_purchase';
+      orderPayload.excludedFromAgent = true;
+      orderPayload.agentId = buyer.id || orderPayload.agentId;
+      orderPayload.placedByAgentId = buyer.id || orderPayload.placedByAgentId;
+      orderPayload.placedByAgentName = buyer.name || orderPayload.placedByAgentName || '';
+      orderPayload.markupAgentId = null;
+      orderPayload.markupPercent = 0;
+    }
     if (sellingOwnStock && window.KerbenAgentTrade && KerbenAgentTrade.agent) {
       const ag = KerbenAgentTrade.agent() || {};
       orderPayload.orderKind = 'agent_sale';

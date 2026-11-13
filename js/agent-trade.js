@@ -370,7 +370,8 @@
         });
         try { localStorage.setItem('cart', JSON.stringify(cart)); } catch (e) {}
       }
-      await renderSell();
+      await loadInventory();
+      if (typeof renderProductsNow === 'function') renderProductsNow();
     } catch (e) {
       Swal.fire('Не сохранилось', (e && e.message) || 'Ошибка', 'error');
     }
@@ -458,27 +459,45 @@
     };
   }
 
-  function setShopVisible(catalogOn, formOn) {
+  function setFormMode(mode) {
     var table = document.getElementById('productTable');
     var searchBox = document.querySelector('.search-container');
     var form = document.querySelector('.order-form');
     var title = document.getElementById('orderFormTitle');
     var submit = document.getElementById('submitOrder');
-    var openCart = document.getElementById('openCartBtn');
     var categories = document.querySelector('.category-tabs');
-    if (table) table.style.display = catalogOn ? '' : 'none';
-    if (searchBox) searchBox.style.display = catalogOn ? '' : 'none';
-    if (categories) categories.style.display = catalogOn ? '' : 'none';
-    if (form) form.style.display = formOn ? '' : 'none';
-    if (title) title.textContent = (!catalogOn && formOn) ? 'Принять заказ' : 'Оформить заказ';
-    if (submit) submit.textContent = (!catalogOn && formOn) ? 'Принять заказ' : 'Отправить заказ';
-    if (openCart && openCart.parentElement) openCart.parentElement.style.display = (!catalogOn && formOn) ? 'none' : '';
+    if (table) table.style.display = '';
+    if (searchBox) searchBox.style.display = '';
+    if (categories) categories.style.display = '';
+    if (form) form.style.display = '';
+    document.body.style.paddingTop = '';
+    if (title) {
+      title.textContent = mode === 'sell' ? 'Принять заказ' : (mode === 'buy' ? 'Покупка у KERBEN' : 'Оформить заказ');
+    }
+    if (submit) {
+      submit.textContent = mode === 'sell' ? 'Принять заказ' : (mode === 'buy' ? 'Подтвердить покупку' : 'Отправить заказ');
+    }
+  }
+
+  function showNote(text) {
+    var el = box();
+    if (!el) return;
+    if (!text) {
+      el.style.display = 'none';
+      el.innerHTML = '';
+      return;
+    }
+    el.style.display = 'block';
+    el.innerHTML = '<div style="background:#fff;border-radius:12px;padding:12px 14px;color:#555;font-size:14px;">' + text + '</div>';
   }
 
   function showBar() {
     var bar = document.getElementById('agentTradeBar');
     if (!bar || bar.dataset.ready) {
-      if (bar) bar.style.display = 'flex';
+      if (bar) {
+        bar.style.cssText = 'display:flex;gap:8px;margin:0 12px 12px;';
+        document.body.style.paddingTop = '';
+      }
       paintBar();
       return;
     }
@@ -488,8 +507,8 @@
       + '<button type="button" id="agentBarSell" style="flex:1;border:none;border-radius:12px;padding:14px;font-weight:800;font-size:16px;cursor:pointer;">Продажа</button>';
     document.getElementById('agentBarBuy').onclick = function () { openMode('buy'); };
     document.getElementById('agentBarSell').onclick = function () { openMode('sell'); };
-    bar.style.cssText = 'display:flex;position:fixed;top:0;left:0;right:0;z-index:10000;gap:8px;padding:8px 12px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.12);';
-    document.body.style.paddingTop = '68px';
+    bar.style.cssText = 'display:flex;gap:8px;margin:0 12px 12px;';
+    document.body.style.paddingTop = '';
     paintBar();
   }
 
@@ -519,18 +538,27 @@
     }
     if (!(await ensureCart(next))) return;
     active = true;
-    mount(agent);
-    setShopVisible(false, next === 'sell');
-    showTab(next);
-    var el = box();
-    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    hide();
+    if (next === 'sell') {
+      try { await loadInventory(); } catch (e) {}
+      var hasGoods = inventory.some(function (item) { return item.qty > 0; });
+      showNote(hasGoods ? '' : 'В продаже пока ничего нет. Сначала купите товар в разделе «Покупка».');
+    } else {
+      showNote('');
+    }
+    setFormMode(next);
+    tab = next;
+    paintBar();
+    if (typeof renderProductsNow === 'function') renderProductsNow();
   }
 
   function close() {
     active = false;
     hide();
-    setShopVisible(true, true);
+    showNote('');
+    setFormMode('');
     paintBar();
+    if (typeof renderProductsNow === 'function') renderProductsNow();
   }
 
   function currentAgent() {
@@ -554,6 +582,20 @@
         phone: stored.phone || data.phone || ''
       };
       showBar();
+      var table = document.getElementById('productTable');
+      if (table && !table.dataset.salePrice) {
+        table.dataset.salePrice = '1';
+        table.addEventListener('click', function (e) {
+          if (!active || tab !== 'sell') return;
+          var priceEl = e.target.closest && e.target.closest('.card-price');
+          if (!priceEl) return;
+          var card = priceEl.closest('.product-card');
+          var id = card && card.getAttribute('data-product-id');
+          if (id) changePrice(id);
+          e.preventDefault();
+          e.stopPropagation();
+        });
+      }
     } catch (e) {}
   }
 

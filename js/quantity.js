@@ -218,7 +218,11 @@ function updatePackDisplay(productId) {
         const optQty = product.optQty || null;
         const unitLabel = product.isPack ? 'пачек' : 'шт';
         
-        if (optQty && optPrice && qty >= optQty) {
+        const saleFixed = (typeof salePriceOnCard === 'function') ? salePriceOnCard(product) : null;
+        if (saleFixed != null) {
+          priceEl.textContent = saleFixed + ' сом' + (product.isPack ? ' / пачка' : '');
+          priceEl.style.color = '#e53935';
+        } else if (optQty && optPrice && qty >= optQty) {
           // Показываем оптовую цену
           priceEl.textContent = optPrice + ' сом' + (product.isPack ? ' / пачка' : '');
           priceEl.style.color = '#2e7d32';
@@ -704,7 +708,11 @@ function updateQtyDisplay(productId) {
         const optPrice = product.optPrice ? shownUnit(product.optPrice) : null;
         const optQty = product.optQty || null;
         
-        if (optQty && optPrice && qty >= optQty) {
+        const saleFixed = (typeof salePriceOnCard === 'function') ? salePriceOnCard(product) : null;
+        if (saleFixed != null) {
+          priceEl.textContent = saleFixed + ' сом' + (product.isPack ? ' / пачка' : '');
+          priceEl.style.color = '#e53935';
+        } else if (optQty && optPrice && qty >= optQty) {
           // Показываем оптовую цену
           priceEl.textContent = optPrice + ' сом';
           priceEl.style.color = '#2e7d32';
