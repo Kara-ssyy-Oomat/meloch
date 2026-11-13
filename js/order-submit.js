@@ -441,6 +441,23 @@ document.getElementById('submitOrder').onclick = async () => {
     // Клиент НЕ пишет остатки → нет двойного списания и нет «зависшего» фона.
     submitBtn.textContent = '⏳ Отправка...';
 
+    let markupMeta = { active: false, percent: 0, agentId: null };
+    if (window.KerbenMarkup && typeof KerbenMarkup.prepareCartPrices === 'function') {
+      try {
+        markupMeta = await KerbenMarkup.prepareCartPrices(cart) || markupMeta;
+      } catch (e) {
+        console.warn('[Order] наценка:', e && e.message);
+      }
+    }
+    total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+    items = cart.map(i => {
+      const product = products.find(p => p.id === i.id);
+      const unitLabel = (product && product.isPack) ? 'пачка' : 'шт';
+      const packInfo = (product && product.isPack && product.packQty) ? ` (~${product.packQty} шт/пачка)` : '';
+      const variantInfo = i.variant ? ` [${i.variant}]` : '';
+      return `${i.title}${variantInfo}${packInfo} — ${i.qty} ${unitLabel} × ${i.price} сом = ${i.qty * i.price} сом`;
+    }).join('\n');
+
     const orderRef = db.collection('orders').doc();
 
     // Ждём Firebase Auth перед записью И одновременно дожидаемся
@@ -484,6 +501,8 @@ document.getElementById('submitOrder').onclick = async () => {
         title: item.title,
         qty: item.qty,
         price: item.price,
+        basePrice: item.basePrice != null ? item.basePrice : null,
+        markupPercent: item.markupPercent || 0,
         image: item.image || null,
         costPrice: item.costPrice || 0,
         sellerId: item.sellerId || null,
@@ -507,6 +526,8 @@ document.getElementById('submitOrder').onclick = async () => {
       placedByAgentId: agentInfo ? (agentInfo.id || null) : null,
       placedByAgentName: agentInfo ? agentInfo.name : null,
       agentId: agentInfo ? (agentInfo.id || null) : null,
+      markupAgentId: markupMeta.active ? markupMeta.agentId : null,
+      markupPercent: markupMeta.active ? markupMeta.percent : 0,
       stockDeducted: false,
       // stockDeductionStatus ВСЕГДА 'pending' — так требуют правила Firestore
       // (клиент не может подделать статус списания). Для unfulfilled-заказов

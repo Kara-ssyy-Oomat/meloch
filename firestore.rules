@@ -362,13 +362,49 @@ service cloud.firestore {
     // =========================================================
     // READ — только обычный залогиненный (анонимный auth подходит).
     // Управляющий складом НЕ видит агентов и клиентов агентов.
+    // Наценку включает только админ (Firebase Auth admin@kerben.local).
+    // Агент может менять процент, только если админ уже разрешил функцию.
+    // Сами цены товаров здесь не хранятся.
+    function agentMarkupOnCreateOk() {
+      return isAdminUser()
+        || (
+          request.resource.data.get('markupAllowed', false) == false
+          && request.resource.data.get('markupEnabled', false) == false
+          && request.resource.data.get('markupPercent', 0) == 0
+        );
+    }
+
+    function agentMarkupOnUpdateOk() {
+      return isAdminUser()
+        || (
+          request.resource.data.get('markupAllowed', false) == resource.data.get('markupAllowed', false)
+          && request.resource.data.get('markupEnabled', false) == resource.data.get('markupEnabled', false)
+          && (
+            request.resource.data.get('markupPercent', 0) == resource.data.get('markupPercent', 0)
+            || (
+              resource.data.get('markupAllowed', false) == true
+              && request.resource.data.markupPercent is number
+              && request.resource.data.markupPercent >= 0
+              && request.resource.data.markupPercent <= 500
+            )
+          )
+        );
+    }
+
     match /agents/{id} {
       allow read: if isRegularAuthed();
-      allow create, update: if isRegularAuthed()
+      allow create: if isRegularAuthed()
         && reasonableDocSize()
         && strOk('name', 200)
         && strOk('phone', 30)
-        && strOk('email', 200);
+        && strOk('email', 200)
+        && agentMarkupOnCreateOk();
+      allow update: if isRegularAuthed()
+        && reasonableDocSize()
+        && strOk('name', 200)
+        && strOk('phone', 30)
+        && strOk('email', 200)
+        && agentMarkupOnUpdateOk();
       allow delete: if isAdminUser();
     }
 

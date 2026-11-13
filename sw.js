@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.55.0-profit-lock'; // Отчёт по прибыли закрыт паролем до ввода
+const CACHE_VERSION = 'kerben-v4.56.1-agent-markup'; // Наценка на карточке не сбрасывается при смене количества
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

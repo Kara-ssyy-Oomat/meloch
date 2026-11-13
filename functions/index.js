@@ -4,6 +4,7 @@
 //   • processNotificationQueue   — push-уведомления через FCM.
 //   • notifyOnStockChange        — алёрты low/out по остаткам.
 //   • deductStockOnOrderCreate — в codebase functions-stock
+//   • enforceOrderSalePrice — цена заказа агента считается на сервере
 //   • telegramProxy              — прокси к Telegram API (Secret Manager).
 // ===================================================================
 
@@ -758,6 +759,112 @@ exports.telegramProxy = functions
 // чем защита от спама. Rate limit по IP (30 req/min) уже блокирует ботов.
 // Плюс жёсткая валидация payload (см. ниже).
 // ===================================================================
+// Цена продажи агента. Читает products.price и agents.markup*, ничего
+// в коллекции products не записывает. Заказ без агента не трогает —
+// на главном сайте остаётся цена, которую отправил обычный покупатель.
+function orderMoney(n) {
+  const x = Number(n);
+  if (!isFinite(x)) return 0;
+  return Math.round(x * 100) / 100;
+}
+
+function orderBaseUnit(product, item) {
+  const qty = Number(item && item.qty) || 0;
+  let base = orderMoney(product && product.price);
+  const optQty = Number(product && product.optQty);
+  const optPrice = Number(product && product.optPrice);
+  if (optQty > 0 && isFinite(optPrice) && qty >= optQty) base = orderMoney(optPrice);
+  return base;
+}
+
+async function repriceAgentOrder(order) {
+  if (!order) return null;
+  let agentId = order.placedByAgentId || order.agentId
+    || (order.placedByAgent && order.placedByAgent.id) || null;
+  if (!agentId) {
+    const name = order.placedByAgentName || (order.placedByAgent && order.placedByAgent.name);
+    if (name) {
+      const found = await db.collection('agents').where('name', '==', name).limit(1).get();
+      if (!found.empty) agentId = found.docs[0].id;
+    }
+  }
+  if (!agentId || typeof agentId !== 'string') return null;
+
+  const agentSnap = await db.collection('agents').doc(agentId).get();
+  if (!agentSnap.exists) return null;
+  const agent = agentSnap.data() || {};
+  let percent = Number(agent.markupPercent);
+  if (!isFinite(percent) || percent < 0) percent = 0;
+  if (percent > 500) percent = 500;
+  percent = orderMoney(percent);
+  const useMarkup = agent.markupAllowed === true && agent.markupEnabled === true && percent > 0;
+
+  const items = Array.isArray(order.items) ? order.items : [];
+  if (!items.length) return null;
+
+  const snaps = await Promise.all(items.map(async (item) => {
+    if (!item || !item.id) return null;
+    try {
+      return await db.collection('products').doc(String(item.id)).get();
+    } catch (e) {
+      return null;
+    }
+  }));
+
+  let changed = false;
+  let priced = 0;
+  const next = items.map((item, index) => {
+    const snap = snaps[index];
+    if (!item || !snap || !snap.exists) return item;
+    priced += 1;
+    const base = orderBaseUnit(snap.data() || {}, item);
+    const sale = useMarkup ? orderMoney(base * (100 + percent) / 100) : base;
+    const itemPercent = useMarkup ? percent : 0;
+    if (Math.abs(orderMoney(item.price) - sale) > 0.001) changed = true;
+    if (orderMoney(item.basePrice) !== base) changed = true;
+    if (orderMoney(item.markupPercent) !== itemPercent) changed = true;
+    return Object.assign({}, item, {
+      price: sale,
+      basePrice: base,
+      markupPercent: itemPercent
+    });
+  });
+  if (!priced) return null;
+
+  const total = orderMoney(next.reduce((sum, item) => {
+    return sum + (Number(item && item.qty) || 0) * (Number(item && item.price) || 0);
+  }, 0));
+  if (Math.abs(orderMoney(order.total) - total) > 0.001) changed = true;
+  const markupAgentId = useMarkup ? agentId : null;
+  if (order.markupAgentId !== markupAgentId && (order.markupAgentId || markupAgentId)) changed = true;
+  if (!changed) return null;
+
+  return {
+    items: next,
+    total: total,
+    markupAgentId: markupAgentId,
+    markupPercent: useMarkup ? percent : 0,
+    pricesVerifiedAt: Date.now()
+  };
+}
+
+exports.enforceOrderSalePrice = functions
+  .runWith({ memory: '256MB', timeoutSeconds: 60 })
+  .firestore
+  .document('orders/{orderId}')
+  .onCreate(async (snap) => {
+    try {
+      const patch = await repriceAgentOrder(snap.data() || {});
+      if (!patch) return null;
+      await snap.ref.update(patch);
+      console.log('[Markup] цена заказа пересчитана на сервере:', snap.id);
+      return null;
+    } catch (e) {
+      console.error('[Markup] не удалось пересчитать заказ:', e && e.message);
+      return null;
+    }
+  });
+
 exports.orderNotify = functions
   .runWith({
     secrets: [TELEGRAM_BOT_TOKEN_SECRET],
@@ -817,9 +924,16 @@ exports.orderNotify = functions
     // Форсируем безопасные поля (клиент не может подделать статус списания).
     let firestoreOk = false;
     let firestoreError = null;
+    let pricedPayload = payload;
+    try {
+      const patch = await repriceAgentOrder(payload);
+      if (patch) pricedPayload = { ...payload, ...patch };
+    } catch (e) {
+      console.error('[OrderNotify] пересчёт наценки:', e && e.message);
+    }
     try {
       const safePayload = {
-        ...payload,
+        ...pricedPayload,
         // Форсируем эти поля независимо от того что прислал клиент:
         stockDeducted: false,
         stockDeductionStatus: 'pending',
@@ -834,8 +948,22 @@ exports.orderNotify = functions
     } catch (e) {
       if (e && (e.code === 6 || /already[-_ ]?exists/i.test(String(e.message || e.code)))) {
         // Заказ уже создан клиентским .set() — это отлично, не паникуем.
+        // Если в нём была подменённая цена, записываем серверный пересчёт.
         firestoreOk = true;
         firestoreError = 'already_exists';
+        if (pricedPayload !== payload) {
+          try {
+            await db.collection('orders').doc(orderId).update({
+              items: pricedPayload.items,
+              total: pricedPayload.total,
+              markupAgentId: pricedPayload.markupAgentId || null,
+              markupPercent: pricedPayload.markupPercent || 0,
+              pricesVerifiedAt: pricedPayload.pricesVerifiedAt || Date.now()
+            });
+          } catch (updateErr) {
+            console.error('[OrderNotify] не удалось поправить цену:', updateErr && updateErr.message);
+          }
+        }
         console.log(`[OrderNotify] заказ ${orderId} уже был в БД (клиент успел раньше)`);
       } else {
         firestoreError = e && e.message ? e.message : String(e);
@@ -851,7 +979,7 @@ exports.orderNotify = functions
       console.error('[OrderNotify] TELEGRAM_BOT_TOKEN не задан');
     } else {
       // Формируем короткий текстовый заказ (plain text, без Markdown)
-      const items = payload.items;
+      const items = pricedPayload.items || payload.items;
       const MAX_ITEMS = 15;
       const shownItems = items.slice(0, MAX_ITEMS);
       const restCount = items.length - shownItems.length;
@@ -886,7 +1014,7 @@ exports.orderNotify = functions
         `📞 ${payload.phone}\n` +
         `📍 ${payload.address || '-'}\n\n` +
         '📦 Товары:\n' + itemsText + '\n\n' +
-        `💰 Итого: ${payload.total.toLocaleString('ru-RU')} сом\n` +
+        `💰 Итого: ${(pricedPayload.total != null ? pricedPayload.total : payload.total).toLocaleString('ru-RU')} сом\n` +
         `⏰ ${payload.time || new Date().toLocaleString('ru-RU')}\n` +
         `🆔 ${orderId.slice(-8)}\n` +
         extraLines.join('\n');

@@ -2317,10 +2317,21 @@
 
         let totalSum = 0;
         dedupe.forEach(function(data) { totalSum += data.total || 0; });
-        const profit = Math.round(totalSum * 0.02);
+        let markupApproved = false;
+        if (agentData.id) {
+          try {
+            const agentSnap = await db.collection('agents').doc(agentData.id).get();
+            markupApproved = !!(agentSnap.exists && agentSnap.data().markupAllowed === true);
+          } catch (e) {}
+        }
+        const profit = markupApproved ? 0 : Math.round(totalSum * 0.02);
 
         // Обновляем UI
-        if (el) el.textContent = profit.toLocaleString();
+        if (el) {
+          el.textContent = profit.toLocaleString();
+          const label = el.parentElement && el.parentElement.querySelector('.stat-label');
+          if (label && markupApproved) label.textContent = '2% не начисляется';
+        }
 
         // Кэшируем
         _agentProfitCache = { profit: profit, ts: Date.now() };

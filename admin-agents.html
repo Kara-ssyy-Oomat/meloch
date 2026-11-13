@@ -754,6 +754,15 @@
       }
     }
     
+    // Наценка одобрена — комиссия 2% этому агенту не начисляется.
+    function agentMarkupApproved(agent) {
+      return !!(agent && agent.markupAllowed === true);
+    }
+    function agentCommissionAmount(agent, sum) {
+      if (agentMarkupApproved(agent)) return 0;
+      return Math.round((Number(sum) || 0) * 0.02);
+    }
+
     // Обновление статистики
     function updateStats() {
       const totalAgents = allAgents.length;
@@ -762,9 +771,10 @@
       let totalOrders = 0;
       let totalCommission = 0;
       
-      Object.values(ordersByAgent).forEach(stats => {
+      Object.entries(ordersByAgent).forEach(([agentId, stats]) => {
         totalOrders += stats.count;
-        totalCommission += Math.round(stats.total * 0.02);
+        const agent = allAgents.find(a => a.id === agentId);
+        totalCommission += agentCommissionAmount(agent, stats.total);
       });
       
       document.getElementById('statTotalAgents').textContent = totalAgents;
@@ -827,9 +837,10 @@
       
       listEl.innerHTML = filtered.map(agent => {
         const stats = ordersByAgent[agent.id] || { count: 0, total: 0 };
-        const commission = Math.round(stats.total * 0.02);
+        const commission = agentCommissionAmount(agent, stats.total);
         const paidOut = payoutsByAgent[agent.id] || 0;
-        const balance = commission - paidOut;
+        const markupApproved = agentMarkupApproved(agent);
+        const balance = markupApproved ? 0 : (commission - paidOut);
         const isActive = agent.active !== false;
         const createdDate = agent.createdAt ? new Date(agent.createdAt).toLocaleDateString() : 'Неизвестно';
         
@@ -842,6 +853,7 @@
                   <span class="status-badge ${isActive ? 'active' : 'blocked'}">
                     ${isActive ? '✓ Активен' : '✗ Заблокирован'}
                   </span>
+                  ${markupBadge(agent)}
                 </div>
                 <div class="agent-phone">📱 ${agent.phone || 'Нет телефона'}</div>
                 <div class="agent-date">📅 Регистрация: ${createdDate}</div>
@@ -854,7 +866,7 @@
                 </div>
                 <div class="agent-stat">
                   <div class="agent-stat-value" style="color:#4caf50;">${commission.toLocaleString()}</div>
-                  <div class="agent-stat-label">Комиссия</div>
+                  <div class="agent-stat-label">${markupApproved ? '2% нет' : 'Комиссия'}</div>
                 </div>
                 <div class="agent-stat">
                   <div class="agent-stat-value" style="color:#ff9800;">${paidOut.toLocaleString()}</div>
@@ -875,6 +887,9 @@
                 <button class="agent-btn blue" onclick="viewAgentOrders('${agent.id}', '${(agent.name || '').replace(/'/g, "\\'")}')">
                   📋 Заказы
                 </button>
+                <button class="agent-btn purple" onclick="editAgentMarkup('${agent.id}')">
+                  % Наценка
+                </button>
                 <button class="agent-btn purple" onclick="viewAgentPayouts('${agent.id}', '${(agent.name || '').replace(/'/g, "\\'")}')">
                   📜 Выплаты
                 </button>
@@ -891,8 +906,82 @@
       }).join('');
     }
     
+    function markupBadge(agent) {
+      const allowed = agent.markupAllowed === true;
+      const enabled = agent.markupEnabled === true;
+      const pct = Number(agent.markupPercent);
+      const percent = isFinite(pct) ? pct : 0;
+      if (!allowed) return '<span class="status-badge blocked">Наценка: нет доступа</span>';
+      if (!enabled) return `<span class="status-badge blocked">Наценка выкл · ${percent}%</span>`;
+      return `<span class="status-badge active">Наценка +${percent}%</span>`;
+    }
+
     function filterAgents() {
       renderAgents();
+    }
+
+    async function editAgentMarkup(agentId) {
+      const agent = allAgents.find(a => a.id === agentId);
+      if (!agent) return;
+      const allowed = agent.markupAllowed === true;
+      const enabled = agent.markupEnabled === true;
+      const pct = Number(agent.markupPercent);
+      const percent = isFinite(pct) && pct >= 0 ? pct : 0;
+      const result = await Swal.fire({
+        title: 'Наценка: ' + (agent.name || 'агент'),
+        html: `
+          <div style="text-align:left;font-size:14px;line-height:1.45;">
+            <p style="margin:0 0 12px;color:#666;">Процент хранится у агента. Цены товаров в базе KERBEN не меняются. Наценка видна только в каталоге этого агента.</p>
+            <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+              <input type="checkbox" id="markupAllowed" ${allowed ? 'checked' : ''}>
+              Разрешить агенту функцию наценки
+            </label>
+            <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+              <input type="checkbox" id="markupEnabled" ${enabled ? 'checked' : ''}>
+              Включить наценку в его каталоге
+            </label>
+            <label style="display:block;font-weight:600;margin-bottom:6px;">Процент наценки</label>
+            <input id="markupPercent" type="number" min="0" max="500" step="0.1" value="${percent}" class="swal2-input" style="width:100%;margin:0;">
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Сохранить',
+        cancelButtonText: 'Отмена',
+        confirmButtonColor: '#9c27b0',
+        preConfirm: () => {
+          const nextAllowed = document.getElementById('markupAllowed').checked;
+          const nextEnabled = document.getElementById('markupEnabled').checked;
+          const nextPercent = Number(document.getElementById('markupPercent').value);
+          if (!isFinite(nextPercent) || nextPercent < 0 || nextPercent > 500) {
+            Swal.showValidationMessage('Процент от 0 до 500');
+            return false;
+          }
+          return {
+            allowed: nextAllowed,
+            enabled: nextAllowed && nextEnabled,
+            percent: Math.round(nextPercent * 100) / 100
+          };
+        }
+      });
+      if (!result.isConfirmed || !result.value) return;
+      try {
+        if (typeof kerbenAdminSilentReauth === 'function') {
+          try { await kerbenAdminSilentReauth(); } catch (e) {}
+        }
+        await db.collection('agents').doc(agentId).update({
+          markupAllowed: result.value.allowed,
+          markupEnabled: result.value.enabled,
+          markupPercent: result.value.percent
+        });
+        agent.markupAllowed = result.value.allowed;
+        agent.markupEnabled = result.value.enabled;
+        agent.markupPercent = result.value.percent;
+        renderAgents();
+        Swal.fire({ icon: 'success', title: 'Наценка сохранена', timer: 1400, showConfirmButton: false });
+      } catch (e) {
+        console.error(e);
+        Swal.fire('Ошибка', 'Не удалось сохранить. Войдите как администратор в профиле и откройте эту страницу снова.', 'error');
+      }
     }
     
     // Добавить агента
@@ -1079,13 +1168,15 @@
           return;
         }
         
+        const agent = allAgents.find(a => a.id === agentId);
+        const noTwoPercent = agentMarkupApproved(agent);
         let totalSum = 0;
         let html = '<div style="max-height:400px; overflow-y:auto;">';
         
         orders.forEach(order => {
           totalSum += order.total || 0;
           const date = order.time || new Date(order.timestamp).toLocaleString();
-          const commission = Math.round((order.total || 0) * 0.02);
+          const commission = noTwoPercent ? 0 : Math.round((order.total || 0) * 0.02);
           
           html += `
             <div style="background:#f8f9fa; padding:12px; border-radius:8px; margin-bottom:10px; border-left:3px solid #9c27b0;">
@@ -1097,7 +1188,7 @@
                 </div>
                 <div style="text-align:right;">
                   <div style="font-weight:600;">${(order.total || 0).toLocaleString()} сом</div>
-                  <div style="color:#4caf50; font-size:13px;">+${commission} сом</div>
+                  ${noTwoPercent ? '<div style="color:#8d6e00; font-size:12px;">2% не начисляется</div>' : `<div style="color:#4caf50; font-size:13px;">+${commission} сом</div>`}
                 </div>
               </div>
             </div>
@@ -1106,7 +1197,7 @@
         
         html += '</div>';
         
-        const totalCommission = Math.round(totalSum * 0.02);
+        const totalCommission = noTwoPercent ? 0 : Math.round(totalSum * 0.02);
         
         Swal.fire({
           title: `📋 Заказы: ${agentName}`,
@@ -1114,7 +1205,7 @@
             <div style="margin-bottom:15px; padding:10px; background:#e8f5e9; border-radius:8px;">
               <strong>Заказов:</strong> ${orders.length} | 
               <strong>Сумма:</strong> ${totalSum.toLocaleString()} сом | 
-              <strong>Комиссия:</strong> ${totalCommission.toLocaleString()} сом
+              <strong>Комиссия:</strong> ${noTwoPercent ? 'не начисляется (наценка одобрена)' : totalCommission.toLocaleString() + ' сом'}
             </div>
             ${html}
           `,
@@ -1497,8 +1588,9 @@
       try {
         const data = allAgents.map(agent => {
           const stats = ordersByAgent[agent.id] || { count: 0, total: 0 };
-          const commission = Math.round(stats.total * 0.02);
+          const commission = agentCommissionAmount(agent, stats.total);
           const paidOut = payoutsByAgent[agent.id] || 0;
+          const balance = agentMarkupApproved(agent) ? 0 : (commission - paidOut);
           
           return {
             'Имя': agent.name || '',
@@ -1508,7 +1600,7 @@
             'Сумма продаж': stats.total,
             'Комиссия (2%)': commission,
             'Выплачено': paidOut,
-            'К выплате': commission - paidOut,
+            'К выплате': balance,
             'Дата регистрации': agent.createdAt ? new Date(agent.createdAt).toLocaleDateString() : ''
           };
         });

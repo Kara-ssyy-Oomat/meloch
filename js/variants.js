@@ -51,7 +51,7 @@ function renderVariantModal() {
     const variantId = variant.id || variant.name || `var_${idx}`;
     const variantName = variant.name || variant;
     const variantImage = variant.image || product.image || '';
-    const variantPrice = variant.price || product.price || 0;
+    const variantPrice = (window.KerbenMarkup && KerbenMarkup.display) ? KerbenMarkup.display(variant.price || product.price || 0) : (variant.price || product.price || 0);
     const currentQty = selectedVariants[variantId] || 0;
     
     variantsHtml += `
@@ -74,7 +74,7 @@ function renderVariantModal() {
   const totalQty = Object.values(selectedVariants).reduce((sum, qty) => sum + qty, 0);
   const totalPrice = variants.reduce((sum, v, idx) => {
     const variantId = v.id || v.name || `var_${idx}`;
-    const price = v.price || product.price || 0;
+    const price = (window.KerbenMarkup && KerbenMarkup.price) ? KerbenMarkup.price(v.price || product.price || 0) : (v.price || product.price || 0);
     return sum + (selectedVariants[variantId] || 0) * price;
   }, 0);
   
@@ -87,7 +87,7 @@ function renderVariantModal() {
           <img src="${product.image || ''}" style="width:80px; height:80px; object-fit:cover; border-radius:10px;">
           <div style="flex:1;">
             <div style="font-weight:600; font-size:15px; color:#333; margin-bottom:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${product.title || 'Товар'}</div>
-            <div style="color:#e53935; font-weight:700; font-size:20px;">${product.price || 0} сом</div>
+            <div style="color:#e53935; font-weight:700; font-size:20px;">${(window.KerbenMarkup && KerbenMarkup.display) ? KerbenMarkup.display(product.price || 0) : (product.price || 0)} сом</div>
           </div>
           <button onclick="closeVariantSelector()" style="width:32px; height:32px; border:none; background:#f0f0f0; border-radius:50%; font-size:18px; cursor:pointer;">✕</button>
         </div>

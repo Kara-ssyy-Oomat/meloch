@@ -145,9 +145,9 @@ function renderFavoritesPage() {
           <div class="card-title" style="font-size:12px; min-height:32px;"><div>${product.title || ''}</div></div>
           ${packInfoHtml}
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-            <div class="card-price" style="font-size:14px;">${(product.price || '0')} сом${product.isPack ? '/пач' : ''}</div>
+            <div class="card-price" style="font-size:14px;">${((window.KerbenMarkup && KerbenMarkup.display) ? KerbenMarkup.display(product.price) : (product.price || '0')) || '0'} сом${product.isPack ? '/пач' : ''}</div>
           </div>
-          ${product.optPrice && product.optQty ? `<div style="font-size:10px;color:#007bff;">Опт: ${product.optPrice} сом от ${product.optQty} ${product.isPack ? 'пач' : 'шт'}</div>` : ''}
+          ${product.optPrice && product.optQty ? `<div style="font-size:10px;color:#007bff;">Опт: ${((window.KerbenMarkup && KerbenMarkup.display) ? KerbenMarkup.display(product.optPrice) : product.optPrice)} сом от ${product.optQty} ${product.isPack ? 'пач' : 'шт'}</div>` : ''}
           ${stockHtml}
           <div class="card-actions" style="margin-top:4px;">
             <input type="text" inputmode="numeric" value="${minPurchaseQty}" class="card-qty-input" id="fav-qty-${product.id}" style="text-align:center; font-size:14px; width:60px; padding:6px;" placeholder="${product.isPack ? 'пач' : 'шт'}" onfocus="this.value=''" ${qtyDisabledAttr} />

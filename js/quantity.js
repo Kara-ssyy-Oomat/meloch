@@ -213,8 +213,8 @@ function updatePackDisplay(productId) {
       const optInfoEl = card.querySelector('.card-opt-info');
       
       if (priceEl) {
-        const basePrice = Math.round(product.price || 0);
-        const optPrice = product.optPrice ? Math.round(product.optPrice) : null;
+        const basePrice = shownUnit(product.price || 0);
+        const optPrice = product.optPrice ? shownUnit(product.optPrice) : null;
         const optQty = product.optQty || null;
         const unitLabel = product.isPack ? 'пачек' : 'шт';
         
@@ -700,8 +700,8 @@ function updateQtyDisplay(productId) {
       const optInfoEl = card.querySelector('.card-opt-info');
       
       if (priceEl) {
-        const basePrice = Math.round(product.price || 0);
-        const optPrice = product.optPrice ? Math.round(product.optPrice) : null;
+        const basePrice = shownUnit(product.price || 0);
+        const optPrice = product.optPrice ? shownUnit(product.optPrice) : null;
         const optQty = product.optQty || null;
         
         if (optQty && optPrice && qty >= optQty) {

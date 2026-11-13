@@ -229,6 +229,7 @@
   <script src="js/app-check.js?v=2"></script>
   <script src="js/firestore-guard.js?v=1"></script>
   <script src="js/auth.js?v=3"></script>
+  <script src="js/agent-markup.js?v=1"></script>
   <script src="js/admin-reauth.js?v=3"></script>
   <script src="js/pending-orders.js?v=2"></script>
   <script src="js/bot-blocker.js?v=2"></script>
@@ -535,8 +536,14 @@
       let html = '';
       let total = 0, totalItems = 0, packCount = 0;
       
+      let markupTouched = false;
       cart.forEach((item, i) => {
         const product = products.find(p => p.id === item.id);
+        if (product && window.KerbenMarkup && typeof KerbenMarkup.stamp === 'function') {
+          const beforePrice = item.price;
+          KerbenMarkup.stamp(item, product);
+          if (item.price !== beforePrice) markupTouched = true;
+        }
         const isPack = item.isPack || (product && product.isPack);
         const unitLabel = isPack ? 'пач.' : 'шт.';
         const itemTotal = item.qty * item.price;
@@ -566,6 +573,7 @@
       });
       
       content.innerHTML = html;
+      if (markupTouched) saveCart();
       document.getElementById('cartTotal').textContent = total.toLocaleString() + ' сом';
       
       const posWord = cart.length === 1 ? 'позиция' : (cart.length < 5 ? 'позиции' : 'позиций');
@@ -1761,6 +1769,23 @@
         const [ , partnerFromLookup ] = await Promise.all([authWaitP, partnerLookupP]);
         if (!partner && partnerFromLookup) partner = partnerFromLookup;
 
+        let markupMeta = { active: false, percent: 0, agentId: null };
+        if (window.KerbenMarkup && typeof KerbenMarkup.prepareCartPrices === 'function') {
+          try {
+            markupMeta = await KerbenMarkup.prepareCartPrices(cart) || markupMeta;
+          } catch (e) {
+            console.warn('[Cart] наценка:', e && e.message);
+          }
+        }
+        total = cart.reduce((sum, item) => sum + item.qty * item.price, 0);
+        items = cart.map(i => {
+          const product = products.find(p => p.id === i.id);
+          const unitLabel = (product && product.isPack) ? 'пачка' : 'шт';
+          const packInfo = (product && product.isPack && product.packQty) ? ` (~${product.packQty} шт/пачка)` : '';
+          const variantInfo = i.variant ? ` [${i.variant}]` : '';
+          return `${i.title}${variantInfo}${packInfo} — ${i.qty} ${unitLabel} × ${i.price} сом = ${i.qty * i.price} сом`;
+        }).join('\n');
+
         const orderRef = db.collection('orders').doc();
 
         // Валидация корзины (наличие, остатки) уже сделана выше в блоке проверки товаров.
@@ -1770,6 +1795,8 @@
           driverName: driverName || null, driverPhone: driverPhone || null,
           items: cart.map(item => ({
             id: item.id, title: item.title, qty: item.qty, price: item.price,
+            basePrice: item.basePrice != null ? item.basePrice : null,
+            markupPercent: item.markupPercent || 0,
             image: item.image || null,
             costPrice: item.costPrice || 0, sellerId: item.sellerId || null,
             sellerName: item.sellerName || null, variant: item.variant || null
@@ -1788,6 +1815,8 @@
           placedByAgentId: agentInfo ? agentInfo.id : null,
           placedByAgentName: agentInfo ? agentInfo.name : null,
           agentId: agentInfo ? agentInfo.id : null,
+          markupAgentId: markupMeta.active ? markupMeta.agentId : null,
+          markupPercent: markupMeta.active ? markupMeta.percent : 0,
           stockDeducted: false,
           // stockDeductionStatus ВСЕГДА 'pending' — так требуют правила Firestore
           // (клиент не может подделать статус списания). Для unfulfilled-заказов

@@ -1,0 +1,253 @@
+// ===================================================================
+// КЕРБЕН — наценка агента (%)
+//
+// Процент хранится только в документе agents/{id}:
+//   markupAllowed  — администратор разрешил функцию
+//   markupEnabled  — администратор включил применение
+//   markupPercent  — процент наценки
+//
+// Цена продажи считается при показе каталога и при оформлении заказа.
+// Поле products.price не читается для записи и не меняется.
+// На главном сайте (покупатель не в сессии этого агента) цена прежняя.
+// ===================================================================
+
+(function (global) {
+  'use strict';
+
+  var state = {
+    loaded: false,
+    agentId: null,
+    allowed: false,
+    enabled: false,
+    percent: 0
+  };
+
+  function round2(n) {
+    return Math.round(Number(n) * 100) / 100;
+  }
+
+  function phoneTail(phone) {
+    var d = String(phone || '').replace(/\D/g, '');
+    if (d.indexOf('996') === 0) d = d.substring(3);
+    if (d.charAt(0) === '0') d = d.substring(1);
+    return d.slice(-9);
+  }
+
+  // Сессия именно этого агента: тот же вход, что и у существующего профиля.
+  function readAgent() {
+    try {
+      var raw = localStorage.getItem('currentAgent');
+      if (!raw) return null;
+      var agent = JSON.parse(raw);
+      if (!(agent && agent.name && (agent.id || agent.phone))) return null;
+      var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+      if (!cd || !cd.phone) return null;
+      if (agent.phone && phoneTail(cd.phone) !== phoneTail(agent.phone)) return null;
+      return agent;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Админ и редактор всегда видят цену KERBEN, без наценки.
+  function isStaffView() {
+    try {
+      if (typeof isEditorMode !== 'undefined' && isEditorMode) return true;
+      if (typeof userRole !== 'undefined' && (userRole === 'admin' || userRole === 'seller')) return true;
+      var cd = JSON.parse(localStorage.getItem('customerData') || 'null');
+      if (cd && cd.isAdmin === true) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function isActive() {
+    return !isStaffView()
+      && state.loaded
+      && state.allowed === true
+      && state.enabled === true
+      && state.percent > 0
+      && !!readAgent();
+  }
+
+  function price(n) {
+    if (!isActive()) return n;
+    var num = Number(n);
+    if (!isFinite(num)) return n;
+    return round2(num * (100 + state.percent) / 100);
+  }
+
+  function display(n) {
+    if (!isActive()) return n;
+    var sale = price(n);
+    if (typeof sale !== 'number' || !isFinite(sale)) return n;
+    if (Math.abs(sale - Math.round(sale)) < 0.001) return Math.round(sale);
+    return sale.toFixed(2);
+  }
+
+  // База для строки заказа: оптовая цена при достижении порога, иначе цена KERBEN.
+  // Документ товара не изменяется.
+  function baseUnit(product, item) {
+    var qty = Number(item && item.qty) || 0;
+    var base = Number(product && product.price);
+    if (!isFinite(base)) base = 0;
+    var optQty = Number(product && product.optQty);
+    var optPrice = Number(product && product.optPrice);
+    if (optQty > 0 && isFinite(optPrice) && qty >= optQty) return optPrice;
+    return base;
+  }
+
+  // Подставляет цену продажи в строку корзины. product.price не трогает.
+  function stamp(item, product) {
+    if (!item || !product) return item;
+    var base = baseUnit(product, item);
+    if (!isActive()) {
+      // Пока документ агента не прочитан, цену в корзине не сбрасываем.
+      if (state.loaded && item.markupPercent) {
+        item.price = base;
+        item.basePrice = round2(base);
+        item.markupPercent = 0;
+      }
+      return item;
+    }
+    item.basePrice = round2(base);
+    item.price = price(base);
+    item.markupPercent = state.percent;
+    return item;
+  }
+
+  function formatPlain(n) {
+    var x = round2(n);
+    if (!isFinite(x)) return '0';
+    if (Math.abs(x - Math.round(x)) < 0.001) return String(Math.round(x));
+    return x.toFixed(2);
+  }
+
+  function updateBanner() {
+    var text = '';
+    if (isActive()) {
+      text = 'Цены в вашем профиле агента: наценка +' + formatPlain(state.percent) +
+        '%. В базе KERBEN и на главном сайте для остальных покупателей цена не меняется.';
+    }
+    var ids = ['productTable', 'cartContent'];
+    for (var i = 0; i < ids.length; i++) {
+      var host = document.getElementById(ids[i]);
+      if (!host || !host.parentNode) continue;
+      var banner = document.getElementById('kerbenMarkupBanner-' + ids[i]);
+      if (!text) {
+        if (banner) banner.style.display = 'none';
+        continue;
+      }
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'kerbenMarkupBanner-' + ids[i];
+        banner.style.cssText = 'margin:8px 12px;padding:10px 12px;background:#fff8e1;border:1px solid #ffe082;border-radius:10px;color:#6d4c00;font-size:13px;font-weight:600;line-height:1.4;';
+        host.parentNode.insertBefore(banner, host);
+      }
+      banner.style.display = 'block';
+      banner.textContent = text;
+    }
+  }
+
+  function rerender() {
+    updateBanner();
+    try { if (typeof renderProducts === 'function') renderProducts(); } catch (e) {}
+    try { if (typeof updateCart === 'function') updateCart(); } catch (e) {}
+    try { if (typeof renderCart === 'function') renderCart(); } catch (e) {}
+  }
+
+  function snapshot() {
+    return [state.agentId || '', state.allowed ? 1 : 0, state.enabled ? 1 : 0, state.percent, isActive() ? 1 : 0].join('|');
+  }
+
+  async function refresh() {
+    var before = snapshot();
+    var agent = readAgent();
+    if (!agent || !agent.id || typeof db === 'undefined' || !db) {
+      state = { loaded: true, agentId: null, allowed: false, enabled: false, percent: 0 };
+      if (snapshot() !== before) rerender();
+      else updateBanner();
+      return state;
+    }
+    try {
+      if (typeof kerbenWaitForAuth === 'function') {
+        try { await kerbenWaitForAuth(4000); } catch (e) {}
+      }
+      var snap = await db.collection('agents').doc(agent.id).get();
+      var data = snap.exists ? (snap.data() || {}) : {};
+      var pct = Number(data.markupPercent);
+      if (!isFinite(pct) || pct < 0) pct = 0;
+      if (pct > 500) pct = 500;
+      state = {
+        loaded: true,
+        agentId: agent.id,
+        allowed: data.markupAllowed === true,
+        enabled: data.markupEnabled === true,
+        percent: round2(pct)
+      };
+    } catch (e) {
+      console.warn('[Markup] не удалось прочитать наценку агента:', e && e.message);
+    }
+    if (snapshot() !== before) rerender();
+    else updateBanner();
+    return state;
+  }
+
+  async function prepareCartPrices(cartItems) {
+    await refresh();
+    var list = Array.isArray(cartItems) ? cartItems : [];
+    var catalog = (typeof products !== 'undefined' && products) ? products : [];
+    list.forEach(function (item) {
+      if (!item || !item.id) return;
+      var product = null;
+      for (var i = 0; i < catalog.length; i++) {
+        if (catalog[i] && catalog[i].id === item.id) { product = catalog[i]; break; }
+      }
+      if (product) stamp(item, product);
+    });
+    var active = isActive();
+    return {
+      active: active,
+      percent: active ? state.percent : 0,
+      agentId: active ? state.agentId : null
+    };
+  }
+
+  var refreshTimer = null;
+  function scheduleRefresh() {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(function () { refresh(); }, 400);
+  }
+
+  function boot() {
+    scheduleRefresh();
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) scheduleRefresh();
+    });
+    window.addEventListener('pageshow', scheduleRefresh);
+    var lastKey = '';
+    setInterval(function () {
+      var agent = readAgent();
+      var key = agent ? String(agent.id || '') : '';
+      if (key !== lastKey) {
+        lastKey = key;
+        scheduleRefresh();
+      }
+    }, 2000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+  global.KerbenMarkup = {
+    refresh: refresh,
+    isActive: isActive,
+    percent: function () { return isActive() ? state.percent : 0; },
+    price: price,
+    display: display,
+    stamp: stamp,
+    prepareCartPrices: prepareCartPrices
+  };
+})(typeof window !== 'undefined' ? window : this);

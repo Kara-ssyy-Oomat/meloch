@@ -2275,7 +2275,7 @@ async function loadAgentsProfitReport() {
     
     agentsArr.forEach(data => {
       const agentName = data.name || data.phone || data.id;
-      agents[data.id] = { id: data.id, name: agentName, phone: data.phone, orders: 0, profit: 0, totalSale: 0 };
+      agents[data.id] = { id: data.id, name: agentName, phone: data.phone, orders: 0, profit: 0, totalSale: 0, markupAllowed: data.markupAllowed === true };
       // Также индексируем по имени для поиска через partner
       agentsByName[agentName] = agents[data.id];
       if (data.phone) agentsByName[data.phone] = agents[data.id];
@@ -2359,6 +2359,10 @@ async function loadAgentsProfitReport() {
       }
     });
     
+    function agentSaleCommission(a) {
+      return a.markupAllowed ? 0 : a.totalSale * 0.02;
+    }
+
     let agentsList = Object.values(agents).filter(a => a.orders > 0);
     
     console.log('📊 Всего заказов в базе:', totalOrdersChecked);
@@ -2373,7 +2377,7 @@ async function loadAgentsProfitReport() {
       switch(sortBy) {
         case 'orders-desc': return b.orders - a.orders;
         case 'sum-desc': return b.profit - a.profit;
-        case 'commission-desc': return (b.profit * 0.02) - (a.profit * 0.02);
+        case 'commission-desc': return agentSaleCommission(b) - agentSaleCommission(a);
         case 'name': return (a.name || '').localeCompare(b.name || '');
         default: return 0;
       }
@@ -2383,7 +2387,7 @@ async function loadAgentsProfitReport() {
     const totalProfit = agentsList.reduce((sum, a) => sum + a.profit, 0);
     const totalOrders = agentsList.reduce((sum, a) => sum + a.orders, 0);
     const totalSales = agentsList.reduce((sum, a) => sum + a.totalSale, 0);
-    const totalCommission = totalSales * 0.02; // 2% от суммы продаж
+    const totalCommission = agentsList.reduce((sum, a) => sum + agentSaleCommission(a), 0);
     
     document.getElementById('agentsTotalCount').textContent = agentsList.length;
     document.getElementById('agentsOrdersCount').textContent = totalOrders;
@@ -2423,7 +2427,7 @@ async function loadAgentsProfitReport() {
               <td data-label="Заказов" class="center">${a.orders}</td>
               <td data-label="Продажи" class="right">${a.totalSale.toFixed(2)} сом</td>
               <td data-label="Прибыль" class="right" style="color:#28a745; font-weight:600;">${a.profit.toFixed(2)} сом</td>
-              <td data-label="Комиссия" class="right" style="color:#dc3545; font-weight:600;">${(a.totalSale * 0.02).toFixed(2)} сом</td>
+              <td data-label="Комиссия" class="right" style="color:${a.markupAllowed ? '#8d6e00' : '#dc3545'}; font-weight:600;">${a.markupAllowed ? '0.00 сом · наценка' : (a.totalSale * 0.02).toFixed(2) + ' сом'}</td>
             </tr>
           `).join('')}
         </tbody>

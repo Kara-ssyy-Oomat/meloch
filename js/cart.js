@@ -325,6 +325,10 @@ function updateCart() {
         } else {
           item.price = product.price;
         }
+        // Наценка только в сессии этого агента. product.price не меняется.
+        if (window.KerbenMarkup && typeof KerbenMarkup.stamp === 'function') {
+          KerbenMarkup.stamp(item, product);
+        }
       }
       total += item.qty * item.price;
 

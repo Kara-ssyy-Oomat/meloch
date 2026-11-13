@@ -1052,6 +1052,8 @@
           <div class="stat-value" id="statBalance">0</div>
         </div>
       </div>
+
+      <div id="markupSection" style="background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:20px;box-shadow:0 2px 10px rgba(0,0,0,0.06);"></div>
       
       <!-- График -->
       <div class="chart-container">
@@ -1205,6 +1207,29 @@
     
     // Данные
     let currentAgent = null;
+    // Одобренная наценка заменяет комиссию 2%. Пока админ не разрешил — 2% как у остальных.
+    let agentMarkupApproved = false;
+
+    function agentCommission(sum) {
+      if (agentMarkupApproved) return 0;
+      return Math.round((Number(sum) || 0) * 0.02);
+    }
+
+    function refreshAgentProfitViews() {
+      const label = document.querySelector('#statProfit') && document.querySelector('#statProfit').parentElement
+        ? document.querySelector('#statProfit').parentElement.querySelector('.stat-label')
+        : null;
+      if (label) label.textContent = agentMarkupApproved ? '2% не начисляется' : '💰 Прибыль (2%)';
+      if (typeof renderOrders === 'function' && Array.isArray(allOrders)) {
+        try { renderOrders(); } catch (e) {}
+      }
+      if (typeof updateStats === 'function') {
+        try { updateStats(); } catch (e) {}
+      }
+      if (typeof drawChart === 'function') {
+        try { drawChart(); } catch (e) {}
+      }
+    }
     let allOrders = [];
     let filteredOrders = [];
     let profitChart = null;
@@ -1720,6 +1745,90 @@
       document.getElementById('headerLogoutBtn').style.display = 'block';
       const rb = document.getElementById('headerRecoverBtn');
       if (rb) rb.style.display = 'inline-flex';
+      loadAgentMarkupPanel();
+    }
+
+    function _markupPlain(n) {
+      const x = Math.round(Number(n) * 100) / 100;
+      if (!isFinite(x)) return '0';
+      if (Math.abs(x - Math.round(x)) < 0.001) return String(Math.round(x));
+      return x.toFixed(2);
+    }
+
+    async function loadAgentMarkupPanel() {
+      const box = document.getElementById('markupSection');
+      if (!box) return;
+      if (!currentAgent || !currentAgent.id) {
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = '<div style="color:#888;font-size:14px;">Загрузка наценки...</div>';
+      try {
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(8000); } catch (e) {}
+        }
+        const snap = await db.collection('agents').doc(currentAgent.id).get();
+        const data = snap.exists ? (snap.data() || {}) : {};
+        const allowed = data.markupAllowed === true;
+        agentMarkupApproved = allowed;
+        refreshAgentProfitViews();
+        const enabled = data.markupEnabled === true;
+        const pct = Number(data.markupPercent);
+        const percent = isFinite(pct) && pct >= 0 ? pct : 0;
+        if (!allowed) {
+          box.innerHTML = `
+            <div style="font-weight:700;font-size:16px;margin-bottom:6px;">Наценка на товары (%)</div>
+            <div style="color:#8d6e00;background:#fff8e1;border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.45;">
+              Функция появится после одобрения администратора. До одобрения наценку нельзя ни указать, ни применить, а с заказов начисляется 2%, как у других агентов.
+              Цены KERBEN при этом не меняются.
+            </div>`;
+          return;
+        }
+        const status = enabled
+          ? 'Администратор включил наценку. В вашем каталоге покупатели видят цену с этим процентом. Комиссия 2% вам не начисляется.'
+          : 'Процент можно сохранить, но администратор ещё не включил наценку. В каталоге пока цена KERBEN. Комиссия 2% вам не начисляется, потому что функция наценки уже одобрена.';
+        box.innerHTML = `
+          <div style="font-weight:700;font-size:16px;margin-bottom:6px;">Наценка на товары (%)</div>
+          <div style="color:#666;font-size:13px;line-height:1.45;margin-bottom:12px;">${status} Пример: товар 10 сом и наценка 10% показывается как 11 сом. Цена в базе не перезаписывается.</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input id="agentMarkupPercent" type="number" min="0" max="500" step="0.1" value="${percent}" style="width:120px;padding:12px;border:2px solid #e0e0e0;border-radius:10px;font-size:16px;">
+            <span style="font-weight:600;">%</span>
+            <button type="button" onclick="saveAgentMarkupPercent()" style="background:#9c27b0;color:#fff;border:none;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer;">Сохранить</button>
+          </div>
+          <div style="margin-top:8px;font-size:13px;color:#555;">Сейчас: <b>${enabled ? 'включена' : 'выключена'}</b> · ${_markupPlain(percent)}%</div>`;
+      } catch (e) {
+        box.innerHTML = '<div style="color:#c62828;font-size:14px;">Не удалось загрузить наценку. Проверьте интернет.</div>';
+      }
+    }
+
+    async function saveAgentMarkupPercent() {
+      if (!currentAgent || !currentAgent.id) return;
+      const input = document.getElementById('agentMarkupPercent');
+      const pct = input ? Number(input.value) : NaN;
+      if (!isFinite(pct) || pct < 0 || pct > 500) {
+        Swal.fire('Ошибка', 'Укажите процент от 0 до 500', 'warning');
+        return;
+      }
+      try {
+        if (typeof kerbenWaitForAuth === 'function') {
+          try { await kerbenWaitForAuth(8000); } catch (e) {}
+        }
+        const snap = await db.collection('agents').doc(currentAgent.id).get();
+        const data = snap.exists ? (snap.data() || {}) : {};
+        if (data.markupAllowed !== true) {
+          Swal.fire('Недоступно', 'Администратор ещё не одобрил функцию наценки', 'info');
+          loadAgentMarkupPanel();
+          return;
+        }
+        await db.collection('agents').doc(currentAgent.id).update({
+          markupPercent: Math.round(pct * 100) / 100
+        });
+        Swal.fire({ icon: 'success', title: 'Процент сохранён', timer: 1400, showConfirmButton: false });
+        loadAgentMarkupPanel();
+      } catch (e) {
+        console.error(e);
+        Swal.fire('Ошибка', 'Не удалось сохранить процент', 'error');
+      }
     }
     
     // Показать авторизацию
@@ -2370,7 +2479,7 @@
       
       listEl.innerHTML = filteredOrders.map(order => {
         const isCancelled = order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен';
-        const profit = isCancelled ? 0 : Math.round((order.total || 0) * 0.02);
+        const profit = isCancelled ? 0 : agentCommission(order.total);
         const date = order.time || new Date(order.timestamp).toLocaleString();
         const statusColor = statusColors[order.status] || '#666';
         const isRecent = (order.timestamp || 0) > oneDayAgo;
@@ -2403,7 +2512,7 @@
               </div>
               <div class="order-actions">
                 ${itemsCount > 0 ? `<button class="order-btn purple" onclick="openOrderItemsModal('${order.id}')">📦 Товары (${totalQty} шт)</button>` : ''}
-                <div class="order-profit">+${profit.toLocaleString()} сом</div>
+                ${agentMarkupApproved ? '' : `<div class="order-profit">+${profit.toLocaleString()} сом</div>`}
               </div>
             </div>
           </div>
@@ -2462,7 +2571,7 @@
         '</div>' +
         '<div style="text-align:right;">' +
           '<div style="font-size:18px; font-weight:700; color:#9c27b0;">' + totalSum.toLocaleString() + ' сом</div>' +
-          '<div style="font-size:12px; color:#4caf50; font-weight:600;">+' + Math.round(totalSum * 0.02).toLocaleString() + ' прибыль</div>' +
+          (agentMarkupApproved ? '' : '<div style="font-size:12px; color:#4caf50; font-weight:600;">+' + agentCommission(totalSum).toLocaleString() + ' прибыль</div>') +
         '</div>' +
       '</div>';
       
@@ -2675,7 +2784,7 @@
         if (order.phone) uniqueClients.add(order.phone);
       });
       
-      const totalProfit = Math.round(totalSum * 0.02);
+      const totalProfit = agentCommission(totalSum);
       
       // Загружаем выплаты
       let totalPaid = 0;
@@ -2693,7 +2802,7 @@
         }
       }
       
-      const balance = totalProfit - totalPaid;
+      const balance = agentMarkupApproved ? 0 : (totalProfit - totalPaid);
       
       document.getElementById('statOrders').textContent = totalOrders;
       document.getElementById('statSum').textContent = totalSum.toLocaleString();
@@ -2725,7 +2834,7 @@
         if (!dailyData[dateKey]) {
           dailyData[dateKey] = 0;
         }
-        dailyData[dateKey] += Math.round((order.total || 0) * 0.02);
+        dailyData[dateKey] += agentCommission(order.total);
       });
       
       const sortedDates = Object.keys(dailyData).sort();
@@ -2828,7 +2937,7 @@
       }
       
       listEl.innerHTML = clients.map(client => {
-        const profit = Math.round(client.totalSum * 0.02);
+        const profit = agentCommission(client.totalSum);
         return `
           <div class="client-card">
             <div class="client-name">👤 ${client.name}</div>
@@ -2836,7 +2945,7 @@
             <div class="client-stats">
               <span>📦 ${client.ordersCount} ${client.ordersCount === 1 ? 'заказ' : client.ordersCount < 5 ? 'заказа' : 'заказов'}</span>
               <span>💵 ${client.totalSum.toLocaleString()} сом</span>
-              <span style="color:#4caf50; font-weight:600;">💰 ${profit.toLocaleString()} сом</span>
+              ${agentMarkupApproved ? '<span style="color:#8d6e00; font-weight:600;">2% не начисляется</span>' : `<span style="color:#4caf50; font-weight:600;">💰 ${profit.toLocaleString()} сом</span>`}
             </div>
           </div>
         `;
@@ -2865,7 +2974,7 @@
         const status = order.status || 'Новый';
         const total = order.total || 0;
         const isCancelled = status === 'cancelled' || status === 'Отменён' || status === 'Отменен';
-        const profit = isCancelled ? 0 : Math.round(total * 0.02);
+        const profit = isCancelled ? 0 : agentCommission(total);
         
         csv += `"${date}","${name}","${phone}","${address}","${status}",${total},${profit}\n`;
       });
