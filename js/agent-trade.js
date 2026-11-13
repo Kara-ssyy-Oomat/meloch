@@ -10,6 +10,7 @@
   var buyCart = {};
   var tab = 'buy';
   var catalogLoaded = false;
+  var active = false;
 
   function db() {
     return firebase.firestore();
@@ -57,37 +58,34 @@
   function shell() {
     return ''
       + '<div style="background:#fff;border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,0.06);">'
-      + '<div style="font-weight:800;font-size:18px;margin-bottom:6px;">Покупка и продажа</div>'
-      + '<div style="color:#666;font-size:13px;line-height:1.45;margin-bottom:12px;">Покупка идёт по цене KERBEN и списывается с основного склада. Продажа идёт только из вашего остатка и склад KERBEN больше не трогает.</div>'
-      + '<div style="display:flex;gap:8px;margin-bottom:12px;">'
-      + '<button type="button" id="tradeTabBuy" style="flex:1;border:none;border-radius:10px;padding:12px;font-weight:700;cursor:pointer;">Покупка</button>'
-      + '<button type="button" id="tradeTabSell" style="flex:1;border:none;border-radius:10px;padding:12px;font-weight:700;cursor:pointer;">Продажа</button>'
-      + '</div>'
+      + '<div id="tradeNote" style="color:#666;font-size:13px;line-height:1.45;margin-bottom:12px;"></div>'
       + '<div id="tradePanel"></div>'
       + '</div>';
   }
 
   function showTab(next) {
     tab = next === 'sell' ? 'sell' : 'buy';
-    var buyBtn = document.getElementById('tradeTabBuy');
-    var sellBtn = document.getElementById('tradeTabSell');
-    if (buyBtn) buyBtn.onclick = function () { showTab('buy'); };
-    if (sellBtn) sellBtn.onclick = function () { showTab('sell'); };
-    paintTabs();
+    var note = document.getElementById('tradeNote');
+    if (note) {
+      note.textContent = tab === 'buy'
+        ? 'Покупка для своего склада по ценам KERBEN.'
+        : 'Выберите товар. Заказ покупателя принимается в форме ниже.';
+    }
+    paintBar();
     if (tab === 'buy') renderBuy();
     else renderSell();
   }
 
-  function paintTabs() {
-    var buyBtn = document.getElementById('tradeTabBuy');
-    var sellBtn = document.getElementById('tradeTabSell');
+  function paintBar() {
+    var buyBtn = document.getElementById('agentBarBuy');
+    var sellBtn = document.getElementById('agentBarSell');
     if (buyBtn) {
-      buyBtn.style.background = tab === 'buy' ? '#1565c0' : '#e3f2fd';
-      buyBtn.style.color = tab === 'buy' ? '#fff' : '#1565c0';
+      buyBtn.style.background = active && tab === 'buy' ? '#1565c0' : '#e3f2fd';
+      buyBtn.style.color = active && tab === 'buy' ? '#fff' : '#1565c0';
     }
     if (sellBtn) {
-      sellBtn.style.background = tab === 'sell' ? '#2e7d32' : '#e8f5e9';
-      sellBtn.style.color = tab === 'sell' ? '#fff' : '#2e7d32';
+      sellBtn.style.background = active && tab === 'sell' ? '#2e7d32' : '#e8f5e9';
+      sellBtn.style.color = active && tab === 'sell' ? '#fff' : '#2e7d32';
     }
   }
 
@@ -300,109 +298,125 @@
       panel.innerHTML = '<div style="background:#fff8e1;border-radius:12px;padding:14px;color:#8d6e00;">В продаже пока ничего нет. Сначала купите товар у KERBEN в разделе «Покупка».</div>';
       return;
     }
+    var orderRows = saleCartRows();
     panel.innerHTML = rows.map(function (item) {
       var price = salePrice(item.buyPrice, item.markupPercent);
       return '<div style="padding:12px 0;border-bottom:1px solid #f0f0f0;">'
         + '<div style="font-weight:800;">' + esc(item.title) + '</div>'
-        + '<div style="color:#666;font-size:13px;margin:4px 0;">Куплено по ' + money(item.buyPrice) + ' сом · ваш остаток: <b>' + item.qty + '</b></div>'
+        + '<div style="font-weight:800;color:#2e7d32;margin:4px 0;">' + price + ' сом</div>'
+        + '<div style="color:#888;font-size:12px;margin-bottom:8px;">в наличии ' + item.qty + '</div>'
         + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-        + '<input id="sellPct_' + esc(item.id) + '" type="number" min="0" max="500" step="1" value="' + (Number(item.markupPercent) || 0) + '" style="width:90px;padding:8px;border:1px solid #ddd;border-radius:8px;">'
-        + '<span>%</span>'
-        + '<button type="button" data-save="' + esc(item.id) + '" style="border:none;background:#6a1b9a;color:#fff;border-radius:8px;padding:8px 10px;font-weight:700;cursor:pointer;">Сохранить %</button>'
-        + '<span style="font-weight:800;color:#2e7d32;">покупатель видит ' + price + ' сом</span>'
-        + '</div>'
-        + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">'
         + '<input id="sellQty_' + esc(item.id) + '" type="number" min="1" max="' + item.qty + '" value="1" style="width:80px;padding:8px;border:1px solid #ddd;border-radius:8px;">'
-        + '<input id="sellName_' + esc(item.id) + '" placeholder="Имя покупателя" style="flex:1;min-width:140px;padding:8px;border:1px solid #ddd;border-radius:8px;">'
-        + '<input id="sellPhone_' + esc(item.id) + '" placeholder="Телефон" style="width:140px;padding:8px;border:1px solid #ddd;border-radius:8px;">'
-        + '<button type="button" data-sell="' + esc(item.id) + '" style="border:none;background:#2e7d32;color:#fff;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer;">Продать</button>'
+        + '<button type="button" data-add="' + esc(item.id) + '" style="border:none;background:#2e7d32;color:#fff;border-radius:8px;padding:10px 12px;font-weight:800;cursor:pointer;">В заказ</button>'
+        + '<button type="button" data-price="' + esc(item.id) + '" style="border:none;background:#f3e5f5;color:#6a1b9a;border-radius:8px;padding:10px 12px;font-weight:700;cursor:pointer;">Изменить цену</button>'
         + '</div></div>';
-    }).join('');
-    panel.querySelectorAll('[data-save]').forEach(function (btn) {
-      btn.onclick = function () { saveMarkup(btn.getAttribute('data-save')); };
+    }).join('')
+      + '<div style="margin-top:12px;background:#f7f9fc;border-radius:12px;padding:12px;">'
+      + '<div style="font-weight:700;margin-bottom:6px;">В заказе</div>'
+      + (orderRows || '<div style="color:#888;">Пока пусто. Добавьте товар и примите заказ в форме ниже.</div>')
+      + '</div>';
+    panel.querySelectorAll('[data-price]').forEach(function (btn) {
+      btn.onclick = function () { changePrice(btn.getAttribute('data-price')); };
     });
-    panel.querySelectorAll('[data-sell]').forEach(function (btn) {
-      btn.onclick = function () { sellItem(btn.getAttribute('data-sell')); };
+    panel.querySelectorAll('[data-add]').forEach(function (btn) {
+      btn.onclick = function () { addToOrder(btn.getAttribute('data-add')); };
     });
   }
 
-  async function saveMarkup(id) {
-    var input = document.getElementById('sellPct_' + id);
-    var pct = Number(input && input.value);
+  function saleCartRows() {
+    if (typeof cart === 'undefined' || !cart) return '';
+    return cart.filter(function (item) { return item && item.agentSale; }).map(function (item) {
+      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #eee;">'
+        + '<span>' + esc(item.title) + ' × ' + item.qty + '</span>'
+        + '<b>' + (Number(item.price) || 0) + ' сом</b></div>';
+    }).join('');
+  }
+
+  async function changePrice(id) {
+    var item = inventory.filter(function (row) { return row.id === id; })[0];
+    if (!item) return;
+    var ask = await Swal.fire({
+      title: 'Цена для покупателя',
+      input: 'number',
+      inputValue: Number(item.markupPercent) || 0,
+      inputAttributes: { min: 0, max: 500, step: 1 },
+      html: 'Укажите процент к закупочной цене. На экране останется только итоговая цена.',
+      showCancelButton: true,
+      confirmButtonText: 'Сохранить',
+      cancelButtonText: 'Отмена'
+    });
+    if (!ask.isConfirmed) return;
+    var pct = Number(ask.value);
     if (!isFinite(pct) || pct < 0 || pct > 500) {
       Swal.fire('Процент', 'Укажите от 0 до 500', 'warning');
       return;
     }
     try {
+      var saved = Math.round(pct * 100) / 100;
       await db().collection('agentInventory').doc(agent.id).collection('items').doc(id).update({
-        markupPercent: Math.round(pct * 100) / 100,
+        markupPercent: saved,
         updatedAt: Date.now()
       });
+      if (typeof cart !== 'undefined' && cart) {
+        cart.forEach(function (row) {
+          if (row && row.agentSale && row.id === id) {
+            row.markupPercent = saved;
+            row.basePrice = item.buyPrice;
+            row.price = salePrice(item.buyPrice, saved);
+          }
+        });
+        try { localStorage.setItem('cart', JSON.stringify(cart)); } catch (e) {}
+      }
       await renderSell();
     } catch (e) {
       Swal.fire('Не сохранилось', (e && e.message) || 'Ошибка', 'error');
     }
   }
 
-  var sellBusy = false;
-  async function sellItem(id) {
-    if (sellBusy) return;
+  function addToOrder(id) {
     var item = inventory.filter(function (row) { return row.id === id; })[0];
-    if (!item || item.qty <= 0) {
-      Swal.fire('Нет остатка', 'Сначала купите этот товар у KERBEN', 'info');
+    if (!item || item.qty <= 0 || typeof cart === 'undefined') {
+      Swal.fire('Нет остатка', 'Сначала купите этот товар в разделе «Покупка»', 'info');
       return;
     }
     var qty = Math.floor(Number((document.getElementById('sellQty_' + id) || {}).value) || 0);
-    var name = String((document.getElementById('sellName_' + id) || {}).value || '').trim();
-    var phone = String((document.getElementById('sellPhone_' + id) || {}).value || '').trim();
     if (qty <= 0 || qty > item.qty) {
-      Swal.fire('Количество', 'Можно продать от 1 до ' + item.qty, 'warning');
-      return;
-    }
-    if (!name || !phone) {
-      Swal.fire('Покупатель', 'Укажите имя и телефон', 'warning');
+      Swal.fire('Количество', 'Можно добавить от 1 до ' + item.qty, 'warning');
       return;
     }
     var price = salePrice(item.buyPrice, item.markupPercent);
-    sellBusy = true;
-    try {
-      if (typeof kerbenWaitForAuth === 'function') await kerbenWaitForAuth(8000);
-      var ref = await db().collection('orders').add({
-        name: name,
-        phone: phone,
-        address: 'Продажа агента',
-        items: [{
-          id: item.id,
-          title: item.title,
-          qty: qty,
-          price: price,
-          basePrice: item.buyPrice,
-          markupPercent: item.markupPercent,
-          image: item.image || null
-        }],
-        total: price * qty,
-        timestamp: Date.now(),
-        time: new Date().toLocaleString('ru-RU'),
-        status: 'pending',
-        stockDeducted: false,
-        stockDeductionStatus: 'pending',
-        orderKind: 'agent_sale',
-        agentId: agent.id,
-        placedByAgentId: agent.id,
-        placedByAgentName: agent.name || '',
-        excludedFromAgent: true
-      });
-      var result = await waitOrder(ref.id);
-      if (result.agentSaleRejected) {
-        Swal.fire('Продажа не прошла', result.stockDeductionError || 'Не хватило вашего остатка', 'warning');
-      } else {
-        Swal.fire('Продано', qty + ' шт. списаны с вашего остатка. Склад KERBEN не изменился.', 'success');
-      }
-      renderSell();
-    } catch (e) {
-      Swal.fire('Не удалось продать', (e && e.message) || 'Ошибка', 'error');
+    var existing = null;
+    for (var i = 0; i < cart.length; i++) {
+      if (cart[i] && cart[i].id === id && cart[i].agentSale) existing = cart[i];
     }
-    sellBusy = false;
+    var nextQty = existing ? existing.qty + qty : qty;
+    if (nextQty > item.qty) {
+      Swal.fire('Количество', 'В заказе уже ' + (existing ? existing.qty : 0) + '. Доступно ' + item.qty, 'warning');
+      return;
+    }
+    if (existing) {
+      existing.qty = nextQty;
+      existing.price = price;
+      existing.agentStock = item.qty;
+    } else {
+      cart.push({
+        id: item.id,
+        title: item.title,
+        price: price,
+        basePrice: item.buyPrice,
+        markupPercent: item.markupPercent,
+        qty: qty,
+        image: item.image || '',
+        agentSale: true,
+        agentStock: item.qty,
+        costPrice: 0
+      });
+    }
+    try { localStorage.setItem('cart', JSON.stringify(cart)); } catch (e) {}
+    if (typeof updateCart === 'function') updateCart();
+    renderSell();
+    var form = document.querySelector('.order-form');
+    if (form && form.scrollIntoView) form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function waitOrder(id) {
@@ -425,5 +439,128 @@
     });
   }
 
-  global.KerbenAgentTrade = { mount: mount, hide: hide };
+  function saleLine(id) {
+    var item = null;
+    for (var i = 0; i < inventory.length; i++) {
+      if (inventory[i] && inventory[i].id === id) item = inventory[i];
+    }
+    if (!item || item.qty <= 0) return null;
+    return {
+      title: item.title,
+      image: item.image || '',
+      buyPrice: item.buyPrice,
+      qty: item.qty,
+      percent: item.markupPercent,
+      salePrice: salePrice(item.buyPrice, item.markupPercent)
+    };
+  }
+
+  function setShopVisible(catalogOn, formOn) {
+    var table = document.getElementById('productTable');
+    var searchBox = document.querySelector('.search-container');
+    var form = document.querySelector('.order-form');
+    var title = document.getElementById('orderFormTitle');
+    var submit = document.getElementById('submitOrder');
+    var openCart = document.getElementById('openCartBtn');
+    if (table) table.style.display = catalogOn ? '' : 'none';
+    if (searchBox) searchBox.style.display = catalogOn ? '' : 'none';
+    if (form) form.style.display = formOn ? '' : 'none';
+    if (title) title.textContent = (!catalogOn && formOn) ? 'Принять заказ' : 'Оформить заказ';
+    if (submit) submit.textContent = (!catalogOn && formOn) ? 'Принять заказ' : 'Отправить заказ';
+    if (openCart && openCart.parentElement) openCart.parentElement.style.display = (!catalogOn && formOn) ? 'none' : '';
+  }
+
+  function showBar() {
+    var bar = document.getElementById('agentTradeBar');
+    if (!bar || bar.dataset.ready) {
+      if (bar) bar.style.display = 'flex';
+      paintBar();
+      return;
+    }
+    bar.dataset.ready = '1';
+    bar.innerHTML = ''
+      + '<button type="button" id="agentBarBuy" style="flex:1;border:none;border-radius:12px;padding:14px;font-weight:800;font-size:16px;cursor:pointer;">Покупка</button>'
+      + '<button type="button" id="agentBarSell" style="flex:1;border:none;border-radius:12px;padding:14px;font-weight:800;font-size:16px;cursor:pointer;">Продажа</button>';
+    document.getElementById('agentBarBuy').onclick = function () { openMode('buy'); };
+    document.getElementById('agentBarSell').onclick = function () { openMode('sell'); };
+    bar.style.display = 'flex';
+    paintBar();
+  }
+
+  async function ensureCart(kind) {
+    if (typeof cart === 'undefined' || !cart || !cart.length) return true;
+    var saleOnly = cart.every(function (item) { return item && item.agentSale; });
+    if (kind === 'sell' && saleOnly) return true;
+    var ask = await Swal.fire({
+      title: 'Очистить корзину?',
+      text: 'Для этого раздела заказ собирается отдельно.',
+      showCancelButton: true,
+      confirmButtonText: 'Очистить',
+      cancelButtonText: 'Отмена'
+    });
+    if (!ask.isConfirmed) return false;
+    cart.length = 0;
+    try { localStorage.removeItem('cart'); } catch (e) {}
+    if (typeof updateCart === 'function') updateCart();
+    return true;
+  }
+
+  async function openMode(next) {
+    if (!agent) return;
+    if (active && tab === next) {
+      close();
+      return;
+    }
+    if (!(await ensureCart(next))) return;
+    active = true;
+    mount(agent);
+    setShopVisible(false, next === 'sell');
+    showTab(next);
+    var el = box();
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function close() {
+    active = false;
+    hide();
+    setShopVisible(true, true);
+    paintBar();
+  }
+
+  function currentAgent() {
+    try { return JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) { return null; }
+  }
+
+  async function boot() {
+    if (!document.getElementById('agentTradeBar') || !document.getElementById('productTable')) return;
+    var stored = currentAgent();
+    if (!stored || !stored.id) return;
+    try {
+      if (typeof kerbenWaitForAuth === 'function') {
+        try { await kerbenWaitForAuth(8000); } catch (e) {}
+      }
+      var snap = await db().collection('agents').doc(stored.id).get();
+      var data = snap.exists ? (snap.data() || {}) : {};
+      if (data.markupAllowed !== true) return;
+      agent = {
+        id: stored.id,
+        name: stored.name || data.name || '',
+        phone: stored.phone || data.phone || ''
+      };
+      showBar();
+    } catch (e) {}
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+
+  global.KerbenAgentTrade = {
+    mount: mount,
+    hide: hide,
+    close: close,
+    mode: function () { return active ? tab : ''; },
+    agent: function () { return agent; },
+    saleLine: saleLine,
+    refreshSell: function () { if (active && tab === 'sell') renderSell(); }
+  };
 })(window);

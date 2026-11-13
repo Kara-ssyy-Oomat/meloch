@@ -140,6 +140,7 @@ document.getElementById('submitOrder').onclick = async () => {
   submitBtn.textContent = 'Проверка товаров...';
 
   try {
+    const sellingOwnStock = !!(window.KerbenAgentTrade && KerbenAgentTrade.mode && KerbenAgentTrade.mode() === 'sell');
     // ВАЖНО: Проверяем все товары в корзине - существуют ли они и не заблокированы ли
     const validCart = [];
     const blockedItems = [];
@@ -147,6 +148,27 @@ document.getElementById('submitOrder').onclick = async () => {
     const outOfStockItems = [];
     
     for (const cartItem of cart) {
+      if (sellingOwnStock) {
+        const line = window.KerbenAgentTrade.saleLine(cartItem.id);
+        if (!cartItem.agentSale || !line) {
+          outOfStockItems.push(`${cartItem.title} (нет на вашем складе)`);
+          continue;
+        }
+        if ((cartItem.qty || 0) > line.qty) {
+          outOfStockItems.push(`${cartItem.title} (доступно ${line.qty} шт)`);
+          continue;
+        }
+        validCart.push({
+          ...cartItem,
+          title: line.title,
+          price: line.salePrice,
+          basePrice: line.buyPrice,
+          markupPercent: line.percent,
+          agentSale: true,
+          agentStock: line.qty
+        });
+        continue;
+      }
       const product = products.find(p => p.id === cartItem.id);
       
       if (!product) {
@@ -323,7 +345,7 @@ document.getElementById('submitOrder').onclick = async () => {
     // чтобы админ видел что именно клиент хотел заказать.
     const originalCartSnapshot = cart.map(i => ({ ...i }));
 
-    if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
+    if (!sellingOwnStock && (typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
       submitBtn.textContent = '⏳ Отправка заказа...';
       try {
         // ЖЁСТКИЙ ТАЙМАУТ 3 сек: клиенту нельзя долго ждать перед
@@ -442,7 +464,7 @@ document.getElementById('submitOrder').onclick = async () => {
     submitBtn.textContent = '⏳ Отправка...';
 
     let markupMeta = { active: false, percent: 0, agentId: null };
-    if (window.KerbenMarkup && typeof KerbenMarkup.prepareCartPrices === 'function') {
+    if (!sellingOwnStock && window.KerbenMarkup && typeof KerbenMarkup.prepareCartPrices === 'function') {
       try {
         markupMeta = await KerbenMarkup.prepareCartPrices(cart) || markupMeta;
       } catch (e) {
@@ -540,6 +562,19 @@ document.getElementById('submitOrder').onclick = async () => {
       unfulfilledOrder: isUnfulfilledOrder || null,
       unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
     };
+    if (sellingOwnStock && window.KerbenAgentTrade && KerbenAgentTrade.agent) {
+      const ag = KerbenAgentTrade.agent() || {};
+      orderPayload.orderKind = 'agent_sale';
+      orderPayload.excludedFromAgent = true;
+      orderPayload.agentId = ag.id || orderPayload.agentId;
+      orderPayload.placedByAgentId = ag.id || orderPayload.placedByAgentId;
+      orderPayload.placedByAgentName = ag.name || orderPayload.placedByAgentName || '';
+      orderPayload.markupAgentId = null;
+      orderPayload.markupPercent = 0;
+      orderPayload.status = 'pending';
+      orderPayload.unfulfilledOrder = null;
+      orderPayload.unfulfilledReason = null;
+    }
 
     // ВАЖНО: Firestore SDK имеет offline-persistence — set() мгновенно
     // пишет в локальный IndexedDB и ставит в очередь синхронизации.
@@ -705,9 +740,12 @@ document.getElementById('submitOrder').onclick = async () => {
     updateCart();
     localStorage.removeItem('cart');
 
+    if (sellingOwnStock && window.KerbenAgentTrade && typeof KerbenAgentTrade.refreshSell === 'function') {
+      try { KerbenAgentTrade.refreshSell(); } catch (e) {}
+    }
     // Оптимистично минусуем остатки в локальном UI (Firestore спишет Cloud Function)
     try {
-      for (const orderedItem of orderData.cart) {
+      if (!sellingOwnStock) for (const orderedItem of orderData.cart) {
         const p = products.find(x => x.id === orderedItem.id);
         if (!p) continue;
         if (typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
@@ -735,15 +773,17 @@ document.getElementById('submitOrder').onclick = async () => {
           p.stock = Math.max(0, Math.floor(p.stock) - need);
         }
       }
-      renderProducts();
-      updateCart();
+      if (!sellingOwnStock) {
+        renderProducts();
+        updateCart();
+      }
     } catch (e) {}
 
     // Выше мы поправили остатки только у себя на экране. Чтобы их увидели
     // и на других устройствах, объявляем изменённые товары — но после того,
     // как сервер реально спишет (следит announceOrderStockChange).
     try {
-      if (typeof announceOrderStockChange === 'function') {
+      if (!sellingOwnStock && typeof announceOrderStockChange === 'function') {
         announceOrderStockChange(orderRef.id, orderData.cart.map(function (i) { return i.id; }));
       }
     } catch (e) {}

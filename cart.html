@@ -229,7 +229,7 @@
   <script src="js/app-check.js?v=2"></script>
   <script src="js/firestore-guard.js?v=1"></script>
   <script src="js/auth.js?v=3"></script>
-  <script src="js/agent-markup.js?v=5"></script>
+  <script src="js/agent-markup.js?v=6"></script>
   <script src="js/admin-reauth.js?v=3"></script>
   <script src="js/pending-orders.js?v=2"></script>
   <script src="js/bot-blocker.js?v=2"></script>
@@ -539,7 +539,10 @@
       let markupTouched = false;
       cart.forEach((item, i) => {
         const product = products.find(p => p.id === item.id);
-        if (product && window.KerbenMarkup && typeof KerbenMarkup.stamp === 'function') {
+        if (item.agentSale) {
+          const cap = Math.max(0, Math.floor(Number(item.agentStock) || item.qty || 0));
+          if (item.qty > cap) item.qty = cap;
+        } else if (product && window.KerbenMarkup && typeof KerbenMarkup.stamp === 'function') {
           const beforePrice = item.price;
           KerbenMarkup.stamp(item, product);
           if (item.price !== beforePrice) markupTouched = true;
@@ -620,6 +623,16 @@
     
     function changeQty(index, delta) {
       const item = cart[index];
+      if (item && item.agentSale) {
+        const cap = Math.max(0, Math.floor(Number(item.agentStock) || item.qty || 0));
+        const newSaleQty = item.qty + delta;
+        if (newSaleQty <= 0) { removeItem(index); return; }
+        if (newSaleQty > cap) return;
+        item.qty = newSaleQty;
+        saveCart();
+        renderCart();
+        return;
+      }
       const product = products.find(p => p.id === item.id);
       const stock = product ? getEffectiveStock(product) : null;
       // Если остатка меньше минимальной партии — шагом становится сам остаток
@@ -1544,6 +1557,15 @@
         // и отправляем заказ как есть (серверная логика отловит проблемы).
         if (productsLoadedOk && products.length > 0) {
           for (const cartItem of cart) {
+            if (cartItem.agentSale) {
+              const cap = Math.max(0, Math.floor(Number(cartItem.agentStock) || 0));
+              if (cap <= 0 || (cartItem.qty || 0) > cap) {
+                problems.outOfStock.push(`${cartItem.title} (доступно ${cap} шт)`);
+              } else {
+                validCart.push(cartItem);
+              }
+              continue;
+            }
             const product = products.find(p => p.id === cartItem.id);
             if (!product) {
               problems.deleted.push(cartItem.title);
@@ -1645,7 +1667,8 @@
         let isUnfulfilledOrder = false;
         const originalCartSnapshot = cart.map(i => ({ ...i }));
 
-        if ((typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
+        const sellingOwnStock = cart.length > 0 && cart.every(function (item) { return item && item.agentSale; });
+        if (!sellingOwnStock && (typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
           submitBtn.textContent = '⏳ Отправка заказа...';
           try {
             // Fresh-check ДО отправки заказа. Раньше был hard-таймаут 1.5с:
@@ -1828,6 +1851,22 @@
           unfulfilledOrder: isUnfulfilledOrder || null,
           unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
         };
+        if (cart.length && cart.every(function (item) { return item && item.agentSale; })) {
+          var saleAgent = null;
+          try { saleAgent = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
+          orderPayload.orderKind = 'agent_sale';
+          orderPayload.excludedFromAgent = true;
+          orderPayload.markupAgentId = null;
+          orderPayload.markupPercent = 0;
+          orderPayload.status = 'pending';
+          orderPayload.unfulfilledOrder = null;
+          orderPayload.unfulfilledReason = null;
+          if (saleAgent && saleAgent.id) {
+            orderPayload.agentId = saleAgent.id;
+            orderPayload.placedByAgentId = saleAgent.id;
+            orderPayload.placedByAgentName = saleAgent.name || '';
+          }
+        }
 
         // Пишем только заказ. Списание — deductStockOnOrderCreate на сервере.
         // ВАЖНО: Firestore SDK имеет offline-persistence — вызов set()

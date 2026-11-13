@@ -1190,7 +1190,7 @@
   <script>window.KERBEN_BACKGROUND = { graceMs: 300000 };</script>
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
-  <script src="js/agent-trade.js?v=2"></script>
+  <script src="js/agent-trade.js?v=3"></script>
   
   <script>
     if (!firebase.apps.length) {
@@ -1798,8 +1798,8 @@
             <span style="font-weight:600;">%</span>
             <button type="button" onclick="saveAgentMarkupPercent()" style="background:#9c27b0;color:#fff;border:none;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer;">Сохранить</button>
           </div>
-          <div style="margin-top:8px;font-size:13px;color:#555;">Сейчас: <b>${enabled ? 'включена' : 'выключена'}</b> · ${_markupPlain(percent)}%</div>`;
-        if (window.KerbenAgentTrade) KerbenAgentTrade.mount(currentAgent);
+          <div style="margin-top:8px;font-size:13px;color:#555;">Сейчас: <b>${enabled ? 'включена' : 'выключена'}</b> · ${_markupPlain(percent)}%</div>
+          <div style="margin-top:10px;font-size:14px;line-height:1.45;">Покупка и продажа открываются на главной странице: сначала «Покупка», затем «Продажа», заказ принимается там же.</div>`;
       } catch (e) {
         box.innerHTML = '<div style="color:#c62828;font-size:14px;">Не удалось загрузить наценку. Проверьте интернет.</div>';
       }

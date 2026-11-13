@@ -255,6 +255,16 @@ function updateCart() {
 
   for (const item of cart) {
     if (!canValidate) { validCart.push(item); continue; }
+    if (item.agentSale) {
+      const cap = Math.max(0, Math.floor(Number(item.agentStock) || 0));
+      if (cap <= 0) continue;
+      if (item.qty > cap) {
+        item.qty = cap;
+        adjustedTitles.push(item.title);
+      }
+      validCart.push(item);
+      continue;
+    }
     const product = products.find(p => p.id === item.id);
     if (!product || product.blocked) continue;
 
@@ -318,8 +328,17 @@ function updateCart() {
 
     cart.forEach((item, i) => {
       // Пересчитываем цену для каждого товара в корзине
+      if (item.agentSale && window.KerbenAgentTrade && typeof KerbenAgentTrade.saleLine === 'function') {
+        const line = KerbenAgentTrade.saleLine(item.id);
+        if (line) {
+          item.price = line.salePrice;
+          item.basePrice = line.buyPrice;
+          item.markupPercent = line.percent;
+          item.agentStock = line.qty;
+        }
+      }
       const product = products.find(p => p.id === item.id);
-      if (product) {
+      if (product && !item.agentSale) {
         if (product.optQty && item.qty >= product.optQty && product.optPrice) {
           item.price = product.optPrice;
         } else {
