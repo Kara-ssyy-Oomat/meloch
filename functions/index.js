@@ -975,10 +975,14 @@ exports.orderNotify = functions
     }
 
     // ─── 2) ОТПРАВКА В TELEGRAM ────────────────────────────
+    // Продажа агента — его заказ своему клиенту. KERBEN его не получает.
     const token = process.env[TELEGRAM_BOT_TOKEN_SECRET];
     let telegramResults = { primary: false, secondary: false };
+    const agentSaleOrder = payload.orderKind === 'agent_sale';
 
-    if (!token) {
+    if (agentSaleOrder) {
+      console.log(`[OrderNotify] продажа агента ${orderId} — в Telegram не отправляем`);
+    } else if (!token) {
       console.error('[OrderNotify] TELEGRAM_BOT_TOKEN не задан');
     } else {
       // Формируем короткий текстовый заказ (plain text, без Markdown)

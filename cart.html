@@ -2031,7 +2031,7 @@
               .then(() => {
                 console.log('[Cart] Заказ дописан в фоне:', orderRef.id);
                 cart.length = 0; saveCart(); renderCart();
-                if (typeof sendOrderAsPDF === 'function') {
+                if (!sellingOwnStock && typeof sendOrderAsPDF === 'function') {
                   sendOrderAsPDF(name, phone, address, driverName, driverPhone,
                     _snapshotCart, total, currentTime).catch(() => {});
                 }
@@ -2060,7 +2060,9 @@
             Swal.fire({
               icon: 'success',
               title: 'Заказ принят! ✅',
-              html: 'Ваш заказ сохранён и уходит к нам.<br><small style="color:#666;">Даже если закроете страницу — доставится автоматически.</small>',
+              html: sellingOwnStock
+                ? 'Заказ клиента принят. KERBEN его не получает, остаток спишется с вашего склада.'
+                : 'Ваш заказ сохранён и уходит к нам.<br><small style="color:#666;">Даже если закроете страницу — доставится автоматически.</small>',
               timer: 3500,
               showConfirmButton: false
             });
@@ -2077,9 +2079,10 @@
           throw commitErr;
         }
 
-        // Оптимистично обновляем локальный кэш остатков (только UI; Firestore спишет CF)
+        // Оптимистично обновляем локальный кэш остатков (только UI; Firestore спишет CF).
+        // Продажа агента склад KERBEN не трогает.
         try {
-          for (const orderedItem of _snapshotCart) {
+          if (!sellingOwnStock) for (const orderedItem of _snapshotCart) {
             const p = products.find(x => x.id === orderedItem.id);
             if (!p || typeof p.stock !== 'number' || !isFinite(p.stock)) continue;
             if (warehousePaused) continue;
@@ -2110,7 +2113,7 @@
         // других устройствах, объявляем изменённые товары — но после того,
         // как сервер реально спишет (следит announceOrderStockChange).
         try {
-          if (typeof announceOrderStockChange === 'function') {
+          if (!sellingOwnStock && typeof announceOrderStockChange === 'function') {
             announceOrderStockChange(orderRef.id, _snapshotCart.map(function (i) { return i.id; }));
           }
         } catch (e) {}
@@ -2139,7 +2142,7 @@
           Swal.fire({
             icon: 'success',
             title: 'Заказ принят! ✅',
-            text: 'Ваш заказ успешно отправлен.',
+            text: sellingOwnStock ? 'Заказ клиента принят. KERBEN его не получает.' : 'Ваш заказ успешно отправлен.',
             timer: 2200,
             showConfirmButton: false
           });
@@ -2310,7 +2313,7 @@
 
         // Фоновая отправка PDF с фото
         loadCartExportLibs().then(() => {
-          if (typeof sendOrderAsPDF === 'function') {
+          if (!sellingOwnStock && typeof sendOrderAsPDF === 'function') {
             sendOrderAsPDF(orderData.name, orderData.phone, orderData.address, orderData.driverName, orderData.driverPhone, orderData.cart, orderData.total, orderData.currentTime)
               .then(() => console.log('PDF с фото отправлен'))
               .catch(e => console.error('PDF photo error:', e));
@@ -2363,7 +2366,7 @@
       window.fixImageOrientation = async function(file) { return file; };
     }
   </script>
-  <script src="js/orders.js?v=6"></script>
+  <script src="js/orders.js?v=7"></script>
 <script src="js/bottom-nav.js?v=32"></script>
 <script defer src="js/sw-register.js"></script>
 </body>

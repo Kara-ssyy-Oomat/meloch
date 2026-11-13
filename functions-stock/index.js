@@ -119,6 +119,8 @@ async function _claimOrderForStockDeduction(orderRef) {
       // Есть частичное списание при отмене — proceed, чтобы вернуть остатки
     }
 
+    if (d.orderKind === 'agent_sale') return 'agent_sale';
+
     if (d.stockDeductionStatus === 'processing') {
       const started = typeof d.stockDeductionStartedAt === 'number' ? d.stockDeductionStartedAt : 0;
       if (Date.now() - started < STOCK_CLAIM_STALE_MS) return 'busy';
@@ -584,6 +586,11 @@ async function processOrderStockDeduction(orderId, orderDataHint) {
     return;
   }
   const claim = await _claimOrderForStockDeduction(orderRef);
+  if (claim === 'agent_sale') {
+    const freshSale = await orderRef.get();
+    await settleAgentSale(orderId, freshSale.exists ? (freshSale.data() || {}) : (orderDataHint || {}));
+    return;
+  }
   if (claim === 'credit_only') {
     const fresh = await orderRef.get();
     const live = fresh.exists ? (fresh.data() || {}) : (orderDataHint || {});

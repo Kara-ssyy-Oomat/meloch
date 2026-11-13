@@ -435,6 +435,9 @@ async function sendOrderTextToTelegram(orderData, orderId) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.warn('[OrderNotify] HTTP', response.status, data);
+      if (orderData.orderKind === 'agent_sale') {
+        return { firestoreOk: false, telegramOk: false, viaFallback: false, error: 'http_' + response.status };
+      }
       // Fallback: попробуем через старый telegramProxy (App Check).
       // Он всё равно упадёт если App Check throttled, но вдруг сработает.
       const fallbackOk = await _sendOrderTelegramFallback(orderData, orderId);
@@ -455,6 +458,9 @@ async function sendOrderTextToTelegram(orderData, orderId) {
   } catch (e) {
     // AbortError (таймаут) / сетевая ошибка — пробуем fallback
     console.warn('[OrderNotify] fetch ошибка:', e && e.message);
+    if (orderData.orderKind === 'agent_sale') {
+      return { firestoreOk: false, telegramOk: false, viaFallback: false, error: (e && e.message) || 'fetch_error' };
+    }
     try {
       const fallbackOk = await _sendOrderTelegramFallback(orderData, orderId);
       return { firestoreOk: false, telegramOk: !!fallbackOk, viaFallback: true, error: (e && e.message) || 'fetch_error' };

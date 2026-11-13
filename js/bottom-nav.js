@@ -288,7 +288,7 @@
     if (mode !== 'buy' && mode !== 'sell' && window.KerbenAgentTrade && typeof KerbenAgentTrade.mode === 'function') {
       try { mode = KerbenAgentTrade.mode() || ''; } catch (e) {}
     }
-    var q = 'v=11';
+    var q = 'v=12';
     if (mode === 'buy' || mode === 'sell') q += '&mode=' + mode;
     return 'cart.html?' + q;
   }

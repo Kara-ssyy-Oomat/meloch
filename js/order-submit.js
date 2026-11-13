@@ -833,7 +833,7 @@ document.getElementById('submitOrder').onclick = async () => {
     
     // Отправка файлов в Telegram: ТОЛЬКО PDF с фото (большие фото товаров).
     // В ФОНЕ — клиент уже видит "Заказ принят", не блокируем UI.
-    if (typeof sendOrderAsPDF === 'function') {
+    if (!sellingOwnStock && typeof sendOrderAsPDF === 'function') {
       sendOrderAsPDF(
         orderData.name, orderData.phone, orderData.address,
         orderData.driverName, orderData.driverPhone,
