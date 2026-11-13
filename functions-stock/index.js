@@ -516,6 +516,13 @@ async function settleAgentSale(orderId, orderData) {
       const od = orderSnap.data() || {};
       if (od.agentInventoryApplied === true || od.agentSaleRejected === true) return;
       if (od.stockDeductionStatus === 'skipped_agent_sale') return;
+      const agentSnap = await tx.get(db.collection('agents').doc(agentId));
+      const agentDoc = agentSnap.exists ? (agentSnap.data() || {}) : {};
+      let profilePercent = 0;
+      if (agentDoc.markupAllowed === true && agentDoc.markupEnabled === true) {
+        const profile = Number(agentDoc.markupPercent);
+        if (isFinite(profile) && profile > 0) profilePercent = Math.min(profile, 500);
+      }
       const refs = items.map((item) => _agentInventoryRef(agentId, item.id));
       const snaps = [];
       for (let i = 0; i < refs.length; i++) snaps.push(await tx.get(refs[i]));
@@ -535,7 +542,7 @@ async function settleAgentSale(orderId, orderData) {
           throw err;
         }
         const pct = Number(prev.markupPercent);
-        const percent = isFinite(pct) && pct > 0 ? Math.min(pct, 500) : 0;
+        const percent = isFinite(pct) && pct > 0 ? Math.min(pct, 500) : profilePercent;
         const buy = Number(prev.buyPrice) || 0;
         const sale = Math.round(buy * (100 + percent) / 100);
         next.push({ ref: refs[i], qty: have - need });
