@@ -108,7 +108,7 @@
   // Подставляет цену продажи в строку корзины. product.price не трогает.
   function stamp(item, product) {
     if (!item || !product) return item;
-    if (item.agentSale || item.agentPurchase) return item;
+    if ((item.agentSale || item.agentPurchase) && (tradePage() === 'buy' || tradePage() === 'sell')) return item;
     var base = baseUnit(product, item);
     if (!isActive()) {
       // Пока документ агента не прочитан, цену в корзине не сбрасываем.

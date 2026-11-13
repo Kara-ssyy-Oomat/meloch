@@ -1171,9 +1171,18 @@ function getItemCostPrice(order, item, index) {
 // Одна позиция заказа может списать две партии: 5 шт по 10 и 5 шт по 14.
 // Считаем каждую партию своей ценой. Средняя закупка тут не используется:
 // округление «11 сом × 10» иногда даёт лишнюю копейку.
+// Процент агента в нашу прибыль не входит. Берём цену KERBEN из basePrice.
+function companyUnitPrice(item) {
+  const price = parseFloat(item && item.price) || 0;
+  const pct = parseFloat(item && item.markupPercent);
+  const base = parseFloat(item && item.basePrice);
+  if (isFinite(pct) && pct > 0 && isFinite(base) && base >= 0) return base;
+  return price;
+}
+
 function itemSaleSlices(order, item, index) {
   const qty = Math.max(0, Math.round(parseFloat(item && (item.qty || item.quantity)) || 0));
-  const price = parseFloat(item && item.price) || 0;
+  const price = companyUnitPrice(item);
   const adjusted = _findCostAdjustment(order, item, index);
   if (adjusted !== null || !item) {
     return [{ qty: qty || 1, price, cost: adjusted || 0 }];
@@ -2337,21 +2346,26 @@ async function loadAgentsProfitReport() {
         const items = data.items || data.cart || [];
         let orderProfit = 0;
         let orderSale = 0;
+        var markupOnOrder = items.some(function (item) {
+          var pct = parseFloat(item && item.markupPercent);
+          var base = parseFloat(item && item.basePrice);
+          return isFinite(pct) && pct > 0 && isFinite(base) && base >= 0;
+        });
         
         const ownerMode = getOwnerProfitMode();
         items.forEach((item, itemIndex) => {
           if (!itemMatchesOwnerFilter(item)) return;
           const money = itemMoney(data, item, itemIndex);
           
-          // Если total не было или фильтр режет товары менеджеров — считаем по позициям
-          if (!data.total || ownerMode !== 'all') {
+          // С наценкой сумма заказа — цена клиента. В нашу продажу берём цену KERBEN.
+          if (!data.total || ownerMode !== 'all' || markupOnOrder) {
             orderSale += money.sale;
           }
           if (money.priced) {
             orderProfit += money.profit;
           }
         });
-        if (data.total && ownerMode === 'all') {
+        if (data.total && ownerMode === 'all' && !markupOnOrder) {
           orderSale = parseFloat(data.total);
         }
         

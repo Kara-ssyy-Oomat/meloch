@@ -539,7 +539,7 @@
       let markupTouched = false;
       cart.forEach((item, i) => {
         const product = products.find(p => p.id === item.id);
-        if (item.agentSale) {
+        if (item.agentSale && pageTradeMode() === 'sell') {
           const cap = Math.max(0, Math.floor(Number(item.agentStock) || item.qty || 0));
           if (item.qty > cap) item.qty = cap;
         } else if (product && window.KerbenMarkup && typeof KerbenMarkup.stamp === 'function') {
@@ -623,7 +623,7 @@
     
     function changeQty(index, delta) {
       const item = cart[index];
-      if (item && item.agentSale) {
+      if (item && item.agentSale && pageTradeMode() === 'sell') {
         const cap = Math.max(0, Math.floor(Number(item.agentStock) || item.qty || 0));
         const newSaleQty = item.qty + delta;
         if (newSaleQty <= 0) { removeItem(index); return; }
@@ -900,17 +900,13 @@
 
           console.log('[Cart] Восстановление клиентов агента:', agentInfo.name || agentInfo.id);
 
-          const [customersSnap, clientAgentsSnap] = await Promise.all([
-            db.collection('customers')
-              .where('registeredByAgentId', '==', agentInfo.id)
-              .limit(500).get().catch(err => { console.warn('[Cart] customers query error:', err && err.message); return null; }),
-            db.collection('clientAgents')
-              .where('agentId', '==', agentInfo.id)
-              .limit(500).get().catch(err => { console.warn('[Cart] clientAgents query error:', err && err.message); return null; })
-          ]);
+          const ordersSnap = await db.collection('orders')
+            .where('placedByAgentId', '==', agentInfo.id)
+            .limit(300).get()
+            .catch(err => { console.warn('[Cart] orders query error:', err && err.message); return null; });
+          if (!ordersSnap) return getAgentClients().length;
 
           const restored = new Map();
-
           const _tsToMs = (t) => {
             if (!t) return 0;
             if (typeof t === 'number') return t;
@@ -918,81 +914,40 @@
             if (typeof t.seconds === 'number') return t.seconds * 1000;
             return 0;
           };
-
-          if (customersSnap) {
-            console.log('[Cart] customers (registeredByAgentId):', customersSnap.size);
-            customersSnap.forEach(doc => {
-              const d = doc.data() || {};
-              const phone = d.phone || doc.id;
-              const key = _normalizePhoneKey(phone);
-              if (!key || !d.name) return;
-              // Для облачных записей без createdAt → 0 (очень старые),
-              // чтобы при мёрже они НЕ перезаписали более свежие локальные
-              // правки (например, если агент вручную поменял имя клиента).
-              restored.set(key, {
-                name: d.name,
-                phone: phone,
-                address: d.address || '',
-                updatedAt: _tsToMs(d.createdAt) || _tsToMs(d.updatedAt) || 0
-              });
+          const ownPhone = _normalizePhoneKey(agentInfo.phone);
+          const ownPhone2 = _normalizePhoneKey(agentInfo.phone2);
+          ordersSnap.forEach(doc => {
+            const d = doc.data() || {};
+            const phone = d.phone || '';
+            const key = _normalizePhoneKey(phone);
+            if (!key || !d.name) return;
+            if (key === ownPhone || key === ownPhone2) return;
+            const at = _tsToMs(d.timestamp) || 0;
+            const prev = restored.get(key);
+            if (prev && (prev.updatedAt || 0) >= at) return;
+            restored.set(key, {
+              name: String(d.name).trim(),
+              phone: String(phone).trim(),
+              address: String(d.address || '').trim(),
+              updatedAt: at
             });
-          }
+          });
 
-          if (clientAgentsSnap && clientAgentsSnap.size > 0) {
-            console.log('[Cart] clientAgents (agentId):', clientAgentsSnap.size);
-            const joinPromises = [];
-            clientAgentsSnap.forEach(doc => {
-              const d = doc.data() || {};
-              const phone = d.phone || doc.id;
-              const key = _normalizePhoneKey(phone);
-              if (!key) return;
-              if (restored.has(key)) return;
-              joinPromises.push((async () => {
-                let address = '';
-                let name = d.clientName || '';
-                try {
-                  const cDoc = await db.collection('customers').doc(phone).get();
-                  if (cDoc && cDoc.exists) {
-                    const cd = cDoc.data() || {};
-                    address = cd.address || '';
-                    if (!name) name = cd.name || '';
-                  }
-                } catch(e) {}
-                if (!name) name = 'Клиент';
-                restored.set(key, {
-                  name: name,
-                  phone: phone,
-                  address: address,
-                  updatedAt: _tsToMs(d.updatedAt) || 0
-                });
-              })());
-            });
-            await Promise.all(joinPromises);
-          }
-
-          if (restored.size === 0) {
-            console.log('[Cart] В облаке нет клиентов, привязанных к этому агенту');
-            return 0;
-          }
-
-          const existing = getAgentClients();
-          const merged = new Map();
-          for (const c of existing) {
+          const freshCutoff = Date.now() - 10 * 60 * 1000;
+          getAgentClients().forEach(c => {
             const k = _normalizePhoneKey(c.phone);
-            if (k) merged.set(k, c);
-          }
-          for (const [k, c] of restored.entries()) {
-            const cur = merged.get(k);
-            if (!cur || (c.updatedAt || 0) > (cur.updatedAt || 0)) {
-              merged.set(k, c);
-            }
-          }
+            if (!k || restored.has(k)) return;
+            if ((c.updatedAt || 0) >= freshCutoff) restored.set(k, c);
+          });
 
-          const list = Array.from(merged.values())
+          const list = Array.from(restored.values())
             .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
             .slice(0, 500);
           try { localStorage.setItem('agentClients', JSON.stringify(list)); } catch(e) {}
-          try { localStorage.setItem('agentLastClient', JSON.stringify(list[0])); } catch(e) {}
+          try {
+            if (list[0]) localStorage.setItem('agentLastClient', JSON.stringify(list[0]));
+            else localStorage.removeItem('agentLastClient');
+          } catch(e) {}
 
           console.log('[Cart] Восстановлено клиентов из облака:', restored.size,
             '(итого в списке:', list.length + ')');
@@ -1248,6 +1203,7 @@
     }
     
     function pageTradeMode() {
+      return '';
       try {
         var q = new URLSearchParams(location.search).get('mode') || '';
         if (q === 'buy' || q === 'sell') return q;
@@ -1262,6 +1218,7 @@
     }
 
     function isSelfPurchaseCart() {
+      return false;
       if (!cart || !cart.length) return false;
       if (pageTradeMode() === 'buy') return true;
       if (pageTradeMode() === 'sell') return false;
@@ -1603,7 +1560,7 @@
         // и отправляем заказ как есть (серверная логика отловит проблемы).
         if (productsLoadedOk && products.length > 0) {
           for (const cartItem of cart) {
-            if (cartItem.agentSale) {
+            if (cartItem.agentSale && pageTradeMode() === 'sell') {
               const cap = Math.max(0, Math.floor(Number(cartItem.agentStock) || 0));
               if (cap <= 0) {
                 problems.outOfStock.push(`${cartItem.title} (нет на вашем складе)`);
@@ -1687,7 +1644,7 @@
         if (!partner && referredBy) partner = referredBy;
         // Если заказ оформляет сам агент — партнёром автоматически становится он
         // (его комиссия/статистика привяжется к этому заказу).
-        if (!partner && agentInfo && agentInfo.name) {
+        if (agentInfo && agentInfo.name && !selfBuy) {
           partner = agentInfo.name;
         }
         // Запускаем параллельно поиск партнёра и ожидание auth — оба
@@ -1716,7 +1673,7 @@
         let isUnfulfilledOrder = false;
         const originalCartSnapshot = cart.map(i => ({ ...i }));
 
-        const sellingOwnStock = cart.length > 0 && cart.every(function (item) { return item && item.agentSale; });
+        const sellingOwnStock = pageTradeMode() === 'sell' && cart.length > 0 && cart.every(function (item) { return item && item.agentSale; });
         if (!sellingOwnStock && (typeof warehousePaused === 'undefined' || !warehousePaused) && cart.length > 0) {
           submitBtn.textContent = '⏳ Отправка заказа...';
           try {
@@ -1875,7 +1832,8 @@
           })),
           total, timestamp: Date.now(), time: currentTime,
           status: isUnfulfilledOrder ? 'unfulfilled' : 'pending',
-          partner: partner || null, referredBy: referredBy || null,
+          partner: partner || null,
+          referredBy: (agentInfo && !selfBuy) ? null : (referredBy || null),
           // Кто оформил заказ. Если это агент со своего планшета — тут его
           // данные. В карточке заказа админ увидит, что имя/телефон в
           // заказе это КЛИЕНТ, а оформлял его агент.
@@ -1928,7 +1886,7 @@
             orderPayload.excludedFromAgent = true;
           }
         }
-        if (cart.length && cart.every(function (item) { return item && item.agentSale; })) {
+        if (pageTradeMode() === 'sell' && cart.length && cart.every(function (item) { return item && item.agentSale; })) {
           var saleAgent = null;
           try { saleAgent = JSON.parse(localStorage.getItem('currentAgent') || 'null'); } catch (e) {}
           orderPayload.orderKind = 'agent_sale';

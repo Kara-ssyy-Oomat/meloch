@@ -4,6 +4,13 @@
 (function (global) {
   'use strict';
 
+  // Кнопки «Покупка» и «Продажа» с экрана убраны.
+  // Сайт снова оформляет обычный заказ. Код разделов ниже сохранён.
+  try {
+    localStorage.removeItem('kerbenTradeMode');
+    sessionStorage.removeItem('kerbenTradeMode');
+  } catch (e) {}
+
   var agent = null;
   var catalog = [];
   var inventory = [];
@@ -669,11 +676,8 @@
         name: stored.name || data.name || '',
         phone: stored.phone || data.phone || ''
       };
-      showBar();
-      try {
-        var savedMode = localStorage.getItem('kerbenTradeMode') || sessionStorage.getItem('kerbenTradeMode');
-        if (savedMode === 'buy' || savedMode === 'sell') openMode(savedMode);
-      } catch (e) {}
+      var bar = document.getElementById('agentTradeBar');
+      if (bar) bar.style.display = 'none';
       var table = document.getElementById('productTable');
       if (table && !table.dataset.salePrice) {
         table.dataset.salePrice = '1';
@@ -698,7 +702,7 @@
     mount: mount,
     hide: hide,
     close: close,
-    mode: function () { return active ? tab : ''; },
+    mode: function () { return ''; },
     agent: function () { return agent; },
     saleLine: saleLine,
     stockItems: function () {

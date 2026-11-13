@@ -9,8 +9,8 @@
 //       — данные АГЕНТА не подставляются автоматически
 //       — под полями появляются автоподсказки из ранее сохранённых клиентов
 //   • Работает единообразно с cart.html — данные клиентов хранятся в
-//     localStorage.agentClients и подтягиваются из облака при необходимости
-//     (customers.registeredByAgentId + clientAgents.agentId).
+//     localStorage.agentClients. Подсказки — только клиенты из заказов,
+//     которые этот агент оформил сам. Общая база клиентов не читается.
 //
 // Экспортирует в window.KerbenAgent:
 //   isAgentUser(), getAgentInfo(),
@@ -170,81 +170,47 @@
           return 0;
         };
 
-        const [customersSnap, clientAgentsSnap] = await Promise.all([
-          db.collection('customers')
-            .where('registeredByAgentId', '==', agentInfo.id)
-            .limit(500).get()
-            .catch(function (err) { console.warn('[Agent] customers query:', err && err.message); return null; }),
-          db.collection('clientAgents')
-            .where('agentId', '==', agentInfo.id)
-            .limit(500).get()
-            .catch(function (err) { console.warn('[Agent] clientAgents query:', err && err.message); return null; })
-        ]);
+        const ordersSnap = await db.collection('orders')
+          .where('placedByAgentId', '==', agentInfo.id)
+          .limit(300).get()
+          .catch(function (err) { console.warn('[Agent] orders query:', err && err.message); return null; });
+        if (!ordersSnap) return getAgentClients().length;
 
         const restored = new Map();
-
-        if (customersSnap) {
-          customersSnap.forEach(function (doc) {
-            const d = doc.data() || {};
-            const phone = d.phone || doc.id;
-            const key = _normalizePhoneKey(phone);
-            if (!key || !d.name) return;
-            restored.set(key, {
-              name: d.name,
-              phone: phone,
-              address: d.address || '',
-              updatedAt: _tsToMs(d.createdAt) || _tsToMs(d.updatedAt) || 0
-            });
+        const ownPhone = _normalizePhoneKey(agentInfo.phone);
+        const ownPhone2 = _normalizePhoneKey(agentInfo.phone2);
+        ordersSnap.forEach(function (doc) {
+          const d = doc.data() || {};
+          const phone = d.phone || '';
+          const key = _normalizePhoneKey(phone);
+          if (!key || !d.name) return;
+          if (key === ownPhone || key === ownPhone2) return;
+          const at = _tsToMs(d.timestamp) || 0;
+          const prev = restored.get(key);
+          if (prev && (prev.updatedAt || 0) >= at) return;
+          restored.set(key, {
+            name: String(d.name).trim(),
+            phone: String(phone).trim(),
+            address: String(d.address || '').trim(),
+            updatedAt: at
           });
-        }
+        });
 
-        if (clientAgentsSnap && clientAgentsSnap.size > 0) {
-          const joins = [];
-          clientAgentsSnap.forEach(function (doc) {
-            const d = doc.data() || {};
-            const phone = d.phone || doc.id;
-            const key = _normalizePhoneKey(phone);
-            if (!key || restored.has(key)) return;
-            joins.push((async function () {
-              let address = '';
-              let name = d.clientName || '';
-              try {
-                const cDoc = await db.collection('customers').doc(phone).get();
-                if (cDoc && cDoc.exists) {
-                  const cd = cDoc.data() || {};
-                  address = cd.address || '';
-                  if (!name) name = cd.name || '';
-                }
-              } catch (e) {}
-              if (!name) name = 'Клиент';
-              restored.set(key, {
-                name: name,
-                phone: phone,
-                address: address,
-                updatedAt: _tsToMs(d.updatedAt) || 0
-              });
-            })());
-          });
-          await Promise.all(joins);
-        }
-
-        if (restored.size === 0) return 0;
-
-        const existing = getAgentClients();
-        const merged = new Map();
-        for (const c of existing) {
+        const freshCutoff = Date.now() - 10 * 60 * 1000;
+        getAgentClients().forEach(function (c) {
           const k = _normalizePhoneKey(c.phone);
-          if (k) merged.set(k, c);
-        }
-        for (const [k, c] of restored.entries()) {
-          const cur = merged.get(k);
-          if (!cur || (c.updatedAt || 0) > (cur.updatedAt || 0)) merged.set(k, c);
-        }
-        const list = Array.from(merged.values())
+          if (!k || restored.has(k)) return;
+          if ((c.updatedAt || 0) >= freshCutoff) restored.set(k, c);
+        });
+
+        const list = Array.from(restored.values())
           .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); })
           .slice(0, 500);
         try { localStorage.setItem('agentClients', JSON.stringify(list)); } catch (e) {}
-        try { localStorage.setItem('agentLastClient', JSON.stringify(list[0])); } catch (e) {}
+        try {
+          if (list[0]) localStorage.setItem('agentLastClient', JSON.stringify(list[0]));
+          else localStorage.removeItem('agentLastClient');
+        } catch (e) {}
         return list.length;
       } catch (e) {
         console.warn('[Agent] restoreAgentClientsFromCloud:', e && e.message);

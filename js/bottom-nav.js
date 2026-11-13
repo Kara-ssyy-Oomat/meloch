@@ -281,16 +281,7 @@
   var _framesPreloaded = false;
 
   function cartFrameUrl() {
-    var mode = '';
-    try {
-      mode = localStorage.getItem('kerbenTradeMode') || sessionStorage.getItem('kerbenTradeMode') || '';
-    } catch (e) {}
-    if (mode !== 'buy' && mode !== 'sell' && window.KerbenAgentTrade && typeof KerbenAgentTrade.mode === 'function') {
-      try { mode = KerbenAgentTrade.mode() || ''; } catch (e) {}
-    }
-    var q = 'v=16';
-    if (mode === 'buy' || mode === 'sell') q += '&mode=' + mode;
-    return 'cart.html?' + q;
+    return 'cart.html?v=18';
   }
 
   function openPageInFrame(url, skipPush) {
