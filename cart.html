@@ -1242,11 +1242,23 @@
       return null;
     }
     
+    function pageTradeMode() {
+      try {
+        var q = new URLSearchParams(location.search).get('mode') || '';
+        if (q === 'buy' || q === 'sell') return q;
+      } catch (e) {}
+      try {
+        var stored = localStorage.getItem('kerbenTradeMode') || sessionStorage.getItem('kerbenTradeMode') || '';
+        if (stored === 'buy' || stored === 'sell') return stored;
+      } catch (e) {}
+      if (cart && cart.some(function (item) { return item && item.agentSale; })) return 'sell';
+      if (cart && cart.length && cart.every(function (item) { return item && item.agentPurchase; })) return 'buy';
+      return '';
+    }
+
     function isSelfPurchaseCart() {
       if (!cart || !cart.length) return false;
-      if (cart.some(function (item) { return item && item.agentSale; })) return false;
-      if (cart.every(function (item) { return item && item.agentPurchase; })) return true;
-      try { return sessionStorage.getItem('kerbenTradeMode') === 'buy'; } catch (e) { return false; }
+      return pageTradeMode() !== 'sell';
     }
 
     function agentOwnOrderData() {

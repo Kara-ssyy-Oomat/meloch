@@ -280,7 +280,21 @@
   var _currentFrameUrl = null;
   var _framesPreloaded = false;
 
+  function cartFrameUrl() {
+    var mode = '';
+    try {
+      mode = localStorage.getItem('kerbenTradeMode') || sessionStorage.getItem('kerbenTradeMode') || '';
+    } catch (e) {}
+    if (mode !== 'buy' && mode !== 'sell' && window.KerbenAgentTrade && typeof KerbenAgentTrade.mode === 'function') {
+      try { mode = KerbenAgentTrade.mode() || ''; } catch (e) {}
+    }
+    var q = 'v=11';
+    if (mode === 'buy' || mode === 'sell') q += '&mode=' + mode;
+    return 'cart.html?' + q;
+  }
+
   function openPageInFrame(url, skipPush) {
+    if (typeof url === 'string' && url.indexOf('cart.html') === 0) url = cartFrameUrl();
     navSavedScrollPos = window.scrollY || window.pageYOffset;
 
     Object.keys(_frameCache).forEach(function(key) {
@@ -299,7 +313,7 @@
       _frameCache[url].style.display = 'block';
       _frameCache[url].style.pointerEvents = 'auto';
       _currentFrameUrl = url;
-      if (url === 'cart.html') {
+      if (url.indexOf('cart.html') === 0) {
         try { _frameCache[url].contentWindow.postMessage('refreshCart', '*'); } catch(e) {}
       }
       return;

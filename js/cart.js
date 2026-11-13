@@ -293,6 +293,9 @@ function addToCart(id, title, price, image, btn) {
     cart.forEach(function (item) {
       if (item && item.id === id) item.agentPurchase = true;
     });
+    try { localStorage.setItem('kerbenTradeMode', 'buy'); } catch (e) {}
+  } else if (tradeMode === 'sell') {
+    try { localStorage.setItem('kerbenTradeMode', 'sell'); } catch (e) {}
   }
   updateCart();
   localStorage.setItem('cart', JSON.stringify(cart));

@@ -587,13 +587,20 @@
     }
     setFormMode(next);
     tab = next;
-    try { sessionStorage.setItem('kerbenTradeMode', next); } catch (e) {}
+    try {
+      sessionStorage.setItem('kerbenTradeMode', next);
+      localStorage.setItem('kerbenTradeMode', next);
+    } catch (e) {}
     paintBar();
     if (typeof renderProductsNow === 'function') renderProductsNow();
   }
 
   function close() {
     active = false;
+    try {
+      sessionStorage.removeItem('kerbenTradeMode');
+      localStorage.removeItem('kerbenTradeMode');
+    } catch (e) {}
     hide();
     showNote('');
     setFormMode('');
@@ -623,7 +630,7 @@
       };
       showBar();
       try {
-        var savedMode = sessionStorage.getItem('kerbenTradeMode');
+        var savedMode = localStorage.getItem('kerbenTradeMode') || sessionStorage.getItem('kerbenTradeMode');
         if (savedMode === 'buy' || savedMode === 'sell') openMode(savedMode);
       } catch (e) {}
       var table = document.getElementById('productTable');
