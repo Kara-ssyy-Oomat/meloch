@@ -1219,11 +1219,56 @@
       return Math.round((Number(sum) || 0) * 0.02);
     }
 
+    function lineMarkupProfit(item, orderPercent) {
+      if (!item) return 0;
+      var qty = Number(item.qty) || 0;
+      var price = Number(item.price);
+      if (!(qty > 0) || !isFinite(price) || price <= 0) return 0;
+      var base = Number(item.basePrice);
+      if (isFinite(base) && price > base) return (price - base) * qty;
+      var pct = Number(item.markupPercent);
+      if (!isFinite(pct) || pct <= 0) pct = Number(orderPercent);
+      if (isFinite(pct) && pct > 0 && pct <= 500) return price * pct / (100 + pct) * qty;
+      return 0;
+    }
+
+    // Прибыль агента с наценкой: разница между ценой KERBEN и ценой, которую видел клиент.
+    // Своя покупка для себя сюда не входит. Продажа со своего остатка входит.
+    function orderMarkupProfit(order) {
+      if (!order || !agentMarkupApproved || !currentAgent) return 0;
+      var st = order.status;
+      if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return 0;
+      if (order.orderKind === 'agent_purchase') return 0;
+      var myId = String(currentAgent.id || '');
+      if (order.orderKind === 'agent_sale') {
+        var saleId = String(order.agentId || order.placedByAgentId || '');
+        if (!myId || saleId !== myId) return 0;
+      } else if (order.markupAgentId && String(order.markupAgentId) !== myId) {
+        return 0;
+      } else if (!order.markupAgentId) {
+        var placed = String(order.placedByAgentId || order.agentId || '');
+        if (!myId || placed !== myId) return 0;
+      }
+      var items = order.items || order.cart || [];
+      var sum = 0;
+      for (var i = 0; i < items.length; i++) sum += lineMarkupProfit(items[i], order.markupPercent);
+      return Math.round(sum);
+    }
+
+    function orderProfitAmount(order) {
+      if (!order) return 0;
+      var st = order.status;
+      if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return 0;
+      if (agentMarkupApproved) return orderMarkupProfit(order);
+      if (order.orderKind === 'agent_sale') return 0;
+      return agentCommission(order.total);
+    }
+
     function refreshAgentProfitViews() {
       const label = document.querySelector('#statProfit') && document.querySelector('#statProfit').parentElement
         ? document.querySelector('#statProfit').parentElement.querySelector('.stat-label')
         : null;
-      if (label) label.textContent = agentMarkupApproved ? '2% не начисляется' : '💰 Прибыль (2%)';
+      if (label) label.textContent = agentMarkupApproved ? '💰 Прибыль (наценка)' : '💰 Прибыль (2%)';
       if (typeof renderOrders === 'function' && Array.isArray(allOrders)) {
         try { renderOrders(); } catch (e) {}
       }
@@ -1881,8 +1926,8 @@
           return;
         }
         const status = enabled
-          ? 'Администратор включил наценку. В вашем каталоге покупатели видят цену с этим процентом. Комиссия 2% вам не начисляется.'
-          : 'Процент можно сохранить, но администратор ещё не включил наценку. В каталоге пока цена KERBEN. Комиссия 2% вам не начисляется, потому что функция наценки уже одобрена.';
+          ? 'Администратор включил наценку. В каталоге покупатели видят цену с этим процентом. В «Прибыли» показана разница с ценой KERBEN, а не 2%.'
+          : 'Процент можно сохранить, но администратор ещё не включил наценку. В каталоге пока цена KERBEN. В «Прибыли» будет разница, когда наценка включена. 2% не начисляется, функция уже одобрена.';
         box.innerHTML = `
           <div style="font-weight:700;font-size:16px;margin-bottom:6px;">Наценка на товары (%)</div>
           <div style="color:#666;font-size:13px;line-height:1.45;margin-bottom:12px;">${status} Пример: товар 10 сом и наценка 10% показывается как 11 сом. Цена в базе не перезаписывается.</div>
@@ -2615,7 +2660,7 @@
       
       listEl.innerHTML = filteredOrders.map(order => {
         const isCancelled = order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен';
-        const profit = isCancelled ? 0 : agentCommission(order.total);
+        const profit = isCancelled ? 0 : orderProfitAmount(order);
         const date = order.time || new Date(order.timestamp).toLocaleString();
         const statusColor = statusColors[order.status] || '#666';
         const isRecent = (order.timestamp || 0) > oneDayAgo;
@@ -2649,7 +2694,7 @@
               </div>
               <div class="order-actions">
                 ${itemsCount > 0 ? `<button class="order-btn purple" onclick="openOrderItemsModal('${order.id}')">📦 Товары (${totalQty} шт)</button>` : ''}
-                ${order.orderKind === 'agent_sale' || agentMarkupApproved ? '' : `<div class="order-profit">+${profit.toLocaleString()} сом</div>`}
+                ${profit > 0 ? `<div class="order-profit">+${profit.toLocaleString()} сом</div>` : ''}
               </div>
             </div>
           </div>
@@ -2708,7 +2753,7 @@
         '</div>' +
         '<div style="text-align:right;">' +
           '<div style="font-size:18px; font-weight:700; color:#9c27b0;">' + totalSum.toLocaleString() + ' сом</div>' +
-          (agentMarkupApproved ? '' : '<div style="font-size:12px; color:#4caf50; font-weight:600;">+' + agentCommission(totalSum).toLocaleString() + ' прибыль</div>') +
+          (orderProfitAmount(order) > 0 ? '<div style="font-size:12px; color:#4caf50; font-weight:600;">+' + orderProfitAmount(order).toLocaleString() + ' прибыль</div>' : '') +
         '</div>' +
       '</div>';
       
@@ -2987,6 +3032,8 @@
       const uniqueClients = new Set();
       
       let commissionBase = 0;
+      let markupProfit = 0;
+      let markupPayable = 0;
       filteredOrders.forEach(order => {
         // Отменённые заказы не считаются в прибыль
         if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
@@ -2994,9 +3041,14 @@
         totalOrders++;
         if (order.phone) uniqueClients.add(order.phone);
         if (order.orderKind !== 'agent_sale') commissionBase += order.total || 0;
+        if (agentMarkupApproved) {
+          var earned = orderMarkupProfit(order);
+          markupProfit += earned;
+          if (order.orderKind !== 'agent_sale') markupPayable += earned;
+        }
       });
       
-      const totalProfit = agentCommission(commissionBase);
+      const totalProfit = agentMarkupApproved ? markupProfit : agentCommission(commissionBase);
       
       // Загружаем выплаты
       let totalPaid = 0;
@@ -3014,7 +3066,7 @@
         }
       }
       
-      const balance = agentMarkupApproved ? 0 : (totalProfit - totalPaid);
+      const balance = agentMarkupApproved ? (markupPayable - totalPaid) : (totalProfit - totalPaid);
       
       document.getElementById('statOrders').textContent = totalOrders;
       document.getElementById('statSum').textContent = totalSum.toLocaleString();
@@ -3036,7 +3088,7 @@
       filteredOrders.forEach(order => {
         // Отменённые заказы не считаются в графике
         if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
-        if (order.orderKind === 'agent_sale') return;
+        if (!agentMarkupApproved && order.orderKind === 'agent_sale') return;
         const timestamp = order.timestamp || order.createdAt || order.date;
         if (!timestamp) return;
         
@@ -3047,7 +3099,7 @@
         if (!dailyData[dateKey]) {
           dailyData[dateKey] = 0;
         }
-        dailyData[dateKey] += agentCommission(order.total);
+        dailyData[dateKey] += orderProfitAmount(order);
       });
       
       const sortedDates = Object.keys(dailyData).sort();
@@ -3127,17 +3179,20 @@
         if (order.status === 'cancelled' || order.status === 'Отменён' || order.status === 'Отменен') return;
         const phone = order.phone;
         if (phone) {
+          const earned = orderProfitAmount(order);
           if (!clientsMap.has(phone)) {
             clientsMap.set(phone, {
               name: order.name || 'Без имени',
               phone: phone,
               ordersCount: 1,
-              totalSum: order.total || 0
+              totalSum: order.total || 0,
+              profit: earned
             });
           } else {
             const client = clientsMap.get(phone);
             client.ordersCount++;
             client.totalSum += order.total || 0;
+            client.profit += earned;
           }
         }
       });
@@ -3150,7 +3205,7 @@
       }
       
       listEl.innerHTML = clients.map(client => {
-        const profit = agentCommission(client.totalSum);
+        const profit = agentMarkupApproved ? Math.round(client.profit || 0) : agentCommission(client.totalSum);
         return `
           <div class="client-card">
             <div class="client-name">👤 ${client.name}</div>
@@ -3158,7 +3213,7 @@
             <div class="client-stats">
               <span>📦 ${client.ordersCount} ${client.ordersCount === 1 ? 'заказ' : client.ordersCount < 5 ? 'заказа' : 'заказов'}</span>
               <span>💵 ${client.totalSum.toLocaleString()} сом</span>
-              ${agentMarkupApproved ? '<span style="color:#8d6e00; font-weight:600;">2% не начисляется</span>' : `<span style="color:#4caf50; font-weight:600;">💰 ${profit.toLocaleString()} сом</span>`}
+              <span style="color:#4caf50; font-weight:600;">💰 ${profit.toLocaleString()} сом</span>
             </div>
           </div>
         `;
@@ -3187,7 +3242,7 @@
         const status = order.status || 'Новый';
         const total = order.total || 0;
         const isCancelled = status === 'cancelled' || status === 'Отменён' || status === 'Отменен';
-        const profit = (isCancelled || order.orderKind === 'agent_sale') ? 0 : agentCommission(total);
+        const profit = isCancelled ? 0 : orderProfitAmount(order);
         
         csv += `"${date}","${name}","${phone}","${address}","${status}",${total},${profit}\n`;
       });

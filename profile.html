@@ -2312,7 +2312,11 @@
           snap.forEach(function(doc) {
             const data = doc.data() || {};
             if (data.excludedFromAgent === true && data.excludedFromAgentAt) return;
-            if (data.orderKind === 'agent_purchase') {
+            if (data.orderKind === 'agent_sale') {
+              const mySaleId = String(agentData.id || '');
+              const saleId = String(data.agentId || data.placedByAgentId || '');
+              if (!markupApproved || !mySaleId || saleId !== mySaleId) return;
+            } else if (data.orderKind === 'agent_purchase') {
               const buyerId = String(data.agentId || data.placedByAgentId || '');
               const buyerName = String(data.placedByAgentName || '').trim();
               const myName = String(agentData.name || '').trim();
@@ -2353,14 +2357,38 @@
         _agentProfitRetries = 0;
 
         let totalSum = 0;
-        dedupe.forEach(function(data) { totalSum += data.total || 0; });
-        const profit = markupApproved ? 0 : Math.round(totalSum * 0.02);
+        let markupSum = 0;
+        function profileLineMarkup(item, orderPercent) {
+          if (!item) return 0;
+          const qty = Number(item.qty) || 0;
+          const price = Number(item.price);
+          if (!(qty > 0) || !isFinite(price) || price <= 0) return 0;
+          const base = Number(item.basePrice);
+          if (isFinite(base) && price > base) return (price - base) * qty;
+          let pct = Number(item.markupPercent);
+          if (!isFinite(pct) || pct <= 0) pct = Number(orderPercent);
+          if (isFinite(pct) && pct > 0 && pct <= 500) return price * pct / (100 + pct) * qty;
+          return 0;
+        }
+        dedupe.forEach(function(data) {
+          totalSum += data.total || 0;
+          if (!markupApproved || data.orderKind === 'agent_purchase') return;
+          const myId = String(agentData.id || '');
+          if (data.orderKind !== 'agent_sale') {
+            if (data.markupAgentId && String(data.markupAgentId) !== myId) return;
+            if (!data.markupAgentId && String(data.placedByAgentId || data.agentId || '') !== myId) return;
+          }
+          (data.items || []).forEach(function(item) {
+            markupSum += profileLineMarkup(item, data.markupPercent);
+          });
+        });
+        const profit = markupApproved ? Math.round(markupSum) : Math.round(totalSum * 0.02);
 
         // Обновляем UI
         if (el) {
           el.textContent = profit.toLocaleString();
           const label = el.parentElement && el.parentElement.querySelector('.stat-label');
-          if (label && markupApproved) label.textContent = '2% не начисляется';
+          if (label) label.textContent = markupApproved ? 'Прибыль (наценка)' : '💰 Прибыль';
         }
 
         // Кэшируем
