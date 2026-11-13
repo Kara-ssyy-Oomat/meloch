@@ -820,6 +820,17 @@ function renderOrdersManagementFromCache() {
   // Считаем наши / агентов среди отфильтрованных
   const oursCount = orders.filter(o => !(o.partner || o.referredBy)).length;
   const agentCount = orders.filter(o => !!(o.partner || o.referredBy)).length;
+  let dueFromAgents = 0;
+  let dueOrders = 0;
+  orders.forEach(function (order) {
+    if (order.deleted === true) return;
+    const st = order.status;
+    if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
+    const split = orderMarkupSplit(order);
+    if (!split) return;
+    dueFromAgents += split.due;
+    dueOrders += 1;
+  });
 
   listDiv.innerHTML = '';
 
@@ -830,6 +841,7 @@ function renderOrdersManagementFromCache() {
     <span style="font-size:12px; color:#666; padding:4px 10px; background:#fff; border-radius:6px; border:1px solid #e0e0e0;">📋 Всего: <b>${orders.length}</b></span>
     <span style="font-size:12px; color:#0f766e; padding:4px 10px; background:#f0fdfa; border-radius:6px; border:1px solid #ccfbf1;">🏪 Наши: <b>${oursCount}</b></span>
     <span style="font-size:12px; color:#1976d2; padding:4px 10px; background:#e3f2fd; border-radius:6px; border:1px solid #bbdefb;">🤝 Агентов: <b>${agentCount}</b></span>
+    ${dueOrders ? `<span style="font-size:12px; color:#0d47a1; padding:4px 10px; background:#e3f2fd; border-radius:6px; border:1px solid #90caf9;">С агентов без процента: <b>${dueFromAgents.toLocaleString()} с</b> · ${dueOrders} зак.</span>` : ''}
   `;
   listDiv.appendChild(statsBar);
 
@@ -999,6 +1011,7 @@ function createOrderCard(order, index) {
   const items = order.items || [];
   const total = items.reduce((sum, i) => sum + (i.price * i.qty), 0);
   const itemsCount = items.reduce((sum, i) => sum + i.qty, 0);
+  const markupSplit = orderMarkupSplit(order);
   
   card.innerHTML = `
     <div style="display:flex; align-items:stretch;">
@@ -1041,7 +1054,11 @@ function createOrderCard(order, index) {
             </span>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:15px; font-weight:700; color:#1a1a1a;">${total.toLocaleString()} с</div>
+            ${markupSplit ? `
+              <div style="font-size:15px; font-weight:800; color:#1565c0;">С агента ${markupSplit.due.toLocaleString()} с</div>
+              <div style="font-size:12px; color:#555;">Клиент платит ${markupSplit.clientPays.toLocaleString()} с</div>
+              <div style="font-size:12px; color:#2e7d32;">Агенту ${markupSplit.agentKeeps.toLocaleString()} с</div>
+            ` : `<div style="font-size:15px; font-weight:700; color:#1a1a1a;">${total.toLocaleString()} с</div>`}
             <div style="font-size:11px; color:#888;">${itemsCount} шт</div>
           </div>
         </div>
@@ -1168,6 +1185,33 @@ function orderItemsTotal(order) {
   return (order.items || []).reduce(function (sum, item) {
     return sum + (Number(item.price) || 0) * (Number(item.qty) || 0);
   }, 0);
+}
+
+// С агента берём цену KERBEN. Процент агента в эту сумму не входит.
+function orderMarkupSplit(order) {
+  const items = (order && order.items) || [];
+  let due = 0;
+  let clientPays = 0;
+  let hasMarkup = false;
+  items.forEach(function (item) {
+    const qty = Number(item && item.qty) || 0;
+    const price = Number(item && item.price) || 0;
+    const pct = Number(item && item.markupPercent);
+    const base = Number(item && item.basePrice);
+    clientPays += price * qty;
+    if (isFinite(pct) && pct > 0 && isFinite(base) && base >= 0) {
+      hasMarkup = true;
+      due += base * qty;
+    } else {
+      due += price * qty;
+    }
+  });
+  if (!hasMarkup) return null;
+  return {
+    due: Math.round(due),
+    clientPays: Math.round(clientPays),
+    agentKeeps: Math.round(clientPays - due)
+  };
 }
 
 function updateOrdersGoingBar() {
