@@ -49,13 +49,33 @@
     return false;
   }
 
+  function tradePage() {
+    try {
+      if (window.KerbenAgentTrade && typeof KerbenAgentTrade.mode === 'function') {
+        return KerbenAgentTrade.mode() || '';
+      }
+    } catch (e) {}
+    return '';
+  }
+
   function isActive() {
+    // На покупке и продаже процент каталога не прибавляется.
+    // На продаже свою цену считает остаток агента.
+    if (tradePage() === 'buy' || tradePage() === 'sell') return false;
     return !isStaffView()
       && state.loaded
       && state.allowed === true
       && state.enabled === true
       && state.percent > 0
       && !!readAgent();
+  }
+
+  function savedPercent() {
+    if (!state.loaded || state.allowed !== true || state.enabled !== true) return 0;
+    var pct = Number(state.percent);
+    if (!isFinite(pct) || pct <= 0) return 0;
+    if (pct > 500) return 500;
+    return pct;
   }
 
   function price(n) {
@@ -223,6 +243,7 @@
     refresh: refresh,
     isActive: isActive,
     percent: function () { return isActive() ? state.percent : 0; },
+    savedPercent: savedPercent,
     price: price,
     display: display,
     stamp: stamp,

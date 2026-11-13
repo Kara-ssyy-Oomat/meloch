@@ -552,7 +552,7 @@ function renderProductsCore() {
           ${packInfoHtml}
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <div class="card-price">${(tradeShownPrice(p) || '0')} сом${p.isPack ? ' / пачка' : ''}</div>
-            ${p.oldPrice && tradeMode() !== 'sell' ? `<div class="card-oldprice">${tradePlain(p.oldPrice)} сом</div>` : ''}
+            ${p.oldPrice && tradeMode() === '' ? `<div class="card-oldprice">${tradePlain(p.oldPrice)} сом</div>` : ''}
           </div>
           ${p.showPricePerUnit && p.isPack && p.packQty ? `<div style="font-size:12px;color:#7b1fa2;background:#f3e5f5;padding:4px 8px;border-radius:4px;margin-top:3px;">💰 1 шт = <span style="font-weight:700;color:#e53935;">${(viewNumber(p.price) / (p.packQty || 1)).toFixed(2)}</span> сом${p.optPrice ? ` | Опт: <span style="font-weight:700;color:#007bff;">${(viewNumber(p.optPrice) / (p.packQty || 1)).toFixed(2)}</span> сом/шт` : ''}</div>` : ''}
           <div class="card-opt-info" data-opt-id="${p.id}" style="font-size:12px;color:#007bff;margin-top:2px;">
@@ -781,7 +781,7 @@ function loadMoreProducts() {
         ${packInfoHtml}
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <div class="card-price">${(tradeShownPrice(p) || '0')} сом${p.isPack ? ' / пачка' : ''}</div>
-          ${p.oldPrice && tradeMode() !== 'sell' ? `<div class="card-oldprice">${tradePlain(p.oldPrice)} сом</div>` : ''}
+          ${p.oldPrice && tradeMode() === '' ? `<div class="card-oldprice">${tradePlain(p.oldPrice)} сом</div>` : ''}
         </div>
         <div class="card-opt-info" data-opt-id="${p.id}" style="font-size:12px;color:#007bff;margin-top:2px;">
           ${tradeMode() !== 'sell' && p.optPrice && p.optQty ? `Опт: ${tradePlain(p.optPrice)} сом/${p.isPack ? 'пачка' : 'шт'} при ${p.optQty} ${p.isPack ? 'пачек' : 'шт'}` : ''}

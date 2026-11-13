@@ -219,7 +219,6 @@
     _navBusy = true; clearTimeout(_navBusyTimer); _navBusyTimer = setTimeout(function() { _navBusy = false; }, 300);
     setActiveNavItem('home');
     navSavedScrollPos = 0;
-    if (window.KerbenAgentTrade && typeof KerbenAgentTrade.close === 'function') KerbenAgentTrade.close();
     closePageFrame();
     closeCategoriesPanel();
     window.scrollTo({ top: 0, behavior: 'smooth' });

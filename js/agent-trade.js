@@ -449,14 +449,25 @@
       if (inventory[i] && inventory[i].id === id) item = inventory[i];
     }
     if (!item || item.qty <= 0) return null;
+    var own = Number(item.markupPercent);
+    var pct = (isFinite(own) && own > 0) ? own : profilePercent();
     return {
       title: item.title,
       image: item.image || '',
       buyPrice: item.buyPrice,
       qty: item.qty,
-      percent: item.markupPercent,
-      salePrice: salePrice(item.buyPrice, item.markupPercent)
+      percent: pct,
+      salePrice: salePrice(item.buyPrice, pct)
     };
+  }
+
+  function profilePercent() {
+    try {
+      if (window.KerbenMarkup && typeof KerbenMarkup.savedPercent === 'function') {
+        return KerbenMarkup.savedPercent() || 0;
+      }
+    } catch (e) {}
+    return 0;
   }
 
   function setFormMode(mode) {
@@ -532,10 +543,7 @@
 
   async function openMode(next) {
     if (!agent) return;
-    if (active && tab === next) {
-      close();
-      return;
-    }
+    if (active && tab === next) return;
     if (!(await ensureCart(next))) return;
     active = true;
     hide();
@@ -548,6 +556,7 @@
     }
     setFormMode(next);
     tab = next;
+    try { sessionStorage.setItem('kerbenTradeMode', next); } catch (e) {}
     paintBar();
     if (typeof renderProductsNow === 'function') renderProductsNow();
   }
@@ -582,6 +591,10 @@
         phone: stored.phone || data.phone || ''
       };
       showBar();
+      try {
+        var savedMode = sessionStorage.getItem('kerbenTradeMode');
+        if (savedMode === 'buy' || savedMode === 'sell') openMode(savedMode);
+      } catch (e) {}
       var table = document.getElementById('productTable');
       if (table && !table.dataset.salePrice) {
         table.dataset.salePrice = '1';
