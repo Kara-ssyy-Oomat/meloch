@@ -513,7 +513,7 @@
   }
 
   function paintCheckout(mode) {
-    var fieldIds = ['name', 'phone', 'address', 'driverName', 'driverPhone', 'referredBy'];
+    var fieldIds = ['name', 'phone', 'address', 'driverName', 'driverPhone'];
     fieldIds.forEach(function (id) {
       var el = document.getElementById(id);
       if (!el) return;
@@ -522,6 +522,17 @@
         : el;
       node.style.display = mode === 'buy' ? 'none' : '';
     });
+    var referred = document.getElementById('referredBy');
+    if (referred) {
+      var first = referred.options && referred.options[0];
+      if (mode === 'buy') {
+        referred.style.display = '';
+        if (first) first.textContent = 'Кто предлагал? (необязательно)';
+      } else {
+        referred.style.display = 'none';
+        if (first && first.value === '') first.textContent = 'Кто вам порекомендовал? (необязательно)';
+      }
+    }
     var banner = document.getElementById('agentOrderBanner');
     if (banner) banner.style.display = mode === 'buy' ? 'none' : '';
     var note = document.getElementById('agentSelfBuyNote');

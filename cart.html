@@ -1901,14 +1901,31 @@
           unfulfilledReason: isUnfulfilledOrder ? 'stock_out_at_checkout' : null
         };
         if (selfBuy) {
+          const buyerName = String((agentInfo && agentInfo.name) || '').trim();
+          let picked = String(referredBy || '').trim();
+          try {
+            if (window.parent && window.parent.document) {
+              const live = window.parent.document.getElementById('referredBy');
+              if (live && live.value) picked = String(live.value).trim();
+            }
+          } catch (e) {}
+          const otherAgent = picked && picked.toLowerCase() !== buyerName.toLowerCase();
           orderPayload.orderKind = 'agent_purchase';
-          orderPayload.excludedFromAgent = true;
           orderPayload.markupAgentId = null;
           orderPayload.markupPercent = 0;
           if (agentInfo && agentInfo.id) {
             orderPayload.agentId = agentInfo.id;
             orderPayload.placedByAgentId = agentInfo.id;
-            orderPayload.placedByAgentName = agentInfo.name || '';
+            orderPayload.placedByAgentName = buyerName;
+          }
+          if (otherAgent) {
+            orderPayload.partner = picked;
+            orderPayload.referredBy = picked;
+            orderPayload.excludedFromAgent = false;
+          } else {
+            orderPayload.partner = null;
+            orderPayload.referredBy = null;
+            orderPayload.excludedFromAgent = true;
           }
         }
         if (cart.length && cart.every(function (item) { return item && item.agentSale; })) {

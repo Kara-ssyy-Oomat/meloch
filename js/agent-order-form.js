@@ -442,7 +442,7 @@
       if (window.KerbenAgentTrade && KerbenAgentTrade.mode && KerbenAgentTrade.mode() === 'buy') {
         var buyBanner = document.getElementById('agentOrderBanner');
         if (buyBanner) buyBanner.style.display = 'none';
-        ['name', 'phone', 'address', 'driverName', 'driverPhone', 'referredBy'].forEach(function (id) {
+        ['name', 'phone', 'address', 'driverName', 'driverPhone'].forEach(function (id) {
           var el = document.getElementById(id);
           if (!el) return;
           var node = el.parentElement && el.parentElement.classList && el.parentElement.classList.contains('agent-input-wrap')
@@ -450,6 +450,13 @@
             : el;
           node.style.display = 'none';
         });
+        var referred = document.getElementById('referredBy');
+        if (referred) {
+          referred.style.display = '';
+          if (referred.options && referred.options[0]) {
+            referred.options[0].textContent = 'Кто предлагал? (необязательно)';
+          }
+        }
       }
     } catch (e) {}
   }

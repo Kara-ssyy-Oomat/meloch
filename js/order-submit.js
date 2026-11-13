@@ -588,13 +588,24 @@ document.getElementById('submitOrder').onclick = async () => {
     };
     if (buyingStock && window.KerbenAgentTrade && KerbenAgentTrade.agent) {
       const buyer = KerbenAgentTrade.agent() || {};
+      const buyerName = String(buyer.name || orderPayload.placedByAgentName || '').trim();
+      const picked = String(referredBy || '').trim();
+      const otherAgent = picked && picked.toLowerCase() !== buyerName.toLowerCase();
       orderPayload.orderKind = 'agent_purchase';
-      orderPayload.excludedFromAgent = true;
       orderPayload.agentId = buyer.id || orderPayload.agentId;
       orderPayload.placedByAgentId = buyer.id || orderPayload.placedByAgentId;
-      orderPayload.placedByAgentName = buyer.name || orderPayload.placedByAgentName || '';
+      orderPayload.placedByAgentName = buyerName;
       orderPayload.markupAgentId = null;
       orderPayload.markupPercent = 0;
+      if (otherAgent) {
+        orderPayload.partner = picked;
+        orderPayload.referredBy = picked;
+        orderPayload.excludedFromAgent = false;
+      } else {
+        orderPayload.partner = null;
+        orderPayload.referredBy = null;
+        orderPayload.excludedFromAgent = true;
+      }
     }
     if (sellingOwnStock && window.KerbenAgentTrade && KerbenAgentTrade.agent) {
       const ag = KerbenAgentTrade.agent() || {};

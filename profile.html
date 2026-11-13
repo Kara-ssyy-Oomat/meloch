@@ -2300,6 +2300,20 @@
           gotAny = true;
           snap.forEach(function(doc) {
             const data = doc.data() || {};
+            if (data.orderKind === 'agent_purchase') {
+              const buyerId = String(data.agentId || data.placedByAgentId || '');
+              const buyerName = String(data.placedByAgentName || '').trim();
+              const iAmBuyer = (agentData.id && buyerId === String(agentData.id))
+                || (agentData.name && buyerName === String(agentData.name).trim());
+              if (iAmBuyer) return;
+              const partnerName = String(data.partner || '').trim();
+              const referredName = String(data.referredBy || '').trim();
+              const myName = String(agentData.name || '').trim();
+              const myId = String(agentData.id || '');
+              const iAmReferrer = (partnerName && (partnerName === myName || partnerName === myId))
+                || (referredName && (referredName === myName || referredName === myId));
+              if (!iAmReferrer) return;
+            }
             if (data.excludedFromAgent === true) return;
             // Удалённый админом заказ (мягкое удаление) прибыль не приносит
             if (data.deleted === true) return;

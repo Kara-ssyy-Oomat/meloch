@@ -1192,7 +1192,7 @@
   <script>window.KERBEN_BACKGROUND = { graceMs: 300000 };</script>
   <script src="js/background-pause.js?v=2"></script>
   <script src="js/products-cache.js?v=3"></script>
-  <script src="js/agent-trade.js?v=10"></script>
+  <script src="js/agent-trade.js?v=11"></script>
   
   <script>
     if (!firebase.apps.length) {
@@ -2274,6 +2274,15 @@
           var st = data.status;
           if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
           if (data.orderKind === 'agent_sale') return _ownSale(data);
+          if (data.orderKind === 'agent_purchase') {
+            var buyerId = String(data.agentId || data.placedByAgentId || '');
+            var buyerName = String(data.placedByAgentName || '').trim();
+            if ((buyerId && ids[buyerId]) || (buyerName && names[buyerName])) return false;
+            var partnerName = String(data.partner || '').trim();
+            var referredName = String(data.referredBy || '').trim();
+            return !!((partnerName && (names[partnerName] || ids[partnerName]))
+              || (referredName && (names[referredName] || ids[referredName])));
+          }
           if (data.excludedFromAgent === true) return false;
           return true;
         }
