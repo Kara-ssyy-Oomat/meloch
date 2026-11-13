@@ -737,8 +737,16 @@
           if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return;
           // Пропускаем удалённые админом заказы (мягкое удаление)
           if (data.deleted === true) return;
-          // Пропускаем заказы, исключённые админом из прибыли агента
-          if (data.excludedFromAgent === true) return;
+          // Продажа агента своему клиенту в доставку KERBEN не входит.
+          if (data.orderKind === 'agent_sale') return;
+          // Исключённый админом заказ не показываем.
+          // Заказ обычного агента из корзины всё равно его доставка и его 2%.
+          if (data.excludedFromAgent === true) {
+            var buyerId = data.agentId || data.placedByAgentId;
+            var buyer = buyerId ? allAgentsList.find(function (a) { return a.id === buyerId; }) : null;
+            var ordinaryPurchase = data.orderKind === 'agent_purchase' && buyer && buyer.markupAllowed !== true;
+            if (!ordinaryPurchase) return;
+          }
 
           const phone = data.phone || '';
           const normalizedPhone = normalizePhone(phone);

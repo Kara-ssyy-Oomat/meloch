@@ -669,13 +669,13 @@
           
           // Статистика по агентам
           let agentId = null;
-          if (order.partner) {
-            if (agentIds.has(order.partner)) {
-              agentId = order.partner;
-            } else {
-              agentId = agentNames.get(order.partner);
-            }
+          function _agentFromRef(value) {
+            if (!value) return null;
+            if (agentIds.has(value)) return value;
+            return agentNames.get(value) || null;
           }
+          agentId = _agentFromRef(order.partner) || _agentFromRef(order.referredBy)
+            || _agentFromRef(order.agentId) || _agentFromRef(order.placedByAgentId);
           
           // excludedFromAgent — админ вручную исключил заказ из прибыли агента.
           // У обычного агента заказ из корзины всё равно даёт 2%.
@@ -1223,18 +1223,25 @@
         const snapshot1 = await db.collection('orders').where('partner', '==', agentId).limit(2000).get();
         // Ищем по имени (лимит 2000)
         const snapshot2 = await db.collection('orders').where('partner', '==', agentName).limit(2000).get();
+        const snapshot3 = await db.collection('orders').where('agentId', '==', agentId).limit(2000).get();
+        const snapshot4 = await db.collection('orders').where('placedByAgentId', '==', agentId).limit(2000).get();
+        const snapshot5 = await db.collection('orders').where('referredBy', '==', agentName).limit(2000).get();
         
         const ordersMap = new Map();
-        snapshot1.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
-        snapshot2.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
+        [snapshot1, snapshot2, snapshot3, snapshot4, snapshot5].forEach(function (snap) {
+          snap.forEach(doc => ordersMap.set(doc.id, { id: doc.id, ...doc.data() }));
+        });
         
         // Те же правила, что и в карточке агента: удалённые, отменённые и
         // исключённые вручную заказы комиссию не дают
         const orders = Array.from(ordersMap.values())
           .filter(function (o) {
             if (!orderCountsForStats(o)) return false;
-            if (o.excludedFromAgent !== true) return true;
+            if (o.orderKind === 'agent_sale') return false;
             var buyer = allAgents.find(function (a) { return a.id === agentId; });
+            var isBuyer = o.agentId === agentId || o.placedByAgentId === agentId;
+            if (o.orderKind === 'agent_purchase' && isBuyer && buyer && buyer.markupAllowed === true) return false;
+            if (o.excludedFromAgent !== true) return true;
             return o.orderKind === 'agent_purchase' && buyer && buyer.markupAllowed !== true;
           });
         orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));

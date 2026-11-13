@@ -3181,7 +3181,7 @@
         const status = order.status || 'Новый';
         const total = order.total || 0;
         const isCancelled = status === 'cancelled' || status === 'Отменён' || status === 'Отменен';
-        const profit = isCancelled ? 0 : agentCommission(total);
+        const profit = (isCancelled || order.orderKind === 'agent_sale') ? 0 : agentCommission(total);
         
         csv += `"${date}","${name}","${phone}","${address}","${status}",${total},${profit}\n`;
       });
