@@ -1388,7 +1388,7 @@ async function downloadGoingOrdersPdf() {
       };
     }
     const client = byPhone[phone];
-    client.total += orderCollectTotal(order);
+    client.total += orderItemsTotal(order);
     if (order.address) client.address = order.address;
     const agent = order.partner || order.referredBy || order.placedByAgentName || '';
     if (agent) client.agent = agent;
