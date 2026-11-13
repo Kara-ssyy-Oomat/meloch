@@ -739,7 +739,8 @@
           if (data.deleted === true) return;
           // Продажа агента своему клиенту в доставку KERBEN не входит.
           if (data.orderKind === 'agent_sale') return;
-          // Исключённый админом заказ не показываем.
+          // Ручное «Не считать агенту» в админке ставит дату и убирает заказ из доставки.
+          if (data.excludedFromAgent === true && data.excludedFromAgentAt) return;
           // Заказ обычного агента из корзины всё равно его доставка и его 2%.
           if (data.excludedFromAgent === true) {
             var buyerId = data.agentId || data.placedByAgentId;

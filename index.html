@@ -101,7 +101,7 @@
     // КРИТИЧНО: Принудительно разблокируем прокрутку при загрузке
     // Принудительная очистка кэшей при обновлении версии
     (function() {
-      var APP_VERSION = 'v4.59.8';
+      var APP_VERSION = 'v4.59.9';
       var lastVersion = localStorage.getItem('app_version');
       if (lastVersion !== APP_VERSION) {
         console.log('[Update] Обнаружена новая версия: ' + lastVersion + ' → ' + APP_VERSION);
@@ -999,7 +999,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <script defer src="js/customer-auth.js?v=10"></script>
   <script defer src="js/seller.js?v=7"></script>
   <script defer src="js/order-tracking.js?v=2"></script>
-  <script defer src="js/partners.js?v=2"></script>
+  <script defer src="js/partners.js?v=3"></script>
   <script defer src="js/agents.js?v=2"></script>
   <script defer src="js/agent-order-form.js?v=4"></script>
 

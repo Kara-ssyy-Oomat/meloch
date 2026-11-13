@@ -964,6 +964,14 @@ async function loadOrdersManagement(forceRefresh = false) {
 }
 
 // Создать карточку заказа
+function orderLinkedToAgent(order) {
+  return !!(order && (order.partner || order.referredBy || order.agentId || order.placedByAgentId || order.orderKind === 'agent_purchase'));
+}
+
+function orderManuallyExcludedFromAgent(order) {
+  return !!(order && order.excludedFromAgent === true && order.excludedFromAgentAt);
+}
+
 function createOrderCard(order, index) {
   const card = document.createElement('div');
   card.className = 'order-card';
@@ -1133,10 +1141,11 @@ function createOrderCard(order, index) {
         </div>
         `}
         
-        ${order.partner || order.referredBy ? `
+        ${orderLinkedToAgent(order) ? `
           <div style="margin-top:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-            <span style="font-size:11px; background:#e3f2fd; color:#1976d2; padding:3px 8px; border-radius:4px;">🤝 ${order.partner || order.referredBy}</span>
-            ${order.excludedFromAgent === true
+            ${order.orderKind === 'agent_purchase' ? '<span style="font-size:11px; background:#fff8e1; color:#8d6e00; padding:3px 8px; border-radius:4px;">Покупка агента</span>' : ''}
+            ${order.partner || order.referredBy ? `<span style="font-size:11px; background:#e3f2fd; color:#1976d2; padding:3px 8px; border-radius:4px;">🤝 ${order.partner || order.referredBy}</span>` : ''}
+            ${orderManuallyExcludedFromAgent(order)
               ? `<span style="font-size:11px; background:#ffebee; color:#c62828; padding:3px 8px; border-radius:4px; border:1px solid #ef9a9a; font-weight:600;">🚫 Исключён из прибыли агента</span>
                  <button onclick="toggleOrderExcludedFromAgent('${order.id}', false)" style="padding:4px 10px; background:#43a047; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer; font-weight:600;">↩️ Вернуть агенту</button>`
               : `<button onclick="toggleOrderExcludedFromAgent('${order.id}', true)" style="padding:4px 10px; background:#e53935; color:#fff; border:none; border-radius:4px; font-size:11px; cursor:pointer; font-weight:600;" title="Заказ не будет учитываться в прибыли и списке заказов агента">🚫 Не считать агенту</button>`}

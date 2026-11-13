@@ -79,8 +79,13 @@ async function loadPartnersOrders() {
       _partnersOrdersCache.orders = allOrders;
     }
 
-    // Фильтруем только заказы с партнерами (это быстро в браузере)
-    let orders = allOrders.filter(order => order.partner || order.referredBy);
+    // Продажа агента своему клиенту, отмена и архив в этот список не входят.
+    let orders = allOrders.filter(function (order) {
+      if (!order || order.deleted === true || order.orderKind === 'agent_sale') return false;
+      var st = order.status;
+      if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
+      return !!(order.partner || order.referredBy);
+    });
 
     if (orders.length === 0) {
       statsDiv.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">📭 Заказов от партнеров пока нет</div>';

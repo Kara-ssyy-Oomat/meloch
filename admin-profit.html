@@ -2305,29 +2305,27 @@ async function loadAgentsProfitReport() {
       if (data.deleted) return;
       if (data.status === 'cancelled' || data.status === 'Отменён' || data.status === 'Отменен') return;
       if (data.orderKind === 'agent_sale') return;
+      if (data.excludedFromAgent === true && data.excludedFromAgentAt) return;
       
-      // Ищем агента по разным полям: partner, agentId, referredBy
+      // Ищем агента по разным полям: partner, referredBy, agentId, placedByAgentId
       let agent = null;
       const partnerName = data.partner;
-      const agentId = data.agentId || data.referredBy;
+      function _agentByRef(value) {
+        if (!value) return null;
+        return agentsByName[value] || agents[value] || null;
+      }
       
       // Логируем заказы с partner который не найден
-      if (partnerName && !agentsByName[partnerName]) {
+      if (partnerName && !agentsByName[partnerName] && !agents[partnerName]) {
         if (!ordersWithPartnerNotFound.includes(partnerName)) {
           ordersWithPartnerNotFound.push(partnerName);
         }
       }
       
-      // Сначала ищем по partner (основной способ)
-      if (partnerName && agentsByName[partnerName]) {
-        agent = agentsByName[partnerName];
-        ordersWithPartner++;
-      }
-      // Потом по agentId
-      else if (agentId && agents[agentId]) {
-        agent = agents[agentId];
-        ordersWithAgent++;
-      }
+      agent = _agentByRef(partnerName) || _agentByRef(data.referredBy)
+        || _agentByRef(data.agentId) || _agentByRef(data.placedByAgentId);
+      if (agent && (partnerName || data.referredBy)) ordersWithPartner++;
+      else if (agent) ordersWithAgent++;
       
       if (agent) {
         if (data.excludedFromAgent === true) {

@@ -2311,22 +2311,24 @@
           gotAny = true;
           snap.forEach(function(doc) {
             const data = doc.data() || {};
+            if (data.excludedFromAgent === true && data.excludedFromAgentAt) return;
             if (data.orderKind === 'agent_purchase') {
               const buyerId = String(data.agentId || data.placedByAgentId || '');
               const buyerName = String(data.placedByAgentName || '').trim();
-              const iAmBuyer = (agentData.id && buyerId === String(agentData.id))
-                || (agentData.name && buyerName === String(agentData.name).trim());
+              const myName = String(agentData.name || '').trim();
+              const myId = String(agentData.id || '');
+              const iAmBuyer = (myId && buyerId === myId) || (myName && buyerName === myName);
+              const partnerName = String(data.partner || '').trim();
+              const referredName = String(data.referredBy || '').trim();
+              const isMine = function (value) { return value === myName || value === myId; };
+              const otherReferrer = (partnerName && !isMine(partnerName)) || (referredName && !isMine(referredName));
+              if (iAmBuyer && otherReferrer) return;
               if (iAmBuyer && !markupApproved) {
-                // Обычный агент получает 2% и с этого заказа.
+                // Обычный агент получает 2%, если сам никого не выбрал.
               } else if (iAmBuyer) {
                 return;
               } else {
-                const partnerName = String(data.partner || '').trim();
-                const referredName = String(data.referredBy || '').trim();
-                const myName = String(agentData.name || '').trim();
-                const myId = String(agentData.id || '');
-                const iAmReferrer = (partnerName && (partnerName === myName || partnerName === myId))
-                  || (referredName && (referredName === myName || referredName === myId));
+                const iAmReferrer = (partnerName && isMine(partnerName)) || (referredName && isMine(referredName));
                 if (!iAmReferrer) return;
               }
             } else if (data.excludedFromAgent === true) return;

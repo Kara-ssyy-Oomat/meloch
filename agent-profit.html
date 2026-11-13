@@ -2285,17 +2285,23 @@
           var st = data.status;
           if (st === 'cancelled' || st === 'Отменён' || st === 'Отменен') return false;
           if (data.orderKind === 'agent_sale') return _ownSale(data);
+          // Дата стоит только у ручного исключения в админке.
+          // Старые заказы из корзины помечены флагом без даты и у обычного агента остаются.
+          if (data.excludedFromAgent === true && data.excludedFromAgentAt) return false;
           if (data.orderKind === 'agent_purchase') {
             var buyerId = String(data.agentId || data.placedByAgentId || '');
             var buyerName = String(data.placedByAgentName || '').trim();
             var iAmBuyer = (buyerId && ids[buyerId]) || (buyerName && names[buyerName]);
-            // У агента без наценки заказ из корзины тоже даёт 2%.
-            if (iAmBuyer && !agentMarkupApproved) return true;
-            if (iAmBuyer) return false;
             var partnerName = String(data.partner || '').trim();
             var referredName = String(data.referredBy || '').trim();
-            return !!((partnerName && (names[partnerName] || ids[partnerName]))
+            var iAmReferrer = !!((partnerName && (names[partnerName] || ids[partnerName]))
               || (referredName && (names[referredName] || ids[referredName])));
+            var otherReferrer = !!((partnerName && !names[partnerName] && !ids[partnerName])
+              || (referredName && !names[referredName] && !ids[referredName]));
+            if (iAmBuyer && otherReferrer) return false;
+            if (iAmBuyer && !agentMarkupApproved) return true;
+            if (iAmBuyer) return false;
+            return iAmReferrer;
           }
           if (data.excludedFromAgent === true) return false;
           return true;

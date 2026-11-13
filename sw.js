@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.59.8-agent-shop'; // Доставка и список агентов считают 2% так же, как Моя прибыль
+const CACHE_VERSION = 'kerben-v4.59.9-agent-shop'; // Ручное исключение заказа в админке убирает его из комиссии
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

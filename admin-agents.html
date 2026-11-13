@@ -666,6 +666,8 @@
         ordersArr.forEach(order => {
           // Удалённые и отменённые заказы не дают ни комиссии, ни статистики
           if (!orderCountsForStats(order)) return;
+          if (order.orderKind === 'agent_sale') return;
+          if (order.excludedFromAgent === true && order.excludedFromAgentAt) return;
           
           // Статистика по агентам
           let agentId = null;
@@ -1238,11 +1240,20 @@
           .filter(function (o) {
             if (!orderCountsForStats(o)) return false;
             if (o.orderKind === 'agent_sale') return false;
+            if (o.excludedFromAgent === true && o.excludedFromAgentAt) return false;
             var buyer = allAgents.find(function (a) { return a.id === agentId; });
             var isBuyer = o.agentId === agentId || o.placedByAgentId === agentId;
-            if (o.orderKind === 'agent_purchase' && isBuyer && buyer && buyer.markupAllowed === true) return false;
-            if (o.excludedFromAgent !== true) return true;
-            return o.orderKind === 'agent_purchase' && buyer && buyer.markupAllowed !== true;
+            if (o.orderKind === 'agent_purchase' && isBuyer) {
+              var partnerName = String(o.partner || '').trim();
+              var referredName = String(o.referredBy || '').trim();
+              var otherReferrer = (partnerName && partnerName !== agentName && partnerName !== agentId)
+                || (referredName && referredName !== agentName && referredName !== agentId);
+              if (buyer && buyer.markupAllowed === true) return false;
+              if (otherReferrer) return false;
+              return true;
+            }
+            if (o.excludedFromAgent === true) return false;
+            return true;
           });
         orders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         
