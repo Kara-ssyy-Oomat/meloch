@@ -822,6 +822,7 @@ function renderOrdersManagementFromCache() {
   const agentCount = orders.filter(o => !!(o.partner || o.referredBy)).length;
   let dueFromAgents = 0;
   let dueOrders = 0;
+  const dueByAgent = {};
   orders.forEach(function (order) {
     if (order.deleted === true) return;
     const st = order.status;
@@ -830,6 +831,17 @@ function renderOrdersManagementFromCache() {
     if (!split) return;
     dueFromAgents += split.due;
     dueOrders += 1;
+    const agentName = String(order.placedByAgentName || order.partner || order.referredBy || 'Агент').trim() || 'Агент';
+    if (!dueByAgent[agentName]) dueByAgent[agentName] = { due: 0, n: 0 };
+    dueByAgent[agentName].due += split.due;
+    dueByAgent[agentName].n += 1;
+  });
+  const dueAgentLines = Object.keys(dueByAgent).sort(function (a, b) {
+    return dueByAgent[b].due - dueByAgent[a].due;
+  }).map(function (name) {
+    const row = dueByAgent[name];
+    const safeName = name.replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; });
+    return safeName + ' — ' + row.due.toLocaleString() + ' с · ' + row.n + ' зак.';
   });
 
   listDiv.innerHTML = '';
@@ -841,9 +853,16 @@ function renderOrdersManagementFromCache() {
     <span style="font-size:12px; color:#666; padding:4px 10px; background:#fff; border-radius:6px; border:1px solid #e0e0e0;">📋 Всего: <b>${orders.length}</b></span>
     <span style="font-size:12px; color:#0f766e; padding:4px 10px; background:#f0fdfa; border-radius:6px; border:1px solid #ccfbf1;">🏪 Наши: <b>${oursCount}</b></span>
     <span style="font-size:12px; color:#1976d2; padding:4px 10px; background:#e3f2fd; border-radius:6px; border:1px solid #bbdefb;">🤝 Агентов: <b>${agentCount}</b></span>
-    ${dueOrders ? `<span style="font-size:12px; color:#0d47a1; padding:4px 10px; background:#e3f2fd; border-radius:6px; border:1px solid #90caf9;">С агентов без процента: <b>${dueFromAgents.toLocaleString()} с</b> · ${dueOrders} зак.</span>` : ''}
   `;
   listDiv.appendChild(statsBar);
+  if (dueOrders) {
+    const dueBar = document.createElement('div');
+    dueBar.style.cssText = 'background:#e3f2fd; border:1px solid #90caf9; border-radius:10px; padding:10px 12px; margin-bottom:12px;';
+    dueBar.innerHTML = '<div style="font-size:15px; font-weight:800; color:#0d47a1;">Брать с агентов без их процента: ' + dueFromAgents.toLocaleString() + ' с</div>'
+      + '<div style="font-size:12px; color:#1565c0; margin-top:2px;">' + dueOrders + ' зак. Процент агента в эту сумму не входит.</div>'
+      + '<div style="font-size:13px; color:#333; margin-top:6px; line-height:1.45;">' + dueAgentLines.join('<br>') + '</div>';
+    listDiv.appendChild(dueBar);
+  }
 
   orders.forEach((order, index) => {
     const orderCard = createOrderCard(order, index);
@@ -1187,21 +1206,30 @@ function orderItemsTotal(order) {
   }, 0);
 }
 
+// Сколько взять с заказа: у агента с наценкой это цена KERBEN, без его процента.
+function orderCollectTotal(order) {
+  const split = orderMarkupSplit(order);
+  return split ? split.due : orderItemsTotal(order);
+}
+
 // С агента берём цену KERBEN. Процент агента в эту сумму не входит.
 function orderMarkupSplit(order) {
   const items = (order && order.items) || [];
   let due = 0;
   let clientPays = 0;
   let hasMarkup = false;
+  const orderPct = Number(order && order.markupPercent);
   items.forEach(function (item) {
     const qty = Number(item && item.qty) || 0;
     const price = Number(item && item.price) || 0;
-    const pct = Number(item && item.markupPercent);
+    let pct = Number(item && item.markupPercent);
+    if (!(isFinite(pct) && pct > 0)) pct = orderPct;
     const base = Number(item && item.basePrice);
     clientPays += price * qty;
-    if (isFinite(pct) && pct > 0 && isFinite(base) && base >= 0) {
+    if (isFinite(pct) && pct > 0 && pct <= 500) {
       hasMarkup = true;
-      due += base * qty;
+      if (isFinite(base) && base >= 0) due += base * qty;
+      else due += price * 100 / (100 + pct) * qty;
     } else {
       due += price * qty;
     }
@@ -1223,9 +1251,16 @@ function updateOrdersGoingBar() {
     bar.style.display = 'none';
     return;
   }
-  const sum = marked.reduce(function (acc, order) { return acc + orderItemsTotal(order); }, 0);
+  let sum = 0;
+  let markupInList = false;
+  marked.forEach(function (order) {
+    const split = orderMarkupSplit(order);
+    if (split) markupInList = true;
+    sum += orderCollectTotal(order);
+  });
   bar.style.display = 'flex';
-  text.textContent = 'В список: ' + marked.length + ' заказ(ов) · ' + sum.toLocaleString() + ' с';
+  text.textContent = 'В список: ' + marked.length + ' заказ(ов) · ' + sum.toLocaleString() + ' с'
+    + (markupInList ? ' · у агентов с наценкой без их процента' : '');
 }
 
 async function toggleOrderDeliveryGoing(orderId, checked) {
@@ -1353,7 +1388,7 @@ async function downloadGoingOrdersPdf() {
       };
     }
     const client = byPhone[phone];
-    client.total += orderItemsTotal(order);
+    client.total += orderCollectTotal(order);
     if (order.address) client.address = order.address;
     const agent = order.partner || order.referredBy || order.placedByAgentName || '';
     if (agent) client.agent = agent;
