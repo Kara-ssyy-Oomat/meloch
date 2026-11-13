@@ -229,7 +229,7 @@
   <script src="js/app-check.js?v=2"></script>
   <script src="js/firestore-guard.js?v=1"></script>
   <script src="js/auth.js?v=3"></script>
-  <script src="js/agent-markup.js?v=8"></script>
+  <script src="js/agent-markup.js?v=9"></script>
   <script src="js/admin-reauth.js?v=3"></script>
   <script src="js/pending-orders.js?v=2"></script>
   <script src="js/bot-blocker.js?v=2"></script>
@@ -769,6 +769,19 @@
         if (!raw) return null;
         return JSON.parse(raw);
       } catch(e) { return null; }
+    }
+
+    // Агент оформляет заказ клиента, в том числе с процентной наценкой.
+    // Если в профиле лежит его же имя, окно «Данные клиента» всё равно открываем.
+    function agentPlacingThisOrder() {
+      const agent = getAgentInfo();
+      if (!(agent && agent.name && (agent.id || agent.phone))) return null;
+      if (isAgentUser()) return agent;
+      let customer = null;
+      try { customer = JSON.parse(localStorage.getItem('customerData') || 'null'); } catch (e) {}
+      if (!customer || !customer.phone) return agent;
+      const sameName = String(customer.name || '').trim().toLowerCase() === String(agent.name || '').trim().toLowerCase();
+      return sameName ? agent : null;
     }
 
     // ---- Список клиентов агента (для автозаполнения при след. заказах) ----
@@ -1329,8 +1342,6 @@
         }
       } catch(e) {}
 
-      // Получаем данные клиента из профиля
-      let customerInfo = getCustomerData();
       const driverInfo = getDriverData();
       const savedRef = localStorage.getItem('savedReferredBy') || '';
 
@@ -1338,8 +1349,10 @@
       // Если пользователь — агент, вместо своих данных всегда просим ввести
       // данные КЛИЕНТА (имя, телефон, адрес). Показываем баннер сверху
       // и (если есть) автоподсказки из ранее сохранённых клиентов.
-      const isAgent = isAgentUser();
-      const agentInfo = isAgent ? getAgentInfo() : null;
+      // Наценка это не отменяет: окно клиента открывается и у агента с процентом.
+      const agentInfo = agentPlacingThisOrder();
+      const isAgent = !!agentInfo;
+      let customerInfo = isAgent ? null : getCustomerData();
       const selfBuy = isAgent && isSelfPurchaseCart();
       const agentClientsCount = isAgent ? getAgentClients().length : 0;
 

@@ -86,7 +86,7 @@ self.addEventListener('notificationclick', (event) => {
 
 // ==================== КЭШИРОВАНИЕ ====================
 
-const CACHE_VERSION = 'kerben-v4.59.11-agent-shop'; // Покупка и продажа скрыты, наценка у одобренного агента сразу в каталоге
+const CACHE_VERSION = 'kerben-v4.59.12-agent-shop'; // Окно данных клиента открывается и у агента с наценкой
 const CACHE_NAME = `kerben-cache-${CACHE_VERSION}`;
 const FIREBASE_CACHE = 'firebase-sdk-cache';
 const IMAGE_CACHE = 'kerben-images-v1'; // Отдельный кэш для изображений

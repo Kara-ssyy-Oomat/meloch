@@ -281,7 +281,7 @@
   var _framesPreloaded = false;
 
   function cartFrameUrl() {
-    return 'cart.html?v=18';
+    return 'cart.html?v=19';
   }
 
   function openPageInFrame(url, skipPush) {
